@@ -61,9 +61,6 @@
         {% endif %}
       </div>
     </section>
-    {% if not is_odoo_source and workspace_state.odoo_connection_mode %}
-      {% include "_odoo_company_choice.html" %}
-    {% endif %}
     <form
       method="post"
       action="/workspaces/{{ workspace_id }}/target{% if source_return_token %}?return_to={{ source_return_token }}{% endif %}"

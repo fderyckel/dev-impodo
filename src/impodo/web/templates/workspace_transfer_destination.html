@@ -17,8 +17,8 @@
     This stage checks the destination server, database, Odoo 19 version, and authenticated read access. Field matching and loading remain separate later stages.
   </div>
 
-  {% if workspace_state.destination_configured %}
-    {% include "_odoo_company_choice.html" %}
+  {% if workspace_state.destination_company and not workspace_state.destination_verified %}
+    <p class="notice warning">Check the destination again for <strong>{{ workspace_state.destination_company.name }}</strong>. This is the company selected in destination matching; the frozen source company stays unchanged.</p>
   {% endif %}
 
   <section class="form-card" aria-labelledby="source-destination-title">

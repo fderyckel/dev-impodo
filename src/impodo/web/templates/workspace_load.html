@@ -212,6 +212,7 @@
           <p class="eyebrow">Load unavailable</p>
           <h2 id="load-blocked-title">{% if preview.credential_refresh_required %}Refresh the Odoo data{% elif preview.scope_error_code == 'TARGET_NUMERIC_PRECISION_LOSS' %}Choose how Odoo should store these numbers{% else %}Return to the final review{% endif %}</h2>
           <p>{{ preview.scope_error or 'Resolve every row needing attention, or compare again if this review is no longer current.' }}</p>
+          {% if workspace_state.source_mode.value == 'FILE' %}<p>You can review the allowed changes and counts in <a href="/workspaces/{{ workspace_id }}/mapping#business-expectations">business expectations in Match data</a>.</p>{% endif %}
         </div>
         {% if preview.credential_refresh_required %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Refresh Odoo data</a>

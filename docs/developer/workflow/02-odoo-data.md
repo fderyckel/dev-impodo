@@ -47,6 +47,15 @@ resumes the same Stage 1 model refresh.
 
 ### Company selection and protected ownership
 
+The operator confirms the load company in
+[Match data](03-match-data.md#company-and-business-expectations), after the
+connection and field discovery. File-target discovery skips `default_get`
+until a company has been confirmed. JSON-2 metadata reads use the optional
+`include_create_defaults` flag; the fixed local-shell script applies the
+same condition. Source capture retains its independently pinned context.
+Stage 3 refreshes company-specific defaults through `check_refresh`; this
+does not change field metadata hashes merely to record a company choice.
+
 `odoo_company.py` exposes closed POST commands to read available companies
 and confirm one operation company. The commands require the current session,
 CSRF token and Project-edit authority. Confirmation rechecks the workspace
@@ -62,6 +71,28 @@ pointer columns. The protected DTO verifies its exact target and content hash
 when projected into `WorkspaceState`. Old projects acquire no implicit
 company confirmation. No numeric company ID enters a Recipe or registry
 business payload.
+
+Workspace-engine migration 25-to-26 also recognizes the earlier development
+version-24 layout. That layout records
+`workspace-engine-v23-to-v24-odoo-operation-company` and appends
+`odoo_company_id` and `odoo_company_name` to the workspace cache instead of
+creating the companion table. The
+[legacy-company migration](../../../src/impodo/adapters/duckdb/schema/legacy_company.py)
+requires that exact ledger entry, column order and legacy field types. It
+preserves a populated choice as immutable protected evidence, removes the
+obsolete cache columns and retains the original migration ledger entry. It
+does not create a run confirmation, change an approval or contact Odoo.
+Canonical version-25 stores receive only the new migration receipt.
+
+All steps run inside the existing forward-upgrade transaction. Exact final
+validation still rejects unknown tables, columns and mixed layouts; any
+failure rolls back the schema, version and receipts together. The
+[storage regression tests](../../../tests/integration/duckdb/test_legacy_company_upgrade.py)
+cover preservation, retries and rejection. The
+[project reopening test](../../../tests/integration/web/test_legacy_company_upgrade.py)
+keeps the accepted source and matching draft and requires four physical
+connections, one schema check and zero retries for the fixture page. Normal
+current-version reads do not run this migration.
 
 Materialization copies the protected immutable company DTO into each isolated
 application workspace. Its current run binding hash remains authoritative.
@@ -81,7 +112,9 @@ and projects `destination_company` only into the destination workspace.
 A safe change retires supporting lookups and preparation, comparison and
 approval pointers while preserving source, schema and mapping rules. A
 company-only schema refresh preserves mapping meaning only when the target,
-principal, permissions, credential and field structure agree. Changed defaults
+principal, permissions and field structure agree. A freshly verified key
+generation can replace the old generation during that company refresh.
+Changed defaults
 and company context are refreshed through a narrow guarded repository write.
 Other changes retain the pending-schema-review path. Active, partially applied
 or uncertain writes block a company change. An activated non-authoring run
@@ -183,6 +216,21 @@ or an unused optional field. Incoming choices require a compatible accepted
 descriptor and an already selected related business model. A save cannot widen
 the write scope. Actual field providers and value-level resolution remain
 owned by Match data.
+
+The review, dependency proposal, and mapping-conflict check share the qualified
+create-hook policy from `create_field_policy.py`. With the exact standard
+`product.template.product_variant_ids` One2many to `product.product` on a
+supported Odoo version, **Handled by Odoo** is a valid saved choice. Odoo
+generates these variants when it creates the Product. This choice does not
+add a variant table to the write scope. Missing version evidence, custom
+collections, and incompatible field shapes retain their normal review rules.
+The Product name remains an independently checked input to the create hook.
+
+The [Product supporting-review browser tests](../../../tests/integration/web/test_product_supporting_review.py)
+verify saving, reopening, matching-rule confirmation, and the downstream
+mapping check on Odoo 19 and 20. The
+[Product supporting-review capture helper](../../../scripts/capture_product_supporting_review.py)
+reproduces the saved choice in an isolated fictional workspace.
 
 `supporting_data_review` stores immutable complete revisions in the contained
 workspace engine. Schema version 21 adds this table through a forward-only

@@ -149,6 +149,7 @@ class SchemaMatchingRulePresenterTests(unittest.TestCase):
         schema = SimpleNamespace(
             origin=SchemaOrigin.LIVE_API,
             content_hash="sha256:" + "b" * 64,
+            odoo_version="19.0",
             models=(
                 _model(
                     "product.template",
@@ -226,6 +227,7 @@ class SchemaMatchingRulePresenterTests(unittest.TestCase):
         schema = SimpleNamespace(
             origin=SchemaOrigin.LIVE_API,
             content_hash="sha256:" + "c" * 64,
+            odoo_version="19.0",
             models=(
                 _model(
                     "x.asset",

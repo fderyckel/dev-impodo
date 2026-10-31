@@ -692,3 +692,33 @@
 .row-inclusion-condition-grid {
   align-items: end;
 }
+
+.expectation-counts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.business-expectations > summary {
+  cursor: pointer;
+  list-style-position: inside;
+}
+
+.business-expectations > summary h2 {
+  display: inline;
+  margin: 0;
+}
+
+.business-expectations[open] > summary {
+  margin-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 1rem;
+}
+
+@media (max-width: 1100px) {
+  .expectation-counts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .expectation-counts { grid-template-columns: minmax(0, 1fr); }
+}

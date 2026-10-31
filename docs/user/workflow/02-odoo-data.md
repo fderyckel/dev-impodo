@@ -45,40 +45,12 @@ same secret. Production continues to require a separate limited write key.
 
 ## Steps in Impodo
 
-### Choose the company used for this import
+### Continue to company-specific matching
 
-Open **Odoo access**, then select **Choose Odoo company**. Impodo shows the
-checking user, that user's default company, and the companies available to
-that user. Choose **Odoo company** and select **Use this company**, even when
-there is only one available choice. The saved choice appears above the
-workflow pages.
-
-For example, a checking user can have Northwind Group as their default while
-this import belongs to Northwind Factory. Select Factory before checking its
-company-specific values. Impodo uses Factory when matching, loading and
-verifying those values. The user's default company stays Group.
-
-![Odoo access showing a confirmed Northwind Factory import company separately from the checking user's Northwind Group default.](../../images/user/08j-odoo-company-selection.png)
-
-This choice does not fill the **Company** field on incoming records. A shared
-record remains shared when its mapped company is blank. Odoo decides which
-shared or parent-company linked records are valid; matching company numbers
-alone would reject some valid links. Both the checking user and the loading
-user need access to the selected company. Their API keys may belong to
-different users.
-
-You can correct the company in the same authoring project. Accepted files,
-combined tables and saved field matches stay in place. Select **Check for Odoo
-changes** in Odoo data, refresh company-specific matching choices, check and
-confirm the matches, then prepare and compare again. A company-only refresh
-preserves saved matches when fields and access are unchanged. Structural or
-access changes still require the normal review. An active or uncertain load
-must be verified before changing its company.
-
-A Recipe keeps reusable rules and business keys. A new run requires its own
-company choice; it does not inherit the authoring database's company number.
-Confirm this choice before activating the run. An activated Recipe run keeps
-its company fixed, so use a fresh run to choose another company.
+Choose the record types here after checking the connection. At the top of
+Stage 3, **Match data**, choose the [company for this load](03-match-data.md#choose-the-company-for-this-load).
+Impodo checks company-specific defaults after that choice, so the checking
+user's default company does not silently choose those values for you.
 
 ### Choose record types and supporting data
 
@@ -137,7 +109,7 @@ no preselected answer.
 ### Review support for accepted file data
 
 For a file-source migration, choose how each required relationship will be
-supplied, then select **Save supporting choices**. For example, Contacts can
+supplied, then select **Save choices**. For example, Contacts can
 reuse existing Odoo Countries without putting Countries into the migration's
 write scope. Opening or saving this review does not contact Odoo.
 
@@ -148,7 +120,15 @@ select and save their business record type, load its Odoo details, and then
 choose **Use an accepted incoming table** with its accepted table name. Saving
 supporting choices never adds another record type to the write scope.
 
-After saving reuse choices, **Check existing supporting values** explicitly
+For **Product · Products**, choose **Handled by Odoo** when Impodo recognizes
+the standard Product variant relationship. Odoo creates those variants when
+it creates the Product, so you do not need a separate incoming variants table.
+Keep **Product · Product Category** connected to your category hierarchy table
+when those categories are incoming data. Then select **Save choices**.
+
+![The Product variant relationship has a saved Handled by Odoo choice and no incoming-table requirement.](../../images/user/08k-product-variant-support.png)
+
+After saving reuse choices, **Check existing Odoo values** explicitly
 reads their reviewed matching and display fields. Several relationships that
 use the same matching rule share one grouped read. The check cannot change
 Odoo records and does not prove that every source value resolves. Save the

@@ -1260,18 +1260,23 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(prepared.references["country_id"].key, ("FR",))
         self.assertEqual(prepared.references["region_id"].key, ("Europe",))
 
-    def test_blank_derived_reference_blocks_only_affected_product(self) -> None:
+    def test_blank_required_derived_reference_blocks_only_affected_product(self) -> None:
         evidence, _link = self._lookup_evidence(
             (("P001", "Article"), ("P002", ""))
         )
+
+        category, product = evidence[1].datasets
+        required_product = replace(product, relationships=(replace(product.relationships[0], required=True),))
+        evidence = (evidence[0], replace(evidence[1], datasets=(category, required_product)), *evidence[2:])
 
         staged = stage_browser_mapping(*evidence)
         products = staged.prepared.by_dataset()["products"]
 
         self.assertFalse(products[0].blocked)
+        self.assertTrue(products[1].blocked)
         self.assertEqual(
             {item.code for item in products[1].issues},
-            {"DERIVED_REFERENCE_MISSING"},
+            {"DERIVED_REFERENCE_MISSING", "SOURCE_REQUIRED_VALUE_MISSING"},
         )
         lookup = {
             item.dataset: item for item in staged.canonical_run.datasets
@@ -1279,6 +1284,13 @@ class BrowserReadinessStagingTests(unittest.TestCase):
         self.assertEqual(lookup.input_rows, 2)
         self.assertEqual(lookup.input_rows_used, 1)
         self.assertEqual(lookup.unrepresented_rows, 1)
+
+    def test_blank_optional_derived_reference_leaves_the_link_empty(self) -> None:
+        evidence, _link = self._lookup_evidence((("P001", "Article"), ("P002", "")))
+        staged = stage_browser_mapping(*evidence)
+        products = staged.prepared.by_dataset()["products"]
+        self.assertFalse(products[1].blocked)
+        self.assertEqual(products[1].issues, ())
 
     def test_conflicting_lookup_spelling_requires_review(self) -> None:
         evidence, _link = self._lookup_evidence(

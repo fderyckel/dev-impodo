@@ -1,16 +1,42 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from impodo.domain.workspace.supporting_models import (
     SupportingModelRole,
     derive_supporting_model_dependencies,
+    supporting_model_role,
     unavailable_required_supporting_dependencies,
 )
 
 
 class SupportingModelDependencyTests(unittest.TestCase):
+    def test_verified_product_variants_use_the_shared_create_hook(self) -> None:
+        field = _field(
+            "product_variant_ids", "Products", "one2many",
+            relation="product.product", relation_field="product_tmpl_id", required=True,
+        )
+        for version in ("19.0+e", "20.0+e"):
+            with self.subTest(version=version):
+                self.assertIs(
+                    supporting_model_role(field, source_model="product.template", odoo_version=version),
+                    SupportingModelRole.ODOO_MANAGED,
+                )
+        for model_name, version, shape in (
+            ("x.product", "20.0+e", field),
+            ("product.template", "20.0rc1+e", field),
+            ("product.template", None, field),
+            ("product.template", "20.0+e", replace(field, relation="x.variant")),
+            ("product.template", "20.0+e", replace(field, name="x_variant_ids")),
+        ):
+            with self.subTest(model=model_name, version=version, field=shape):
+                self.assertIs(
+                    supporting_model_role(shape, source_model=model_name, odoo_version=version),
+                    SupportingModelRole.REVIEW_INCOMING,
+                )
+
     def test_classifies_direct_relationships_without_model_specific_rules(
         self,
     ) -> None:

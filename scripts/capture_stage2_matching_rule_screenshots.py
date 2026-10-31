@@ -222,11 +222,11 @@ def capture_supporting_review(output_directory: Path, *, browser_channel: str) -
             expect(choices.first).to_be_focused()
             page.keyboard.press("Tab")
             expect(choices.first).not_to_be_focused()
-            save = review.get_by_role("button", name="Save supporting choices", exact=True)
+            save = review.get_by_role("button", name="Save choices", exact=True)
             save.focus()
             save.press("Enter")
-            expect(review).to_contain_text("Supporting choices are current")
-            expect(review.get_by_role("button", name="Check existing supporting values")).to_be_visible()
+            expect(review).to_contain_text("Choices are saved")
+            expect(review.get_by_role("button", name="Check existing Odoo values")).to_be_visible()
             for choice in choices.all():
                 expect(choice).to_have_value("REUSE")
             _show_decision(page, review)
@@ -234,7 +234,7 @@ def capture_supporting_review(output_directory: Path, *, browser_channel: str) -
             page.screenshot(path=str(target), full_page=False)
             print(f"Captured {target}")
             page.reload(wait_until="networkidle")
-            expect(review).to_contain_text("Supporting choices are current")
+            expect(review).to_contain_text("Choices are saved")
             page.set_viewport_size({"width": 390, "height": 844})
             _show_decision(page, review)
             if page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"):

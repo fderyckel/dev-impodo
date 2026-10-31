@@ -18,6 +18,7 @@
 {% endblock %}
 {% block content %}
   {% include "mapping/_heading.html" %}
+  {% include "mapping/_load_setup.html" %}
   {% if migration_workspace and migration_workspace.recipe_application_id %}
     <div class="notice" role="status">
       <strong>These decisions apply to this Recipe run.</strong>
@@ -60,18 +61,7 @@
           >
         {% endfor %}
       {% endfor %}
-      <details class="technical-evidence">
-        <summary>
-          Support details
-        </summary>
-        <div class="definition-list">
-          <div><dt>Frozen source</dt><dd><code title="{{ selection.content_hash }}">{{ selection.content_hash }}</code></dd></div>
-          <div><dt>{{ "Captured schema" if odoo_pinned else "Governed schema" }}</dt><dd><code title="{{ schema.content_hash if odoo_pinned else governance.content_hash }}">{{ schema.content_hash if odoo_pinned else governance.content_hash }}</code></dd></div>
-          {% if working_draft_is_current %}<div><dt>Working draft</dt><dd><code title="{{ working_draft.content_hash }}">{{ working_draft.content_hash }}</code></dd></div>{% endif %}
-          {% if revision %}<div><dt>Mapping</dt><dd><code title="{{ revision.definition.content_hash }}">{{ revision.definition.content_hash }}</code></dd></div>{% endif %}
-          {% if validation %}<div><dt>Validation</dt><dd><code title="{{ validation.validation_hash }}">{{ validation.validation_hash }}</code></dd></div>{% endif %}
-        </div>
-      </details>
+      {% include "mapping/_technical_details.html" %}
       {% include "mapping/_numeric_precision_warnings.html" %}
       {% for view in dataset_views %}
         {% include "mapping/_dataset.html" %}

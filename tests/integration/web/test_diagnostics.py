@@ -9,8 +9,8 @@ from io import BytesIO
 import json
 import os
 from pathlib import Path
-import shutil
 import socket
+from tempfile import TemporaryDirectory
 from time import perf_counter, sleep
 from types import SimpleNamespace
 import unittest
@@ -81,12 +81,8 @@ from tests.support.paths import REPOSITORY_ROOT
 
 @contextmanager
 def _diagnostic_test_directory(prefix: str):
-    path = REPOSITORY_ROOT / ".tmp" / f"{prefix}-{uuid4()}"
-    path.mkdir(parents=True)
-    try:
-        yield path
-    finally:
-        shutil.rmtree(path)
+    with TemporaryDirectory(prefix=f"{prefix}-") as directory:
+        yield Path(directory).resolve()
 
 
 class LocalDiagnosticRecorderTests(unittest.TestCase):
@@ -331,6 +327,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                 status_code=503,
                 duration_ms=2500,
                 exception_class="RuntimeError",
+                mapping_operation_id="a50bdad5-3d09-4445-9c76-45232b4013fd",
             )
             recorder.record_json2_read_failure(
                 request_id="safe-request",
@@ -355,6 +352,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                             "route_template": "/private/customer/row",
                             "formula": "private formula contents",
                             "headers": {"authorization": "private token"},
+                            "mapping_operation_id": "private source value",
                         }
                     )
                     + "\n"
@@ -381,6 +379,8 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                     archive.read("manifest.json").decode("utf-8")
                 )
 
+        self.assertIn('"mapping_operation_id": "a50bdad5-3d09-4445-9c76-45232b4013fd"', encoded)
+        self.assertNotIn("private source value", encoded)
         self.assertEqual(manifest["diagnostic_bundle_schema_version"], 1)
         self.assertEqual(
             manifest["application"]["workspace_schema_version"],
@@ -474,6 +474,7 @@ class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
                     path="/workspaces/{workspace_id}/mapping"
                 )
                 scope["state"]["diagnostic_working_draft_version"] = 4
+                scope["state"]["diagnostic_mapping_operation_id"] = "a50bdad5-3d09-4445-9c76-45232b4013fd"
                 await send(
                     {
                         "type": "http.response.start",
@@ -522,6 +523,7 @@ class RequestDiagnosticsMiddlewareTests(unittest.IsolatedAsyncioTestCase):
             "/workspaces/{workspace_id}/mapping",
         )
         self.assertEqual(record["working_draft_version"], 4)
+        self.assertEqual(record["mapping_operation_id"], "a50bdad5-3d09-4445-9c76-45232b4013fd")
         self.assertEqual(
             record["server_timings_ms"],
             {"render": 3.5, "workspace_read": 8.0},

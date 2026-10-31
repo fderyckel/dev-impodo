@@ -45,6 +45,7 @@ from impodo.domain.identity.sessions import (
     SessionAuthenticationMethod,
     SessionSubject,
 )
+from impodo.web.composition.server_account_admission import ServerAccountBusyError
 from impodo.web.composition.server_account_routes import create_server_account_router
 from impodo.web.composition.server_administration_context import (
     ServerAdministrationDependencies,
@@ -111,6 +112,12 @@ def create_server_administration_router(
                 login_email,
                 password,
                 source_digest,
+                dependencies.identifier_digester.digest(source, scope="account-form-source"),
+            )
+        except ServerAccountBusyError:
+            return _template(
+                dependencies, request, "server/login.html",
+                {"error": "Account forms are busy. Try again shortly."}, status_code=429,
             )
         except (ServerAuthenticationRejectedError, ServerSessionRejectedError):
             return _template(
@@ -401,6 +408,17 @@ def create_server_administration_router(
 
 
 def _authenticate_and_create_session(
+    dependencies: ServerAdministrationDependencies,
+    login_email: str,
+    password: str,
+    source_digest: str,
+    admission_source_digest: str,
+) -> ServerSessionCredentials:
+    with dependencies.account_admission.admit(admission_source_digest):
+        return _authenticate_admitted(dependencies, login_email, password, source_digest)
+
+
+def _authenticate_admitted(
     dependencies: ServerAdministrationDependencies,
     login_email: str,
     password: str,

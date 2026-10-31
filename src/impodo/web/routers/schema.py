@@ -1307,7 +1307,7 @@ def _require_run_company(workspace_state: WorkspaceState) -> None:
     """Confirm the company before a browser check can activate Recipe workspaces."""
     if workspace_state.odoo_company is None:
         raise WorkspaceStateError(
-            "Choose the company used for this run in Odoo access before checking Odoo"
+            "Choose the company used for this run in Match data before checking Odoo"
         )
 
 

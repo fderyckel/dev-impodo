@@ -92,7 +92,9 @@ def supporting_model_plan_view(
             "issue_summary": summarize_workflow_issues(()),
             "suggestable_model_names": (),
         }
-    dependencies = derive_supporting_model_dependencies(schema.models)
+    dependencies = derive_supporting_model_dependencies(
+        schema.models, odoo_version=schema.odoo_version
+    )
     catalog_models = {
         model.name: model
         for model in (model_catalog.models if model_catalog is not None else ())

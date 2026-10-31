@@ -1,11 +1,39 @@
 {% if supporting_review and (supporting_review.rows or supporting_review.error) %}
-<section id="supporting-data-review" aria-labelledby="supporting-review-title">
-  <h2 id="supporting-review-title">Review supporting-data choices</h2>
-  <p>Choose how each relationship will be supplied. Existing Odoo records remain read-only. Incoming records must already belong to your explicitly selected business scope.</p>
-  <p>These choices record the supporting plan. Save the corresponding field or relationship rule in Match data, where Impodo checks the actual source values.</p>
+<section class="supporting-review" id="supporting-data-review" aria-labelledby="supporting-review-title">
+  <div class="page-heading compact">
+    <div>
+      <p class="eyebrow">Related Odoo values</p>
+      <h2 id="supporting-review-title">Choose where related values come from</h2>
+      <p>
+        These relationships connect your selected records to related Odoo values.
+        Choose one source for each required relationship.
+      </p>
+    </div>
+    <span class="status {% if supporting_review.current %}complete{% else %}attention{% endif %}">
+      {% if supporting_review.current %}Choices saved{% else %}Action required{% endif %}
+    </span>
+  </div>
   <datalist id="supporting-table-choices">{% for dataset in supporting_review.datasets %}<option value="{{ dataset.label }}">{{ dataset.label }}</option>{% endfor %}</datalist>
-  {% if supporting_review.error %}<p class="notice warning" role="status">{{ supporting_review.error }}</p>{% endif %}
-  {% if supporting_review.current %}<p class="notice success">Supporting choices are current. Match data will check how the actual values resolve.</p>{% endif %}
+  {% if supporting_review.error %}
+    <div class="notice warning supporting-review-blocker" role="alert">
+      <strong>Why matching rules are waiting</strong>
+      {% if supporting_review.rows %}
+        {% if supporting_review.version %}
+          <p>The saved choices no longer match the current source or Odoo details. Review the choices below and save them again.</p>
+        {% else %}
+          <p>Impodo needs a saved choice for each required relationship before you can confirm matching rules.</p>
+        {% endif %}
+      {% else %}
+        <p>Impodo could not prepare the supporting relationships for review.</p>
+      {% endif %}
+      <details class="technical-details">
+        <summary>Support details</summary>
+        <p>{{ supporting_review.error }}</p>
+      </details>
+    </div>
+  {% elif supporting_review.current %}
+    <p class="notice success"><strong>Choices are saved.</strong> Match data will check the actual values later.</p>
+  {% endif %}
   {% if supporting_review.rows %}
   <form method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/save">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -13,32 +41,53 @@
     <input type="hidden" name="expected_version" value="{{ supporting_review.version }}">
     <input type="hidden" name="operation_id" value="{{ supporting_review.operation_id }}">
     <input type="hidden" name="choice_count" value="{{ supporting_review.rows|length }}">
-    {% for row in supporting_review.rows %}
-    <fieldset class="form-grid">
-      <legend>{{ row.model_label }} · {{ row.label }}{% if row.required %} (required){% endif %}</legend>
-      <input type="hidden" name="edge_{{ loop.index0 }}" value="{{ row.model }}|{{ row.field }}">
-      <label for="support-action-{{ loop.index0 }}">How will this relationship be supplied?</label>
-      <select id="support-action-{{ loop.index0 }}" name="action_{{ loop.index0 }}" {% if row.required %}required{% endif %}>
-        <option value="">Choose a business decision</option>
-        {% for value, label in row.actions %}<option value="{{ value }}" {% if row.chosen == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
-      </select>
-      {% if row.incoming_available %}
-      <label for="support-table-{{ loop.index0 }}">Accepted incoming table (for incoming choices only)</label>
-      <input id="support-table-{{ loop.index0 }}" name="dataset_{{ loop.index0 }}" list="supporting-table-choices" value="{{ row.dataset_label }}" placeholder="Choose an accepted table by name">
-      {% else %}<p>To migrate incoming related records, first <a href="#odoo-data-choices">select and save their business scope</a>, then load their Odoo details.</p>{% endif %}
-      {% if row.read_key %}<p>Reviewed matching fields: {{ row.read_key }}. Current value resolution is checked in Match data.</p>{% endif %}
-    </fieldset>
-    {% endfor %}
-    <div class="actions"><button class="button primary" type="submit">Save supporting choices</button></div>
+    <div class="supporting-review-list">
+      {% for row in supporting_review.rows %}
+      <fieldset class="supporting-review-choice">
+        <legend>
+          {{ row.model_label }} · {{ row.label }}
+          <span class="status {% if row.required %}attention{% endif %}">{{ "Required" if row.required else "Optional" }}</span>
+        </legend>
+        <input type="hidden" name="edge_{{ loop.index0 }}" value="{{ row.model }}|{{ row.field }}">
+        <label for="support-action-{{ loop.index0 }}">
+          Where should this value come from?
+          <select id="support-action-{{ loop.index0 }}" name="action_{{ loop.index0 }}" data-supporting-action {% if row.required %}required{% endif %}>
+            <option value="">Choose a source</option>
+            {% for value, label in row.actions %}<option value="{{ value }}" {% if row.chosen == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        {% if row.managed %}
+          <p>Odoo supplies this relationship. No incoming table is needed.</p>
+        {% elif row.incoming_available %}
+          <label class="supporting-review-dataset" for="support-table-{{ loop.index0 }}">
+            Which incoming table?
+            <input id="support-table-{{ loop.index0 }}" name="dataset_{{ loop.index0 }}" list="supporting-table-choices" value="{{ row.dataset_label }}" placeholder="Choose an accepted table">
+          </label>
+        {% else %}
+          <details class="technical-details">
+            <summary>Why incoming data is not an option</summary>
+            <p>First <a href="#odoo-data-choices">add the related records to this migration</a> and load their Odoo details.</p>
+          </details>
+        {% endif %}
+        {% if row.read_key %}
+          <details class="technical-details">
+            <summary>Reviewed matching fields</summary>
+            <p>{{ row.read_key }}. Match data checks the actual values later.</p>
+          </details>
+        {% endif %}
+      </fieldset>
+      {% endfor %}
+    </div>
+    <div class="actions"><button class="button primary" type="submit">Save choices</button></div>
   </form>
   {% endif %}
   {% if supporting_review.current and supporting_review.has_reuse %}
-  <form method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/check">
+  <form class="supporting-review-check" method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/check">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="binding_hash" value="{{ supporting_review.binding_hash }}">
     <input type="hidden" name="expected_version" value="{{ supporting_review.version }}">
-    <div class="actions"><button class="button secondary" type="submit">Check existing supporting values</button></div>
-    <small>This explicit read checks only reviewed matching and display fields. It cannot change Odoo records.</small>
+    <small>This check only reads Odoo. It cannot change any records.</small>
+    <div class="actions"><button class="button secondary" type="submit">Check existing Odoo values</button></div>
   </form>
   {% endif %}
 </section>

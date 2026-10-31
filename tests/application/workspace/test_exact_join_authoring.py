@@ -142,6 +142,20 @@ class ExactJoinAuthoringTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+    def test_interrupted_edit_preserves_the_saved_combination(self) -> None:
+        request = _customer_request()
+        original, rule, _review = self._save(request, expected_parent_version=None)
+        edited = replace(request, rule_id=rule.rule_id, output_dataset_name="changed_customers")
+        self.plans.interrupt_once = True
+        self.plans.save_attempts = 0
+        with self.assertRaisesRegex(RuntimeError, "interrupted save"):
+            self._save(edited, expected_parent_version=original.version)
+        self.assertEqual(self.plans.current, original)
+        updated, _rule, _review = self._save(edited, expected_parent_version=original.version)
+        self.assertEqual(updated.version, original.version + 1)
+        self.assertEqual(len(updated.rules), 1)
+        self.assertEqual(len(updated.join_reviews), 1)
+
     def test_composite_optional_join_reports_complete_counts(self) -> None:
         _rule, review = self._preview(_customer_request())
 
@@ -408,6 +422,13 @@ class ExactJoinAuthoringTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
+        with self.assertRaisesRegex(WorkspaceError, "later source-preparation"):
+            self._save(
+                replace(_customer_request(), rule_id=first_rule.rule_id),
+                expected_parent_version=second_plan.version,
+            )
+        self.assertEqual(self.plans.current, second_plan)
+
         first_only = self.service.delete_rule(
             WORKSPACE_ID,
             second_rule.rule_id,
@@ -492,6 +513,38 @@ class ExactJoinAuthoringTests(unittest.TestCase):
         self.assertNotIn(
             structural_dataset_id(saved.rules[0]),
             {item.dataset_id for item in mapping.datasets},
+        )
+
+    def test_edit_group_keeps_unrelated_rules_and_releases_removed_inputs(self) -> None:
+        request = _customer_group_request()
+        def save_group(value, version):
+            with (
+                patch("impodo.application.workspace.derived_entities.validate_snapshot_for_dataset"),
+                patch(
+                    "impodo.application.workspace.derived_entities.load_source_snapshot_table",
+                    side_effect=lambda _path, snapshot: self.tables[snapshot.dataset_id],
+                ),
+            ):
+                return self.service.save_join_group(
+                    WORKSPACE_ID, value, expected_parent_version=version, actor=LOCAL_ACTOR,
+                )
+
+        original, _preview = save_group(request, None)
+        unrelated = replace(_customer_request(), output_dataset_name="unrelated_customers")
+        before, other_rule, _review = self._save(unrelated, expected_parent_version=original.version)
+        other_evidence = next(item for item in before.join_reviews if item.rule_id == other_rule.rule_id)
+        edited = replace(request, additions=request.additions[:1], projections=request.projections[:2])
+        updated, _preview = save_group(edited, before.version)
+        self.assertEqual(updated.version, before.version + 1)
+        self.assertEqual(len(updated.rules), 2)
+        self.assertEqual(updated.rules[-1], other_rule)
+        self.assertEqual(
+            next(item for item in updated.join_reviews if item.rule_id == other_rule.rule_id),
+            other_evidence,
+        )
+        self.assertEqual(
+            next(item.use for item in updated.dataset_uses if item.dataset_id == "dataset:contacts"),
+            SourceDatasetUse.MAP_DIRECTLY,
         )
 
     def test_group_duplicate_primary_key_blocks_the_whole_decision(self) -> None:

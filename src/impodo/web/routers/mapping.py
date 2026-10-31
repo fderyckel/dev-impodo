@@ -110,7 +110,10 @@ from ..constants import (
     TRANSFORMATION_IMPACT_PAGE_SIZE,
 )
 from ..context import WebContext
-from ..diagnostics import set_diagnostic_working_draft_version
+from ..diagnostics import (
+    set_diagnostic_mapping_operation_id,
+    set_diagnostic_working_draft_version,
+)
 from ..forms import (
     _is_json_request,
     _mapping_request_form,
@@ -158,6 +161,12 @@ from ..presenters.mapping_view import (
 from ..request_identity import request_identity
 from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
+from .matching_company_refresh import (
+    build_matching_company_refresh_router,
+    check_matching_access,
+    prepare_matching_access,
+)
+from .matching_expectations import build_matching_expectations_router
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
 _IDENTITY_CHOICE_CAUSE_LABELS = {
@@ -223,6 +232,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     """Build mapping editor, preview, impact, validation, and submission routes."""
 
     router = APIRouter()
+    router.include_router(build_matching_expectations_router(context))
+    router.include_router(build_matching_company_refresh_router(context))
     catalog_projection_cache = MappingCatalogProjectionCache(maximum_entries=64)
     catalog_searches = MappingCatalogSearchCoordinator(maximum_editors=256)
 
@@ -1360,6 +1371,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             form = await _mapping_request_form(request)
 
             def begin_mapping_command():
+                nonlocal operation_id, mutation_started
                 selection = context.queries.get_mapping_source_selection(workspace_id)
                 if selection is None:
                     raise HTTPException(
@@ -1391,6 +1403,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     _text(form, "expected_working_draft_version")
                 )
                 operation_id = _text(form, "operation_id") or str(uuid4())
+                set_diagnostic_mapping_operation_id(request, operation_id)
                 receipt = context.mapping_workspace.begin_mutation(
                     workspace_id,
                     operation_id=operation_id,
@@ -1399,6 +1412,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     submitted_working_draft_version=expected_working_version,
                     submitted_mapping_revision_version=expected_parent,
                     actor=actor,
+                )
+                mutation_started = True
+                access_check = (
+                    prepare_matching_access(context, workspace_id, actor=actor, schema=schema)
+                    if action == "draft" and not receipt.replayed else None
                 )
                 return (
                     selection,
@@ -1409,6 +1427,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     expected_working_version,
                     operation_id,
                     receipt,
+                    access_check,
                 )
 
             (
@@ -1420,6 +1439,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 expected_working_version,
                 operation_id,
                 receipt,
+                access_check,
             ) = await run_local_operation(begin_mapping_command)
             active_dataset = min(
                 requested_dataset if requested_dataset is not None else 0,
@@ -1905,6 +1925,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             elif action == "draft":
+                if access_check is not None:
+                    schema = await check_matching_access(context, access_check, actor=actor)
+                    if schema.pending_refresh is not None:
+                        raise WorkspaceError(
+                            "Odoo fields or access changed and need review in Odoo data. "
+                            "Your matching edits are kept on this page; save progress before reviewing the changes."
+                        )
                 workspace_state = await run_page_read(
                     context.queries.get,
                     workspace_id,

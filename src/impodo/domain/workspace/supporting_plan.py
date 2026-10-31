@@ -137,6 +137,7 @@ def plan_supporting_data(
     source_selection_hash: str,
     schema_hash: str,
     preparation_hash: str | None,
+    odoo_version: str | None = None,
     dataset_intents: tuple[SupportingDatasetIntent, ...] = (),
     relationship_intents: tuple[SupportingRelationshipIntent, ...] = (),
     input_limited: bool = False,
@@ -166,7 +167,7 @@ def plan_supporting_data(
     ):
         issues.add(SupportingPlanIssue(SupportingPlanGap.INPUT_LIMIT))
     else:
-        _walk(roots, models, datasets, bindings, intents, edges, issues)
+        _walk(roots, models, datasets, bindings, intents, edges, issues, odoo_version)
     return SupportingDataPlan(
         selected_models=roots,
         source_selection_hash=source_selection_hash,
@@ -198,6 +199,7 @@ def _walk(
     intents: tuple[SupportingRelationshipIntent, ...],
     edges: list[SupportingPlanEdge],
     issues: set[SupportingPlanIssue],
+    odoo_version: str | None,
 ) -> None:
     model_by_name = {model.name: model for model in models}
     dataset_by_id = {item.dataset_id: item for item in datasets}
@@ -266,7 +268,11 @@ def _walk(
             available = tuple(
                 sorted(candidates.get(related, ()), key=lambda item: item.dataset_id)
             )
-            direct_role = supporting_model_role(field)
+            direct_role = supporting_model_role(
+                field, source_model=name, odoo_version=odoo_version
+            )
+            if explicit and explicit[0].incoming_dataset_id:
+                direct_role = supporting_model_role(field)
             role = (
                 SupportingPlanRole.UNRESOLVED
                 if direct_role is SupportingModelRole.REVIEW_INCOMING

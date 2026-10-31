@@ -34,6 +34,10 @@ from .forward_upgrades import (
     create_schema_migration_ledger,
     ensure_current_schema,
 )
+from .legacy_company import (
+    create_odoo_company_bindings,
+    upgrade_legacy_company_layout,
+)
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
@@ -1036,7 +1040,7 @@ class WorkspaceEngineSchemaMixin:
             CREATE SEQUENCE audit_event_sequence START 1;
             """
         )
-        _create_odoo_company_bindings(connection)
+        create_odoo_company_bindings(connection)
         create_schema_migration_ledger(connection)
         create_preflight_schema(connection)
         create_advanced_coverage_schema(connection)
@@ -1657,19 +1661,20 @@ def _upgrade_workspace_engine_v19_to_v20(
     )
 
 
-def _create_odoo_company_bindings(connection: duckdb.DuckDBPyConnection) -> None:
-    """Keep target-specific numeric company choices in the protected data plane."""
-    connection.execute("CREATE TABLE odoo_company_binding (binding_hash VARCHAR PRIMARY KEY, selection_json VARCHAR NOT NULL)")
-
-
 WORKSPACE_ENGINE_UPGRADES = {
+    25: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v25-to-v26-legacy-company-layout",
+        apply=lambda connection: upgrade_legacy_company_layout(
+            connection, workspace_columns=_WORKSPACE_PROJECTION_COLUMNS
+        ),
+    ),
     24: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v24-to-v25-business-intent-assessment",
         apply=create_business_intent_assessment_schema,
     ),
     23: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v23-to-v24-operation-company",
-        apply=_create_odoo_company_bindings,
+        apply=create_odoo_company_bindings,
     ),
     22: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v22-to-v23-business-intent",

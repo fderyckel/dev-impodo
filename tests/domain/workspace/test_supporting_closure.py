@@ -28,7 +28,7 @@ def relationship(field, related, *, incoming=None):
 
 class SupportingClosureTests(unittest.TestCase):
     def setUp(self):
-        self.schema = SimpleNamespace(content_hash="schema", models=(
+        self.schema = SimpleNamespace(odoo_version="19.0", content_hash="schema", models=(
             model("product.template", relation("categ_id", "product.category")),
             model("mrp.bom", relation("product_tmpl_id", "product.template")),
         ))
@@ -40,6 +40,27 @@ class SupportingClosureTests(unittest.TestCase):
             DatasetMapping("products", "product.template", relationships=(relationship("categ_id", "product.category"),)),
             DatasetMapping("boms", "mrp.bom", relationships=(relationship("product_tmpl_id", "product.template", incoming="products"),)),
         )
+
+    def test_generated_variants_remain_managed_through_mapping_and_closure(self):
+        variants = replace(
+            relation("product_variant_ids", "product.product", kind="one2many"),
+            relation_field="product_tmpl_id",
+        )
+        choices = (SupportingChoice("product.template", "product_variant_ids", "ODOO_MANAGED"),)
+        mappings = (DatasetMapping("products", "product.template"),)
+        for version in ("19.0+e", "20.0+e"):
+            schema = SimpleNamespace(
+                odoo_version=version, content_hash="schema",
+                models=(model("product.template", variants),),
+            )
+            with self.subTest(version=version):
+                self.assertEqual(supporting_mapping_conflicts(choices, mappings, schema), ())
+                closure = close_supporting_plan(
+                    schema=schema, datasets=(dataset("products"),), mappings=mappings,
+                    choices=choices, source_hash="source", preparation_hash=None,
+                )
+                self.assertTrue(closure.proposal.complete, closure.proposal.issues)
+                self.assertEqual(closure.proposal.edges[0].role.value, "ODOO_MANAGED")
 
     def test_products_and_boms_keep_reuse_and_target_then_incoming_meaning(self):
         self.assertEqual(supporting_mapping_conflicts(self.choices, self.mappings, self.schema), ())
@@ -79,7 +100,7 @@ class SupportingClosureTests(unittest.TestCase):
             ({"computed": True}, "ODOO_MANAGED", TargetFieldHandling.ODOO_MANAGED),
             ({}, "SKIP_OPTIONAL", None),
         ):
-            schema = SimpleNamespace(models=(model("product.template", relation("categ_id", "product.category", required=False, **flags)),))
+            schema = SimpleNamespace(odoo_version="19.0", models=(model("product.template", relation("categ_id", "product.category", required=False, **flags)),))
             choice = (SupportingChoice("product.template", "categ_id", action),)
             supplied = (replace(self.mappings[0], target_field_dispositions=()),)
             self.assertTrue(supporting_mapping_conflicts(choice, supplied, schema))
@@ -99,7 +120,7 @@ class SupportingClosureTests(unittest.TestCase):
 
     def test_skipping_inverse_children_cannot_hide_incoming_child_writes(self):
         child = replace(relation("line_ids", "mrp.bom.line", required=False, kind="one2many"), relation_field="bom_id")
-        schema = SimpleNamespace(models=(model("mrp.bom", child), model("mrp.bom.line", relation("bom_id", "mrp.bom"))))
+        schema = SimpleNamespace(odoo_version="19.0", models=(model("mrp.bom", child), model("mrp.bom.line", relation("bom_id", "mrp.bom"))))
         mappings = (
             DatasetMapping("boms", "mrp.bom"),
             DatasetMapping("lines", "mrp.bom.line", relationships=(relationship("bom_id", "mrp.bom", incoming="boms"),)),
@@ -109,7 +130,7 @@ class SupportingClosureTests(unittest.TestCase):
 
     def test_closure_only_carries_choices_for_the_actual_mapping_models(self):
         unused = SupportingChoice("x.other", "country_id", "REUSE", key_fields=("code",))
-        schema = SimpleNamespace(content_hash="schema", models=(*self.schema.models, model("x.other", relation("country_id", "res.country"))))
+        schema = SimpleNamespace(odoo_version="19.0", content_hash="schema", models=(*self.schema.models, model("x.other", relation("country_id", "res.country"))))
         closed = close_supporting_plan(schema=schema, datasets=(dataset("products"), dataset("boms")), mappings=self.mappings, choices=(*self.choices, unused), source_hash="source", preparation_hash=None)
         self.assertTrue(closed.proposal.complete)
         self.assertNotIn(unused, closed.choices)

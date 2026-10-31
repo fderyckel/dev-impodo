@@ -12,6 +12,7 @@ from impodo.adapters.duckdb import business_intent_repository
 from impodo.domain.mapping.contracts import DatasetMapping, IdentityComponentMapping, ScalarFieldMapping
 from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.domain.shared.access import Actor, ActorIdentity
+from impodo.domain.shared.schema import WORKSPACE_SCHEMA_VERSION
 from impodo.domain.workspace.business_intent import BusinessIntent, BusinessIntentError, BusinessModelIntent, ExpectedCount
 from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
@@ -161,7 +162,7 @@ class BusinessIntentStoreTests(ProjectSetupBrowserTestCase):
             connection.execute("UPDATE schema_version SET version = 22")
         self.assertIsNone(self.current())
         with self.repository._connect(self.path) as connection:
-            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 25)
+            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], WORKSPACE_SCHEMA_VERSION)
             self.assertEqual(connection.execute("SELECT revision_json FROM mapping_revision").fetchall(), original)
         first = self.save()
         self.assertEqual(first.version, 1)

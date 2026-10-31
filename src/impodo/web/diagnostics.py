@@ -24,7 +24,7 @@ from pathlib import Path
 from threading import Lock
 from time import perf_counter, sleep
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from starlette.datastructures import MutableHeaders
@@ -356,6 +356,7 @@ class LocalDiagnosticRecorder:
         duration_ms: float,
         exception_class: str | None = None,
         working_draft_version: int | None = None,
+        mapping_operation_id: str | None = None,
         server_timings_ms: dict[str, float] | None = None,
         database_connection_count: int | None = None,
         database_schema_check_count: int | None = None,
@@ -384,6 +385,9 @@ class LocalDiagnosticRecorder:
                 0,
                 int(working_draft_version),
             )
+        safe_operation_id = _safe_mapping_operation_id(mapping_operation_id)
+        if safe_operation_id is not None:
+            payload["mapping_operation_id"] = safe_operation_id
         for name, value in (
             ("database_connection_count", database_connection_count),
             ("database_schema_check_count", database_schema_check_count),
@@ -615,6 +619,7 @@ class RequestDiagnosticsMiddleware:
                     working_draft_version=_optional_nonnegative_int(
                         state.get("diagnostic_working_draft_version")
                     ),
+                    mapping_operation_id=state.get("diagnostic_mapping_operation_id"),
                     server_timings_ms=server_timings_ms,
                     database_connection_count=(
                         database_timings.connection_count
@@ -634,6 +639,20 @@ def set_diagnostic_working_draft_version(request, version: int | None) -> None:
     if version is None:
         return
     request.state.diagnostic_working_draft_version = max(0, int(version))
+
+
+def set_diagnostic_mapping_operation_id(request, operation_id: str) -> None:
+    """Correlate the matching support reference using only its validated UUID."""
+    request.state.diagnostic_mapping_operation_id = _safe_mapping_operation_id(operation_id)
+
+
+def _safe_mapping_operation_id(value: object) -> str | None:
+    if not isinstance(value, str) or len(value) != 36:
+        return None
+    try:
+        return str(UUID(value))
+    except ValueError:
+        return None
 
 
 def create_diagnostic_bundle(
@@ -949,6 +968,9 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
                 safe[field] = candidate
     if "request_id" in value:
         safe["request_id"] = _safe_request_id(str(value["request_id"]))
+    operation_id = _safe_mapping_operation_id(value.get("mapping_operation_id"))
+    if operation_id is not None:
+        safe["mapping_operation_id"] = operation_id
     if "method" in value:
         safe["method"] = _safe_method(str(value["method"]))
     if "route_template" in value:

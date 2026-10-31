@@ -13,6 +13,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from impodo.domain.mapping.create_field_policy import is_odoo_create_hook_field
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 
 
@@ -41,6 +42,8 @@ class SupportingModelDependency:
 
 def derive_supporting_model_dependencies(
     models: Iterable[SchemaModel],
+    *,
+    odoo_version: str | None = None,
 ) -> tuple[SupportingModelDependency, ...]:
     """Return deterministic direct dependencies outside the write scope.
 
@@ -62,7 +65,9 @@ def derive_supporting_model_dependencies(
             field_type=field.type,
             relation_model=field.relation,
             required=field.required,
-            role=supporting_model_role(field),
+            role=supporting_model_role(
+                field, source_model=model.name, odoo_version=odoo_version
+            ),
         )
         for model in captured
         for field in model.fields
@@ -87,6 +92,8 @@ def derive_supporting_model_dependencies(
 def unavailable_required_supporting_dependencies(
     models: Iterable[SchemaModel],
     available_model_names: Iterable[str],
+    *,
+    odoo_version: str | None = None,
 ) -> tuple[SupportingModelDependency, ...]:
     """Return required reuse dependencies absent from model discovery.
 
@@ -99,7 +106,9 @@ def unavailable_required_supporting_dependencies(
     available = frozenset(available_model_names)
     return tuple(
         dependency
-        for dependency in derive_supporting_model_dependencies(models)
+        for dependency in derive_supporting_model_dependencies(
+            models, odoo_version=odoo_version
+        )
         if dependency.required
         and dependency.role is SupportingModelRole.REUSE_EXISTING
         and dependency.relation_model not in available
@@ -123,9 +132,18 @@ def _is_direct_dependency(
     )
 
 
-def supporting_model_role(field: SchemaField) -> SupportingModelRole:
-    """Classify from captured behavior without model-specific assumptions."""
+def supporting_model_role(
+    field: SchemaField,
+    *,
+    source_model: str | None = None,
+    odoo_version: str | None = None,
+) -> SupportingModelRole:
+    """Classify captured behavior and qualified, shared Odoo create hooks."""
 
+    if is_odoo_create_hook_field(
+        field, target_model=source_model, odoo_version=odoo_version
+    ):
+        return SupportingModelRole.ODOO_MANAGED
     if field.related is True:
         return SupportingModelRole.ODOO_MANAGED
     if field.computed is True and field.has_inverse is not True:

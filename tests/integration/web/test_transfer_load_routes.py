@@ -45,6 +45,7 @@ from tests.application.workspace.test_destination_matching import (
     _workspace,
 )
 from tests.application.workspace.test_transfer_review import _WorkspaceRepository
+from tests.support.identity import MutableLocalRequestIdentityResolver
 
 
 class TransferLoadRouteTests(unittest.TestCase):
@@ -140,7 +141,7 @@ class TransferLoadRouteTests(unittest.TestCase):
         writer_calls: list[bool] = []
         transfer_execution = _TransferExecution()
         context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=MutableLocalRequestIdentityResolver(),
             queries=_Queries(repository, selection, schema),
             workspace_states=WorkspaceStateService(
                 repository,
@@ -247,7 +248,7 @@ class TransferLoadRouteTests(unittest.TestCase):
         transfer_execution = _RecoveryTransferExecution(snapshot, run, calls)
         reconciliation = _RecoveryReconciliation(calls)
         context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=MutableLocalRequestIdentityResolver(),
             queries=_Queries(SimpleNamespace(workspace=workspace), selection, schema),
             execution=_CurrentExecution(run),
             transfer_execution=transfer_execution,

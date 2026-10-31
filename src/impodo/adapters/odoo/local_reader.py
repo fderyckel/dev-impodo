@@ -52,7 +52,11 @@ from impodo.domain.shared.models import (
     UniqueConstraintMetadata,
     target_identity_hash,
 )
-from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceState
+from impodo.domain.workspace.workbench import (
+    OdooConnectionMode,
+    SourceMode,
+    WorkspaceState,
+)
 
 _OUTPUT_MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
 _MAX_OUTPUT_BYTES = 32 * 1024 * 1024
@@ -225,7 +229,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         payload = self._invoke(
             workspace_state,
             profile,
-            _model_metadata_script(requested),
+            _model_metadata_script(requested, include_create_defaults=(workspace_state.source_mode is SourceMode.ODOO or workspace_state.odoo_company is not None)),
         )
         fingerprint = self._fingerprint(workspace_state, payload)
         raw_models = payload.get("models")
@@ -729,7 +733,7 @@ payload = {{
     )
 
 
-def _model_metadata_script(models: tuple[str, ...]) -> str:
+def _model_metadata_script(models: tuple[str, ...], *, include_create_defaults: bool = True) -> str:
     return _script(
         f"""
 requested_models = {models!r}
@@ -763,7 +767,7 @@ for model_name in requested_models:
     captured_models[model_name] = {{
         "description": model._description,
         "fields": fields,
-        "create_defaults": model.default_get(required_default_fields),
+        "create_defaults": model.default_get(required_default_fields) if {include_create_defaults!r} else {{}},
         "unique_constraints": constraints_by_model[model_name],
     }}
 payload = {{

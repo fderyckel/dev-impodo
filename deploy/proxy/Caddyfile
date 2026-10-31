@@ -1,6 +1,9 @@
 https://{$IMPODO_PROXY_HOST:localhost}:8443 {
 	tls internal
 	encode zstd gzip
+	request_body {
+		max_size 65536
+	}
 
 	header {
 		-Server

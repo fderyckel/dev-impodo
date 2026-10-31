@@ -13,6 +13,7 @@ from impodo.domain.identity.sessions import ServerSessionCredentials
 
 SERVER_SESSION_COOKIE_NAME = "__Host-impodo_session"
 SERVER_CSRF_COOKIE_NAME = "__Host-impodo_csrf"
+SERVER_MAX_FORM_BYTES = 65_536
 _HEALTH_PATHS = frozenset({"/health/live", "/health/ready"})
 _UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 _SECURITY_HEADERS = {
@@ -26,6 +27,10 @@ _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
+
+
+class _ServerBodyTooLarge(Exception):
+    pass
 
 
 class ServerBrowserSecurityMiddleware:
@@ -60,9 +65,35 @@ class ServerBrowserSecurityMiddleware:
             ):
                 await self._reject(scope, receive, send, status_code=403)
                 return
+            lengths = headers.getlist("content-length")
+            if lengths:
+                try:
+                    if len(lengths) != 1 or int(lengths[0]) < 0:
+                        raise ValueError
+                    length = int(lengths[0])
+                except ValueError:
+                    await self._reject(scope, receive, send, status_code=400)
+                    return
+                if length > SERVER_MAX_FORM_BYTES:
+                    await self._reject(scope, receive, send, status_code=413)
+                    return
+
+        received_bytes = 0
+        response_started = False
+
+        async def bounded_receive() -> Message:
+            nonlocal received_bytes
+            message = await receive()
+            if message["type"] == "http.request":
+                received_bytes += len(message.get("body", b""))
+                if received_bytes > SERVER_MAX_FORM_BYTES:
+                    raise _ServerBodyTooLarge
+            return message
 
         async def send_with_security_headers(message: Message) -> None:
+            nonlocal response_started
             if message["type"] == "http.response.start":
+                response_started = True
                 response_headers = MutableHeaders(scope=message)
                 for name, value in _SECURITY_HEADERS.items():
                     if name == "Referrer-Policy" and response_headers.get(name) == "no-referrer":
@@ -70,7 +101,12 @@ class ServerBrowserSecurityMiddleware:
                     response_headers[name] = value
             await send(message)
 
-        await self._app(scope, receive, send_with_security_headers)
+        try:
+            await self._app(scope, bounded_receive, send_with_security_headers)
+        except _ServerBodyTooLarge:
+            if response_started:
+                raise
+            await self._reject(scope, receive, send, status_code=413)
 
     async def _reject(
         self,

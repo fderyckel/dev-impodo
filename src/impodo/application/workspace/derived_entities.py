@@ -62,6 +62,7 @@ from impodo.domain.workspace.derived_entities import (
     SourceDatasetUse,
     SourceDatasetUsePolicy,
     SourceFileCatalogView,
+    SourcePreparationRule,
     _hierarchy_source_dataset,
     _related_source_dataset,
     _rule_dataset_names,
@@ -450,6 +451,7 @@ class DerivedEntityWorkspaceService:
         """Review one exact join over every row in the frozen source snapshots."""
 
         selection, current = self._join_context(workspace_id)
+        current = self._join_edit_base(current, rule_id=request.rule_id)
         rule = self._join_rule(request)
         tables, _snapshots = self._load_join_tables(workspace_id, selection)
         review = self._review_join(rule, selection, current, tables)
@@ -466,6 +468,7 @@ class DerivedEntityWorkspaceService:
             workspace_id,
             require_materialized_scale=self.group_evaluator is None,
         )
+        current = self._join_edit_base(current, group_id=request.group_id)
         rules = self._join_group_rules(request, selection, current)
         if self.group_evaluator is not None:
             with self._materialize_join_group_inputs(
@@ -505,15 +508,16 @@ class DerivedEntityWorkspaceService:
             raise WorkspaceError(
                 "The source-preparation plan was modified by another request; reload it"
             )
+        edit_base = self._join_edit_base(current, rule_id=request.rule_id)
         rule = self._join_rule(request)
         tables, snapshots = self._load_join_tables(workspace_id, selection)
-        review = self._review_join(rule, selection, current, tables)
+        review = self._review_join(rule, selection, edit_base, tables)
         if not review.can_save:
             raise WorkspaceError(
                 "The exact join cannot be saved: " + "; ".join(review.findings)
             )
 
-        rules = (*(current.rules if current else ()), rule)
+        rules = self._join_revision_rules(current, edit_base, (rule,))
         if dataset_uses is None:
             policies = reconcile_source_dataset_uses(
                 current.dataset_uses if current else (),
@@ -542,6 +546,14 @@ class DerivedEntityWorkspaceService:
             ),
             review=review,
         )
+        if current is not edit_base:
+            inputs = preparation_input_dataset_ids(rules)
+            policies = tuple(
+                replace(policy, use=SourceDatasetUse.MAP_DIRECTLY)
+                if policy.dataset_id not in inputs and policy.use.is_preparation_input
+                else policy
+                for policy in policies
+            )
         plan = DerivedEntityPlan(
             plan_id=current.plan_id if current else str(uuid4()),
             version=(current.version + 1 if current else 1),
@@ -551,7 +563,7 @@ class DerivedEntityWorkspaceService:
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
             dataset_uses=policies,
-            join_reviews=(*(current.join_reviews if current else ()), saved_review),
+            join_reviews=(*(edit_base.join_reviews if edit_base else ()), saved_review),
         )
         validate_source_dataset_uses(selection, plan)
         self.derived_entities.save_derived_entity_plan(
@@ -586,14 +598,15 @@ class DerivedEntityWorkspaceService:
             raise WorkspaceError(
                 "The source-preparation plan was modified by another request; reload it"
             )
-        rules = self._join_group_rules(request, selection, current)
+        edit_base = self._join_edit_base(current, group_id=request.group_id)
+        rules = self._join_group_rules(request, selection, edit_base)
         if self.group_evaluator is None:
             tables, snapshots = self._load_join_tables(workspace_id, selection)
             preview = self._review_join_group(
                 request,
                 rules,
                 selection,
-                current,
+                edit_base,
                 tables,
             )
         else:
@@ -620,7 +633,7 @@ class DerivedEntityWorkspaceService:
                 "The complete combination cannot be saved: " + "; ".join(findings)
             )
 
-        all_rules = (*(current.rules if current else ()), *rules)
+        all_rules = self._join_revision_rules(current, edit_base, rules)
         uses = source_dataset_uses_for_authoring(selection, current)
         participating = {
             request.primary_dataset_id,
@@ -655,12 +668,15 @@ class DerivedEntityWorkspaceService:
             rules=all_rules,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
-            dataset_uses=tuple(
-                SourceDatasetUsePolicy(dataset_id, use)
-                for dataset_id, use in uses.items()
+            dataset_uses=reconcile_source_dataset_uses(
+                (
+                    SourceDatasetUsePolicy(dataset_id, use)
+                    for dataset_id, use in uses.items()
+                ),
+                all_rules,
             ),
             join_reviews=(
-                *(current.join_reviews if current else ()),
+                *(edit_base.join_reviews if edit_base else ()),
                 *saved_reviews,
             ),
         )
@@ -672,6 +688,75 @@ class DerivedEntityWorkspaceService:
             actor=actor,
         )
         return plan, preview
+
+    @staticmethod
+    def _join_edit_base(
+        current: DerivedEntityPlan | None,
+        *,
+        rule_id: str | None = None,
+        group_id: str | None = None,
+    ) -> DerivedEntityPlan | None:
+        """Exclude an edited combination for review without publishing a deletion."""
+
+        if current is None:
+            return None
+        removed = tuple(
+            rule
+            for rule in current.rules
+            if isinstance(rule, ExactJoinRule)
+            and (
+                (group_id is not None and rule.group_id == group_id)
+                or (rule_id is not None and rule.rule_id == rule_id)
+            )
+        )
+        if not removed:
+            return current
+        if rule_id is not None and any(rule.group_id is not None for rule in removed):
+            raise WorkspaceError(
+                "Edit this combination through its complete table group"
+            )
+        removed_ids = {rule.rule_id for rule in removed}
+        remaining = tuple(
+            rule for rule in current.rules if rule.rule_id not in removed_ids
+        )
+        outputs = {structural_dataset_id(rule) for rule in removed}
+        if outputs.intersection(preparation_input_dataset_ids(remaining)):
+            raise WorkspaceError(
+                "A later source-preparation step uses this combined table. "
+                "Remove that later step before changing this combination."
+            )
+        return replace(
+            current,
+            rules=remaining,
+            join_reviews=tuple(
+                review
+                for review in current.join_reviews
+                if review.rule_id not in removed_ids
+            ),
+        )
+
+    @staticmethod
+    def _join_revision_rules(
+        current: DerivedEntityPlan | None,
+        edit_base: DerivedEntityPlan | None,
+        replacements: tuple[ExactJoinRule, ...],
+    ) -> tuple[SourcePreparationRule, ...]:
+        """Keep unrelated rule order and replace the edited group in its old position."""
+
+        if current is None or edit_base is None:
+            return replacements
+        retained_ids = {rule.rule_id for rule in edit_base.rules}
+        result: list[SourcePreparationRule] = []
+        inserted = False
+        for rule in current.rules:
+            if rule.rule_id in retained_ids:
+                result.append(rule)
+            elif not inserted:
+                result.extend(replacements)
+                inserted = True
+        if not inserted:
+            result.extend(replacements)
+        return tuple(result)
 
     def _join_context(
         self,

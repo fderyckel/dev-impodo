@@ -560,6 +560,148 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(self.model_catalog_calls, [])
         self.assertEqual(self.read_identity_calls, [])
 
+    def test_saved_group_columns_reopen_and_replace_one_revision(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace(several_tables=True)
+        base = f"/workspaces/{workspace_id}/derived-entities"
+        action = base + "/join-group/save"
+        form = self._join_group_form(selection, by_name)
+        saved = self.client.post(action, data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        context = self.app.state.context
+        original = context.queries.get_derived_entity_plan(workspace_id)
+        final = next(rule for rule in original.rules if rule.map_output)
+
+        self._frozen_customer_workspace()
+        with collect_duckdb_request_timings() as timings:
+            reopened = self.client.get(base + f"?edit_join={final.rule_id}")
+        self.assertEqual(reopened.status_code, 200, reopened.text)
+        self.assertIn("Saved columns (6)", reopened.text)
+        self.assertIn("Edit columns and choices", reopened.text)
+        self.assertIn("data-group-retained", reopened.text)
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 1)
+        retained = reopened.context["join_group_form"]
+        self.assertEqual(retained.group_id, form["group_id"])
+        self.assertEqual(retained.projection_indexes, tuple(map(int, form["group_projection"])))
+        self.assertEqual(
+            [retained.projection_names[index] for index in retained.projection_indexes],
+            [form["group_projection_name"][index] for index in retained.projection_indexes],
+        )
+        self.assertEqual(len(retained.additions), 3)
+        self.assertEqual(retained.primary_key_rows[1][1], "integer")
+
+        form["expected_parent_version"] = str(original.version)
+        removed_index = form["group_projection"].pop()
+        rename_index = int(form["group_projection"][0])
+        form["group_projection_name"][rename_index] = "saved_custom_name"
+        preview = self.client.post(base + "/join-group/preview", data=form, headers=POST_HEADERS)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertIn("Save changes", preview.text)
+        self.assertEqual(context.queries.get_derived_entity_plan(workspace_id), original)
+        self.assertEqual(preview.context["join_group_form"].projection_names[rename_index], "saved_custom_name")
+
+        with collect_duckdb_request_timings() as save_timings:
+            updated = self.client.post(action, data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(updated.status_code, 303, updated.text)
+        self.assertLessEqual(save_timings.connection_count, 12)
+        self.assertLessEqual(save_timings.schema_check_count, 10)
+        current = context.queries.get_derived_entity_plan(workspace_id)
+        self.assertEqual(current.version, original.version + 1)
+        self.assertEqual(len(current.rules), 3)
+        self.assertEqual(len(current.join_reviews), 3)
+        final = next(rule for rule in current.rules if rule.map_output)
+        self.assertEqual(len(final.output_columns), 5)
+        self.assertIn("saved_custom_name", [column.source_name for column in final.output_columns])
+        again = self.client.get(base + f"?edit_join={final.rule_id}")
+        self.assertEqual(again.status_code, 200, again.text)
+        self.assertNotIn(int(removed_index), again.context["join_group_form"].projection_indexes)
+        self.assertEqual(again.context["join_group_form"].projection_names[rename_index], "saved_custom_name")
+
+        stale = self.client.post(action, data=form, headers=POST_HEADERS)
+        self.assertEqual(stale.status_code, 422, stale.text)
+        self.assertEqual(context.queries.get_derived_entity_plan(workspace_id), current)
+        self.assertEqual(stale.context["join_group_form"].expected_parent_version, original.version)
+        stale_preview = self.client.post(base + "/join-group/preview", data=form, headers=POST_HEADERS)
+        self.assertEqual(stale_preview.status_code, 200, stale_preview.text)
+        self.assertEqual(
+            stale_preview.context["pending_join_group"]["expected_parent_version"],
+            original.version,
+        )
+
+        form["expected_parent_version"] = str(current.version)
+        form["output_dataset_name"] = "Invalid name"
+        invalid = self.client.post(action, data=form, headers=POST_HEADERS)
+        self.assertEqual(invalid.status_code, 422, invalid.text)
+        self.assertEqual(context.queries.get_derived_entity_plan(workspace_id), current)
+        self.assertEqual(invalid.context["join_group_form"].projection_names[rename_index], "saved_custom_name")
+
+    def test_single_enrichment_group_reopens_and_accepts_another_column(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace(several_tables=True)
+        base = f"/workspaces/{workspace_id}/derived-entities"
+        form = self._join_group_form(selection, by_name)
+        form["group_addition"] = form["group_addition"][:1]
+        participants = {form["primary_dataset_id"], by_name["party_details"].dataset_id}
+        candidates = exact_join_group_projection_candidates(selection)
+        form["group_projection"] = [
+            value for value in form["group_projection"]
+            if candidates[int(value)][0].dataset_id in participants
+        ]
+        saved = self.client.post(base + "/join-group/save", data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        context = self.app.state.context
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        self.assertEqual(len(plan.rules), 1)
+        reopened = self.client.get(base + f"?edit_join={plan.rules[0].rule_id}")
+        self.assertEqual(reopened.status_code, 200, reopened.text)
+        self.assertTrue(reopened.context["editing_join_group"])
+        retained = reopened.context["join_group_form"]
+        self.assertEqual(len(retained.additions), 1)
+        added_index = next(
+            index for index, (dataset, _column) in enumerate(candidates)
+            if dataset.dataset_id in participants and index not in retained.projection_indexes
+        )
+        form["expected_parent_version"] = str(plan.version)
+        form["group_projection"].append(str(added_index))
+        form["group_projection_name"][added_index] = "extra_saved_field"
+        updated = self.client.post(base + "/join-group/save", data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(updated.status_code, 303, updated.text)
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        self.assertEqual(plan.version, 2)
+        self.assertEqual(len(plan.rules), 1)
+        self.assertIn("extra_saved_field", [column.source_name for column in plan.rules[0].output_columns])
+
+    def test_saved_pairwise_columns_reopen_and_can_be_changed(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace()
+        base = f"/workspaces/{workspace_id}/derived-entities"
+        form = self._join_form(selection, by_name)
+        saved = self.client.post(base + "/join/save", data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        context = self.app.state.context
+        original = context.queries.get_derived_entity_plan(workspace_id)
+        rule = original.rules[0]
+        reopened = self.client.get(base + f"?edit_join={rule.rule_id}")
+        self.assertEqual(reopened.status_code, 200, reopened.text)
+        retained = reopened.context["join_form"]
+        self.assertEqual(retained.rule_id, rule.rule_id)
+        self.assertEqual(retained.projection_indexes, tuple(map(int, form["projection"])))
+        self.assertEqual(retained.projection_names[:len(form["projection_name"])], tuple(form["projection_name"]))
+        form["expected_parent_version"] = str(original.version)
+        form["rule_id"] = rule.rule_id
+        form["projection_name"] = list(retained.projection_names)
+        form["projection"].pop()
+        form["projection_name"][int(form["projection"][0])] = "changed_name"
+        preview = self.client.post(base + "/join/preview", data=form, headers=POST_HEADERS)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertIn("Save changes", preview.text)
+        updated = self.client.post(base + "/join/save", data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(updated.status_code, 303, updated.text)
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        self.assertEqual(plan.version, 2)
+        self.assertEqual(len(plan.rules), 1)
+        self.assertEqual(len(plan.join_reviews), 1)
+        self.assertEqual(plan.rules[0].rule_id, rule.rule_id)
+        self.assertIn("changed_name", [column.source_name for column in plan.rules[0].output_columns])
+
     def test_invalid_or_stale_join_does_not_replace_saved_evidence(self) -> None:
         workspace_id, selection, by_name = self._frozen_customer_workspace()
         left = by_name["customer_accounts"]

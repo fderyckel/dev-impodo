@@ -66,6 +66,7 @@ def close_supporting_plan(
     proposal = plan_supporting_data(
         selected_models=tuple(sorted(selected_models)),
         models=schema.models,
+        odoo_version=schema.odoo_version,
         datasets=datasets,
         source_selection_hash=source_hash,
         schema_hash=schema.content_hash,
@@ -222,7 +223,11 @@ def supporting_mapping_conflicts(
             elif action is SupportingChoiceAction.ODOO_MANAGED:
                 valid = (
                     valid
-                    and supporting_model_role(field) is SupportingModelRole.ODOO_MANAGED
+                    and supporting_model_role(
+                        field,
+                        source_model=choice.source_model,
+                        odoo_version=schema.odoo_version,
+                    ) is SupportingModelRole.ODOO_MANAGED
                     and not providers
                     and handling in {None, TargetFieldHandling.ODOO_MANAGED}
                 )

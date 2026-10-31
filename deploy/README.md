@@ -117,6 +117,15 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 Set a fictional login email and display name for this local rehearsal. Compose
 reads the generated password from the protected secret volume; the command
 does not accept the password as a command-line argument and does not print it.
+Only the one-shot bootstrap service mounts that password volume. Web and
+worker mount the runtime DSN and identifier-digest key instead. Provisioning
+removes the password left in runtime volumes by older rehearsals. To reapply
+provisioning to an existing stack without deleting its data, run:
+
+```sh
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml up --force-recreate --no-deps volume-provisioner
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml up --detach --wait
+```
 
 ```sh
 IMPODO_BOOTSTRAP_LOGIN_EMAIL=platform.operator@example.test \
@@ -137,7 +146,8 @@ The Organization Administrator can create ordinary users from **Users** and
 deliver their activation links in the same way. A user detail page supports
 replacement activation links, password reset, suspension, reactivation, and
 permanent deactivation. Each lifecycle action names the affected account and
-requires confirmation. **Sessions** supports exact session revocation;
+requires confirmation. **Sessions** supports exact session revocation and
+**Sign out this browser** for the current session;
 **Security history** combines account, login, and session events with bounded
 pagination. An ordinary user signs in to **My account**. These administration
 actions do not grant Project access.
@@ -154,6 +164,20 @@ links manually. Keep complete links private. Their tokens use URL fragments,
 which are not sent in request URLs, and are removed from browser history when
 the form loads. Link pages are not cached. A replacement invalidates the earlier
 link, and activation/reset consumes the new link once.
+
+Public activation and reset forms check issued-token metadata before deriving
+a password hash. The final write transaction still checks token state, expiry,
+password revision, and account eligibility atomically. Login and token forms
+share a process-local limit of two admitted operations. Their request budgets
+allow bursts of 60 per process and 30 per source, replenished over 60 seconds.
+Source bookkeeping holds at most 1,024 deployment-keyed digests. Busy login
+or token forms return HTTP 429; public reset requests retain their generic
+acknowledgement. These limits are per process and reset when it restarts.
+
+The proxy and application cap request bodies at 65,536 bytes, including
+streamed bodies. The current server profile handles account-administration
+forms. The web container has a 1 GiB memory limit, a two-CPU limit, and a
+128-PID limit for the local trial.
 
 Run the real-browser rehearsal against an already bootstrapped local stack:
 

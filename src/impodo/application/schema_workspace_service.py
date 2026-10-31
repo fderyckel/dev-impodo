@@ -314,6 +314,7 @@ class SchemaWorkspaceService:
             selected_models=tuple(workspace.intended_models),
             models=schema.models,
             datasets=descriptors,
+            odoo_version=schema.odoo_version,
             source_selection_hash=selection.content_hash,
             schema_hash=schema.content_hash,
             preparation_hash=preparation_hash,
@@ -733,6 +734,7 @@ class SchemaWorkspaceService:
                     create_default_present=candidates[model.name][field.name].create_default_present,
                     create_default_value=candidates[model.name][field.name].create_default_value)
                 for field in model.fields)) for model in current.models),
+                read_credential_binding_hash=candidate_catalog.read_credential_binding_hash,
                 read_context_hash=candidate_catalog.read_context_hash,
                 last_checked_at=checked_at, last_checked_by=actor.identity.display_name,
                 pending_refresh=None)
@@ -822,7 +824,9 @@ class SchemaWorkspaceService:
         _validate_read_credential_binding_hash(read_credential_binding_hash)
         if read_credential_binding_hash != current.read_credential_binding_hash:
             raise WorkspaceError(
-                "The Odoo read key changed; check the Odoo fields again"
+                "The checking key setup no longer matches the saved Odoo field check. "
+                "Save progress, then select Check company-specific values at the top "
+                "of Match data and check matches again."
             )
         normalized = {
             str(model_name): tuple(dict.fromkeys(field_names))
@@ -1595,6 +1599,7 @@ class SchemaWorkspaceService:
             unavailable = unavailable_required_supporting_dependencies(
                 schema.models,
                 available_models,
+                odoo_version=schema.odoo_version,
             )
             if unavailable:
                 related_models = ", ".join(
@@ -1786,11 +1791,11 @@ def _schema_field_structure(field: SchemaField) -> dict[str, object]:
 
 
 def _same_company_refresh_structure(current: OdooSchemaCatalog, candidate: OdooSchemaCatalog) -> bool:
-    """Permit only a confirmed company change with identical schema and API access."""
+    """Require identical fields and verified access, allowing a new key generation."""
     def structure(catalog: OdooSchemaCatalog):
         return (catalog.connection_target_hash, catalog.policy_hash, catalog.connection_mode,
             catalog.database, catalog.odoo_version, catalog.origin, catalog.read_principal_hash,
-            catalog.read_permission_hash, catalog.read_credential_binding_hash,
+            catalog.read_permission_hash,
             tuple((model.name, tuple(_schema_field_structure(field) for field in sorted(model.fields, key=lambda value: value.name)),
                    model.unique_constraints) for model in sorted(catalog.models, key=lambda value: value.name)))
     return structure(current) == structure(candidate)

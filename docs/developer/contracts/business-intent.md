@@ -28,6 +28,11 @@ most 1,000 fields, and its serialized body is limited to 1 MiB.
 
 ## Application boundary
 
+The Stage 3 **What may this load change?** editor exposes these rules for
+checked file-source mappings. It saves through the existing service with a
+closed CSRF-protected form. Counts and permissions remain explicit run/workspace
+choices, rather than approvals copied automatically by a portable Recipe.
+
 `BusinessIntentService.inputs` requires `PROJECT_VIEW` and returns the current
 technical ceiling and its binding hash. `save` requires `MAPPING_EDIT`, an
 explicit intent, the expected current revision number, the reviewed binding
@@ -111,7 +116,8 @@ Accepting reduced scope creates a fresh observation and assessment, including
 minimum counts. Row confirmation cannot acknowledge a business deviation.
 
 After an explicit intent edit, `PreflightService.reassess_business_intent`
-requires `PREFLIGHT_RUN`, verifies the current saved snapshot, and reassesses
+requires `PREFLIGHT_RUN`, verifies the current saved comparison through its
+compact execution-review projection, and reassesses
 its bounded observation in one local operation. It performs no Odoo read and
 does not evaluate source rows. Ordinary review reads return only the verified
 assessment hash, readiness, and one blocker rather than the full deviation list.
@@ -144,6 +150,7 @@ correction authority.
 - [Persistence, migration, concurrency, and connection-budget tests](../../../tests/integration/duckdb/test_business_intent.py)
 - [Observed effects and count assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
 - [Comparison, stale confirmation, concurrency, and recovery qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)
+- [Stage 3 editor and same-project retry with 150 existing related records](../../../tests/integration/web/test_matching_expectations.py)
 
 ## Related documentation
 

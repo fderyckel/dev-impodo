@@ -1,0 +1,5 @@
+{% if workspace_state.source_mode.value == 'FILE' and workspace_state.odoo_connection_mode and not correction_binding %}
+  {% set company_action = '/workspaces/' ~ workspace_id ~ '/mapping/company' %}
+  {% include "_odoo_company_choice.html" %}
+{% endif %}
+{% if expectations and not correction_binding %}{% include "mapping/_expectations.html" %}{% endif %}

@@ -88,6 +88,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStateError,
 )
+from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.constants import (
     VALUE_MATCH_MAX_TARGET_CHOICES,
 )
@@ -212,6 +213,7 @@ class _Json2SchemaReadSession:
     """Reuse one connector only for one in-flight schema discovery request."""
 
     def __init__(self, workspace_state: WorkspaceState, api_key: str) -> None:
+        self._include_create_defaults = workspace_state.source_mode is SourceMode.ODOO or workspace_state.odoo_company is not None
         self._connector = Json2ReadConnector(
             _target_json2_config(workspace_state, api_key)
         )
@@ -220,7 +222,7 @@ class _Json2SchemaReadSession:
         """Read metadata for exactly the newly reached model names."""
 
         return self._connector.get_model_metadata(
-            _schema_metadata_requests(models)
+            _schema_metadata_requests(models), include_create_defaults=self._include_create_defaults,
         )
 
     def verify_identity(
@@ -1494,49 +1496,54 @@ def _capture_mapping_supporting_values(
     """
 
     requirements = plan_mapping_supporting_values(tuple(datasets), schema)
-    targeted: dict[
-        tuple[str, tuple[str, ...], tuple[str, ...]],
-        tuple[tuple[str, ...], ...],
-    ] = {}
-    for requirement in requirements:
-        values = set(requirement.constant_values)
-        field_count = len((*requirement.key_fields, *requirement.scope_fields))
-        for source in requirement.sources:
-            rows = context.categorical_coverage.source_included_key_tuples(
-                workspace_state.workspace_id,
-                source.dataset_id,
-                source.source_column_keys,
-                source.row_inclusion,
-            )
-            translations = {
-                item.source_value: item.target_value
-                for item in source.value_mappings
-            }
-            for row in rows:
-                if len(row) != field_count or any(value is None for value in row):
-                    continue
-                normalized = tuple(str(value).strip() for value in row)
-                if len(normalized) == 1 and normalized[0] in source.blank_source_values:
-                    continue
-                if normalized:
-                    normalized = (
-                        translations.get(normalized[0], normalized[0]),
-                        *normalized[1:],
-                    )
-                if all(normalized):
-                    values.add(normalized)
-        if len(values) > 10_000:
-            raise WorkspaceError(
-                f"{requirement.model_name} needs more than 10,000 linked "
-                "destination values; reduce the included source rows"
-            )
-        targeted[
-            (
-                requirement.model_name,
-                requirement.key_fields,
-                requirement.scope_fields,
-            )
-        ] = tuple(sorted(values))
+
+    def collect_targeted_values():
+        targeted: dict[
+            tuple[str, tuple[str, ...], tuple[str, ...]],
+            tuple[tuple[str, ...], ...],
+        ] = {}
+        for requirement in requirements:
+            values = set(requirement.constant_values)
+            field_count = len((*requirement.key_fields, *requirement.scope_fields))
+            for source in requirement.sources:
+                rows = context.categorical_coverage.source_included_key_tuples(
+                    workspace_state.workspace_id,
+                    source.dataset_id,
+                    source.source_column_keys,
+                    source.row_inclusion,
+                )
+                translations = {
+                    item.source_value: item.target_value
+                    for item in source.value_mappings
+                }
+                for row in rows:
+                    if len(row) != field_count or any(value is None for value in row):
+                        continue
+                    normalized = tuple(str(value).strip() for value in row)
+                    if len(normalized) == 1 and normalized[0] in source.blank_source_values:
+                        continue
+                    if normalized:
+                        normalized = (
+                            translations.get(normalized[0], normalized[0]),
+                            *normalized[1:],
+                        )
+                    if all(normalized):
+                        values.add(normalized)
+            if len(values) > 10_000:
+                raise WorkspaceError(
+                    f"{requirement.model_name} needs more than 10,000 linked "
+                    "destination values; reduce the included source rows"
+                )
+            targeted[
+                (
+                    requirement.model_name,
+                    requirement.key_fields,
+                    requirement.scope_fields,
+                )
+            ] = tuple(sorted(values))
+        return targeted
+
+    targeted = run_local_operation_sync(collect_targeted_values)
     return _capture_supporting_values(
         context,
         workspace_state,
@@ -1546,6 +1553,7 @@ def _capture_mapping_supporting_values(
         operation=OdooOperation.COMPARE,
         workflow_label="mapping",
         targeted_values=targeted,
+        publish_operation=run_local_operation_sync,
         actor=actor,
     )
 
@@ -2070,21 +2078,27 @@ def _read_supporting_lookup_batches(
             ),
         )
 
-    credential = get_target_credential(
-        context.secret_store,
-        context.target_credential_workspace(
-            workspace_state.workspace_id,
-            actor=actor,
-        ),
-        TargetCredentialRole.READ,
-    )
+    def read_credential():
+        return get_target_credential(
+            context.secret_store,
+            context.target_credential_workspace(
+                workspace_state.workspace_id,
+                workspace_state=workspace_state,
+                actor=actor,
+            ),
+            TargetCredentialRole.READ,
+        )
+
+    credential = run_local_operation_sync(read_credential)
     if credential is None:
         raise OdooReadCredentialMissingError(
             "Enter the Odoo read API key for this remote target before checking supporting values."
         )
     if credential.binding_hash != schema.read_credential_binding_hash:
         raise WorkspaceError(
-            "The Odoo read key changed; check the Odoo fields again"
+            "The checking key setup no longer matches the saved Odoo field check. "
+            "Save progress, then select Check company-specific values at the top "
+            "of Match data and check matches again."
         )
     primary_access: OdooReadIdentity | None = None
     if verify_schema_access:

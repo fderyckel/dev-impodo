@@ -36,7 +36,7 @@ def _probe_write_identity(
     if not api_key.strip():
         raise WorkspaceStateError("Enter an Odoo API key for this load")
     if workspace_state.odoo_company is None:
-        raise WorkspaceStateError("Choose the company used for this import in Odoo access before loading")
+        raise WorkspaceStateError("Choose the company used for this import in Match data before loading")
     connector = Json2WriteIdentityConnector(
         target_record_read_config(
             Json2Config(
@@ -66,7 +66,7 @@ def _write_executor(
     if not api_key.strip():
         raise WorkspaceStateError("Enter an Odoo API key for this load")
     if workspace_state.odoo_company is None:
-        raise WorkspaceStateError("Choose the company used for this import in Odoo access before loading")
+        raise WorkspaceStateError("Choose the company used for this import in Match data before loading")
     return Json2WriteExecutor(
         Json2Config(
             base_url=workspace_state.odoo_base_url,

@@ -192,7 +192,7 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
                 label="Available",
             ),
             workspace_id="workspace-1",
-            workspace_state=SimpleNamespace(revision=7),
+            workspace_state=replace(workspace, revision=7),
             csrf_token="csrf",
             matching_can_check=True,
         )
@@ -271,7 +271,7 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
                 label="Available",
             ),
             workspace_id="workspace-1",
-            workspace_state=SimpleNamespace(revision=7),
+            workspace_state=replace(workspace, revision=7),
             csrf_token="csrf",
             matching_can_check=True,
         )

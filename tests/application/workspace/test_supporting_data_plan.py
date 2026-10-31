@@ -42,6 +42,7 @@ class SupportingDataPlanningApplicationTests(unittest.TestCase):
         self.selection = accepted_selection()
         self.preparation = preparation(self.selection, lookup_rule())
         self.schema = SimpleNamespace(
+            odoo_version="19.0",
             content_hash="schema-hash",
             connection_target_hash=target_identity_hash(
                 connection_mode="REMOTE",

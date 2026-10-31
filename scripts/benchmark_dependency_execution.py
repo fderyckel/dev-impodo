@@ -45,6 +45,18 @@ from impodo.domain.shared.models import (
     LogicalReference,
     canonical_json_bytes,
 )
+from impodo.domain.workspace.business_intent import (
+    BusinessIntent,
+    BusinessIntentBinding,
+    BusinessIntentRevision,
+    BusinessModelIntent,
+    BusinessWriteMode,
+    ExpectedCount,
+)
+from impodo.domain.workspace.business_intent_assessment import (
+    assess_business_intent,
+    observe_business_writes,
+)
 from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -110,16 +122,18 @@ class _Journal:
         self.start_calls = 0
         self.outcome_calls = 0
         self.finish_calls = 0
+        self.intent_assessment_hash = ""
 
     def get_current_run(self, _workspace_id, _snapshot_hash=None):
         if self.run is None or self.run.status is ExecutionRunStatus.RUNNING:
             return None
         return self.run
 
-    def start_run(self, _workspace_id, run, *, actor) -> None:
+    def start_run(self, _workspace_id, run, *, actor, intent_assessment_hash="") -> None:
         del actor
         self.start_calls += 1
         self.run = run
+        self.intent_assessment_hash = intent_assessment_hash
         self.rows = {item.row_id: item for item in run.rows}
 
     def record_outcomes(self, _workspace_id, _run_id, rows) -> None:
@@ -142,6 +156,48 @@ class _Journal:
         return self.run
 
 
+class _BenchmarkPreflight:
+    """Assess explicit fixture expectations and verify the recorded run approval."""
+
+    def __init__(self, snapshot, journal):
+        self.snapshot = snapshot
+        self.journal = journal
+        operations = tuple(sorted({
+            (row.dataset, effect.field, effect.relation_operation)
+            for row in snapshot.rows for effect in row.fields if effect.kind == "relation"
+        }))
+        observation = observe_business_writes(snapshot, authored_operations=operations)
+        intent = BusinessIntent(tuple(
+            BusinessModelIntent(
+                model.model, BusinessWriteMode.UPSERT,
+                creates=ExpectedCount(model.creates, model.creates),
+                updates=ExpectedCount(model.updates, model.updates),
+            ) for model in observation.models
+        ))
+        revision = BusinessIntentRevision(
+            snapshot.workspace_id, 1,
+            str(uuid5(NAMESPACE_URL, snapshot.workspace_id + "/benchmark-intent")),
+            intent,
+            BusinessIntentBinding(snapshot.mapping_content_hash, HASH, HASH, HASH, HASH, HASH),
+            LOCAL_ACTOR.identity, datetime(2026, 10, 31, tzinfo=UTC),
+        )
+        self.assessment = assess_business_intent(observation, revision)
+
+    def current_execution_snapshot(self, workspace_id):
+        return self.snapshot if workspace_id == self.snapshot.workspace_id else None
+
+    def current_business_intent_assessment(self, workspace_id, snapshot_hash):
+        if workspace_id == self.snapshot.workspace_id and snapshot_hash == self.snapshot.semantic_hash:
+            return self.assessment
+        return None
+
+    def require_business_intent_approval(self, workspace_id, run):
+        if (workspace_id != self.snapshot.workspace_id
+            or self.journal.run is None or run.run_id != self.journal.run.run_id
+            or self.journal.intent_assessment_hash != self.assessment.content_hash):
+            raise DependencyBenchmarkError("Benchmark run has no exact business-intent approval")
+
+
 class _Executor:
     """Return deterministic receipts and retain exact connector-call evidence."""
 
@@ -150,6 +206,7 @@ class _Executor:
     def __init__(self, scope_hash: str) -> None:
         self.scope_hash = scope_hash
         self.lookups: list[tuple[str, tuple[tuple[str, str, Any], ...]]] = []
+        self.bulk_lookups: list[tuple[str, tuple[tuple[tuple[str, str, Any], ...], ...]]] = []
         self.creates: list[tuple[str, tuple[dict[str, Any], ...]]] = []
         self.loads: list[tuple[str, tuple[dict[str, Any], ...], tuple[str, ...]]] = []
         self.updates: list[tuple[str, int, dict[str, Any]]] = []
@@ -170,6 +227,14 @@ class _Executor:
         self.creates.append((model, rows))
         self.calls.append({"operation": "create", "model": model, "rows": len(rows)})
         return self._identifiers(len(rows))
+
+    def find_ids_many(self, model, domains):
+        page = tuple(tuple(domain) for domain in domains)
+        if not page:
+            return ()
+        self.bulk_lookups.append((model, page))
+        self.calls.append({"operation": "lookup_many", "model": model, "domains": len(page)})
+        return tuple(self._identifiers(1) for _domain in page)
 
     def load_create_rows(self, model, values, external_ids):
         rows = tuple(dict(item) for item in values)
@@ -893,7 +958,7 @@ def _service(snapshot: ExecutionSnapshot) -> tuple[ExecutionService, _Journal]:
     )
     service = ExecutionService(
         SimpleNamespace(get=lambda _workspace_id: workspace),
-        SimpleNamespace(current_execution_snapshot=lambda _workspace_id: snapshot),
+        _BenchmarkPreflight(snapshot, journal),
         journal,
         CapabilityAuthorizationPolicy(),
     )
@@ -904,7 +969,7 @@ def _call_counts(executor: _Executor) -> dict[str, int]:
     result = {
         "create": len(executor.creates),
         "load_create": len(executor.loads),
-        "lookup": len(executor.lookups),
+        "lookup": len(executor.lookups) + len(executor.bulk_lookups),
         "relationship_patch": len(executor.updates),
         "update": len(executor.updates),
     }

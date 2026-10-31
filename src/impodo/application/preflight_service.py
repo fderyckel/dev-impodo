@@ -319,10 +319,10 @@ class PreflightService:
     def reassess_business_intent(self, workspace_id: str, *, actor: Actor) -> BusinessIntentAssessment:
         """Reassess a verified saved comparison locally after an explicit edit."""
         self.authorization.require(actor, Capability.PREFLIGHT_RUN, workspace_id=workspace_id)
-        snapshot = self.current_execution_snapshot(workspace_id)
-        if snapshot is None:
+        projection = self.current_execution_review_projection(workspace_id)
+        if projection is None:
             raise WorkspaceError("Compare with Odoo before assessing business expectations")
-        return self.preflight.reassess_business_intent(workspace_id, snapshot.semantic_hash, actor=actor)
+        return self.preflight.reassess_business_intent(workspace_id, projection.summary.snapshot_hash, actor=actor)
 
     def current_execution_review_projection(
         self,

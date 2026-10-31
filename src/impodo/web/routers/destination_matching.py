@@ -290,6 +290,7 @@ def _render_matching(
     actor: Actor,
     error: str | None = None,
     status_code: int = 200,
+    company_access=None,
 ):
     current = workspace_state.destination_match_current(
         source_selection_hash=selection.content_hash,
@@ -389,6 +390,8 @@ def _render_matching(
         request,
         "workspace_destination_matching.html",
         workspace_state=workspace_state,
+        company_access=company_access,
+        company_action=f"/workspaces/{workspace_state.workspace_id}/destination-matching/company",
         source_selection=selection,
         source_schema=schema,
         matching_rows=rows,

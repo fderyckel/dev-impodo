@@ -80,7 +80,7 @@ _LOCK_ORGANIZATION_ACTOR_QUERY: LiteralString = (
     "  ON o.organization_id = u.organization_id\n"
     "WHERE u.user_id = %s AND u.organization_id = %s\n"
     "  AND u.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
-    "FOR UPDATE OF u, a, o"
+    "FOR UPDATE OF u, a FOR SHARE OF o"
 )
 _INSERT_ORGANIZATION_QUERY: LiteralString = (
     "INSERT INTO impodo_control.organization (\n"

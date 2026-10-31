@@ -1,8 +1,7 @@
 {% set selected_company = workspace_state.destination_company if workspace_state.source_mode.value == 'ODOO' else workspace_state.odoo_company %}
-{% set company_action = '/workspaces/' ~ workspace_id ~ ('/transfer-destination/company' if workspace_state.source_mode.value == 'ODOO' else '/target/company') %}
+{% set company_action = company_action if company_action is defined else '/workspaces/' ~ workspace_id ~ ('/transfer-destination/company' if workspace_state.source_mode.value == 'ODOO' else '/mapping/company') %}
       <section id="odoo-operation-company" class="form-card" aria-labelledby="odoo-operation-company-title">
-        <h2 id="odoo-operation-company-title">Company used for this import</h2>
-        <p>Impodo checks, saves and verifies company-specific values for this company. Shared records keep their mapped company value.</p>
+        <h2 id="odoo-operation-company-title">Company for this load</h2>
         <p><strong>Current choice:</strong> {{ selected_company.name if selected_company else 'Choose a company before loading' }}.</p>
         {% if company_access %}
           <p><strong>Checking user:</strong> {{ company_access.login }}. <strong>User default:</strong> {{ company_access.default_company_name }}.</p>
@@ -24,5 +23,14 @@
             <button class="button secondary" type="submit">Choose Odoo company</button>
           </form>
         {% endif %}
-        <p class="muted">Your Odoo user's default company stays unchanged. Changing this choice requires fresh checks; saved source data and matching rules are kept.</p>
+        {% if workspace_state.source_mode.value == 'FILE' and selected_company and schema %}
+          <div class="notice{% if schema.read_context_hash != selected_company.context_hash %} warning{% endif %}">
+            <p>Check matches automatically verifies a changed checking key or company. To check {{ selected_company.name }} earlier, save your matching progress and use the button below. Saved matches are kept when the verified user, permissions and fields are unchanged.</p>
+            <form method="post" action="/workspaces/{{ workspace_id }}/mapping/company/refresh">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+              <button class="button secondary" type="submit">Check company-specific values</button>
+            </form>
+          </div>
+        {% endif %}
       </section>

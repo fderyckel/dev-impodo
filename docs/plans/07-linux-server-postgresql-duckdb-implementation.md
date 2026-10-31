@@ -12,8 +12,15 @@ status: current
 1 are complete. Phase 2 supported-host qualification remains open, while the
 local Phase 3 persistence trial started on 2026-10-28. The local empty-stack
 Compose rehearsal passed. The image now uses a refreshed pinned
-Bookworm base. Its repeat local scan found no critical vulnerabilities, eight
-high-severity findings, and no fixable critical or high finding. Vulnerability
+Bookworm base. The 2026-10-28 local scan found no critical vulnerabilities,
+eight high-severity findings, and no fixable critical or high finding. The
+[2026-10-31 Phase 0 to 4 recheck](92-2026-10-31-phase-0-4-recheck.md)
+supersedes that scan as current evidence. It found additional alerts,
+including fixable findings in the supporting images, and reproduced account,
+secret-isolation, test-fixture, and concurrency gaps. The
+[corrective checkpoint](93-2026-10-31-phase-0-4-corrective-checkpoint.md)
+records the account, secret, concurrency, fixture, and CI corrections and
+their verification limits. Supporting-image policy still fails. Vulnerability
 acceptance or upstream remediation, the first hosted image-quality run,
 production secret and database-role provisioning, remote certificate policy,
 accepted supporting-image versions, and clean Debian and Ubuntu host

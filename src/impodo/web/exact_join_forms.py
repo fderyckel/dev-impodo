@@ -44,6 +44,7 @@ from impodo.domain.workspace.derived_entities import (
     source_dataset_uses_for_authoring,
     validate_source_dataset_uses,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 
 from .forms import _checked, _text
 
@@ -113,6 +114,7 @@ class SavedExactJoinView(TypedDict):
     step: int
     inputs: tuple[SourceDataset, ...]
     grouped: bool
+    columns: tuple[tuple[str, str, str], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -518,6 +520,154 @@ def qualified_exact_join_output_name(
     return prefix + column.source_name[: 200 - len(prefix)]
 
 
+def saved_join_field_sources(
+    plan: DerivedEntityPlan,
+    rule: ExactJoinRule,
+) -> dict[str, tuple[str, str]]:
+    """Trace saved group fields back through private steps to their physical inputs."""
+
+    private = {
+        structural_dataset_id(item): item
+        for item in plan.rules
+        if isinstance(item, ExactJoinRule) and not item.map_output
+    }
+
+    def origin(dataset_id: str, column_key: str) -> tuple[str, str]:
+        ancestor = private.get(dataset_id)
+        if ancestor is None:
+            return dataset_id, column_key
+        projection = next(
+            item
+            for item in ancestor.projections
+            if item.output_column_key == column_key
+        )
+        return origin(projection.source_dataset_id, projection.source_column_key)
+
+    return {
+        item.output_column_key: origin(item.source_dataset_id, item.source_column_key)
+        for item in rule.projections
+    }
+
+
+def saved_exact_join_form(
+    selection: SourceSelection,
+    plan: DerivedEntityPlan,
+    rule_id: str,
+) -> ExactJoinFormSubmission | ExactJoinGroupFormSubmission:
+    """Reopen an existing combination from persisted metadata, without reading rows."""
+
+    rule = next(
+        (
+            item
+            for item in plan.rules
+            if isinstance(item, ExactJoinRule)
+            and item.map_output
+            and item.rule_id == rule_id
+        ),
+        None,
+    )
+    if rule is None:
+        raise WorkspaceError(
+            "This saved combination is no longer available; reload the page"
+        )
+    if plan.source_selection_hash != selection.content_hash:
+        raise WorkspaceError(
+            "The saved combination does not match the current source tables"
+        )
+    if rule.group_id is None:
+        pair_default = default_exact_join_form(selection, plan)
+        candidates = exact_join_projection_candidates(
+            available_exact_join_selection(selection, plan)
+        )
+        uses = source_dataset_uses_for_authoring(selection, plan)
+        selected = {
+            (item.source_dataset_id, item.source_column_key): column.source_name
+            for item in rule.projections
+            for column in rule.output_columns
+            if column.column_key == item.output_column_key
+        }
+        return replace(
+            pair_default,
+            rule_id=rule.rule_id,
+            output_dataset_name=rule.output_dataset_name,
+            left_dataset_id=rule.left_dataset_id,
+            right_dataset_id=rule.right_dataset_id,
+            key_rows=tuple(
+                (key.left_column_key, key.right_column_key, key.value_type)
+                for key in rule.keys
+            )
+            + tuple(("", "", "string") for _ in range(5 - len(rule.keys))),
+            kind=rule.kind.value,
+            require_all_right_rows=rule.require_all_right_rows,
+            left_dataset_use=uses.get(
+                rule.left_dataset_id, SourceDatasetUse.PREPARATION_ONLY
+            ).value,
+            right_dataset_use=uses.get(
+                rule.right_dataset_id, SourceDatasetUse.PREPARATION_ONLY
+            ).value,
+            projection_indexes=tuple(
+                i
+                for i, (dataset, column) in enumerate(candidates)
+                if (dataset.dataset_id, column.stable_key) in selected
+            ),
+            projection_names=tuple(
+                selected.get(
+                    (dataset.dataset_id, column.stable_key), column.source_name
+                )
+                for dataset, column in candidates
+            ),
+        )
+
+    group_default = default_exact_join_group_form(selection, plan)
+    steps = sorted(
+        (
+            item
+            for item in plan.rules
+            if isinstance(item, ExactJoinRule) and item.group_id == rule.group_id
+        ),
+        key=lambda item: item.group_step or 0,
+    )
+    indexes = {dataset.dataset_id: i for i, dataset in enumerate(selection.datasets)}
+    sources = saved_join_field_sources(plan, rule)
+    selected = {
+        sources[column.column_key]: column.source_name for column in rule.output_columns
+    }
+    candidates = exact_join_group_projection_candidates(selection)
+    first = steps[0]
+    return replace(
+        group_default,
+        group_id=rule.group_id,
+        output_dataset_name=rule.output_dataset_name,
+        primary_dataset_id=first.left_dataset_id,
+        primary_key_rows=tuple(
+            (key.left_column_key, key.value_type) for key in first.keys
+        )
+        + tuple(("", "string") for _ in range(5 - len(first.keys))),
+        additions=tuple(
+            ExactJoinGroupAdditionSubmission(
+                dataset_index=indexes[step.right_dataset_id],
+                key_column_keys=tuple(key.right_column_key for key in step.keys)
+                + tuple("" for _ in range(5 - len(step.keys))),
+                kind=step.kind.value,
+                require_all_rows=step.require_all_right_rows,
+            )
+            for step in steps
+        ),
+        projection_indexes=tuple(
+            i
+            for i, (dataset, column) in enumerate(candidates)
+            if (dataset.dataset_id, column.stable_key) in selected
+        ),
+        projection_names=tuple(
+            selected.get(
+                (dataset.dataset_id, column.stable_key),
+                group_default.projection_names[i],
+            )
+            for i, (dataset, column) in enumerate(candidates)
+        ),
+    )
+
+
 def resolve_exact_join_group_request(
     submission: ExactJoinGroupFormSubmission,
     selection: SourceSelection,
@@ -797,6 +947,7 @@ def saved_exact_join_views(
         left = inputs[0] if grouped else datasets[rule.left_dataset_id]
         right = inputs[-1] if grouped else datasets[rule.right_dataset_id]
         output = datasets[structural_dataset_id(rule)]
+        sources = saved_join_field_sources(plan, rule)
         result.append(
             {
                 "rule": rule,
@@ -813,6 +964,14 @@ def saved_exact_join_views(
                 "step": structural_step,
                 "inputs": inputs,
                 "grouped": grouped,
+                "columns": tuple(
+                    (
+                        datasets[sources[column.column_key][0]].name,
+                        next(item.source_name for item in datasets[sources[column.column_key][0]].columns if item.stable_key == sources[column.column_key][1]),
+                        column.source_name,
+                    )
+                    for column in rule.output_columns
+                ),
             }
         )
     return tuple(result)

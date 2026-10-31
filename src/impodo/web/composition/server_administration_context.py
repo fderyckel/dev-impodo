@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Protocol
 
@@ -71,6 +71,10 @@ from impodo.domain.identity.sessions import (
     ServerSessionRejectedError,
     ServerSessionStorageError,
     ServerSessionUnavailableError,
+)
+from impodo.web.composition.server_account_admission import (
+    ServerAccountAdmission,
+    ServerAccountBusyError,
 )
 from impodo.web.composition.server_session_http import (
     SERVER_SESSION_COOKIE_NAME,
@@ -180,6 +184,10 @@ class ServerIdentifierDigester(Protocol):
 class ServerAccountRecovery(Protocol):
     """Keep public requests opaque and exact issuance separate."""
 
+    def inspect_token_principal(
+        self, token: str, purpose: RecoveryTokenPurpose,
+    ) -> LoginPrincipalKind | None: ...
+
     def request_password_reset(
         self, command: PasswordResetRequestCommand, *, deployment_id: str
     ) -> PasswordResetRequestResult: ...
@@ -203,6 +211,7 @@ class ServerAdministrationDependencies:
     deployment_id: str
     session_absolute_timeout: timedelta
     account_recovery: ServerAccountRecovery | None = None
+    account_admission: ServerAccountAdmission = field(default_factory=ServerAccountAdmission)
 
 
 def resolve_session(
@@ -303,6 +312,8 @@ async def run_server_browser_operation(
         response = RedirectResponse("/login", status_code=303)
         clear_server_session_cookie(response)
         return response
+    except ServerAccountBusyError:
+        message, status = "Account forms are busy. Try again shortly.", 429
     except ServerRoleForbiddenError:
         message, status = "Your account cannot perform this action.", 403
     except (IdentityAdministrationNotFoundError, AccountRecoverySubjectNotEligibleError):

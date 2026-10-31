@@ -4,10 +4,15 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest.mock import patch
 from uuid import uuid4
 
 import psycopg
 from fastapi.testclient import TestClient
+from impodo.adapters.identity.scrypt_passwords import ScryptPasswordHasher
+from impodo.adapters.identity.secure_recovery_tokens import SecureRecoveryTokenFactory
+from impodo.adapters.postgresql.platform_sessions import _LOCK_CUSTOMER_USER_QUERY
+from impodo.domain.identity.recovery import RecoveryTokenPurpose
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.postgresql.migrations import POSTGRESQL_MIGRATIONS
@@ -143,6 +148,57 @@ class ServerIdentityBrowserLiveTests(unittest.TestCase):
         response = self.post(administrator, path, values)
         self.assertEqual(response.status_code, expected)
         return response
+
+    def test_current_session_uses_sign_out_and_revokes_the_exact_session(self):
+        administrator = self.provision()
+        page = administrator.get("/admin/sessions")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Sign out this browser", page.text)
+        with psycopg.connect(self.dsn) as connection:
+            session_id = str(connection.execute(
+                "SELECT session_id FROM impodo_control.server_session "
+                "WHERE organization_id = 'acme' AND state = 'ACTIVE'"
+            ).fetchone()[0])
+        self.assertNotIn(f'action="/admin/sessions/{session_id}/revoke"', page.text)
+        form = ServerFormParser(page.text).form("/logout")
+        self.assertEqual(self.post(administrator, "/logout", form).status_code, 303)
+        self.assertEqual(administrator.get("/account").status_code, 303)
+        with psycopg.connect(self.dsn) as connection:
+            state = connection.execute(
+                "SELECT state FROM impodo_control.server_session WHERE session_id = %s",
+                (session_id,),
+            ).fetchone()[0]
+        self.assertEqual(state, "REVOKED")
+
+    def test_unissued_public_tokens_never_hash_and_attempts_are_bounded(self):
+        client = self.client()
+        form = ServerFormParser(client.get("/reset-password").text).form("/reset-password")
+        token = SecureRecoveryTokenFactory().create(RecoveryTokenPurpose.PASSWORD_RESET).token
+        form.update(token=token, password=PASSWORD, password_confirmation=PASSWORD)
+        self.metrics.clear()
+        with patch.object(ScryptPasswordHasher, "hash", side_effect=AssertionError("An unissued token must not hash")):
+            statuses = [self.post(client, "/reset-password", form).status_code for _ in range(35)]
+        self.assertIn(400, statuses)
+        self.assertEqual(statuses[-1], 429)
+        self.assertTrue(all(status in {400, 429} for status in statuses))
+        self.assertTrue(all(metric.operation == "account_recovery.inspect_token" for metric in self.metrics))
+
+    def test_distinct_users_share_the_organization_read_lock_while_suspension_waits(self):
+        administrator = self.provision()
+        ids = []
+        for index in range(2):
+            user_id, token = self.create_user(administrator, email=f"lock-{index}@acme.example.test")
+            self.activate(token)
+            ids.append(user_id)
+        with psycopg.connect(self.dsn) as first, psycopg.connect(self.dsn) as second:
+            first.execute(_LOCK_CUSTOMER_USER_QUERY, (ids[0], "acme")).fetchone()
+            second.execute(_LOCK_CUSTOMER_USER_QUERY + " NOWAIT", (ids[1], "acme")).fetchone()
+            with psycopg.connect(self.dsn) as writer:
+                with self.assertRaises(psycopg.errors.LockNotAvailable):
+                    writer.execute("SELECT organization_id FROM impodo_control.organization WHERE organization_id = 'acme' FOR UPDATE NOWAIT")
+                writer.rollback()
+        self.organization_action("acme", "suspend")
+        self.assertEqual(administrator.get("/admin/users").status_code, 303)
 
     def test_bootstrap_to_first_user_reset_suspend_reactivate_revoke_and_deactivate(
         self,

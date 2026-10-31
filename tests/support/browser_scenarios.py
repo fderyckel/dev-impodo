@@ -625,8 +625,7 @@ class LocalBrowserSecurityTestCase(unittest.TestCase):
     """Create isolated state for LocalBrowserSecurityTests capability tests."""
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.project_root = Path(self.temporary.name) / "impodo-data"
         self.app = create_local_app(
             self.project_root,
@@ -645,8 +644,7 @@ class LocalStackBrowserTestCase(unittest.TestCase):
     """Create isolated state for LocalStackBrowserTests capability tests."""
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temporary.name) / "odoo_ve"
         self.config = self.workspace / "config" / "odoo.conf"
         self.config.parent.mkdir(parents=True)

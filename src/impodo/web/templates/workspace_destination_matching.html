@@ -19,6 +19,8 @@
     </span>
   </div>
 
+  {% include "_odoo_company_choice.html" %}
+
   <ol class="matching-progress" aria-label="Destination matching progress">
     <li class="{% if not match_plan %}current{% else %}complete{% endif %}"><span>1</span><div><strong>Choose identifiers</strong><small>Select the business fields</small></div></li>
     <li class="{% if match_plan and not match_plan_ready %}current{% elif match_plan_ready %}complete{% endif %}"><span>2</span><div><strong>Check destination</strong><small>Find existing and missing records</small></div></li>

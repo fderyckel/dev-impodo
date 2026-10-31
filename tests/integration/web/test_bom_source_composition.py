@@ -233,7 +233,12 @@ class BomSourceCompositionBrowserTests(ProjectSetupBrowserTestCase):
         action = f"/workspaces/{workspace_id}/derived-entities/join/save"
         preview = self.client.post(
             f"/workspaces/{workspace_id}/derived-entities/join/preview",
-            data=self._join_form(selection=selection, plan=plan, **join),
+            data=self._join_form(
+                selection=selection,
+                plan=plan,
+                expected_version=str(plan.version) if plan is not None else "",
+                **join,
+            ),
             headers=POST_HEADERS,
         )
         self.assertEqual(preview.status_code, 200, preview.text)

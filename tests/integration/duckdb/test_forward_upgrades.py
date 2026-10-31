@@ -484,6 +484,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (22, 23, "workspace-engine-v22-to-v23-business-intent"),
                     (23, 24, "workspace-engine-v23-to-v24-operation-company"),
                     (24, 25, "workspace-engine-v24-to-v25-business-intent-assessment"),
+                    (25, 26, "workspace-engine-v25-to-v26-legacy-company-layout"),
                 ],
             )
             self.assertEqual(

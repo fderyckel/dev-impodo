@@ -24,6 +24,7 @@ from impodo.domain.compiler.columnar_transformation import (
     compile_columnar_transformation_program,
 )
 from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     CategoricalCoveragePolicy,
     DatasetMapping,
     MappingDefinition,
@@ -253,7 +254,7 @@ class SelectionRuleTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 18)
+        self.assertEqual(restored.contract_version, MAPPING_CONTRACT_VERSION)
         legacy = MappingDefinition(
             mapping_id=definition.mapping_id,
             source_selection_hash=HASH_A,

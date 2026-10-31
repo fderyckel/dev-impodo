@@ -58,7 +58,7 @@ _LOCK_ORGANIZATION_ADMINISTRATOR_QUERY: LiteralString = (
     "  ON a.organization_id = u.organization_id AND a.user_id = u.user_id\n"
     "WHERE u.user_id = %s AND u.organization_id = %s\n"
     "  AND u.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
-    "FOR UPDATE OF u, o, a"
+    "FOR UPDATE OF u, a FOR SHARE OF o"
 )
 _LOCK_CUSTOMER_USER_QUERY: LiteralString = (
     "SELECT u.status, u.security_revision, o.status\n"
@@ -66,7 +66,7 @@ _LOCK_CUSTOMER_USER_QUERY: LiteralString = (
     "JOIN impodo_control.organization AS o ON o.organization_id = u.organization_id\n"
     "WHERE u.user_id = %s AND u.organization_id = %s\n"
     "  AND u.principal_kind = 'CUSTOMER_USER'\n"
-    "FOR UPDATE OF u, o"
+    "FOR UPDATE OF u FOR SHARE OF o"
 )
 _INSERT_SESSION_QUERY: LiteralString = (
     "INSERT INTO impodo_control.server_session (\n"

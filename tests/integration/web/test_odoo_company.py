@@ -15,6 +15,7 @@ from impodo.domain.workspace.workbench import (
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from uuid import uuid4
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     OdooConnectionMode,
     ProjectSetupBrowserTestCase,
 )
@@ -22,6 +23,260 @@ from tests.support.identity import resolve_local_actor
 
 
 class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
+    def test_check_matches_refreshes_stale_key_and_company_before_many2one_reads(self):
+        self._check_matches_refresh()
+
+    def test_check_matches_requires_review_if_verified_permissions_changed(self):
+        self._check_matches_refresh(changed_permissions=True)
+
+    def test_key_change_during_automatic_refresh_rejects_before_publication(self):
+        self._check_matches_refresh(rotate_during_read=True)
+
+    def _check_matches_refresh(
+        self, *, changed_permissions=False, rotate_during_read=False
+    ):
+        from unittest.mock import Mock
+        from impodo.adapters.duckdb.unit_of_work import _read_databases
+        from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+        from impodo.domain.shared.models import (
+            FieldMetadata,
+            ModelMetadata,
+            TargetRecord,
+        )
+        from tests.support.recipe_lifecycle import metadata_for_schema
+
+        from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
+        from impodo.domain.workspace.contracts import SchemaField, SchemaModel
+        from impodo.domain.schema.governance import (
+            BusinessKeyDefinition,
+            BusinessKeyStatus,
+        )
+
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        self.context, self.actor = context, actor
+        workspace_id = HierarchyWorkflowFixture.freeze_files(
+            self, {"people": b"Reference,Country\nP001,Example\n"}
+        )
+        original = HierarchyWorkflowFixture.schema(
+            self,
+            workspace_id,
+            mode="REMOTE",
+            extra_models=(
+                SchemaModel(
+                    "res.partner",
+                    "Contact",
+                    (
+                        SchemaField(
+                            "ref", "Reference", "char", True, False, None, None, ()
+                        ),
+                        SchemaField(
+                            "relation_0000",
+                            "Country",
+                            "many2one",
+                            False,
+                            False,
+                            "res.country",
+                            None,
+                            (),
+                        ),
+                    ),
+                ),
+            ),
+            extra_keys=(
+                BusinessKeyDefinition(
+                    "partner:ref",
+                    "res.partner",
+                    ("ref",),
+                    status=BusinessKeyStatus.CONFIRMED,
+                ),
+            ),
+        )
+        keys = context.queries.get_schema_governance(workspace_id).business_keys
+        original = context.schema_workspace.capture(workspace_id, metadata_for_schema(original),
+            read_credential_binding_hash=original.read_credential_binding_hash,
+            read_identity=OdooReadIdentity(target_hash=original.connection_target_hash,
+                principal_hash=original.read_principal_hash, permission_hash=original.read_permission_hash,
+                context_hash=original.read_context_hash, readable_models=tuple(sorted(model.name for model in original.models)),
+                observed_at="2026-10-31T00:00:00Z"), actor=actor)
+        context.schema_workspace.govern(workspace_id, business_keys=keys, actor=actor)
+        dataset = context.queries.get_mapping_source_selection(workspace_id).datasets[0]
+        business_key = next(
+            key
+            for key in context.queries.get_schema_governance(workspace_id).business_keys
+            if key.model == "res.partner"
+        )
+        state = context.queries.get(workspace_id)
+        selected = context.workspace_states.select_odoo_company(
+            workspace_id,
+            actor=actor,
+            expected_revision=state.revision,
+            selection=OdooCompanySelection(
+                original.connection_target_hash, 105, "Northwind Factory"
+            ),
+        )
+        owner = context.target_credential_workspace(
+            workspace_id, workspace_state=selected, actor=actor
+        )
+        credential = store_target_credential(
+            self.secrets,
+            owner,
+            TargetCredentialRole.READ,
+            "current-key",
+            persistent=False,
+        )
+        metadata = metadata_for_schema(original)
+
+        def read_schema(_state, _key):
+            self.assertFalse(
+                hasattr(_read_databases, "connections"),
+                "A database owner crossed the Odoo read",
+            )
+            if rotate_during_read:
+                store_target_credential(
+                    self.secrets,
+                    owner,
+                    TargetCredentialRole.READ,
+                    "newer-key",
+                    persistent=False,
+                )
+            return metadata
+
+        def identity(state, _key, models):
+            self.assertFalse(hasattr(_read_databases, "connections"))
+            return OdooReadIdentity(
+                target_hash=original.connection_target_hash,
+                principal_hash=original.read_principal_hash,
+                permission_hash="sha256:" + "9" * 64
+                if changed_permissions
+                else original.read_permission_hash,
+                context_hash=state.odoo_company.context_hash,
+                readable_models=tuple(sorted(models)),
+                observed_at="2026-10-31T00:00:00Z",
+            )
+
+        context.readiness_reader = None
+        context.schema_read_session_factory = None
+        context.schema_reader = Mock(side_effect=read_schema)
+        context.read_identity_probe = identity
+
+        class SupportingReader:
+            def get_model_metadata(reader, _requests):
+                self.assertFalse(hasattr(_read_databases, "connections"))
+                return MetadataSnapshot(
+                    metadata.fingerprint,
+                    {
+                        "res.country": ModelMetadata(
+                            "res.country",
+                            "Country",
+                            {
+                            name: FieldMetadata(name, "char", required=True)
+                                for name in ("code", "name")
+                            },
+                        )
+                    },
+                )
+
+            def get_records(reader, requests):
+                self.assertFalse(hasattr(_read_databases, "connections"))
+                return RecordSnapshot(
+                    metadata.fingerprint,
+                    {
+                        "res.country": (
+                            TargetRecord(
+                                "res.country",
+                                901,
+                                {"code": "EX", "name": "Exampleland"},
+                            ),
+                        )
+                    },
+                    {request.model: request.fields for request in requests},
+                )
+
+        entries = [
+            ["csrf_token", self.csrf],
+            ["action", "draft"],
+            ["operation_id", str(uuid4())],
+            ["expected_parent_version", ""],
+            ["expected_working_draft_version", ""],
+            ["editable_dataset_id", dataset.dataset_id],
+            ["target_model_0", "res.partner"],
+            ["mode_0", "create"],
+            ["on_existing_0", "block"],
+            ["source_identity_0", dataset.columns[0].stable_key],
+            ["business_key_0", business_key.key_id],
+            ["identity_source_0_0", dataset.columns[0].stable_key],
+            ["visible_relation_target_0", "relation_0000"],
+            ["relation_source_0_0", dataset.columns[1].stable_key],
+            ["relation_origin_0_0", "target_catalog"],
+            ["relation_key_0_0", "odoo-standard:res.country:code"],
+            ["relation_operation_0_0", "replace"],
+            ["relation_compare_0_0", "1"],
+            ["relation_missing_0_0", "error"],
+            ["relation_ambiguous_0_0", "error"],
+            ["relation_null_0_0", "distinct"],
+            [
+                "relation_value_matches_0_0",
+                '[{"source_value":"Example","target_value":"EX"}]',
+            ],
+        ]
+        with patch(
+            "impodo.web.composition.target_readers.Json2ReadConnector",
+            return_value=SupportingReader(),
+        ) as supporting:
+            with collect_duckdb_request_timings() as timings:
+                checked = self.client.post(
+                    f"/workspaces/{workspace_id}/mapping/save",
+                    json={"entries": entries},
+                    headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+                )
+        refreshed = context.queries.get_odoo_schema_catalog(workspace_id)
+        if changed_permissions or rotate_during_read:
+            self.assertEqual(checked.status_code, 422, checked.text)
+            self.assertEqual(
+                refreshed.read_credential_binding_hash,
+                original.read_credential_binding_hash,
+            )
+            self.assertEqual(refreshed.pending_refresh is not None, changed_permissions)
+            self.assertIsNone(context.queries.get_mapping_revision(workspace_id))
+            supporting.assert_not_called()
+            return
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertEqual(checked.json()["status"], "committed")
+        self.assertEqual(
+            refreshed.read_credential_binding_hash, credential.binding_hash
+        )
+        self.assertEqual(
+            refreshed.read_context_hash, selected.odoo_company.context_hash
+        )
+        revision = context.queries.get_mapping_revision(workspace_id)
+        self.assertEqual(revision.definition.datasets[0].mode.value, "create")
+        self.assertEqual(
+            revision.definition.datasets[0]
+            .relationships[0]
+            .resolver.value_mappings[0]
+            .target_value,
+            "EX",
+        )
+        self.assertNotEqual(
+            context.queries.get_mapping_validation(
+                workspace_id, revision.version
+            ).status.value,
+            "INVALID",
+        )
+        context.schema_reader.assert_called_once()
+        # The request's local phases reuse the registry, linkage, Data version
+        # and engine owners. RPCs run after every retained owner has closed.
+        self.assertLessEqual(timings.connection_count, 30)
+        self.assertLessEqual(timings.schema_check_count, 8)
+        self.assertEqual(timings.lock_retry_count, 0)
+        replayed = self.client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf})
+        self.assertEqual(replayed.status_code, 200, replayed.text)
+        self.assertEqual(context.queries.get_mapping_revision(workspace_id).version, revision.version)
+        context.schema_reader.assert_called_once()
+        return timings
+
     def test_browser_recipe_activation_requires_its_own_company_choice(self):
         from dataclasses import replace
         from impodo.web.routers.schema import _require_run_company
@@ -214,6 +469,18 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         workspace_id, access, draft, source, schema = self.configured()
         context = self.app.state.context
         before = context.queries.get(workspace_id)
+        self.assertNotIn(
+            'id="odoo-operation-company"',
+            self.client.get(f"/workspaces/{workspace_id}/target").text,
+        )
+        self.assertNotIn(
+            'id="odoo-operation-company"',
+            self.client.get(f"/workspaces/{workspace_id}/schema").text,
+        )
+        self.assertIn(
+            'id="odoo-operation-company"',
+            self.client.get(f"/workspaces/{workspace_id}/mapping").text,
+        )
         physical_paths = []
         connect = duckdb.connect
 
@@ -225,7 +492,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             "impodo.web.routers.odoo_company.read_company_access", return_value=access
         ) as remote:
             choices = self._post(
-                f"/workspaces/{workspace_id}/target/company/choices",
+                f"/workspaces/{workspace_id}/mapping/company/choices",
                 {"csrf_token": self.csrf},
             )
             self.assertEqual(choices.status_code, 200, choices.text[:500])
@@ -236,7 +503,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
                 patch("duckdb.connect", side_effect=observed_connect),
             ):
                 response = self._post(
-                    f"/workspaces/{workspace_id}/target/company",
+                    f"/workspaces/{workspace_id}/mapping/company",
                     {
                         "csrf_token": self.csrf,
                         "revision": str(before.revision),
@@ -295,6 +562,56 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         self.assertIsNone(self.app.state.context.queries.get(workspace_id).odoo_company)
 
     def test_company_context_refresh_preserves_mapping_when_schema_is_unchanged(self):
+        self._exercise_company_refresh()
+
+    def test_new_checking_key_and_company_refresh_preserve_matches(self):
+        self._exercise_company_refresh(rotated=True)
+
+    def test_key_refresh_is_available_after_company_has_already_been_checked(self):
+        workspace_id, draft, schema = self._exercise_company_refresh(rotated=True)
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        state = context.queries.get(workspace_id)
+        owner = context.target_credential_workspace(
+            workspace_id, workspace_state=state, actor=actor
+        )
+        credential = store_target_credential(
+            self.secrets,
+            owner,
+            TargetCredentialRole.READ,
+            "a-new-checking-generation",
+            persistent=False,
+        )
+        self.assertNotEqual(
+            credential.binding_hash, schema.read_credential_binding_hash
+        )
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        self.assertIn(
+            f'action="/workspaces/{workspace_id}/mapping/company/refresh"', page.text
+        )
+        response = self._post(
+            f"/workspaces/{workspace_id}/mapping/company/refresh",
+            {
+                "csrf_token": self.csrf,
+                "revision": str(state.revision),
+            },
+        )
+        self.assertEqual(response.status_code, 303, response.text[:1000])
+        checked = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertIsNone(checked.pending_refresh)
+        self.assertEqual(checked.read_credential_binding_hash, credential.binding_hash)
+        self.assertEqual(checked.content_hash, schema.content_hash)
+        self.assertEqual(
+            context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id),
+            draft,
+        )
+
+    def test_changed_checking_user_or_permissions_still_require_review(self):
+        for changed in ("principal_hash", "permission_hash"):
+            with self.subTest(changed=changed):
+                self._exercise_company_refresh(rotated=True, changed_access=changed)
+
+    def _exercise_company_refresh(self, *, rotated=False, changed_access=None):
         workspace_id, access, draft, _source, schema = self.configured()
         context = self.app.state.context
         state = context.queries.get(workspace_id)
@@ -305,6 +622,21 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             expected_revision=state.revision,
             selection=access.choices[1],
         )
+        credential = None
+        if rotated:
+            owner = context.target_credential_workspace(
+                workspace_id, workspace_state=selected, actor=actor
+            )
+            credential = store_target_credential(
+                self.secrets,
+                owner,
+                TargetCredentialRole.READ,
+                "a-new-checking-generation",
+                persistent=False,
+            )
+            self.assertNotEqual(
+                credential.binding_hash, schema.read_credential_binding_hash
+            )
         from tests.support.browser_scenarios import (
             FieldMetadata,
             MetadataSnapshot,
@@ -341,17 +673,48 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             readable_models=tuple(model.name for model in schema.models),
             observed_at="2026-10-01T00:00:00Z",
         )
-        checked = context.schema_workspace.check_refresh(
-            workspace_id,
-            metadata,
-            read_credential_binding_hash=schema.read_credential_binding_hash,
-            read_identity=identity,
-            actor=actor,
-        )
+        if changed_access:
+            from dataclasses import replace
+
+            identity = replace(identity, **{changed_access: "sha256:" + "9" * 64})
+        context.schema_read_session_factory = None
+        context.schema_reader = lambda _state, _key: metadata
+        context.read_identity_probe = lambda _state, _key, _models: identity
+        with collect_duckdb_request_timings() as timings:
+            response = self._post(
+                f"/workspaces/{workspace_id}/mapping/company/refresh",
+                {
+                    "csrf_token": self.csrf,
+                    "revision": str(selected.revision),
+                },
+            )
+        self.assertEqual(response.status_code, 303, response.text[:1000])
+        checked = context.queries.get_odoo_schema_catalog(workspace_id)
+        self.assertLessEqual(timings.connection_count, 10)
+        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertEqual(timings.lock_retry_count, 0)
+        if changed_access:
+            self.assertIsNotNone(checked.pending_refresh)
+            self.assertEqual(
+                checked.read_credential_binding_hash,
+                schema.read_credential_binding_hash,
+            )
+            self.assertEqual(
+                context.mapping_workspace.mappings.get_mapping_working_draft(
+                    workspace_id
+                ),
+                draft,
+            )
+            return
         self.assertIsNone(checked.pending_refresh)
+        if credential:
+            self.assertEqual(
+                checked.read_credential_binding_hash, credential.binding_hash
+            )
         self.assertEqual(checked.read_context_hash, identity.context_hash)
         self.assertEqual(checked.content_hash, schema.content_hash)
         self.assertEqual(
             context.mapping_workspace.mappings.get_mapping_working_draft(workspace_id),
             draft,
         )
+        return workspace_id, draft, checked

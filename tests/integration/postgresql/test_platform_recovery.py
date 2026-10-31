@@ -106,6 +106,19 @@ def _replacement_hash() -> PasswordHash:
 
 
 class PostgreSQLAccountRecoveryTests(unittest.TestCase):
+    def test_inspection_is_digest_purpose_state_and_expiry_bound_in_a_closed_transaction(self):
+        proof = RecoveryTokenProof(TOKEN_ID, b"d" * 32)
+        for row, expected in ((None, None), (("CUSTOMER_USER",), LoginPrincipalKind.CUSTOMER_USER)):
+            with self.subTest(row=row):
+                session = _Session(responses=[row])
+                result = _repository(session).inspect_token_principal(proof, RecoveryTokenPurpose.PASSWORD_RESET, observed_at=NOW)
+                self.assertEqual(result, expected)
+                self.assertTrue(session.committed and session.closed)
+                _, query, parameters = next(event for event in session.events if event[0] == "fetch_one")
+                self.assertEqual(parameters, (TOKEN_ID, proof.digest, "PASSWORD_RESET", NOW))
+                self.assertIn("state = 'ISSUED' AND expires_at >", query)
+                self.assertNotIn("FOR UPDATE", query)
+
     def test_known_request_uses_separate_throttles_and_replaces_token(self) -> None:
         session = _Session(
             responses=[

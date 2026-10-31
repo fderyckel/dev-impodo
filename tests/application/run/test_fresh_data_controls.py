@@ -217,6 +217,9 @@ class StoredRunControlTests(TestCase):
             connection.execute("DROP TABLE run_values_current")
             connection.execute("UPDATE schema_version SET version = 5")
             connection.execute("DROP TABLE production_run_values")
+            # Reconstruct the v5 shape, including the absence of the v8 columns.
+            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
+            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
             ensure_migration_registry_schema(connection, fixture.database.registry_path)
         self.assertEqual(repository.get_run_values(old.migration_run_id).content_hash, old.content_hash)
         new = replace(old, revision=2, contract_version=2,

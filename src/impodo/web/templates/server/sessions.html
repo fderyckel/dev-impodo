@@ -9,7 +9,10 @@
 <tbody>{% for item in page.items %}<tr>
   <td><a href="/admin/users/{{ item.user_id }}">{{ item.user_id }}</a>{% if item.session_id == session.session_id %}<br>This browser{% endif %}</td>
   <td>{{ item.created_at.isoformat() }}</td><td>{{ item.last_seen_at.isoformat() }}</td><td>{{ item.state|title }}</td>
-  <td>{% if item.state == 'ACTIVE' %}<form method="post" action="/admin/sessions/{{ item.session_id }}/revoke">
+  <td>{% if item.state == 'ACTIVE' and item.session_id == session.session_id %}<form method="post" action="/logout">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button type="submit">Sign out this browser</button>
+  </form>{% elif item.state == 'ACTIVE' %}<form method="post" action="/admin/sessions/{{ item.session_id }}/revoke">
     {{ confirmation(csrf_token, item.optimistic_revision, item.session_id, 'I confirm signing out session ' ~ item.session_id ~ ' for account ' ~ item.user_id ~ '.') }}
     <button type="submit">Revoke session</button>
   </form>{% endif %}</td>

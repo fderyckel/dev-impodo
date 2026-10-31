@@ -26,6 +26,22 @@ from impodo.domain.odoo.contracts import (
 
 
 class Json2ConnectorTests(unittest.TestCase):
+    def test_stage2_can_discover_fields_without_user_default_company_values(self):
+        calls = []
+
+        def transport(url, _headers, _body, _timeout, _method):
+            calls.append(url)
+            if url.endswith("/web/version"):
+                return 200, {"version": "19.0"}
+            if url.endswith("/fields_get"):
+                return 200, {"name": {"type": "char", "required": True, "readonly": False}}
+            raise AssertionError("Default values require an explicit operation company")
+
+        snapshot = Json2ReadConnector(self.config(), transport=transport).get_model_metadata(
+            [MetadataRequest("x.model", ("name",))], include_create_defaults=False)
+        self.assertEqual(snapshot.create_defaults, {"x.model": {}})
+        self.assertEqual(len(calls), 2)
+
     def test_version_tuple_is_checked_without_changing_fingerprint_shape(self):
         for version, info in (("19.0", [19, 0, 0, "final", 0, ""]),
                               ("19.0+e", [19, 0, 0, "final", 0, "+e"]),

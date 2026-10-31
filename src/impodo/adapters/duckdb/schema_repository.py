@@ -335,8 +335,14 @@ class SchemaRepository(SupportingReviewRecords):
                     and catalog.origin is current.origin
                     and _models_without_create_defaults(catalog.models)
                     == _models_without_create_defaults(current.models)
-                    and catalog.read_credential_binding_hash
-                    == current.read_credential_binding_hash
+                    # A full verified company refresh may also rebind the key
+                    # generation. Partial default checks keep the old binding.
+                    and (
+                        catalog.read_credential_binding_hash == current.read_credential_binding_hash
+                        or expected_company_context_hash is not None
+                        and catalog.read_context_hash == expected_company_context_hash
+                        and catalog.read_context_hash != current.read_context_hash
+                    )
                     and catalog.read_principal_hash
                     == current.read_principal_hash
                     and catalog.read_permission_hash

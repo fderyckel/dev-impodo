@@ -19,6 +19,89 @@ have a functional decision for every required field, stable identity,
 selection value, and relationship. Captured Odoo records keep their protected
 record identity automatically.
 
+### Choose the company for this load
+
+At the top of **Match data**, open **Company for this load** and select
+**Choose Odoo company**. Impodo shows the checking user, that user's default
+company and their available companies. Choose **Odoo company**, then select
+**Use this company**, even when only one choice is available. **Check matches**
+automatically refreshes the saved Odoo field check when the checking-key setup
+or selected company has changed. It keeps the edits submitted with that check.
+You can also save progress and select **Check company-specific values** to
+refresh earlier, before reviewing individual defaults or linked values.
+The connection and record types have already been checked in Odoo data.
+
+For example, Northwind Group can be the user's default company while this
+load belongs to Northwind Factory. Select Factory to check, load and verify
+company-specific values there. The user's default remains Group.
+
+![Stage 3 showing Northwind Factory separately from the checking user's default company, with the company-specific refresh action.](../../images/user/08j-odoo-company-selection.png)
+
+The load company and a record's **Company** field serve different purposes.
+Selecting the load company does not fill that field. A shared record stays
+shared when its mapped company is blank. Odoo's rules determine which shared
+or parent-company linked records are valid. The checking and loading users
+both need access to the load company; their API keys can belong to different users.
+
+Each reviewed load uses one operating company. For files covering several
+companies, use the saved row-inclusion rules to select the relevant records
+and review a separate run for each company. Impodo does not switch operating
+company automatically for each row.
+
+You can correct the company in the same authoring project. Accepted files,
+combined tables and saved field matches remain. Check company-specific values,
+refresh linked-value choices, check and confirm the matches, then prepare and
+compare again. A company-only refresh preserves saved matches when fields and
+access are unchanged. Re-entering a checking key gives its saved setup a new
+version, even when the key text is the same. **Check matches** refreshes that
+verification before it reads the linked Odoo choices. A repeated check with the
+same current setup does not repeat the field refresh. This keeps your matches
+when the same Odoo user, permissions and fields are verified.
+Other changes require the normal schema review. Verify
+an active or uncertain load before changing its company.
+
+A Recipe keeps reusable transformations and business keys. It does not copy
+the authoring database's company number into another run. Choose the new run's
+company before activation and check its company-specific defaults and linked
+values again. Explicit company names inside saved rules stay literal; review
+or parameterize those rules rather than expecting automatic substitution.
+An activated run keeps its company fixed, so use a fresh run for another
+company. Review business expectations for each run too; a Recipe does not
+approve create or update counts for future deliveries.
+
+Projects saved by the earlier company-selection build are upgraded in place.
+Their files, combined tables, matches and load history remain. Confirm the
+company here before continuing with fresh checks.
+
+For Odoo-to-Odoo transfers, the company control appears in **Match destination
+data** after checking the destination connection. A changed company requires
+another destination check. The frozen source keeps its own independent context.
+
+### Set business expectations
+
+After checking field matches, use **What may this load change?** near the top
+of Match data. Choose **Allowed changes** for each record type, optionally set
+minimum and maximum new or changed records, then select **Save business
+expectations**. Empty counts mean no limit. A maximum of **0** means no records
+of that kind may be written.
+
+For example, after a load created 150 company chains but no people, keep the
+same project and tables. Choose **Reuse existing records only** for Company
+chains and set both maximums to **0**. Allow the intended creates or updates
+for People. Prepare and compare again. All 150 chains must match existing
+records; a missing chain blocks loading before any write. You can review the
+matches without deleting those chains or recreating the project.
+
+![Saved expectations allow People creates and updates while requiring existing Company chains and zero chain writes.](../../images/user/11i-mapping-business-expectations.png)
+
+**Limit which matched fields may change** can narrow value fields and linked
+changes separately for new and changed records. These limits cannot add
+permissions beyond the checked mapping. Saving expectations does not load or
+approve data. When a current comparison exists, Impodo checks its saved totals
+against the new expectations locally; otherwise compare again in Final review.
+These expectations govern prepared file imports. Odoo-to-Odoo transfers keep
+their destination-owned matching and approval controls.
+
 ### Check identity health before matching fields
 
 At the top of **Match data**, **Identity health** separates three facts that

@@ -46,6 +46,28 @@ def proposal(models, datasets=(), bindings=(), intents=(), roots=("x.product",))
 
 
 class SupportingDataPlanTests(unittest.TestCase):
+    def test_verified_variants_default_to_odoo_and_preserve_explicit_incoming_intent(self):
+        variants = replace(
+            relation("product_variant_ids", "product.product", kind="one2many"),
+            relation_field="product_tmpl_id",
+        )
+        inputs = dict(
+            selected_models=("product.template",),
+            models=(model("product.template", variants), model("product.product")),
+            datasets=(dataset("variants", "product.product"),),
+            source_selection_hash=HASH, schema_hash=HASH, preparation_hash=None,
+            odoo_version="20.0+e",
+        )
+        automatic = plan_supporting_data(**inputs)
+        self.assertTrue(automatic.complete)
+        self.assertEqual(automatic.edges[0].role, SupportingPlanRole.ODOO_MANAGED)
+        explicit = plan_supporting_data(
+            **inputs,
+            relationship_intents=(SupportingRelationshipIntent("product.template", "product_variant_ids", "variants"),),
+        )
+        self.assertTrue(explicit.complete, explicit.issues)
+        self.assertEqual(explicit.edges[0].role, SupportingPlanRole.INCOMING_CANDIDATE)
+
     def test_descriptor_and_intent_limits_precede_dependency_expansion(self):
         models = (model("x.product", relation("category_id", "x.category")),)
         result = proposal(

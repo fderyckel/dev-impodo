@@ -15,13 +15,16 @@ from impodo.domain.identity.administration import (
 )
 from impodo.domain.identity.recovery import (
     PASSWORD_RESET_ACCEPTED_MESSAGE,
+    PASSWORD_RESET_REJECTED_MESSAGE,
     AccountRecoveryRejectedError,
+    AccountRecoveryUnavailableError,
     AuthorizedRecoveryTokenCommand,
     LoginPrincipalKind,
     PasswordResetCommand,
     PasswordResetRequestCommand,
     RecoveryTokenPurpose,
 )
+from impodo.web.composition.server_account_admission import ServerAccountBusyError
 from impodo.web.composition.server_administration_context import (
     ServerAdministrationDependencies,
     form_text,
@@ -46,6 +49,7 @@ def create_server_account_router(
     """Build public one-time forms whose tokens travel only in fragments and bodies."""
 
     router = APIRouter(include_in_schema=False)
+    admission = dependencies.account_admission
 
     @router.get("/administration.css")
     async def administration_styles() -> FileResponse:
@@ -81,9 +85,18 @@ def create_server_account_router(
 
         def consume() -> Response:
             _require_public_csrf(request, form_text(form, "csrf_token"))
+            with admission.admit(_source_digest(dependencies, request)):
+                return activate_admitted()
+
+        def activate_admitted() -> Response:
             _require_password_confirmation(
                 form_text(form, "password"), form_text(form, "password_confirmation")
             )
+            kind = _token_principal(
+                dependencies, form_text(form, "token"), RecoveryTokenPurpose.ACTIVATION,
+            )
+            if kind is LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+                raise AccountRecoveryRejectedError(PASSWORD_RESET_REJECTED_MESSAGE)
             dependencies.organizations.activate_customer_user(
                 ActivateCustomerUserCommand(
                     token=form_text(form, "token"),
@@ -111,6 +124,10 @@ def create_server_account_router(
 
         def consume() -> Response:
             _require_public_csrf(request, form_text(form, "csrf_token"))
+            with admission.admit(_source_digest(dependencies, request)):
+                return reset_admitted()
+
+        def reset_admitted() -> Response:
             password = form_text(form, "password")
             _require_password_confirmation(
                 password, form_text(form, "password_confirmation")
@@ -120,14 +137,16 @@ def create_server_account_router(
                 new_password=password,
                 source_digest=_source_digest(dependencies, request),
             )
-            try:
+            kind = _token_principal(
+                dependencies, command.token, RecoveryTokenPurpose.PASSWORD_RESET,
+            )
+            if kind is LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+                recovery = dependencies.account_recovery
+                if recovery is None:
+                    raise AccountRecoveryUnavailableError("Account recovery is unavailable")
+                recovery.reset_password(command, deployment_id=dependencies.deployment_id)
+            else:
                 dependencies.organizations.reset_customer_password(
-                    command, deployment_id=dependencies.deployment_id
-                )
-            except AccountRecoveryRejectedError:
-                if dependencies.account_recovery is None:
-                    raise
-                dependencies.account_recovery.reset_password(
                     command, deployment_id=dependencies.deployment_id
                 )
             response = render(
@@ -150,13 +169,17 @@ def create_server_account_router(
         def accept() -> Response:
             _require_public_csrf(request, form_text(form, "csrf_token"))
             if dependencies.account_recovery is not None:
-                dependencies.account_recovery.request_password_reset(
-                    PasswordResetRequestCommand(
-                        login_email=form_text(form, "login_email"),
-                        source_digest=_source_digest(dependencies, request),
-                    ),
-                    deployment_id=dependencies.deployment_id,
-                )
+                try:
+                    with admission.admit(_source_digest(dependencies, request)):
+                        dependencies.account_recovery.request_password_reset(
+                            PasswordResetRequestCommand(
+                                login_email=form_text(form, "login_email"),
+                                source_digest=_source_digest(dependencies, request),
+                            ),
+                            deployment_id=dependencies.deployment_id,
+                        )
+                except ServerAccountBusyError:
+                    pass  # Public reset requests retain the same opaque acknowledgement.
             return render(
                 dependencies,
                 request,
@@ -218,6 +241,18 @@ def create_server_account_router(
     return router
 
 
+def _token_principal(
+    dependencies: ServerAdministrationDependencies, token: str, purpose: RecoveryTokenPurpose,
+) -> LoginPrincipalKind:
+    recovery = dependencies.account_recovery
+    if recovery is None:
+        raise AccountRecoveryUnavailableError("Account recovery is unavailable")
+    kind = recovery.inspect_token_principal(token, purpose)
+    if kind is None:
+        raise AccountRecoveryRejectedError(PASSWORD_RESET_REJECTED_MESSAGE)
+    return kind
+
+
 def _account_form(
     dependencies: ServerAdministrationDependencies, request: Request, mode: str
 ) -> Response:
@@ -242,7 +277,9 @@ def _require_public_csrf(request: Request, token: str) -> None:
     if (
         not cookie
         or not token
+        or len(cookie) > 128
         or len(token) > 128
+        or not cookie.isascii()
         or not token.isascii()
         or not hmac.compare_digest(cookie, token)
     ):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Protocol
 
 from impodo.application.identity.authentication_ports import (
@@ -9,6 +10,7 @@ from impodo.application.identity.authentication_ports import (
 )
 from impodo.domain.identity.recovery import (
     AuthorizedRecoveryTokenCommand,
+    LoginPrincipalKind,
     PasswordResetDelivery,
     PasswordResetMutation,
     RecoverySecurityEvent,
@@ -50,6 +52,10 @@ class PasswordResetDeliveryError(RuntimeError):
 
 class AccountRecoveryRepository(Protocol):
     """Own short atomic recovery-token and password transitions."""
+
+    def inspect_token_principal(
+        self, proof: RecoveryTokenProof, purpose: RecoveryTokenPurpose, *, observed_at: datetime,
+    ) -> LoginPrincipalKind | None: ...
 
     def request_password_reset(
         self,

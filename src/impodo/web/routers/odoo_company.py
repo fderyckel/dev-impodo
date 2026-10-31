@@ -1,6 +1,6 @@
 """Confirm one run's target company while retaining saved source and mappings.
 
-See docs/developer/workflow/02-odoo-data.md.
+See docs/developer/workflow/03-match-data.md.
 """
 
 from dataclasses import replace
@@ -24,12 +24,12 @@ from impodo.web.composition.target_readers import _selected_local_profile
 from impodo.web.context import WebContext
 from impodo.web.forms import _revision, _secure_form, _text
 from impodo.web.presenters.common import _flash
-from impodo.web.presenters.summary import _render_target
+from impodo.web.presenters.mapping_view import _render_mapping
 from impodo.web.request_identity import request_identity
 from impodo.web.security import require_session
 from impodo.web.target_credentials import TargetCredentialRole, get_target_credential
 
-from .transfer_destination import _render_destination
+from .destination_matching import _matching_evidence, _render_matching
 
 
 def build_odoo_company_router(context: WebContext) -> APIRouter:
@@ -96,14 +96,22 @@ def build_odoo_company_router(context: WebContext) -> APIRouter:
 
     def render(request, workspace_id, **kwargs):
         state = context.queries.get(workspace_id)
-        renderer = (
-            _render_destination
-            if state.source_mode is SourceMode.ODOO
-            else _render_target
+        if state.source_mode is SourceMode.FILE:
+            return _render_mapping(request, context, workspace_id, **kwargs)
+        selection, schema = _matching_evidence(context, workspace_id)
+        return _render_matching(
+            request,
+            context,
+            state,
+            selection,
+            schema,
+            actor=request_identity(request, context.identity_resolver).actor,
+            **kwargs,
         )
-        return renderer(request, context, state, **kwargs)
 
     @router.post("/workspaces/{workspace_id}/target/company/choices")
+    @router.post("/workspaces/{workspace_id}/mapping/company/choices")
+    @router.post("/workspaces/{workspace_id}/destination-matching/company/choices")
     @router.post("/workspaces/{workspace_id}/transfer-destination/company/choices")
     async def choices(request: Request, workspace_id: str):
         require_session(request)
@@ -121,6 +129,8 @@ def build_odoo_company_router(context: WebContext) -> APIRouter:
         return await run_page_read(render, request, workspace_id, company_access=access)
 
     @router.post("/workspaces/{workspace_id}/target/company")
+    @router.post("/workspaces/{workspace_id}/mapping/company")
+    @router.post("/workspaces/{workspace_id}/destination-matching/company")
     @router.post("/workspaces/{workspace_id}/transfer-destination/company")
     async def select(request: Request, workspace_id: str):
         require_session(request)
@@ -176,10 +186,10 @@ def build_odoo_company_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "Odoo company saved. Check Odoo details and saved matches, then prepare and compare again. Your source data and mapping rules are kept.",
+            "Odoo company saved. Check company-specific values and saved matches, then prepare and compare again. Your source data and mapping rules are kept.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/{'transfer-destination' if state.source_mode is SourceMode.ODOO else 'target'}#odoo-operation-company",
+            f"/workspaces/{workspace_id}/{'transfer-destination' if state.source_mode is SourceMode.ODOO else 'mapping'}#odoo-operation-company",
             status_code=303,
         )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import unittest
 from datetime import UTC, datetime, timedelta
+from dataclasses import replace
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -46,6 +47,7 @@ from impodo.web.composition.server_session_http import (
     SERVER_CSRF_COOKIE_NAME,
     ServerBrowserSecurityMiddleware,
 )
+from impodo.web.composition.server_account_admission import ServerAccountAdmission
 
 ROOT = Path(__file__).resolve().parents[3]
 NOW = datetime(2026, 10, 29, 20, 0, tzinfo=UTC)
@@ -230,6 +232,7 @@ class ServerAdministrationTests(unittest.TestCase):
             session_absolute_timeout=timedelta(hours=12),
         )
         app = FastAPI()
+        self.dependencies = dependencies
         app.include_router(create_server_administration_router(dependencies))
         app.add_middleware(
             ServerBrowserSecurityMiddleware,
@@ -415,6 +418,36 @@ class ServerAdministrationTests(unittest.TestCase):
         self.assertEqual(self.client.get("/admin/users").status_code, 403)
         self.assertEqual(self.client.get("/admin/sessions").status_code, 403)
         self.assertEqual(self.client.get("/admin/history").status_code, 403)
+
+    def test_login_and_token_forms_share_the_same_source_budget(self) -> None:
+        dependencies = replace(self.dependencies, account_admission=ServerAccountAdmission(
+            global_burst=10, source_burst=2, clock=lambda: 0.0))
+        app = FastAPI()
+        app.include_router(create_server_administration_router(dependencies))
+        app.add_middleware(ServerBrowserSecurityMiddleware, public_url="https://impodo.example.test")
+        with TestClient(app, base_url="https://impodo.example.test", follow_redirects=False) as client:
+            headers = {"Origin": "https://impodo.example.test"}
+            for _ in range(2):
+                self.assertEqual(client.post("/login", headers=headers, data={"login_email": "operator@example.test", "password": "fictional"}).status_code, 303)
+            self.assertEqual(client.post("/login", headers=headers, data={"login_email": "operator@example.test", "password": "fictional"}).status_code, 429)
+            form = ServerFormParser(client.get("/activate").text).form("/activate")
+            form.update(token="unissued", password="fictional-long-password", password_confirmation="fictional-long-password")
+            self.assertEqual(client.post("/activate", headers=headers, data=form).status_code, 429)
+        self.assertEqual(len(self.authenticator.commands), 2)
+
+    def test_malformed_anonymous_cookie_is_rejected_on_every_public_form(self) -> None:
+        for path in ("/activate", "/reset-password", "/forgot-password"):
+            for cookie in (r'"invalid-\351"', "x" * 129):
+                with self.subTest(path=path, cookie_length=len(cookie)):
+                    response = self.client.post(
+                        path,
+                        data={"csrf_token": "invalid"},
+                        headers={
+                            "Origin": "https://impodo.example.test",
+                            "Cookie": "__Host-impodo_account_csrf=" + cookie,
+                        },
+                    )
+                    self.assertEqual(response.status_code, 400)
 
     def test_history_and_session_filters_use_only_session_organization(self) -> None:
         self.authenticator.principal_kind = LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR

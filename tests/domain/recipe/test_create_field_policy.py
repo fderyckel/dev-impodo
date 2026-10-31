@@ -158,6 +158,17 @@ class CreateFieldPolicyTests(unittest.TestCase):
             set(),
         )
 
+    def test_final_odoo_20_retains_qualified_create_hooks(self) -> None:
+        for name, kind, relation, model in (
+            ("resource_id", "many2one", "resource.resource", "mrp.workcenter"),
+            ("product_variant_ids", "one2many", "product.product", "product.template"),
+        ):
+            with self.subTest(model=model):
+                field = replace(self.field, name=name, type=kind, relation=relation, selection=())
+                self.assertIs(evaluate_create_field(field, provided=False, handling=None,
+                    target_model=model, odoo_version="20.0+e").coverage,
+                    CreateFieldCoverage.ODOO_MANAGED_CONFIRMED)
+
     def test_workcenter_resource_hook_fails_closed_on_wrong_schema_or_version(self) -> None:
         resource = replace(
             self.field,
@@ -169,7 +180,7 @@ class CreateFieldPolicyTests(unittest.TestCase):
         cases = (
             (resource, "mrp.routing.workcenter", "19.0"),
             (replace(resource, relation="res.users"), "mrp.workcenter", "19.0"),
-            (resource, "mrp.workcenter", "20.0"),
+            (resource, "mrp.workcenter", "20.0rc1"),
         )
         for field, model, version in cases:
             with self.subTest(model=model, version=version, relation=field.relation):
@@ -227,7 +238,7 @@ class CreateFieldPolicyTests(unittest.TestCase):
         for field, model, version in (
             (variants, "product.product", "19.0+e"),
             (replace(variants, relation="product.template"), "product.template", "19.0+e"),
-            (variants, "product.template", "20.0+e"),
+            (variants, "product.template", "20.0rc1+e"),
         ):
             with self.subTest(model=model, version=version, relation=field.relation):
                 self.assertIs(

@@ -1988,6 +1988,14 @@ a.impact-card:focus-visible,
   margin: 0;
 }
 
+.source-composition-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(12.5rem, 1fr));
+  justify-content: stretch;
+  gap: .7rem;
+  overflow-x: auto;
+}
+
 .exact-join-field-tools .exact-join-field-actions {
   display: flex;
   grid-column: 1 / -1;

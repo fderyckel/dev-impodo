@@ -29,6 +29,109 @@ mapping definition, Recipe, compiled plan, or execution snapshot. A custom
 sequence is isolated, workspace-local presentation state rather than portable
 mapping meaning.
 
+## Company and business expectations
+
+For file imports, the page presents **Company for this load** before the
+field editor. `odoo_company.py` owns `/mapping/company/choices` and
+`/mapping/company`; earlier `/target/company` routes remain compatible.
+The Odoo-access and Stage 2 pages no longer present the selector. A Recipe
+setup can reach the Stage 3 company control before application activation.
+Odoo-to-Odoo destination matching presents the same selector after connection
+verification, using the destination credential and independent company binding.
+Changing that choice retires destination verification and requires another
+connection check before matching.
+
+`matching_company_refresh.py` owns `/mapping/company/refresh`. A bounded local
+operation verifies authority, workspace revision, current schema and checking
+credential. A worker then reads all selected models and probes identity through
+one metadata session, with no retained DuckDB owner. A second local operation
+rechecks those inputs before publishing `SchemaWorkspaceService.check_refresh`.
+Company-only changes refresh defaults and context while retaining mapping rules.
+The same checked refresh can adopt a new credential generation after verifying
+the same principal, model permissions and fields. The repository compares the
+previous generation before updating it; a partial default check cannot change
+the credential binding. A changed principal or permission set still requires
+review. The Stage 3 refresh action remains available after the company has
+already been checked, so a re-entered key has a direct recovery path.
+
+The ordinary **Check matches** command uses the same `prepare_matching_access`
+and `check_matching_access` operations. Preparation shares the bounded local
+operation that begins the mapping mutation. Only a stale key generation or
+confirmed company context triggers a metadata read and identity probe. The
+publication phase rechecks workspace revision, credential generation, schema
+binding, company context and pending candidate before writing. Verified
+unchanged access continues with the submitted field edits; real changes stop
+for the existing schema review. An exact mutation replay skips this refresh.
+
+The supporting-value capture groups local source-key collection and lookup
+publication into separate `run_local_operation_sync` callbacks. Checking-key
+ownership is read in another bounded local callback; every owner closes before
+the Odoo calls. The controlled one-table Many2one check fell from 58 physical
+opens and 12 schema checks to 30 and 8, with zero retries. Its regression
+asserts those bounds, one schema refresh, retained edits and exact receipt
+replay. Browser tests use **Check matches** directly, without the separate
+refresh action. These are isolated-fixture results, not a live latency claim.
+
+Changed fields or access keep the existing pending-schema review path.
+
+One reviewed load uses one operating company. It never fills or substitutes
+record `company_id`. Shared and parent-company reference eligibility stays
+with the existing Odoo domain and compatibility checks. Recipe transforms and
+business keys remain portable, while each new run confirms its own target
+company and checks company-sensitive values. Literal company names in mapping
+rules stay literal. Mixed-company files use existing row inclusion and separate
+reviewed runs; the browser does not silently switch company per row.
+
+[`matching_expectations.py`](../../../src/impodo/web/matching_expectations.py)
+projects **What may this load change?** from the
+page's already-loaded mapping, selection, schema, governance and validation.
+`checked_business_intent_inputs` provides the same pure technical-scope check
+used by [`BusinessIntentService`](../../../src/impodo/application/business_intent_service.py).
+The page reads one latest intent revision;
+an unchecked draft makes the editor unavailable until the matches are checked.
+The form separates blank counts from zero and value-field limits from linked
+operation limits for each write phase.
+
+`routers/matching_expectations.py` saves the closed bounded form through
+`BusinessIntentService.save`. It requires session, CSRF, verified `MAPPING_EDIT`,
+the current scope binding, expected revision and a UUID operation identity.
+Unknown models, widened effects and invalid ranges are rejected. Publication
+and optional reassessment run within one synchronous local operation, off the
+event loop. The [business intent contract](../contracts/business-intent.md)
+owns atomic revision publication, assessment and journal approval. These
+expectations govern conventional file imports, not destination-transfer authority.
+
+`PreflightService.reassess_business_intent` now obtains the exact current
+snapshot hash from its compact execution-review projection. It does not decode
+the full snapshot. The existing saved aggregate supplies create/update counts
+and field effects, so saving expectations performs no source, Parquet or Odoo
+read. The retry fixture measures at most six physical connections across the
+bounded command's owner/mode transitions, at most two schema checks and zero
+lock retries. This is controlled structural evidence, not live latency evidence.
+
+The same-project regression has 150 existing `x.chain` records and 4,753
+`x.person` records to create. The browser form forbids chain writes; loading
+writes only people, resolves their existing chain IDs and verifies all 4,903
+records by read-back. A missing chain and a zero-create maximum block execution
+before a journal or write. Separate tests cover stale forms, invalid counts,
+company refresh, joined Recipe reuse under a fresh company and the 65,299-row
+workspace with a second combined output.
+
+Focused verification lives in
+[`test_matching_expectations.py`](../../../tests/integration/web/test_matching_expectations.py),
+[`test_odoo_company.py`](../../../tests/integration/web/test_odoo_company.py),
+[`test_joined_recipe_preparation.py`](../../../tests/integration/web/test_joined_recipe_preparation.py)
+and [`test_mixed_join_preparation.py`](../../../tests/integration/web/test_mixed_join_preparation.py).
+The [authenticated browser checks](../../../tests/e2e/test_odoo_company.py)
+also capture both Stage 3 screenshots:
+
+```sh
+IMPODO_COMPANY_SCREENSHOT=docs/images/user/08j-odoo-company-selection.png \
+IMPODO_EXPECTATIONS_SCREENSHOT=docs/images/user/11i-mapping-business-expectations.png \
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --group quality \
+  --with playwright --with httpx python -m unittest tests.e2e.test_odoo_company
+```
+
 ## Contextual user guidance
 
 Source identity, Odoo identity, row inclusion, field values, and relationship
@@ -891,7 +994,11 @@ files.
 Every request receives an `X-Impodo-Request-ID` response header. Its terminal
 record contains only the request identity, HTTP method, registered route
 template, status, duration, slow-request flag, exception class when present,
-and the current working-draft version when the mapping route exposes one. The
+and the current working-draft version when the mapping route exposes one.
+Matching commands also expose their validated operation UUID as
+`mapping_operation_id`. This is the **Support reference** shown by the editor,
+so it can be correlated with the request and protected mutation receipt.
+The exported bundle retains that UUID and rejects malformed values. The
 recorder does not accept raw URLs, query strings, headers, bodies, source
 values, formulas, credentials, CSRF tokens, or launch tokens.
 

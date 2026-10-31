@@ -1,0 +1,107 @@
+/* Odoo-data review decisions; shared workflow styles remain in workflow-pages.css. */
+
+.supporting-review {
+  margin-top: 2rem;
+  border-top: 1px solid var(--line);
+  padding-top: 2rem;
+}
+
+.supporting-review-blocker p {
+  margin-bottom: .5rem;
+}
+
+.supporting-review-list {
+  display: grid;
+  gap: .9rem;
+  margin-top: 1.25rem;
+}
+
+.supporting-review-choice {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--impodo-grey);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: 1rem 1.1rem;
+}
+
+.supporting-review-choice:has(select:required) {
+  border-left-color: var(--impodo-red);
+}
+
+.supporting-review-choice legend {
+  padding: 0 .4rem;
+}
+
+.supporting-review-choice legend .status {
+  margin-left: .5rem;
+}
+
+.supporting-review-choice label {
+  margin: .35rem 0 0;
+}
+
+.supporting-review-choice select,
+.supporting-review-choice input {
+  margin-top: .35rem;
+}
+
+.supporting-review-dataset {
+  display: none;
+}
+
+.supporting-review-choice:has([data-supporting-action] option[value="INCOMING"]:checked) .supporting-review-dataset {
+  display: block;
+}
+
+.supporting-review-check {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1rem;
+  margin-top: .75rem;
+}
+
+.supporting-review-check .actions {
+  margin: 0;
+}
+
+.matching-rule-summary {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(8.5rem, 1fr));
+  margin: 1.25rem 0 0;
+  border: 1px solid var(--line);
+  background: var(--impodo-soft);
+  overflow-x: auto;
+}
+
+.matching-rule-summary > div {
+  min-width: 0;
+  padding: .85rem 1rem;
+}
+
+.matching-rule-summary > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.matching-rule-summary dt {
+  white-space: nowrap;
+}
+
+.matching-rule-summary dd {
+  margin-top: .25rem;
+  font-size: 1.35rem;
+  font-weight: 750;
+  line-height: 1;
+}
+
+.matching-rule-summary .attention dd {
+  color: var(--impodo-warning);
+}
+
+@media (max-width: 720px) {
+  .supporting-review-check {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

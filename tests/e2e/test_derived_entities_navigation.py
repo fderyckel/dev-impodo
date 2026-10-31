@@ -39,9 +39,12 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         html = f"""
           <style>{styles}</style>
-          <button data-derived-entity-target="lookup-extraction">Lookup</button>
-          <button data-derived-entity-target="hierarchy-extraction">Hierarchy</button>
-          <button data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
+          <div class="actions source-composition-actions" data-source-composition-actions>
+            <button class="button primary" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
+            <button class="button primary" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
+            <button class="button secondary" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
+            <button class="button secondary" data-derived-entity-target="create-related-datasets">Several rows describe the same record</button>
+          </div>
           <button data-derived-entity-target="combine-two-tables">Advanced: combine two tables</button>
           <button data-derived-entity-target="hierarchy-source-one">Change selections</button>
           <div style="height: 1000px"></div>
@@ -161,17 +164,60 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
           </details>
           <script>{script}</script>
         """
+        self.html = html
         self.page.route(
             "**/*",
-            lambda route: route.fulfill(body=html, content_type="text/html"),
+            lambda route: route.fulfill(body=self.html, content_type="text/html"),
         )
+
+    def test_reopened_columns_and_custom_names_survive_browser_initialization(self):
+        self.html = self.html.replace(
+            "<form data-exact-join-group-form>",
+            "<form data-exact-join-group-form data-group-retained>",
+        ).replace(
+            'data-group-addition data-dataset-id="parties">',
+            'data-group-addition data-dataset-id="parties" checked>',
+        ).replace(
+            'data-group-field-checkbox checked>',
+            'data-group-field-checkbox>',
+        ).replace(
+            'data-qualified-name="Customer accounts.Account" value="Account">',
+            'data-qualified-name="Customer accounts.Account" value="My saved account">',
+        )
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-source-tables")
+        form = self.page.locator("[data-exact-join-group-form]")
+        account = form.locator('[data-group-field-row][data-column-key="account"]')
+        checkbox = account.locator("[data-group-field-checkbox]")
+        output = account.locator("[data-group-output-name]")
+        self.assertFalse(checkbox.is_checked())
+        self.assertEqual(output.input_value(), "My saved account")
+        form.locator('[data-group-primary-key][data-test-primary-key="current"]').select_option("accounts|account")
+        self.assertFalse(checkbox.is_checked())
+        self.assertEqual(output.input_value(), "My saved account")
+        form.locator("[data-group-use-recommended]").click()
+        self.assertTrue(checkbox.is_checked())
+        self.assertEqual(output.input_value(), "Account")
+        self.assertEqual(self.errors, [])
+
+    def test_source_composition_choices_stay_on_one_horizontal_row(self):
+        self.page.goto("http://127.0.0.1:12345/derived-entities")
+        choices = self.page.locator("[data-source-composition-actions]")
+        button_tops = choices.locator("button").evaluate_all(
+            "buttons => buttons.map(button => button.getBoundingClientRect().top)"
+        )
+
+        self.assertEqual(len(button_tops), 4)
+        self.assertEqual(len(set(button_tops)), 1)
+        self.assertEqual(self.errors, [])
 
     def test_choices_and_change_selections_do_not_add_back_button_steps(self):
         self.page.goto("http://127.0.0.1:12345/derived-entities")
         initial_history = self.page.evaluate("history.length")
         self.page.get_by_role("button", name="Hierarchy").click()
         self.assertTrue(self.page.locator("#hierarchy-extraction").evaluate("el => el.open"))
-        self.page.get_by_role("button", name="Lookup").click()
+        self.page.get_by_role(
+            "button", name="One field contains reusable values"
+        ).click()
         self.assertTrue(self.page.locator("#lookup-extraction").evaluate("el => el.open"))
         self.page.get_by_role("button", name="Change selections").click()
         self.assertTrue(self.page.locator("#hierarchy-source-one").evaluate("el => el.open"))

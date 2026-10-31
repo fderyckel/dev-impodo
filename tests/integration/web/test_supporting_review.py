@@ -102,7 +102,9 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         before_calls = len(self.readiness_calls)
         with collect_duckdb_request_timings() as timings:
             page, form = self.page_and_form()
-        self.assertIn("Review supporting-data choices", page.text)
+        self.assertIn("Choose where related values come from", page.text)
+        self.assertIn("Why matching rules are waiting", page.text)
+        self.assertIn('class="matching-rule-summary"', page.text)
         self.assertIn("matching-rules-blocked-reason", page.text)
         self.assertLessEqual(timings.connection_count, 6)
         self.assertLessEqual(timings.schema_check_count, 6)
@@ -226,7 +228,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Supporting source metadata exceeds its limit", page.text)
         self.assertIn('id="supporting-data-review"', page.text)
         self.assertIn("matching-rules-blocked-reason", page.text)
-        self.assertNotIn("Save supporting choices</button>", page.text)
+        self.assertNotIn("Save choices</button>", page.text)
         self.assertEqual(len(self.readiness_calls), before_calls)
 
     def read_values(self, workspace, metadata, records):

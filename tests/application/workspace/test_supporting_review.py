@@ -111,6 +111,39 @@ class SupportingReviewApplicationTests(unittest.TestCase):
             )
             self.assertEqual(normalized[0].action.value, action)
 
+    def test_generated_variants_can_be_reviewed_without_adding_write_scope(self):
+        variants = replace(
+            self.schema.models[0].fields[0], name="product_variant_ids", label="Products",
+            type="one2many", relation="product.product", relation_field="product_tmpl_id",
+        )
+        self.workspace.intended_models = ("product.template",)
+        for version in ("19.0+e", "20.0+e"):
+            with self.subTest(version=version):
+                self.schema.odoo_version = version
+                self.schema.models = (model("product.template", variants),)
+                packet = supporting_review_packet(self.workspace, self.selection, self.schema, None, None)
+                choice = SupportingChoice("product.template", "product_variant_ids", "ODOO_MANAGED")
+                review = self.service.save(
+                    packet, expected_binding_hash=packet.binding_hash, expected_version=0,
+                    operation_id=str(uuid4()), choices=(choice,), actor=self.actor,
+                )
+                self.assertEqual(self.service.require_current(packet, actor=self.actor, review=review), review)
+                self.assertEqual(self.workspace.intended_models, ("product.template",))
+                self.assertEqual(self.service.requirements(packet, review, actor=self.actor), ())
+                with self.assertRaisesRegex(WorkspaceError, "write scope"):
+                    self.service.normalize(packet, (replace(choice, action="INCOMING", dataset_id="products"),))
+
+    def test_explicit_incoming_variants_remain_available(self):
+        variants = replace(
+            self.schema.models[0].fields[0], name="product_variant_ids", label="Products",
+            type="one2many", relation="product.product", relation_field="product_tmpl_id",
+        )
+        self.workspace.intended_models = ("product.template", "product.product")
+        self.schema.models = (model("product.template", variants),)
+        packet = supporting_review_packet(self.workspace, self.selection, self.schema, None, None)
+        choice = SupportingChoice("product.template", "product_variant_ids", "INCOMING", "products")
+        self.assertEqual(self.service.normalize(packet, (choice,)), (choice,))
+
     def test_incoming_requires_accepted_data_and_explicit_write_scope(self):
         choice = SupportingChoice("res.partner", "country_id", "INCOMING", "products")
         with self.assertRaisesRegex(WorkspaceError, "write scope"):

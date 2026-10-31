@@ -33,6 +33,7 @@ from impodo.domain.identity.recovery import (
     RecoverySecurityEvent,
     RecoveryTokenIssue,
     RecoveryTokenPolicy,
+    RecoveryTokenProof,
     RecoveryTokenPurpose,
 )
 
@@ -40,6 +41,12 @@ POSTGRESQL_RECOVERY_CONNECT_TIMEOUT_SECONDS = 5
 POSTGRESQL_RECOVERY_LOCK_TIMEOUT_MILLISECONDS = 5_000
 POSTGRESQL_RECOVERY_STATEMENT_TIMEOUT_MILLISECONDS = 10_000
 POSTGRESQL_RECOVERY_CONNECTION_BUDGET = 1
+
+_INSPECT_TOKEN_QUERY: LiteralString = (
+    "SELECT principal_kind FROM impodo_control.account_recovery_token\n"
+    "WHERE token_id = %s AND token_digest = %s AND purpose = %s\n"
+    "  AND state = 'ISSUED' AND expires_at > %s"
+)
 
 _LOAD_RESET_CONTEXT_QUERY: LiteralString = (
     "SELECT a.administrator_id, a.status, a.security_revision, "
@@ -336,6 +343,24 @@ class PsycopgAccountRecoveryRepository:
         self._dsn_reference = dsn_reference
         self._session_factory = session_factory
         self._metrics_observer = metrics_observer
+
+    def inspect_token_principal(
+        self, proof: RecoveryTokenProof, purpose: RecoveryTokenPurpose, *, observed_at: datetime,
+    ) -> LoginPrincipalKind | None:
+        """Read only dispatch metadata, with no lock retained during password work."""
+        def inspect(session: _MeasuredAccountRecoverySession) -> LoginPrincipalKind | None:
+            row = session.fetch_one(
+                _INSPECT_TOKEN_QUERY,
+                (proof.token_id, proof.digest, purpose.value, observed_at),
+            )
+            if row is None:
+                return None
+            try:
+                return LoginPrincipalKind(row[0])
+            except (ValueError, TypeError):
+                raise AccountRecoveryStorageError("Recovery principal kind is invalid") from None
+
+        return self._run("account_recovery.inspect_token", inspect)
 
     def request_password_reset(
         self,

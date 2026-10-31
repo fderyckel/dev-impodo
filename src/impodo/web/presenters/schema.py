@@ -53,6 +53,7 @@ from ..exact_join_forms import (
     exact_join_group_projection_candidates,
     exact_join_projection_candidates,
     qualified_exact_join_output_name,
+    saved_exact_join_form,
     saved_exact_join_views,
     source_use_label,
 )
@@ -322,7 +323,25 @@ def _render_derived_entities(
     join_dataset_views: tuple[dict[str, object], ...] = ()
     join_group_dataset_views: tuple[dict[str, object], ...] = ()
     join_rule_views: tuple[dict[str, object], ...] = ()
+    editing_join_group = False
+    editing_join_pair = False
     if selection is not None:
+        edit_rule_id = request.query_params.get("edit_join")
+        if (
+            edit_rule_id
+            and plan is not None
+            and join_group_form is None
+            and join_form is None
+        ):
+            try:
+                saved_form = saved_exact_join_form(selection, plan, edit_rule_id)
+                if isinstance(saved_form, ExactJoinGroupFormSubmission):
+                    join_group_form = saved_form
+                else:
+                    join_form = saved_form
+            except WorkspaceError as edit_error:
+                error = str(edit_error)
+                status_code = 422
         active_group_form = join_group_form or default_exact_join_group_form(
             selection,
             plan,
@@ -369,6 +388,13 @@ def _render_derived_entities(
             raise RuntimeError("Grouped exact-join browser candidate ordering changed")
         join_group_dataset_views = tuple(group_dataset_views)
         join_group_form = active_group_form
+        editing_join_group = bool(
+            plan
+            and any(
+                getattr(rule, "group_id", None) == active_group_form.group_id
+                for rule in plan.rules
+            )
+        )
 
         available_join_selection = available_exact_join_selection(selection, plan)
         active_join_form = join_form or default_exact_join_form(selection, plan)
@@ -408,6 +434,10 @@ def _render_derived_entities(
             raise RuntimeError("Exact-join browser candidate ordering changed")
         join_dataset_views = tuple(dataset_views)
         join_form = active_join_form
+        editing_join_pair = bool(
+            plan
+            and any(rule.rule_id == active_join_form.rule_id for rule in plan.rules)
+        )
         join_rule_views = tuple(
             {
                 **view,
@@ -446,6 +476,8 @@ def _render_derived_entities(
         join_form=join_form,
         join_dataset_views=join_dataset_views,
         join_rule_views=join_rule_views,
+        editing_join_group=editing_join_group,
+        editing_join_pair=editing_join_pair,
         namespace_default=namespace,
         error=error,
         status_code=status_code,

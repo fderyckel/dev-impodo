@@ -250,6 +250,7 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
             matching_order=Mock(),
             transformation_impacts=Mock(),
             row_inclusion_reviews=Mock(),
+            business_intents=Mock(),
         )
         runs = SimpleNamespace(
             run_planning=Mock(),

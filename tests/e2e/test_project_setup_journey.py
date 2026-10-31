@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
+from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent, ExpectedCount
+from impodo.web.composition.page_reads import run_local_operation_sync
+from uuid import uuid4
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     OdooConnectionMode,
@@ -284,9 +287,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             odoo_data.headers["location"],
             f"/workspaces/{workspace_id}/target",
         )
+        schema_reads_before = len(self.schema_calls)
         target_page = self.client.get(odoo_data.headers["location"])
         self.assertIn("Connect the Odoo destination", target_page.text)
-        self.assertIn("It does not discover models or fields", target_page.text)
+        self.assertEqual(len(self.schema_calls), schema_reads_before)
 
         workspace_state = self.app.state.context.queries.get(workspace_id)
         tested_target = self.client.post(
@@ -346,7 +350,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Stage 2", derived_page.text)
         self.assertIn("Odoo data", derived_page.text)
         self.assertIn(
-            "Saved rules are repeated consistently for every row",
+            "Build the logical datasets you want to map",
             derived_page.text,
         )
         self.assertIn("Create two related tables", derived_page.text)
@@ -564,7 +568,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn('id="lookup-preview"', lookup_preview.text)
         self.assertIn("Source rows checked", lookup_preview.text)
         self.assertIn("Rows in the new related table", lookup_preview.text)
-        self.assertIn("does not create or change records in Odoo", lookup_preview.text)
+        self.assertIn("Odoo stays unchanged", lookup_preview.text)
         self.assertIn("Add related table to Match data", lookup_preview.text)
         self.assertIn('id="lookup-extraction" data-derived-entity-section open', lookup_preview.text)
         self.assertIn('data-derived-entity-target="lookup-form">Change selections</button>', lookup_preview.text)
@@ -606,7 +610,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Example product", derived_preview.text)
         self.assertIn("impodo_dynamics_ax_2012.res_partner_", derived_preview.text)
         self.assertIn(
-            "available when you match data beside the original rows",
+            "saved rule is available beside the original table in Match data",
             derived_preview.text,
         )
         self.assertNotIn("entity:P001", derived_preview.text)
@@ -820,12 +824,8 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
 
         mapping_script = "\n".join(
             self.client.get(asset).text
-            for asset in (
-                "/static/mapping-save-recovery.js",
-                "/static/mapping-editor.js",
-                "/static/mapping-value-rules.js",
-                "/static/mapping-catalogs.js",
-            )
+            for asset in re.findall(r'src="([^"]+)"', mapping_page.text)
+            if urlsplit(asset).path.startswith("/static/mapping")
         )
         normalization_script = self.client.get("/static/normalization.js").text
         source_workflow_script = self.client.get("/static/source-workflow.js").text
@@ -1413,6 +1413,14 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             / "inbox"
             / package.files[0].storage_key
         )
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        packet = run_local_operation_sync(context.business_intents.inputs, workspace_id, actor=actor)
+        run_local_operation_sync(context.business_intents.save, workspace_id,
+            intent=BusinessIntent((BusinessModelIntent("res.partner", "upsert",
+                creates=ExpectedCount(maximum=3), updates=ExpectedCount(maximum=3)),)),
+            expected_version=0, expected_binding_hash=packet.binding_hash,
+            operation_id=str(uuid4()), actor=actor)
         source_artifact.unlink()
         compared = self.client.post(
             f"/workspaces/{workspace_id}/summary/compare",
@@ -1758,11 +1766,13 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.app.state.context.write_executor_factory = write_factory
         self.app.state.context.readback_reader_factory = readback_factory
         self.app.state.context.write_identity_probe = write_identity_probe
+        self.assertTrue(load_preview.business_intent_assessment_hash)
         missing_write_key = self.client.post(
             f"/workspaces/{workspace_id}/load",
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
+                "intent_assessment_hash": load_preview.business_intent_assessment_hash,
                 "batch_rows": "10",
             },
             headers=POST_HEADERS,
@@ -1778,6 +1788,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             data={
                 "csrf_token": self.csrf,
                 "snapshot_hash": load_preview.snapshot.semantic_hash,
+                "intent_assessment_hash": load_preview.business_intent_assessment_hash,
                 "write_api_key": "load-secret",
                 "batch_rows": "10",
             },

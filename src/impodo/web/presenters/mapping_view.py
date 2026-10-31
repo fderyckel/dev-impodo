@@ -41,6 +41,8 @@ from impodo.domain.workspace.derived_entities import (
     related_dataset_links,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import SourceMode
+from impodo.web.matching_expectations import matching_expectations_view
 
 from ...domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
@@ -163,6 +165,7 @@ def _render_mapping(
     *,
     error: str | None = None,
     status_code: int = 200,
+    company_access=None,
 ):
     actor = request_identity(request, context.identity_resolver).actor
     started = perf_counter()
@@ -589,13 +592,25 @@ def _render_mapping(
             context.queries.get_current_quality_ruleset(workspace_id),
         )
     correction_binding = context.corrections.binding_for_successor(workspace_id)
+    workspace_state = context.queries.get(workspace_id)
+    expectations = (
+        matching_expectations_view(
+            context, actor=actor, workspace=workspace_state, selection=selection,
+            schema=schema, governance=governance, revision=revision,
+            validation=stored_validation, dirty=has_unvalidated_changes,
+        )
+        if correction_binding is None and workspace_state.source_mode is SourceMode.FILE
+        else None
+    )
     view_build_ms = (perf_counter() - view_build_started) * 1000
     render_started = perf_counter()
     response = _render(
         request,
         "mapping/page.html",
         workspace_id=workspace_id,
-        workspace_state=context.queries.get(workspace_id),
+        workspace_state=workspace_state,
+        expectations=expectations,
+        company_access=company_access,
         selection=selection,
         schema=schema,
         governance=governance,

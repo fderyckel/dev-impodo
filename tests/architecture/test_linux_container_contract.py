@@ -100,6 +100,9 @@ class LinuxContainerContractTests(unittest.TestCase):
         workflow = LINUX_SERVER_WORKFLOW.read_text(encoding="utf-8")
 
         self.assertIn("image-quality:", workflow)
+        self.assertIn("supporting-image-quality:", workflow)
+        self.assertIn("service: [postgres, proxy]", workflow)
+        self.assertIn('config --format json', workflow)
         for build_input in (
             ".dockerignore",
             "LICENSE",
@@ -314,7 +317,7 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertNotIn("SUPERUSER PASSWORD", role_init)
 
         provisioner = SECRET_PROVISIONER.read_text(encoding="utf-8")
-        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 4)
+        self.assertEqual(provisioner.count("-o 0 -g 10001 -m 0440"), 5)
         self.assertIn('postgres_uid="$(id -u postgres)"', provisioner)
         self.assertEqual(provisioner.count("-m 0400 \\"), 3)
         self.assertIn("-o 0 -g 0 -m 0644", provisioner)
@@ -344,7 +347,15 @@ class LinuxContainerContractTests(unittest.TestCase):
         )
         self.assertEqual(
             compose["services"]["admin-bootstrap"]["volumes"],
-            ["impodo-runtime-secrets:/run/secrets/impodo:ro"],
+            ["impodo-bootstrap-secrets:/run/secrets/impodo:ro"],
+        )
+        self.assertNotIn(
+            "impodo-bootstrap-secrets:/run/secrets/impodo:ro",
+            compose["services"]["web"]["volumes"],
+        )
+        self.assertNotIn(
+            "impodo-bootstrap-secrets:/run/secrets/impodo:ro",
+            compose["services"]["worker"]["volumes"],
         )
         self.assertNotIn(
             "impodo-migration-secrets:/run/secrets/impodo:ro",

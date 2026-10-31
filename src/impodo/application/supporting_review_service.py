@@ -183,7 +183,11 @@ class SupportingReviewService:
                     "The supporting relationship changed or was submitted twice"
                 )
             seen.add(identity)
-            role = supporting_model_role(field)
+            role = supporting_model_role(
+                field,
+                source_model=choice.source_model,
+                odoo_version=packet.schema.odoo_version,
+            )
             action = choice.action
             if action is SupportingChoiceAction.SKIP_OPTIONAL and field.required:
                 raise WorkspaceError(
@@ -192,6 +196,7 @@ class SupportingReviewService:
             if (
                 role is SupportingModelRole.ODOO_MANAGED
                 and action is not SupportingChoiceAction.ODOO_MANAGED
+                and supporting_model_role(field) is SupportingModelRole.ODOO_MANAGED
             ):
                 raise WorkspaceError("This supporting relationship is managed by Odoo")
             if (

@@ -551,18 +551,21 @@ class QualityEvaluationTests(unittest.TestCase):
         )
         self.assertEqual(missing_issue.affected_fields, ("product_id",))
         self.assertIn("articles", missing_issue.message)
-        identity_issue = next(
+        identity_issues = tuple(
             item
             for item in run.issues
             if item.reason_code == "INCOMING_IDENTITY_DEPENDENT_SET_ASIDE"
+            and item.row_id == bom.row_id
         )
         self.assertEqual(
-            identity_issue.caused_by_row_id,
-            missing_component_line.row_id,
+            {item.caused_by_row_id for item in identity_issues},
+            {missing_component_line.row_id, ready_line.row_id},
         )
-        self.assertEqual(
-            identity_issue.dependency_impact,
-            QualityDependencyImpact.PARENT,
+        self.assertTrue(
+            all(
+                item.dependency_impact is QualityDependencyImpact.PARENT
+                for item in identity_issues
+            )
         )
         sibling_issue = next(
             item

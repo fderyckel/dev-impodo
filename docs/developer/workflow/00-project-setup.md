@@ -8,7 +8,7 @@ status: current
 
 ## Responsibility
 
-Odoo access also confirms the operation company without rebuilding the Project.
+Match data confirms the operation company after connection setup, without rebuilding the Project.
 The protected [company binding](../../../src/impodo/domain/odoo/company.py)
 belongs to the run's target setup. The closed
 [company reader](../../../src/impodo/web/composition/odoo_company.py) supplies

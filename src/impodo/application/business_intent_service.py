@@ -167,52 +167,21 @@ class BusinessIntentService:
         selection = self.sources.get_mapping_source_selection(workspace_id)
         schema = self.schemas.get_odoo_schema_catalog(workspace_id)
         governance = self.schemas.get_schema_governance(workspace_id)
-        if (
-            mapping is None
-            or selection is None
-            or schema is None
-            or schema.origin is not SchemaOrigin.LIVE_API
-        ):
-            raise BusinessIntentError(
-                "Check the mapping against captured Odoo details before recording business intent"
-            )
-        validation = self.mappings.get_mapping_validation(workspace_id, mapping.version)
-        schema_hash = governance.content_hash if governance else schema.content_hash
-        if (
-            mapping.definition.source_selection_hash != selection.content_hash
-            or mapping.definition.schema_hash != schema_hash
-            or (
-                governance is not None
-                and governance.catalog_hash != schema.content_hash
-            )
-            or validation is None
-            or validation.status is MappingValidationStatus.INVALID
-            or validation.mapping_content_hash != mapping.definition.content_hash
-            or validation.source_selection_hash != selection.content_hash
-            or validation.schema_hash != schema_hash
-        ):
-            raise BusinessIntentError(
-                "Recheck the current mapping before recording business intent"
-            )
-        scope = derive_business_intent_scope(
-            mapping.definition,
-            selection,
-            schema,
-            source_mode=workspace.source_mode,
-            operation=OdooOperation.PRODUCTION
-            if access.run_purpose == "PRODUCTION"
-            else OdooOperation.WRITE,
-        )
-        return BusinessIntentInputs(
-            workspace_id,
-            scope,
-            BusinessIntentBinding(
-                mapping.definition.content_hash,
-                selection.content_hash,
-                schema.content_hash,
-                governance.content_hash if governance else None,
-                validation.validation_hash,
-                scope.content_hash,
+        return checked_business_intent_inputs(
+            workspace=workspace,
+            mapping=mapping,
+            selection=selection,
+            schema=schema,
+            governance=governance,
+            validation=(
+                self.mappings.get_mapping_validation(workspace_id, mapping.version)
+                if mapping is not None
+                else None
+            ),
+            operation=(
+                OdooOperation.PRODUCTION
+                if access.run_purpose == "PRODUCTION"
+                else OdooOperation.WRITE
             ),
         )
 
@@ -257,3 +226,58 @@ class BusinessIntentService:
         return self.repository.save_business_intent(
             workspace_id, revision, expected_version=expected_version, actor=actor
         )
+
+
+def checked_business_intent_inputs(
+    *,
+    workspace: WorkspaceState,
+    mapping: MappingRevision | None,
+    selection: SourceSelection | None,
+    schema: OdooSchemaCatalog | None,
+    governance: SchemaGovernance | None,
+    validation: MappingValidationResult | None,
+    operation: OdooOperation,
+) -> BusinessIntentInputs:
+    """Project already-loaded metadata; command callers still authorize and re-read."""
+    if (
+        mapping is None
+        or selection is None
+        or schema is None
+        or schema.origin is not SchemaOrigin.LIVE_API
+    ):
+        raise BusinessIntentError(
+            "Check the mapping against captured Odoo details before recording business intent"
+        )
+    schema_hash = governance.content_hash if governance else schema.content_hash
+    if (
+        mapping.definition.source_selection_hash != selection.content_hash
+        or mapping.definition.schema_hash != schema_hash
+        or (governance is not None and governance.catalog_hash != schema.content_hash)
+        or validation is None
+        or validation.status is MappingValidationStatus.INVALID
+        or validation.mapping_content_hash != mapping.definition.content_hash
+        or validation.source_selection_hash != selection.content_hash
+        or validation.schema_hash != schema_hash
+    ):
+        raise BusinessIntentError(
+            "Recheck the current mapping before recording business intent"
+        )
+    scope = derive_business_intent_scope(
+        mapping.definition,
+        selection,
+        schema,
+        source_mode=workspace.source_mode,
+        operation=operation,
+    )
+    return BusinessIntentInputs(
+        workspace.workspace_id,
+        scope,
+        BusinessIntentBinding(
+            mapping.definition.content_hash,
+            selection.content_hash,
+            schema.content_hash,
+            governance.content_hash if governance else None,
+            validation.validation_hash,
+            scope.content_hash,
+        ),
+    )

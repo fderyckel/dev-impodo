@@ -67,13 +67,18 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
     for (model, name), field in sorted(
         fields.items(), key=lambda item: (not item[1].required, item[0])
     ):
-        role = supporting_model_role(field)
+        role = supporting_model_role(
+            field, source_model=model, odoo_version=schema.odoo_version
+        )
         actions = []
         if role is SupportingModelRole.ODOO_MANAGED:
             actions.append(
                 (SupportingChoiceAction.ODOO_MANAGED.value, "Handled by Odoo")
             )
-        else:
+        if (
+            role is not SupportingModelRole.ODOO_MANAGED
+            or supporting_model_role(field) is not SupportingModelRole.ODOO_MANAGED
+        ):
             if field.type != "one2many":
                 actions.append(
                     (SupportingChoiceAction.REUSE.value, "Reuse existing Odoo records")
@@ -108,6 +113,7 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
                 "model_label": labels[model],
                 "related_model": field.relation,
                 "required": field.required,
+                "managed": role is SupportingModelRole.ODOO_MANAGED and len(actions) == 1,
                 "actions": tuple(actions),
                 "chosen": choice.action.value if choice else "",
                 "dataset_id": choice.dataset_id if choice else "",

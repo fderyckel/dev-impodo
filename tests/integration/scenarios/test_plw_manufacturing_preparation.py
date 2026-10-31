@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import re
 import unittest
-from uuid import uuid4
+from tempfile import TemporaryDirectory
 
 from openpyxl import load_workbook
 
@@ -32,10 +32,8 @@ def key(value: object) -> str:
 
 class PlwManufacturingPreparationScenarioTests(unittest.TestCase):
     def test_all_four_realistic_files_prepare_without_target_or_write(self) -> None:
-        temporary_root = ROOT / ".tmp"
-        temporary_root.mkdir(exist_ok=True)
-        result_path = temporary_root / f"plw-scenario-{uuid4()}.json"
-        try:
+        with TemporaryDirectory(prefix="impodo-plw-scenario-") as directory:
+            result_path = Path(directory) / "result.json"
             exit_code = main(
                 [
                     "scenario",
@@ -49,8 +47,6 @@ class PlwManufacturingPreparationScenarioTests(unittest.TestCase):
                 ]
             )
             result = json.loads(result_path.read_text(encoding="utf-8"))
-        finally:
-            result_path.unlink(missing_ok=True)
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(result["status"], "PASSED")

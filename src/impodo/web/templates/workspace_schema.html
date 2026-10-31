@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Odoo data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/schema.css') }}">
+{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/schema.js') }}" defer></script>
 {% endblock %}
@@ -25,14 +28,6 @@
       </span>
     {% endif %}
   </div>
-
-  {% if workspace_state.source_mode.value == 'FILE' and not workspace_state.odoo_company %}
-    <section class="notice warning">
-      <strong>Choose the company used for this import</strong>
-      <p>{% if is_recipe_run_setup %}The Recipe keeps matching rules. This Odoo destination needs its own company choice before Impodo checks and creates the Recipe work areas.{% else %}Confirm the company in Odoo access before checking company-specific values. Shared records keep their mapped company value.{% endif %}</p>
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/target#odoo-operation-company">Choose Odoo company</a>
-    </section>
-  {% endif %}
 
   {% if not is_recipe_run_setup and read_credential_prompt and not read_credential_prompt.available %}
     <section class="next-action-card attention" id="odoo-read-key">
@@ -409,7 +404,10 @@
     {% endif %}
 
     {% include "_supporting_data_review.html" %}
-    {% include "_workflow_issue_summary.html" %}
+    {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
+    {% if not supporting_review_is_only_issue %}
+      {% include "_workflow_issue_summary.html" %}
+    {% endif %}
 
     <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
     {% if schema_load_failed %}
@@ -517,7 +515,9 @@
         </div>
         {% if odoo_check_disabled %}
           <div class="notice warning">
-            {% if workspace_state.source_mode.value == 'FILE' and not selection %}
+            {% if is_recipe_run_setup and not workspace_state.odoo_company %}
+              Before reading company-specific values for this run, <a href="/workspaces/{{ workspace_id }}/mapping#odoo-operation-company">choose its company in Match data</a>.
+            {% elif workspace_state.source_mode.value == 'FILE' and not selection %}
               The accepted fresh data is unavailable. Return to Fresh data and accept it before checking Odoo.
             {% elif is_recipe_run_setup and not odoo_check_models %}
               The selected Recipe requirements are unavailable. Return to the run and review the saved Recipe versions.
@@ -605,26 +605,18 @@
           <div>
             <p class="eyebrow">Matching rules</p>
             <h2>Tell Impodo how to find existing records {{ decision_help("odoo-identity") }}</h2>
-            <p>
-              Impodo has filled every matching rule that the captured Odoo
-              details support safely. Review the suggestions, change any rule
-              that does not fit your migration, and confirm the complete set.
-            </p>
+            <p>Review each suggestion, change anything that does not fit, then confirm the complete set. Impodo checks the actual data later.</p>
           </div>
           {% if governance %}
             <span class="status registered">Rules confirmed</span>
           {% endif %}
         </div>
-        <div class="notice warning">
-          Suggestions are starting points. You confirm the matching rule;
-          Impodo checks the actual source and target data later.
-        </div>
-        <dl class="summary-list">
+        <dl class="matching-rule-summary" aria-label="Matching rule progress">
+          <div><dt>Record types</dt><dd>{{ key_summary.total }}</dd></div>
           <div><dt>Suggested</dt><dd>{{ key_summary.suggested }}</dd></div>
           <div><dt>Confirmed</dt><dd>{{ key_summary.confirmed }}</dd></div>
           <div><dt>Changed</dt><dd>{{ key_summary.changed }}</dd></div>
-          <div><dt>Needs attention</dt><dd>{{ key_summary.needs_attention }}</dd></div>
-          <div><dt>Selected record types</dt><dd>{{ key_summary.total }}</dd></div>
+          <div class="{% if key_summary.needs_attention %}attention{% endif %}"><dt>Needs attention</dt><dd>{{ key_summary.needs_attention }}</dd></div>
         </dl>
       </section>
 
@@ -867,8 +859,11 @@
       </div>
       {% if workflow_issue_summary.must_fix_count %}
         <p class="notice warning" id="matching-rules-blocked-reason">
-          Matching rules cannot be confirmed yet. Use the correction action in
-          Migration issues, then return here; your current choices are preserved.
+          {% if supporting_review and supporting_review.error %}
+            Matching rules are waiting for the supporting choices above. Choose where each required value comes from, then save.
+          {% else %}
+            Matching rules cannot be confirmed yet. Use the correction action in Migration issues, then return here; your current choices are preserved.
+          {% endif %}
         </p>
       {% endif %}
     </form>

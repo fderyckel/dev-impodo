@@ -68,6 +68,10 @@ class _Repository:
         self.mutations: list[PasswordResetMutation] = []
         self.authorized: list[AuthorizedRecoveryTokenCommand] = []
 
+    def inspect_token_principal(self, proof, purpose, *, observed_at):
+        self.inspected = (proof, purpose, observed_at)
+        return LoginPrincipalKind.PLATFORM_ADMINISTRATOR if self.issue_reset else None
+
     def request_password_reset(self, **kwargs) -> bool:
         self.requests.append(kwargs)
         return self.issue_reset
@@ -109,6 +113,19 @@ def _service(
 
 
 class AccountRecoveryServiceTests(unittest.TestCase):
+    def test_inspection_rejects_malformed_tokens_before_storage_and_binds_purpose(self):
+        repository = _Repository()
+        service = _service(repository, _Delivery())
+        self.assertIsNone(service.inspect_token_principal("invalid", RecoveryTokenPurpose.ACTIVATION))
+        self.assertIsNone(service.inspect_token_principal("x" * 257, RecoveryTokenPurpose.ACTIVATION))
+        self.assertFalse(hasattr(repository, "inspected"))
+        material = SecureRecoveryTokenFactory().create(RecoveryTokenPurpose.PASSWORD_RESET)
+        self.assertEqual(service.inspect_token_principal(material.token, RecoveryTokenPurpose.PASSWORD_RESET), LoginPrincipalKind.PLATFORM_ADMINISTRATOR)
+        proof, purpose, observed_at = repository.inspected
+        self.assertEqual((proof.token_id, proof.digest, purpose, observed_at),
+                         (material.token_id, material.digest, RecoveryTokenPurpose.PASSWORD_RESET, NOW))
+        self.assertEqual(repository.mutations, [])
+
     def test_known_and_unknown_requests_return_the_same_public_result(self) -> None:
         results = []
         deliveries = []

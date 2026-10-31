@@ -47,7 +47,9 @@ class RepositoryQualityContractTests(unittest.TestCase):
         self.assertIn("name: Python quality", workflow)
         self.assertIn("\n  quality:\n", workflow)
         self.assertIn("\n  portable:\n", workflow)
-        self.assertIn("needs: portable", workflow)
+        self.assertIn("needs: [portable, behavior]", workflow)
+        self.assertIn("--ignore=tests/platform --ignore=tests/performance", workflow)
+        self.assertIn("pytest -q tests/performance", workflow)
         for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
             self.assertIn(f"          - {runner}", workflow)
         self.assertNotIn(

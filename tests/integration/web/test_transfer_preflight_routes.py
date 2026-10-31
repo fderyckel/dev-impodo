@@ -37,6 +37,7 @@ from tests.application.workspace.test_destination_matching import (
     _workspace,
 )
 from tests.application.workspace.test_transfer_review import _WorkspaceRepository
+from tests.support.identity import MutableLocalRequestIdentityResolver
 
 
 class TransferPreflightRouteTests(unittest.TestCase):
@@ -120,7 +121,7 @@ class TransferPreflightRouteTests(unittest.TestCase):
         repository = _WorkspaceRepository(workspace)
         writer_calls = []
         context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=MutableLocalRequestIdentityResolver(),
             queries=_Queries(repository, selection, schema),
             workspace_states=WorkspaceStateService(
                 repository,

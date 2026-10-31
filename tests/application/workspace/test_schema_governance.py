@@ -25,6 +25,7 @@ class CompleteSchemaGovernanceTests(unittest.TestCase):
         self.schema = SimpleNamespace(
             content_hash="sha256:" + "a" * 64,
             origin=SchemaOrigin.LOCAL_MANUAL,
+            odoo_version=None,
             models=(
                 _model("res.partner", "Contact", "ref"),
                 _model("mrp.bom", "Bill of Materials", "code"),
@@ -166,6 +167,7 @@ def _live_product_schema() -> SimpleNamespace:
     return SimpleNamespace(
         content_hash="sha256:" + "a" * 64,
         origin=SchemaOrigin.LIVE_API,
+        odoo_version="19.0",
         models=(
             SchemaModel(
                 name="product.template",

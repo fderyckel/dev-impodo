@@ -32,14 +32,15 @@ key. Cross-major transfers remain blocked.
 3. Select **Check and save destination**.
 4. Confirm that the page names the correct database and shows **Connection
    complete**.
-5. Select **Choose Odoo company**, choose the destination company and select
-   **Use this company**. The destination key must have access to it. The source
-   keeps its own frozen company context; Impodo does not copy a source company
-   number into the destination.
+5. Continue to **Match destination data**. There, select **Choose Odoo company**,
+   choose the destination company and select **Use this company**. Check and
+   save the destination again under that company, then return to matching.
+   The destination key must have access to the company. The source keeps its
+   own frozen context; its company number is not copied into the destination.
 
 This check is read-only. It does not create or change an Odoo record.
 
-The [company selection guide](02-odoo-data.md#choose-the-company-used-for-this-import)
+The [company selection guide](03-match-data.md#choose-the-company-for-this-load)
 explains shared records, parent-company links and the difference between the
 import company and a record's mapped Company field. Confirm the company
 before checking destination matches. A frozen source captures one current
@@ -183,7 +184,8 @@ For a prepared file-source load, the saved business expectations must agree
 with the proposed creates, updates, fields, and relationships. For example,
 an expectation of zero new Products blocks a comparison that would create
 Products. Confirming individual records or setting aside groups does not
-approve that difference. Correct the owning rules or expectations and review
+approve that difference. Edit **What may this load change?** in
+[Match data](03-match-data.md#set-business-expectations), then review
 the result again before loading.
 
 The current final review must be **Ready**. Confirm the data version purpose,

@@ -135,6 +135,7 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
         _staging, quality = self.prepare(application.workspace_id)
         self.assertEqual(quality.ready_count, 18)
         self.approve(application.workspace_id)
+        self.expect_business_writes(application.workspace_id)
         target, snapshot, identities = compare_hierarchy(self, application.workspace_id)
         execution = context.execution.execute(
             application.workspace_id,

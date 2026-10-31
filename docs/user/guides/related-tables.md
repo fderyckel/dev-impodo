@@ -144,6 +144,27 @@ outputs.
 
 ![The saved grouped summary distinguishes its primary and added physical inputs from the one map-visible logical output.](../../images/user/06e-customer-combination-saved.png)
 
+### Return to a saved combination
+
+When you reopen the project, each **Combined table prepared** card shows its
+**Saved columns**, including the source table, source column, and saved output
+name. Select **Edit columns and choices** on that card to reload its selected
+columns, output names, tables, and shared keys. You can change those choices
+without selecting everything again.
+
+Select **Review complete combination**, check the result, then select **Save
+changes**. Reviewing alone does not save your changes. **Cancel editing**
+returns to the saved combination. The creation form remains available for a
+separate new combination.
+
+Saving replaces this combination and requires you to review **Match data**
+again. If another source-preparation step uses the combined table, Impodo asks
+you to remove that later step before changing it. If someone saved another
+change while your form was open, reopen the editor to load the current choices.
+The advanced two-table editor also supports reopening and saving changes.
+
+![The reopened combination retains selected columns and a custom output name.](../../images/user/06h-customer-combination-edit.png)
+
 Do not use this choice to flatten one-to-many data. BoM lines and operations
 normally remain separate logical datasets linked to their header. Two partial
 views of the same BoM line may be combined only when a complete line key proves

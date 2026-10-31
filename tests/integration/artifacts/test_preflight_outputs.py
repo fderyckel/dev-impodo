@@ -127,11 +127,11 @@ class CyclicRelationshipResolutionTests(unittest.TestCase):
 
         self.assertEqual(
             resolved[0].references["uom_id"],
-            BusinessReference(records[1].target_model, ("TWO",)),
+            BusinessReference(records[1].target_model, ("TWO",), target_fields=("x_business_key",)),
         )
         self.assertEqual(
             resolved[1].references["uom_id"],
-            BusinessReference(records[0].target_model, ("ONE",)),
+            BusinessReference(records[0].target_model, ("ONE",), target_fields=("x_business_key",)),
         )
         self.assertEqual(len(evidence), 2)
         self.assertTrue(all(item.status == "RESOLVED" for item in evidence))

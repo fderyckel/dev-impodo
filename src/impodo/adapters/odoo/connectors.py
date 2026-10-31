@@ -800,7 +800,7 @@ class Json2ReadConnector:
         )
 
     def get_model_metadata(
-        self, requests: Sequence[MetadataRequest]
+        self, requests: Sequence[MetadataRequest], *, include_create_defaults: bool = True,
     ) -> MetadataSnapshot:
         """Fetch requested field definitions through batched ``fields_get`` calls.
 
@@ -882,7 +882,7 @@ class Json2ReadConnector:
                     if _captures_create_default(field_metadata)
                 )
             )
-            if not required_default_fields:
+            if not required_default_fields or not include_create_defaults:
                 create_defaults[request.model] = {}
                 continue
             try:

@@ -26,6 +26,7 @@ from impodo.domain.identity.recovery import (
     AccountRecoveryRejectedError,
     AuthorizedRecoveryTokenCommand,
     AuthorizedRecoveryTokenResult,
+    LoginPrincipalKind,
     PasswordResetCommand,
     PasswordResetDelivery,
     PasswordResetMutation,
@@ -169,6 +170,20 @@ class AccountRecoveryService:
             purpose=command.purpose,
             token=material.token,
             expires_at=issue.expires_at,
+        )
+
+    def inspect_token_principal(
+        self, token: str, purpose: RecoveryTokenPurpose,
+    ) -> LoginPrincipalKind | None:
+        """Dispatch an issued token cheaply; consumption still validates it atomically."""
+        if len(token) > 256:
+            return None
+        try:
+            proof = self._token_factory.prove(token, purpose)
+        except AccountRecoveryInputError:
+            return None
+        return self._repository.inspect_token_principal(
+            proof, purpose, observed_at=self._aware_now(),
         )
 
     def reset_password(

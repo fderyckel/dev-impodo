@@ -151,6 +151,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
         )
         expected_partials = (
             "_dataset.html",
+            "_technical_details.html",
             "_scalar_catalog.html",
             "_relationship_catalog.html",
             "_control_totals.html",

@@ -1,0 +1,60 @@
+<details id="business-expectations" class="form-card business-expectations">
+  <summary><h2 id="business-expectations-title">What may this load change?</h2></summary>
+  {% if expectations.packet %}
+    <p class="muted">{% if expectations.saved %}Saved expectations v{{ expectations.saved.version }}.{% else %}No expectations saved yet. Make an explicit choice for each record type.{% endif %} Blank counts mean no limit; 0 means none.</p>
+    <form method="post" action="/workspaces/{{ workspace_id }}/mapping/expectations">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_version" value="{{ expectations.saved.version if expectations.saved else 0 }}">
+      <input type="hidden" name="binding_hash" value="{{ expectations.packet.binding_hash }}">
+      <input type="hidden" name="operation_id" value="{{ expectations.operation_id }}">
+      <input type="hidden" name="model_count" value="{{ expectations.rows|length }}">
+      {% for row in expectations.rows %}
+        <fieldset>
+          <legend>{{ row.label }}</legend>
+          <input type="hidden" name="model_{{ row.index }}" value="{{ row.scope.model }}">
+          <label for="expect-mode-{{ row.index }}">Allowed changes</label>
+          <select id="expect-mode-{{ row.index }}" name="mode_{{ row.index }}" required>
+            <option value="">Choose allowed changes</option>
+            {% for value,label in row.modes %}<option value="{{ value }}" {% if row.rule and row.rule.mode.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+          <div class="expectation-counts">
+            {% for phase,label,count in [('create','New records',row.rule.creates if row.rule else none),('update','Changed records',row.rule.updates if row.rule else none)] %}
+              <label>{{ label }} · minimum
+                <input type="number" min="0" step="1" name="{{ phase }}_min_{{ row.index }}" value="{{ count.minimum if count and count.minimum is not none else '' }}" placeholder="No minimum">
+              </label>
+              <label>{{ label }} · maximum
+                <input type="number" min="0" step="1" name="{{ phase }}_max_{{ row.index }}" value="{{ count.maximum if count and count.maximum is not none else '' }}" placeholder="No maximum">
+              </label>
+            {% endfor %}
+          </div>
+          <details>
+            <summary>Limit which matched fields may change</summary>
+            <p>These limits can narrow the saved matching rules. They cannot add fields or relationship operations.</p>
+            {% for phase,label in [('create','New records'),('update','Changed records')] %}
+              {% set fields = row.rule[phase ~ '_fields'] if row.rule else none %}
+              {% set relations = row.rule[phase ~ '_relationships'] if row.rule else none %}
+              <label><input type="checkbox" name="limit_{{ phase }}_fields_{{ row.index }}" value="1" {% if fields is not none %}checked{% endif %}> Limit value fields for {{ label|lower }}</label>
+              <label>Allowed value fields
+                <select multiple name="{{ phase }}_fields_{{ row.index }}">
+                  {% for field in row.scope[phase ~ '_fields'] %}<option value="{{ field }}" {% if fields is not none and field in fields %}selected{% endif %}>{{ field }}</option>{% endfor %}
+                </select>
+              </label>
+              <label><input type="checkbox" name="limit_{{ phase }}_relations_{{ row.index }}" value="1" {% if relations is not none %}checked{% endif %}> Limit linked-field changes for {{ label|lower }}</label>
+              <label>Allowed linked-field changes
+                <select multiple name="{{ phase }}_relations_{{ row.index }}">
+                  {% for relation in row.scope[phase ~ '_relationships'] %}{% for operation in relation.operations %}
+                    <option value="{{ relation.field }}:{{ operation.value }}" {% if relation.field ~ ':' ~ operation.value in row.selected_relations[phase] %}selected{% endif %}>{{ relation.field }} · {{ operation.value }}</option>
+                  {% endfor %}{% endfor %}
+                </select>
+              </label>
+            {% endfor %}
+          </details>
+        </fieldset>
+      {% endfor %}
+      <button class="button secondary" type="submit">Save business expectations</button>
+    </form>
+  {% else %}
+    <p class="muted">{{ expectations.message }}</p>
+    {% if expectations.saved %}<p>Your previous expectations are kept. Check the current matches to edit them for the current setup.</p>{% endif %}
+  {% endif %}
+</details>

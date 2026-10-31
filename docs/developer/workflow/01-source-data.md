@@ -188,6 +188,24 @@ command, including its validation-error render, runs inside one
 `run_local_operation` callback. It performs zero Odoo calls. The normal page
 continues to use one `run_page_read` projection.
 
+Saved combination cards list their source columns and output names. The
+`edit_join` query parameter reopens a card through `saved_exact_join_form`,
+which reconstructs grouped or pairwise form choices from the persisted plan.
+Grouped fields are traced through private intermediate projections to their
+physical inputs. This read uses the existing page projection and reads no
+source rows. The browser preserves restored selections and names until the
+operator explicitly chooses **Use recommended output**.
+
+Preview and save identify an existing combination by its rule or group ID.
+The service excludes that combination only from the transient review plan,
+then repeats the full source review. Saving replaces its rules and reviews in
+their existing position within one optimistic plan revision. Unrelated rules
+and reviews remain intact. The repository retires mapping and staging through
+the existing transaction. A dependent preparation step blocks replacement;
+stale versions, failed reviews, and interrupted saves leave the current plan
+unchanged. Preview and validation-error forms retain the submitted parent
+version so they cannot silently rebase a stale edit.
+
 `POST /workspaces/{workspace_id}/derived-entities/join-group/preview` reviews
 the complete group and returns one reconciliation row per added table. `POST
 /workspaces/{workspace_id}/derived-entities/join-group/save` repeats the same

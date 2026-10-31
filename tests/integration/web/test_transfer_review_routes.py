@@ -27,6 +27,7 @@ from tests.application.workspace.test_transfer_order import (
     _workspace,
 )
 from tests.application.workspace.test_transfer_review import _WorkspaceRepository
+from tests.support.identity import MutableLocalRequestIdentityResolver
 
 
 class TransferReviewRouteTests(unittest.TestCase):
@@ -50,7 +51,7 @@ class TransferReviewRouteTests(unittest.TestCase):
         )
         repository = _WorkspaceRepository(workspace)
         context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=MutableLocalRequestIdentityResolver(),
             queries=_Queries(repository, selection, schema),
             workspace_states=WorkspaceStateService(
                 repository,
@@ -156,7 +157,7 @@ class TransferReviewRouteTests(unittest.TestCase):
         )
         repository = _WorkspaceRepository(workspace)
         context = SimpleNamespace(
-            actor=LOCAL_ACTOR,
+            identity_resolver=MutableLocalRequestIdentityResolver(),
             queries=_Queries(repository, selection, schema),
             workspace_states=WorkspaceStateService(
                 repository,

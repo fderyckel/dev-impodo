@@ -155,13 +155,13 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Reuse or create identity and required values only", page.text)
         self.assertNotIn("Include incoming data", page.text)
         self.assertIn("Reuse existing Odoo records", page.text)
-        self.assertIn("Save supporting choices", page.text)
+        self.assertIn("Save choices", page.text)
         self.assertIn("2 Must fix", page.text)
         self.assertIn(
             "Impodo cannot find Unit of Measure in the current Odoo record-type list.",
             page.text,
         )
-        self.assertIn("Matching rules cannot be confirmed yet", page.text)
+        self.assertIn("Matching rules are waiting for the supporting choices above", page.text)
         self.assertIn("Fields:", page.text)
         self.assertIn("Product: Unit of Measure", page.text)
         self.assertIn(

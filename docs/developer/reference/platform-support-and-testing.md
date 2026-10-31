@@ -38,10 +38,13 @@ itself host-specific.
 
 ## Continuous integration lanes
 
-`.github/workflows/python-quality.yml` runs the complete portable repository
-gate on `ubuntu-latest`, `macos-latest`, and `windows-latest`. Its final
-`quality` job preserves the required `Python quality / quality` check name and
-passes only when the complete matrix passes.
+`.github/workflows/python-quality.yml` runs the complete repository gate and a
+separate portable behavioral matrix on `ubuntu-latest`, `macos-latest`, and
+`windows-latest`. The behavioral command discovers every test except the
+platform and performance suites. The Linux behavioral job also runs the
+default performance contracts. Larger scale cases keep their explicit opt-in
+requirements. Its final `quality` job preserves the required
+`Python quality / quality` check name and passes only when both matrices pass.
 
 Host-owned suites run separately:
 
@@ -54,7 +57,10 @@ Host-owned suites run separately:
   enter the portable gate. Its separate image-quality job builds the pinned
   production image, rejects fixable critical or high vulnerabilities, and
   retains maximum-mode build provenance plus an SPDX software bill of
-  materials. The job requires no registry publication or registry credential.
+  materials. A supporting-image matrix resolves the PostgreSQL and proxy
+  digests from Compose, retains all critical and high findings, and rejects
+  fixable findings at those severities. These image jobs require no registry
+  publication or registry credential.
 
 This separation keeps the common gate portable without discarding valuable
 platform evidence.
@@ -77,6 +83,8 @@ Run the complete portable gate from the repository root:
 
 ```powershell
 uv run --frozen --group quality python scripts/check_repository_quality.py
+uv run --frozen --group quality --extra test pytest -q tests --ignore=tests/platform --ignore=tests/performance --tb=short
+uv run --frozen --group quality --extra test pytest -q tests/performance
 ```
 
 On the owning host, also run the affected platform suite with `unittest`

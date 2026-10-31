@@ -9,6 +9,7 @@ import unittest
 from dataclasses import replace
 from datetime import UTC, datetime, timezone
 from pathlib import Path
+import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
 from uuid import UUID, uuid4, uuid5
@@ -2178,9 +2179,7 @@ class IntegratedRecipeCompiler:
 
 class IntegratedRecipeRunTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"integrated-multi-recipe-{uuid4()}"
-        self.root.mkdir()
+        self.root = Path(tempfile.mkdtemp(prefix="imr-"))
         self.authorization = CapabilityAuthorizationPolicy()
         self.database = MigrationFoundationDatabase(self.root)
         self.foundation = MigrationFoundationRepository(self.database)
@@ -3327,10 +3326,8 @@ class IntegratedRecipeRunTests(unittest.TestCase):
 
 class IntegratedRecipeRunBrowserTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        # Keep immutable artifact paths below the Windows portable path limit.
-        self.root = ROOT / ".tmp" / f"irb-{uuid4()}"
-        self.root.mkdir()
+        # Keep the OS temporary root short for Windows artifact paths.
+        self.root = Path(tempfile.mkdtemp(prefix="irb-"))
         self.app = create_local_app(
             self.root,
             launch_token="integrated-launch",

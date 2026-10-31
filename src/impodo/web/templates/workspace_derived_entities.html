@@ -16,11 +16,6 @@
     {% endif %}
   </div>
 
-  <div class="notice">
-    <strong>Your source evidence stays unchanged.</strong>
-    Saved rules are repeated consistently for every row when Impodo checks the data.
-  </div>
-
   {% if not selection %}
     <section class="form-card empty-state">
       <h2>Choose your source tables first</h2>
@@ -41,7 +36,7 @@
 
     <section class="form-card">
       <h2>What does your source contain? {{ decision_help("source-composition") }}</h2>
-      <div class="actions">
+      <div class="actions source-composition-actions" data-source-composition-actions>
         <button class="button primary" type="button" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
         <button class="button primary" type="button" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
         <button class="button secondary" type="button" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
@@ -111,7 +106,7 @@
           {% for projection_name in join_group_form.projection_names %}<input type="hidden" name="group_projection_name" value="{{ projection_name }}">{% endfor %}
           <div class="actions">
             <button class="button secondary" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
-            {% if group_preview.can_save %}<button class="button primary" type="submit">Save combined table</button>{% endif %}
+            {% if group_preview.can_save %}<button class="button primary" type="submit">{{ "Save changes" if editing_join_group else "Save combined table" }}</button>{% endif %}
           </div>
         </form>
       </section>
@@ -219,7 +214,7 @@
           {% for projection_name in join_form.projection_names %}<input type="hidden" name="projection_name" value="{{ projection_name }}">{% endfor %}
           <div class="actions">
             <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
-            {% if pending_review.can_save %}<button class="button primary" type="submit">Save combined table</button>{% endif %}
+            {% if pending_review.can_save %}<button class="button primary" type="submit">{{ "Save changes" if editing_join_pair else "Save combined table" }}</button>{% endif %}
           </div>
         </form>
       </section>
@@ -237,6 +232,7 @@
           </div>
           <div class="actions">
             <span class="status registered">Complete</span>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities?edit_join={{ rule.rule_id }}#{{ 'combine-source-tables' if rule.group_id else 'combine-two-tables' }}">Edit columns and choices</a>
             <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
@@ -257,16 +253,24 @@
           <div><dt>Output fields</dt><dd>{{ rule.output_columns|length }} selected and named</dd></div>
           <div><dt>Reconciliation</dt><dd>{% if review %}{{ review.actual_output_rows }} output rows from {{ review.left_rows }} base rows{% else %}Saved review unavailable{% endif %}</dd></div>
         </div>
+        <details open>
+          <summary>Saved columns ({{ view.columns|length }})</summary>
+          <div class="table-scroll"><table class="data-table">
+            <thead><tr><th>Source table</th><th>Source column</th><th>Saved output name</th></tr></thead>
+            <tbody>{% for source_table, source_column, output_name in view.columns %}<tr><td>{{ source_table }}</td><td>{{ source_column }}</td><td>{{ output_name }}</td></tr>{% endfor %}</tbody>
+          </table></div>
+        </details>
       </section>
     {% endfor %}
 
-    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join_group or join_group_error %} open{% endif %}>
+    <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section{% if pending_join_group or join_group_error or editing_join_group %} open{% endif %}>
       <summary>
         <span><strong>Several tables describe the same records</strong><small>Choose one primary table and add up to nine enrichments in one reviewed decision.</small></span>
       </summary>
-      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-exact-join-group-form{% if join_group_error %} data-group-server-error{% endif %}>
+      {% if editing_join_group %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-exact-join-group-form{% if join_group_form and (pending_join_group or join_group_error or editing_join_group) %} data-group-retained{% endif %}{% if join_group_error %} data-group-server-error{% endif %}>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+        <input type="hidden" name="expected_parent_version" value="{{ join_group_form.expected_parent_version if join_group_form.expected_parent_version is not none else '' }}">
         <input type="hidden" name="group_id" value="{{ join_group_form.group_id }}">
 
         <div class="guided-step">
@@ -415,13 +419,14 @@
       </form>
     </details>
 
-    <details class="form-card secondary-preparation" id="combine-two-tables" data-derived-entity-section{% if pending_join %} open{% endif %}>
+    <details class="form-card secondary-preparation" id="combine-two-tables" data-derived-entity-section{% if pending_join or editing_join_pair %} open{% endif %}>
       <summary>
         <span><strong>Advanced: combine two tables</strong><small>Keep the existing pairwise editor for structural workflows that need an explicit chain.</small></span>
       </summary>
+      {% if editing_join_pair %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
       <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/preview" data-exact-join-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="expected_parent_version" value="{{ plan.version if plan else '' }}">
+        <input type="hidden" name="expected_parent_version" value="{{ join_form.expected_parent_version if join_form.expected_parent_version is not none else '' }}">
         <input type="hidden" name="rule_id" value="{{ join_form.rule_id }}">
 
         <div class="guided-step">

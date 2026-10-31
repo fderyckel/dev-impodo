@@ -152,6 +152,41 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 page,
                 output_directory / "06e-customer-combination-saved.png",
             )
+            saved.get_by_role("link", name="Edit columns and choices").click()
+            page.wait_for_load_state("networkidle")
+            form = page.locator("#combine-source-tables")
+            expect(form).to_have_attribute("open", "")
+            expect(form.locator('input[name="output_dataset_name"]')).to_have_value(
+                "customers_complete"
+            )
+            fields = form.locator('[data-group-field-row][data-participates="true"]')
+            selected = fields.locator('[data-group-field-checkbox]:checked')
+            expect(selected.first).to_be_checked()
+            field_count = selected.count()
+            selected.first.uncheck()
+            output = fields.filter(
+                has=page.locator("[data-group-field-checkbox]:checked")
+            ).first.locator("[data-group-output-name]")
+            output.fill("saved_customer_field")
+            form.get_by_role("button", name="Review complete combination").click()
+            preview = page.locator("#join-group-preview")
+            expect(preview.get_by_role("button", name="Save changes")).to_be_visible()
+            preview.get_by_role("button", name="Save changes").click()
+            saved = page.locator(".exact-join-rule-card").first
+            expect(saved).to_contain_text(f"Saved columns ({field_count - 1})")
+            saved.get_by_role("link", name="Edit columns and choices").click()
+            page.wait_for_load_state("networkidle")
+            form = page.locator("#combine-source-tables")
+            expect(form.locator('[data-group-field-checkbox]:checked')).to_have_count(
+                field_count - 1
+            )
+            expect(form.locator('[data-group-output-name][value="saved_customer_field"]')).to_have_count(1)
+            form.locator("[data-group-field-filter]").select_option("selected")
+            form.locator(".exact-join-field-tools").evaluate(
+                "element => element.scrollIntoView({block: 'start'})"
+            )
+            page.evaluate("window.scrollBy(0, -140)")
+            _capture(page, output_directory / "06h-customer-combination-edit.png")
             browser_context.close()
             browser.close()
     finally:

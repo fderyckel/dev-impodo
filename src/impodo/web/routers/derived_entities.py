@@ -321,7 +321,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                             dataset_uses.get(rule.right_dataset_id)
                         ),
                         "expected_parent_version": (
-                            plan.version if plan is not None else None
+                            submission.expected_parent_version
                         ),
                     },
                     join_form=submission,
@@ -369,7 +369,6 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Freeze source datasets before combining tables"
                     )
-                plan = context.queries.get_derived_entity_plan(workspace_id)
                 group_request = resolve_exact_join_group_request(
                     submission,
                     selection,
@@ -402,7 +401,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                         ),
                         "preview": preview,
                         "expected_parent_version": (
-                            plan.version if plan is not None else None
+                            submission.expected_parent_version
                         ),
                     },
                     join_group_form=submission,
@@ -480,7 +479,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         _flash(
             request,
             (
-                f"Created the combined table {preview.final_rule.output_dataset_name} "
+                f"Saved the combined table {preview.final_rule.output_dataset_name} "
                 f"from {len(preview.rules) + 1} source tables."
             ),
         )
@@ -554,7 +553,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         _flash(
             request,
             (
-                f"Created the combined table {rule.output_dataset_name}. "
+                f"Saved the combined table {rule.output_dataset_name}. "
                 "The accepted source tables remain unchanged."
             ),
         )

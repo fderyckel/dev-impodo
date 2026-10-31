@@ -111,6 +111,14 @@ document.addEventListener("DOMContentLoaded", () => {
     const submit = form.querySelector('button[type="submit"]');
     const manuallySelected = new WeakSet();
     const manuallyNamed = new WeakSet();
+    if (form.hasAttribute("data-group-retained")) {
+      for (const row of rows) {
+        const checkbox = row.querySelector("[data-group-field-checkbox]");
+        const output = row.querySelector("[data-group-output-name]");
+        if (checkbox) manuallySelected.add(checkbox);
+        if (output) manuallyNamed.add(output);
+      }
+    }
     let initialized = false;
 
     const token = (value) => {

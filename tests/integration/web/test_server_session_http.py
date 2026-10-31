@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime, timedelta
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.testclient import TestClient
 
@@ -19,6 +19,7 @@ from impodo.domain.identity.sessions import (
 from impodo.web.composition.server_session_http import (
     SERVER_CSRF_COOKIE_NAME,
     SERVER_SESSION_COOKIE_NAME,
+    SERVER_MAX_FORM_BYTES,
     ServerBrowserSecurityMiddleware,
     clear_server_session_cookie,
     set_server_session_cookie,
@@ -51,6 +52,25 @@ def _credentials() -> ServerSessionCredentials:
 
 
 class ServerSessionHttpTests(unittest.TestCase):
+    def test_form_body_limit_covers_length_headers_and_streamed_bodies(self):
+        app = FastAPI()
+        accepted = []
+
+        @app.post("/form")
+        async def form(request: Request):
+            values = await request.form()
+            accepted.append(values.get("value"))
+            return {"status": "ok"}
+
+        app.add_middleware(ServerBrowserSecurityMiddleware, public_url="https://impodo.example.test")
+        with TestClient(app, base_url="https://impodo.example.test") as client:
+            headers = {"Origin": "https://impodo.example.test", "Content-Type": "application/x-www-form-urlencoded"}
+            self.assertEqual(client.post("/form", content=b"value=small", headers=headers).status_code, 200)
+            self.assertEqual(client.post("/form", content=b"x" * (SERVER_MAX_FORM_BYTES + 1), headers=headers).status_code, 413)
+            stream = (part for part in (b"value=", b"x" * SERVER_MAX_FORM_BYTES))
+            self.assertEqual(client.post("/form", content=stream, headers=headers).status_code, 413)
+        self.assertEqual(accepted, ["small"])
+
     def test_cookie_is_host_only_secure_http_only_and_same_site(self) -> None:
         response = JSONResponse({"status": "ok"})
 

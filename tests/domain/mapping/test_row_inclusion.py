@@ -10,6 +10,7 @@ import polars as pl
 from impodo.adapters.polars_transformation import _selection_condition_expression
 
 from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     DatasetMapping,
     MappingDefinition,
     RowInclusionCondition,
@@ -187,7 +188,7 @@ class RowInclusionContractTests(unittest.TestCase):
         restored = MappingDefinition.from_json(definition.to_json())
 
         self.assertEqual(restored, definition)
-        self.assertEqual(restored.contract_version, 18)
+        self.assertEqual(restored.contract_version, MAPPING_CONTRACT_VERSION)
         self.assertEqual(
             definition.to_dict()["datasets"][0]["row_inclusion"]["mode"],
             "matching_rows",
