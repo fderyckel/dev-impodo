@@ -118,6 +118,19 @@ canary. It does not qualify the execution journal or a transfer between two
 live Odoo servers. The [canary safety tests](../../../tests/integration/odoo/test_row_recipe_qualification.py)
 cover explicit write authorization and cleanup after a lost create reply.
 
+The separate [`qualify_row_inclusion_transfer.py`](../../../scripts/qualify_row_inclusion_transfer.py)
+qualifies the complete transfer path between two disposable final Odoo 20
+servers. Its scalar Contact cases run in both directions, with and without a
+controlled interruption after the first accepted `Model.load()` batch. Recovery
+reopens durable application state with the same private vault and resumes the
+original journal and execution snapshot. Each case verifies two included rows,
+absence of the excluded row, and a repeat match with no creates. The
+[runner safety tests](../../../tests/integration/odoo/test_row_transfer_qualification.py)
+cover explicit write authorization, accepted-reply interruption, and exact
+cleanup after a lost unlink reply. Failed cleanup retains a private temporary
+manifest of the synthetic references so a later check can resolve that exact
+namespace.
+
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
 evidence and normalizes inverse one-to-many metadata to the writable
@@ -504,6 +517,22 @@ parent IDs to the native adapters. Odoo therefore never receives a dotted
 operation and contains no database connection. The saved snapshot and its
 binding hashes remain authoritative; missing, ambiguous, or retargeted parents
 cannot release a dependent write.
+
+The [hierarchy workflow suite](../../../tests/integration/web/test_hierarchy_workflow.py)
+and [Recipe suite](../../../tests/integration/web/test_hierarchy_recipe.py)
+each qualify eight combinations of generated or supplied category files,
+Odoo 19 or final Odoo 20, and LOCAL or REMOTE mode. They use production JSON-2
+writers and read-back adapters against an independent fictional transport.
+The assertions cover complete business paths, physical source accounting,
+frozen order, and durable parent receipts before dependent writes.
+
+The [hierarchy recovery suite](../../../tests/integration/web/test_hierarchy_recovery.py)
+adds 36 scenario combinations. Successful recovery rebuilds the application
+context against the persisted workspace and replaces a lost REMOTE loading
+key through the real recovery-check route. Targeted read-back first checks the
+interrupted records. Resume then rechecks their required ancestors before
+releasing children. These tests qualify adapter and evidence behaviour; they
+do not establish live Odoo defaults, create hooks, or target access rules.
 
 `ExecutionService` consumes the frozen topological component layers through
 pages of at most 500 rows. A page never mixes components. It groups only

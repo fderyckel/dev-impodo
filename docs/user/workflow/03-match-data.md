@@ -120,14 +120,33 @@ read also updates the relationship-based table-order suggestion. For each
 direct text, integer, date, date-time, or Selection identity, the card reports
 included rows, unique source identities, blank identity rows, repeated source
 rows and groups, exact and ambiguous Odoo keys, new candidates, existing
-matches, and blocked rows. It never returns source key values or numeric Odoo
+matches, and blocked rows. The card never exposes source key values or numeric Odoo
 record IDs to the browser.
 
-If a card says **Tested - needs attention**, select **Review matching rule**.
-Blank identities need a source value or a different row rule. Repeated source
-identities need a stronger source identifier or later duplicate resolution.
-Ambiguous Odoo identities need a stronger governed Odoo matching rule. Run the
-check again after saving the correction.
+If a card says **Tested - needs attention**, use its review action to inspect
+the cause. Blank identities need a source value or a different row rule.
+**Review repeated source identities** opens the included rows that share a
+complete business key and scope. **Review ambiguous Odoo matches** opens the
+source rows and matching Odoo records observed by this check. For example,
+`DUP` within Site `BE` remains a different identity from `DUP` within Site `LU`.
+
+![Identity health shows separate review actions for repeated source identities and ambiguous observed Odoo matches.](../../images/user/11j-mapping-duplicate-actions.png)
+
+Select **Open complete group** to keep the review on one group. Pages show up
+to 100 members and retain that group while you move forward or back. An
+**Included source position** numbers a row within the included population of
+this check; it is not a physical file row number. An **Observed Odoo match**
+numbers the matches seen by this bounded check. The page does not expose Odoo
+record IDs or claim a complete inventory of the target database.
+
+![The protected duplicate review shows a complete Reference within Site identity and the first 100 members of a 105-row group.](../../images/user/11k-identity-group-review.png)
+
+Repeated source identities need a stronger identifier, corrected source data,
+or a later decision in **Prepare data**. Ambiguous Odoo identities need a
+stronger governed Odoo matching rule. Opening a group does not merge rows,
+choose the first Odoo match, or approve a collision decision. Use **Review
+matching rule** for the correction and run **Check saved identities** again.
+If the review belongs to an older check, Impodo asks you to check again first.
 
 The check can also prove related-record components in a complete identity,
 such as **Product Reference within Company**, when every related record in the
@@ -171,9 +190,32 @@ relationship can remain valid.
 For example, a **BOM Lines -> Parent Bill of Material** card tells you how many
 line rows identify one parent Bill of Material, how many parents already exist
 in Odoo, how many come from the incoming Bills of Materials table, and how many
-cannot be resolved. Select **Review N unresolved choices** to return to the
-exact relationship field. Select **Open Bills of Materials** when the incoming
-parent table itself needs correction.
+cannot be resolved. Select **Review unresolved choices** to see the saved
+business values and the reason for each failure. Use **Change matching rule**
+to open the exact relationship field. Select **Open Bills of Materials** when
+the incoming parent table itself needs correction.
+
+![The Category and Tags cards offer separate actions to review unresolved choices and change the matching rule.](../../images/user/11l-mapping-relationship-actions.png)
+
+The protected review shows the complete related key and scope, expected
+origin, reason, choice occurrences, and affected source rows. For example,
+Category Reference `lower` within Site `BE` can differ only by case from an
+Odoo record, while `lowerin` within the same Site differs from an incoming
+record. Filter by **Table**, **Linked field**, or **Reason**. Pages show up to
+100 choices and keep the same saved check when you move forward or back.
+
+**Choice occurrences** agrees with the card's unresolved counts. A list field
+can have several unresolved members in one source row. **Affected rows** counts
+source rows for each choice; adding these counts across choices can count the
+same source row more than once. A missing required value appears as **Required
+value is blank**; optional blanks do not appear as unresolved choices.
+
+![The protected relationship review distinguishes case-only failures in Odoo from failures in the incoming table, keeping the complete Reference and Site.](../../images/user/11m-relationship-choice-review.png)
+
+Opening the review does not contact Odoo or choose a matching record. Correct
+the rule or source data, then run **Check saved relationships** again. If the
+inputs or saved check changed, or the check predates this review, Impodo asks
+you to check again before showing the values.
 
 For **Use Odoo first, otherwise use the incoming table**, an exact Odoo match
 wins. A case-only Odoo match does not fall through silently to the incoming
@@ -187,8 +229,10 @@ Many2one field instead of suggesting that the parent writes the list.
 
 The result becomes **Needs refresh** when the source selection, saved mapping,
 governed matching rule, Odoo schema, target, or read identity changes. Exact
-source and Odoo keys stay in protected evidence; the browser and portable
-Recipe contain only aggregate counts. **Prepare data** and **Final review**
+source and Odoo keys stay in protected evidence. Ordinary cards and navigation
+show aggregate counts; the authorized review exposes only its current page of
+business choices, without numeric Odoo record IDs. A Recipe receives no review
+values. **Prepare data** and **Final review**
 still perform the authoritative row and destination checks.
 
 The relationship simulator follows a saved, source-backed Many2one field when
@@ -223,8 +267,8 @@ After saving the current matching choices, select **Check identities and
 update suggestion** when you want Impodo to refine that advice against the current
 Odoo data. This is an explicit, read-only check. Impodo reads only the exact
 governed relationship keys required by the saved draft and shows aggregate
-counts; source values, Odoo keys, and numeric Odoo record IDs are not returned
-to the browser.
+counts. Protected values are available only through the authorized review
+actions; numeric Odoo record IDs are absent from those pages.
 
 **Current** means the result still matches the saved source selection, Odoo
 schema, business-key governance, target, read access, and working draft.

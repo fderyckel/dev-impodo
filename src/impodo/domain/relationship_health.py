@@ -13,6 +13,10 @@ from dataclasses import asdict, dataclass
 from enum import StrEnum
 
 from impodo.domain.mapping.contracts import ResolverOrigin
+from impodo.domain.relationship_review import (
+    RelationshipChoiceCause,
+    RelationshipChoiceResolution,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 
 
@@ -216,6 +220,7 @@ def classify_relationship_health(
     incomplete_row_count: int,
     target_keys: Iterable[tuple[object | None, ...]],
     incoming_key_counts: Mapping[tuple[str, ...], int],
+    unresolved_choices: list[RelationshipChoiceResolution] | None = None,
 ) -> RelationshipHealthResult:
     """Classify exact choices with target-first and case-only safeguards."""
 
@@ -252,9 +257,15 @@ def classify_relationship_health(
             continue
         if target_outcome == "ambiguous":
             ambiguous += occurrence_count
+            if unresolved_choices is not None:
+                unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.AMBIGUOUS, occurrence_count,
+                    _lookup_count(key, target_counts, target_folded), 0, "target"))
             continue
         if target_outcome == "case":
             case_mismatch += occurrence_count
+            if unresolved_choices is not None:
+                unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.CASE_ONLY, occurrence_count,
+                    _lookup_count(key, target_counts, target_folded), 0, "target"))
             continue
 
         incoming_outcome = (
@@ -269,10 +280,19 @@ def classify_relationship_health(
             incoming += occurrence_count
         elif incoming_outcome == "ambiguous":
             ambiguous += occurrence_count
+            if unresolved_choices is not None:
+                unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.AMBIGUOUS, occurrence_count,
+                    0, _lookup_count(key, incoming_counts, incoming_folded), "incoming"))
         elif incoming_outcome == "case":
             case_mismatch += occurrence_count
+            if unresolved_choices is not None:
+                unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.CASE_ONLY, occurrence_count,
+                    0, _lookup_count(key, incoming_counts, incoming_folded), "incoming"))
         else:
             missing += occurrence_count
+            if unresolved_choices is not None:
+                unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.MISSING, occurrence_count, 0, 0,
+                    "target" if origin is ResolverOrigin.TARGET_CATALOG else "incoming" if origin is ResolverOrigin.DATASET else "both"))
 
     return RelationshipHealthResult(
         owner_dataset_id=owner_dataset_id,
@@ -293,6 +313,11 @@ def classify_relationship_health(
         ambiguous_count=ambiguous,
         case_mismatch_count=case_mismatch,
     )
+
+
+def _lookup_count(key: tuple[str, ...], exact: Mapping[tuple[str, ...], int], folded: Mapping[tuple[str, ...], int]) -> int:
+    """Reuse the classified lookup indexes without exposing target identifiers."""
+    return exact.get(key, 0) or folded.get(tuple(value.casefold() for value in key), 0)
 
 
 def _normalized_count_map(

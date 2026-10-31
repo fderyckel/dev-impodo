@@ -16,14 +16,14 @@ The application continues its existing release numbering.
 | --- | --- | --- |
 | Application release | [`pyproject.toml`](../../../pyproject.toml), currently `26.10.4` | Continue `YY.MM.sequence` and create the matching `vYY.MM.sequence` Git tag when releasing. Synchronize the package entry in `uv.lock` with uv after changing the release version. |
 | Release bundle | [`scripts/internal_release.py`](../../../scripts/internal_release.py) | Keep the application version, Git revision, artifact hashes, and validation evidence together in the immutable manifest. |
-| Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Start at version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`. |
+| Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Baseline version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`; version 2 adds protected duplicate-group index columns and current version 3 adds the protected relationship-choice index. |
 | Project registry | [`schema/migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) | Start at version 1 in generation `impodo-migration-registry-2026-10-31-project-root`. |
 | Data version store | [`schema/data_version_store.py`](../../../src/impodo/adapters/duckdb/schema/data_version_store.py) | Start at version 1 in generation `impodo-data-version-store-2026-10-31-project-owned`. |
 | Workspace reference store | [`schema/migration_workspace_store.py`](../../../src/impodo/adapters/duckdb/schema/migration_workspace_store.py) | Start at version 1 in generation `impodo-migration-workspace-2026-10-31-reference-only`. |
 | PostgreSQL control schema | [`control_schema.py`](../../../src/impodo/adapters/postgresql/control_schema.py) and [`migrations.py`](../../../src/impodo/adapters/postgresql/migrations.py) | Start at version 1 in generation `impodo-control-2026-10-31`, with one checksummed initial migration. |
 | Portable evidence and worker contracts | The owning domain or application module | Keep their current explicit contract versions. These identify serialized meaning and hash inputs, independently of storage layout and release numbering. |
 
-The DuckDB upgrade registries start empty, and new databases have empty
+The baseline DuckDB upgrade registries started empty, and new databases have empty
 `schema_migration` ledgers. Unsupported generations, future versions, malformed
 schemas, and missing upgrade paths are rejected without changing stored data.
 The application no longer resets or archives abandoned development layouts.

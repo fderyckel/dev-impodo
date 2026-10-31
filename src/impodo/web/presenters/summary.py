@@ -37,6 +37,7 @@ from impodo.domain.preparation.quality import (
     QualityRuleFamily,
 )
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.domain.staging.fields import synthetic_field, synthetic_relationship_field
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -373,11 +374,7 @@ def _render_summary(
         credential_owner,
         TargetCredentialRole.READ,
     )
-    schema_catalog = (
-        context.queries.get_odoo_schema_catalog(workspace_id)
-        if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-        else None
-    )
+    schema_catalog = context.queries.get_odoo_schema_catalog(workspace_id)
     remote_read_credential_missing = (
         workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
         and schema_catalog is not None
@@ -1252,6 +1249,20 @@ def _quality_workflow_issue_summary(
         mapping.dataset_id: mapping.target_model
         for mapping in (revision.definition.datasets if revision else ())
     }
+    field_owners = {
+        mapping.dataset_id: {
+            **{
+                synthetic_field(index): field.target_field
+                for index, field in enumerate(mapping.fields)
+            },
+            **{
+                synthetic_relationship_field(index, source_index): relationship.target_field
+                for index, relationship in enumerate(mapping.relationships)
+                for source_index, _ in enumerate(relationship.source_column_keys)
+            },
+        }
+        for mapping in (revision.definition.datasets if revision else ())
+    }
     schema_fields = {
         model.name: {field.name: field for field in model.fields}
         for model in (schema.models if schema else ())
@@ -1308,6 +1319,7 @@ def _quality_workflow_issue_summary(
             dataset_label=dataset_label,
             dataset_locations=dataset_locations,
             target_models=target_models,
+            field_owners=field_owners,
             schema_fields=schema_fields,
         )
         issues.append(
@@ -1400,6 +1412,7 @@ def _quality_correction_action(
     dataset_label: str,
     dataset_locations: dict[str, tuple[int, str]],
     target_models: dict[str, str],
+    field_owners: Mapping[str, Mapping[str, str]],
     schema_fields: Mapping[str, Mapping[str, SchemaField]],
 ) -> tuple[str, str]:
     """Return one non-mutating route to the closest owning Match decision."""
@@ -1438,8 +1451,13 @@ def _quality_correction_action(
         )
     target_model = target_models.get(dataset_id, "")
     fields = schema_fields.get(target_model, {})
+    owners = field_owners.get(dataset_id, {})
     target_field = next(
-        (field for field in cause.affected_fields if field in fields),
+        (
+            owners.get(field, field)
+            for field in cause.affected_fields
+            if owners.get(field, field) in fields
+        ),
         "",
     )
     metadata = fields.get(target_field)

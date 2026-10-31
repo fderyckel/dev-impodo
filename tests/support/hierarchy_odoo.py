@@ -26,6 +26,7 @@ class HierarchyOdoo:
         self.reads = []
         self.after_create = None
         self.before_create = None
+        self.before_row = None
         self.wire_calls = []
         self.relations = {
             (model.name, field.name): field.relation
@@ -158,6 +159,8 @@ class HierarchyOdoo:
                         int(value),
                     ) in self.records, "A child was written before its parent existed"
                 row[field] = value
+            if self.before_row:
+                self.before_row(model, row)
             identifier = 1000 + len(self.records)
             self.records[(model, identifier)] = row
             identifiers.append(identifier)

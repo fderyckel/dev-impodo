@@ -94,6 +94,30 @@ class ServerIdentityBrowserLiveTests(unittest.TestCase):
         self.assertEqual(response.status_code, expected)
         return response
 
+    def test_organization_form_rejects_invalid_details_then_accepts_a_corrected_id(self):
+        path = "/admin/organizations"
+        values = ServerFormParser(self.platform.get(path).text).form(path)
+        values.update(organization_id="Acme Belgium", display_name="Acme Belgium")
+        self.metrics.clear()
+        with collect_duckdb_request_timings() as timings:
+            rejected = self.post(self.platform, path, values)
+        self.assertEqual(rejected.status_code, 400)
+        self.assertEqual(timings.connection_count, 0)
+        self.assertEqual(sum(metric.connection_count for metric in self.metrics), 2)
+        self.assertIn("lowercase letters, numbers or hyphens", rejected.text)
+        self.assertEqual(ServerFormParser(rejected.text).form(path)["display_name"], "Acme Belgium")
+        with psycopg.connect(self.dsn) as connection:
+            self.assertEqual(connection.execute("SELECT count(*) FROM impodo_control.organization").fetchone(), (0,))
+        corrected = ServerFormParser(rejected.text).form(path)
+        corrected["organization_id"] = "acme-belgium"
+        self.assertEqual(self.post(self.platform, path, corrected).status_code, 303)
+        corrected["display_name"] = "A conflicting rename"
+        conflict = self.post(self.platform, path, corrected)
+        self.assertEqual(conflict.status_code, 409)
+        self.assertIn("Choose a different ID", conflict.text)
+        with psycopg.connect(self.dsn) as connection:
+            self.assertEqual(connection.execute("SELECT display_name, optimistic_revision FROM impodo_control.organization WHERE organization_id = 'acme-belgium'").fetchone(), ("Acme Belgium", 1))
+
     def provision(self, organization="acme"):
         page = self.platform.get("/admin/organizations")
         values = ServerFormParser(page.text).form("/admin/organizations")

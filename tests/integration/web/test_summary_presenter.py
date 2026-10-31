@@ -24,6 +24,39 @@ from impodo.web.presenters.summary import (
 
 
 class QualityCauseSummaryTests(unittest.TestCase):
+    def test_synthetic_field_correction_uses_its_dataset_mapping(self) -> None:
+        causes = tuple(
+            QualityCauseCount(
+                dataset=name, reason_code="SOURCE_TYPE_INVALID", message="Invalid number",
+                affected_fields=("__impodo_scalar_0",), affected_record_count=1,
+                family=QualityRuleFamily.BOUNDED_VALUES, policy=QualityOutcomePolicy.QUARANTINE,
+                owner_label="Data manager",
+            )
+            for name in ("lines", "operations")
+        )
+        summary = _quality_workflow_issue_summary(
+            "workspace:test", "quality-run", causes, {},
+            SimpleNamespace(datasets=tuple(
+                SimpleNamespace(dataset_id=name, name=name) for name in ("lines", "operations")
+            )),
+            SimpleNamespace(definition=SimpleNamespace(datasets=tuple(
+                SimpleNamespace(
+                    dataset_id=name, target_model="mrp.bom.line",
+                    fields=(SimpleNamespace(target_field=field),), relationships=(),
+                )
+                for name, field in (("lines", "product_qty"), ("operations", "sequence"))
+            ))),
+            SimpleNamespace(models=(SimpleNamespace(
+                name="mrp.bom.line", fields=tuple(
+                    SimpleNamespace(name=name, label=label, type="float")
+                    for name, label in (("product_qty", "Quantity"), ("sequence", "Sequence"))
+                ),
+            ),)),
+        )
+        routes = {issue.affected_record_types[0]: issue.correction_route for issue in summary.issues}
+        self.assertEqual(routes["Lines"], "/workspaces/workspace:test/mapping?mapping_dataset=0&field_query=Quantity#scalar-0-product_qty")
+        self.assertEqual(routes["Operations"], "/workspaces/workspace:test/mapping?mapping_dataset=1&field_query=Sequence#scalar-1-sequence")
+
     def test_numeric_capacity_advisory_routes_to_rule_and_odoo_schema(self) -> None:
         summary = _quality_workflow_issue_summary(
             "workspace:test",
@@ -59,6 +92,7 @@ class QualityCauseSummaryTests(unittest.TestCase):
                         SimpleNamespace(
                             dataset_id="dataset:bom-lines",
                             target_model="mrp.bom.line",
+                            fields=(), relationships=(),
                         ),
                     )
                 )
@@ -193,6 +227,7 @@ class QualityCauseSummaryTests(unittest.TestCase):
                         SimpleNamespace(
                             dataset_id="dataset:bom-lines",
                             target_model="mrp.bom.line",
+                            fields=(), relationships=(),
                         ),
                     )
                 )

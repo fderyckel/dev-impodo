@@ -52,6 +52,7 @@
           {% endif %}
 
           <div class="relationship-health-actions">
+            {% if item.review_url %}<a class="button primary compact" href="{{ item.review_url }}">Review unresolved choices</a>{% endif %}
             <a class="button secondary compact" href="{{ item.edit_url }}">{{ item.edit_label }}</a>
             {% if item.related_url %}
               <a class="button secondary compact" href="{{ item.related_url }}">{{ item.related_action_label }}</a>

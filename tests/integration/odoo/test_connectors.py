@@ -46,7 +46,8 @@ class Json2ConnectorTests(unittest.TestCase):
         for version, info in (("19.0", [19, 0, 0, "final", 0, ""]),
                               ("19.0+e", [19, 0, 0, "final", 0, "+e"]),
                               ("19.0+e", [19, 0, 0, "final", 0, "e"]),
-                              ("19.5a1", [19, 5, 0, "alpha", 1, ""])):
+                              ("19.5a1", [19, 5, 0, "alpha", 1, ""]),
+                              ("20.0-20261015", [20, 0, 0, "final", 0, ""])):
             with self.subTest(version=version):
                 connector = Json2ReadConnector(self.config(), transport=lambda *_: (
                     200, {"version": version, "version_info": info},

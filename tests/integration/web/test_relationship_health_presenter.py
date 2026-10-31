@@ -37,6 +37,7 @@ class RelationshipHealthPresenterTests(unittest.TestCase):
             workspace_id="workspace:test",
             dataset_views=(owner, parent),
             live_check=SimpleNamespace(
+                check_id="10000000-0000-4000-8000-000000000001",
                 relationship_health_results=(result,),
                 schema_changed=False,
             ),
@@ -50,7 +51,8 @@ class RelationshipHealthPresenterTests(unittest.TestCase):
         self.assertEqual(card["blocked_count"], 3)
         self.assertIn("BOM Lines", card["message"])
         self.assertIn("incoming BOMs", card["message"])
-        self.assertEqual(card["edit_label"], "Review 3 unresolved choices")
+        self.assertEqual(card["edit_label"], "Change matching rule")
+        self.assertIn("/mapping/relationship-choices?", card["review_url"])
         self.assertEqual(card["related_action_label"], "Open incoming BOMs")
         self.assertIn("#relationship-0-bom_id", card["edit_url"])
 
@@ -75,6 +77,7 @@ class RelationshipHealthPresenterTests(unittest.TestCase):
             workspace_id="workspace:test",
             dataset_views=(owner, parent),
             live_check=SimpleNamespace(
+                check_id="10000000-0000-4000-8000-000000000001",
                 relationship_health_results=(result,),
                 schema_changed=False,
             ),
@@ -133,6 +136,7 @@ class RelationshipHealthPresenterTests(unittest.TestCase):
             workspace_id="workspace:test",
             dataset_views=(owner, child),
             live_check=SimpleNamespace(
+                check_id="10000000-0000-4000-8000-000000000001",
                 relationship_health_results=(result,),
                 schema_changed=False,
             ),

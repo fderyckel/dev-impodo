@@ -1,10 +1,12 @@
 """Prove complete BoM cause accounting, bounded review, and saved correction."""
 
-from dataclasses import replace
+from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.shared.access import Actor, ActorIdentity
 from impodo.domain.workspace.errors import WorkspaceError
 from tests.support.hierarchy_bom import bom_workspace
+from tests.support.hierarchy_correction import correct_bom_through_browser
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
 
@@ -12,7 +14,7 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
     def test_missing_component_sets_aside_four_records_and_correction_preserves_history(
         self,
     ):
-        workspace_id, revision, columns = bom_workspace(self)
+        workspace_id, _revision, columns = bom_workspace(self)
         _staging, quality = self.prepare(workspace_id)
         self.assertEqual(quality.quarantined_count, 4)
         self.assertEqual(quality.blocked_count, 0)
@@ -65,21 +67,7 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
         self.assertLessEqual(timings.schema_check_count, 5)
         self.assertEqual(timings.lock_retry_count, 0)
         historical = repository.get_quality_run(workspace_id, quality.run_id).to_json()
-        mappings = tuple(
-            replace(
-                mapping,
-                relationships=(
-                    replace(
-                        mapping.relationships[0],
-                        source_column_keys=(columns["lines"]["ReviewedComponent"],),
-                    ),
-                ),
-            )
-            if mapping.target_model == "mrp.bom.line"
-            else mapping
-            for mapping in revision.definition.datasets
-        )
-        self.submit(workspace_id, mappings)
+        correct_bom_through_browser(self, workspace_id, columns)
         _new_staging, corrected = self.prepare(workspace_id)
         self.assertNotEqual(corrected.run_id, quality.run_id)
         self.assertEqual(corrected.ready_count, 15)
@@ -96,9 +84,16 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
             f"/workspaces/{workspace_id}/summary/quality-causes/{cause.cause_key}"
         )
         self.assertEqual(stale.status_code, 404)
+        self.reopen()
+        self.assertEqual(
+            self.context.quality.quality.get_quality_run(
+                workspace_id, quality.run_id
+            ).to_json(),
+            historical,
+        )
 
     def test_two_causes_keep_both_findings_without_multiplying_the_record_total(self):
-        workspace_id, _revision, _columns = bom_workspace(self, two_problems=True)
+        workspace_id, _revision, columns = bom_workspace(self, two_problems=True)
         _staging, quality = self.prepare(workspace_id)
         repository = self.context.quality.quality
         page = repository.get_quality_review_page(
@@ -122,3 +117,48 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
             len({item.row.row_id for closure in closures for item in closure.items}), 4
         )
         self.assertEqual(quality.quarantined_count, 4)
+        historical = repository.get_quality_run(workspace_id, quality.run_id).to_json()
+        correct_bom_through_browser(self, workspace_id, columns, two_problems=True)
+        _staging, corrected = self.prepare(workspace_id)
+        self.assertEqual((corrected.ready_count, corrected.quarantined_count), (15, 0))
+        self.assertEqual(
+            repository.get_quality_run(workspace_id, quality.run_id).to_json(), historical
+        )
+
+    def test_denied_actor_cannot_read_cause_evidence(self):
+        workspace_id, _, _ = bom_workspace(self)
+        self.prepare(workspace_id)
+        denied = Actor(
+            ActorIdentity("test", "no-workspace-access", "Denied operator"), frozenset()
+        )
+        with (
+            patch.object(self.context.identity_resolver, "_actor", denied),
+            patch.object(self.context.queries, "get_quality_cause_review_page") as read,
+        ):
+            response = self.client.get(
+                f"/workspaces/{workspace_id}/summary/quality-causes/sha256:" + "0" * 64
+            )
+        self.assertIn(response.status_code, (403, 404))
+        read.assert_not_called()
+
+    def test_cause_key_from_another_workspace_is_not_available(self):
+        first, _, _ = bom_workspace(self, two_problems=True)
+        self.prepare(first)
+        quality = self.context.quality.current_summary(first)
+        page = self.context.quality.quality.get_quality_review_page(
+            first, quality.run_id, include_run_cause_counts=True
+        )
+        cause = next(
+            item for item in page.run_cause_counts if item.reason_code == "SOURCE_TYPE_INVALID"
+        )
+        second, _, _ = bom_workspace(self)
+        self.prepare(second)
+        second_quality = self.context.quality.current_summary(second)
+        second_page = self.context.quality.quality.get_quality_review_page(
+            second, second_quality.run_id, include_run_cause_counts=True
+        )
+        self.assertNotIn(cause.cause_key, {item.cause_key for item in second_page.run_cause_counts})
+        response = self.client.get(
+            f"/workspaces/{second}/summary/quality-causes/{cause.cause_key}"
+        )
+        self.assertEqual(response.status_code, 404)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
@@ -64,6 +67,26 @@ from impodo.web.composition.server_session_http import (
 
 _AUTHENTICATION_ERROR = "Login was not accepted."
 _UNAVAILABLE_ERROR = "Administration is temporarily unavailable."
+_ORGANIZATION_INPUT_MESSAGES = {
+    "organization_id": (
+        "Use 1 to 200 lowercase letters, numbers or hyphens. "
+        "Start and end with a letter or number."
+    ),
+    "display_name": (
+        "Enter a display name of 1 to 200 characters, "
+        "without spaces at the beginning or end."
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class _OrganizationCreationFailure:
+    """Carry an authorized form rejection and its bounded Organization list."""
+
+    session: CurrentSessionView
+    page: OrganizationPage
+    errors: Mapping[str, str]
+    status_code: int
 
 
 def create_server_administration_router(
@@ -219,7 +242,7 @@ def create_server_administration_router(
         organization_id = _form_text(form, "organization_id")
         display_name = _form_text(form, "display_name")
         try:
-            await run_in_threadpool(
+            result = await run_in_threadpool(
                 _create_organization,
                 dependencies,
                 handle,
@@ -268,6 +291,23 @@ def create_server_administration_router(
                 "server/error.html",
                 {"message": _UNAVAILABLE_ERROR},
                 status_code=503,
+            )
+        if isinstance(result, _OrganizationCreationFailure):
+            return _template(
+                dependencies,
+                request,
+                "server/organizations.html",
+                {
+                    "csrf_token": csrf_token,
+                    "page": result.page,
+                    "session": result.session,
+                    "organization_values": {
+                        "organization_id": organization_id,
+                        "display_name": display_name,
+                    },
+                    "organization_errors": result.errors,
+                },
+                status_code=result.status_code,
             )
         return RedirectResponse("/admin/organizations", status_code=303)
 
@@ -470,7 +510,7 @@ def _create_organization(
     csrf_token: str,
     organization_id: str,
     display_name: str,
-) -> OrganizationView:
+) -> OrganizationView | _OrganizationCreationFailure:
     session = dependencies.sessions.access(
         AccessServerSessionCommand(
             handle=handle,
@@ -478,14 +518,35 @@ def _create_organization(
             require_csrf=True,
         )
     )
-    return dependencies.organizations.create_organization(
-        CreateOrganizationCommand(
-            actor=_platform_actor(session),
+    actor = _platform_actor(session)
+    try:
+        command = CreateOrganizationCommand(
+            actor=actor,
             organization_id=organization_id,
             display_name=display_name,
-        ),
-        deployment_id=dependencies.deployment_id,
+        )
+        return dependencies.organizations.create_organization(
+            command, deployment_id=dependencies.deployment_id,
+        )
+    except IdentityAdministrationInputError as error:
+        field = error.field or "form"
+        errors = {
+            field: _ORGANIZATION_INPUT_MESSAGES.get(
+                field, "Check the Organization details and try again.",
+            ),
+        }
+        status_code = 400
+    except IdentityAdministrationConflictError:
+        errors = {
+            "organization_id": (
+                "An Organization with this ID already exists. Choose a different ID."
+            ),
+        }
+        status_code = 409
+    page = dependencies.organizations.list_organizations(
+        OrganizationListQuery(actor=actor),
     )
+    return _OrganizationCreationFailure(session, page, errors, status_code)
 
 
 def _load_users(

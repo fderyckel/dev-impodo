@@ -61,7 +61,7 @@ LEGACY_FIXTURE = (
 
 class NativeReferenceSerializationTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.temporary = tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.case_number = 0
 

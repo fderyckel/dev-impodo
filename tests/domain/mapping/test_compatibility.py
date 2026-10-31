@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from hashlib import sha256
 import json
 import unittest
 
@@ -76,6 +77,16 @@ class MappingContractCompatibilityTests(unittest.TestCase):
             legacy_payload["datasets"][0]["target_scope"][0],
         )
         self.assertEqual(MappingDefinition.from_dict(legacy_payload), legacy)
+        # Pin the historical encoding as well as its decoded meaning. A newer
+        # null-scope policy must not alter a version-16 evidence hash.
+        self.assertEqual(
+            sha256(legacy.to_json().encode("utf-8")).hexdigest(),
+            "f9e1af34345670d65ad27223f388c8d526e7bebcb284573d2a6454546d4f922d",
+        )
+        self.assertEqual(
+            legacy.content_hash,
+            "sha256:92f65b2a4785ad5828c3e0c9482c9cfd1292500c7448f8e6dd7b544a410d20b4",
+        )
 
     def test_v15_constant_relationship_round_trips_and_changes_hash(self) -> None:
         relationship = RelationshipMapping(

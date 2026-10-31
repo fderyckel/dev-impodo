@@ -217,6 +217,7 @@ _TEMPLATE_LOCATION = {
     "project_recipe_run_progress.html": ("odoo", "Odoo check progress"),
     "project_recipe_target_matches.html": ("odoo", "Review target values"),
     "mapping/page.html": ("match", "Match fields"),
+    "mapping/relationship_choice_review.html": ("match", "Review unresolved choices"),
     "workspace_transformation_impact.html": (
         "match",
         "Review rule effects",

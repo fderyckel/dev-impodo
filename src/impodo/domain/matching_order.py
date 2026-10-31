@@ -300,6 +300,8 @@ class MatchingIdentityChoiceCause(StrEnum):
     AMBIGUOUS_INCOMING = "ambiguous_incoming"
     MISSING_INCOMING = "missing_incoming"
     MISSING_TARGET_AND_INCOMING = "missing_target_and_incoming"
+    REPEATED_SOURCE = "repeated_source"
+    AMBIGUOUS_IDENTITY_TARGET = "ambiguous_identity_target"
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +317,10 @@ class MatchingIdentityChoice:
     cause: MatchingIdentityChoiceCause
     target_match_count: int
     incoming_match_count: int
+    group_hash: str = ""
+    member_origin: str = ""
+    member_position: int = 0
+    source_match_count: int = 0
 
     def __post_init__(self) -> None:
         if self.ordinal < 0:
@@ -344,6 +350,24 @@ class MatchingIdentityChoice:
             raise WorkspaceError("Matching identity choice counts are invalid")
         object.__setattr__(self, "related_fields", related_fields)
         object.__setattr__(self, "cause", MatchingIdentityChoiceCause(self.cause))
+        duplicate = self.cause in {
+            MatchingIdentityChoiceCause.REPEATED_SOURCE,
+            MatchingIdentityChoiceCause.AMBIGUOUS_IDENTITY_TARGET,
+        }
+        if duplicate:
+            if (
+                len(self.group_hash) != 71
+                or not self.group_hash.startswith("sha256:")
+                or any(value not in "0123456789abcdef" for value in self.group_hash[7:])
+                or self.member_origin not in {"source", "target"}
+                or self.member_position < 1
+                or self.source_match_count < 1
+                or (self.cause is MatchingIdentityChoiceCause.REPEATED_SOURCE and self.source_match_count < 2)
+                or (self.cause is MatchingIdentityChoiceCause.AMBIGUOUS_IDENTITY_TARGET and self.target_match_count < 2)
+            ):
+                raise WorkspaceError("Matching identity group member is invalid")
+        elif self.group_hash or self.member_origin or self.member_position or self.source_match_count:
+            raise WorkspaceError("An unresolved choice cannot contain group membership")
 
     @classmethod
     def from_protected_dict(
@@ -364,8 +388,20 @@ class MatchingIdentityChoice:
             "target_match_count",
             "incoming_match_count",
         }
-        if set(payload) != expected:
+        membership = {"group_hash", "member_origin", "member_position", "source_match_count"}
+        if set(payload) not in (expected, expected | membership):
             raise WorkspaceError("Matching identity choice fields are invalid")
+        group_hash = payload.get("group_hash", "")
+        member_origin = payload.get("member_origin", "")
+        member_position = payload.get("member_position", 0)
+        source_match_count = payload.get("source_match_count", 0)
+        if (
+            not isinstance(group_hash, str)
+            or not isinstance(member_origin, str)
+            or type(member_position) is not int
+            or type(source_match_count) is not int
+        ):
+            raise WorkspaceError("Matching identity membership values are invalid")
         dataset_id = payload["dataset_id"]
         target_field = payload["target_field"]
         related_model = payload["related_model"]
@@ -395,6 +431,10 @@ class MatchingIdentityChoice:
             cause=MatchingIdentityChoiceCause(cause),
             target_match_count=int(payload["target_match_count"]),
             incoming_match_count=int(payload["incoming_match_count"]),
+            group_hash=group_hash,
+            member_origin=member_origin,
+            member_position=member_position,
+            source_match_count=source_match_count,
         )
 
 
@@ -405,12 +445,22 @@ class MatchingIdentityChoiceFilter:
     dataset_id: str = ""
     target_field: str = ""
     cause: str = ""
+    kind: str = "unresolved"
+    group_hash: str = ""
 
     def __post_init__(self) -> None:
         if self.cause:
             MatchingIdentityChoiceCause(self.cause)
         if len(self.dataset_id) > 500 or len(self.target_field) > 200:
             raise WorkspaceError("Matching identity choice filter is too long")
+        if self.kind not in {"unresolved", "duplicates"}:
+            raise WorkspaceError("Choose a supported identity review")
+        if self.group_hash and (self.kind != "duplicates" or len(self.group_hash) != 71
+            or not self.group_hash.startswith("sha256:")
+            or any(value not in "0123456789abcdef" for value in self.group_hash[7:])):
+            raise WorkspaceError("Choose a current identity group")
+        if self.cause and ((self.cause in {"repeated_source", "ambiguous_identity_target"}) != (self.kind == "duplicates")):
+            raise WorkspaceError("Choose a reason from this identity review")
 
 
 @dataclass(frozen=True, slots=True)
@@ -423,6 +473,8 @@ class MatchingIdentityChoicePage:
     end_position: int
     previous_before: int | None
     next_after: int | None
+    group_count: int = 0
+    check_id: str = ""
 
 
 def _matching_count(payload: dict[str, object], key: str) -> int:
@@ -608,6 +660,8 @@ class MatchingOrderCheck:
     actor_display_name: str
     identity_results: tuple[MatchingIdentityResult, ...] = ()
     relationship_health_results: tuple[RelationshipHealthResult, ...] = ()
+    identity_review_version: int = 0
+    relationship_review_version: int = 0
 
     def __post_init__(self) -> None:
         try:
@@ -618,6 +672,10 @@ class MatchingOrderCheck:
             raise WorkspaceError("Matching-order working draft is invalid")
         if self.unchecked_relationship_count < 0:
             raise WorkspaceError("Matching-order unchecked count is invalid")
+        if self.identity_review_version not in {0, 1}:
+            raise WorkspaceError("Matching identity review version is invalid")
+        if self.relationship_review_version not in {0, 1}:
+            raise WorkspaceError("Matching relationship review version is invalid")
         for value in (
             self.source_selection_hash,
             self.schema_hash,
@@ -717,6 +775,8 @@ class MatchingOrderCheck:
             "relationship_health_results": [
                 item.portable_dict() for item in self.relationship_health_results
             ],
+            **({"identity_review_version": self.identity_review_version} if self.identity_review_version else {}),
+            **({"relationship_review_version": self.relationship_review_version} if self.relationship_review_version else {}),
         }
 
     def to_json(self) -> str:
@@ -771,6 +831,8 @@ class MatchingOrderCheck:
                 RelationshipHealthResult.from_dict(item)
                 for item in payload.get("relationship_health_results", ())
             ),
+            identity_review_version=_matching_count(payload, "identity_review_version"),
+            relationship_review_version=_matching_count(payload, "relationship_review_version"),
         )
 
 
@@ -811,6 +873,16 @@ class MatchingOrderCheckAttempt:
             raise WorkspaceError("Matching-order progress is invalid")
 
 
+@dataclass(frozen=True, slots=True)
+class MatchingIdentityKeyIndex:
+    """Keep normalized keys ephemeral during explicit check publication."""
+
+    target_fields: tuple[str, ...]
+    source_rows: tuple[tuple[str | None, ...], ...]
+    source_counts: Counter[tuple[str | None, ...]]
+    target_counts: Counter[tuple[str | None, ...]]
+
+
 def classify_matching_identity(
     *,
     dataset_id: str,
@@ -822,6 +894,19 @@ def classify_matching_identity(
     on_existing: str | None,
 ) -> MatchingIdentityResult:
     """Classify complete keys without retaining their values in the result."""
+
+    return classify_indexed_matching_identity(
+        index_matching_identity_keys(target_fields=target_fields, source_keys=source_keys, target_keys=target_keys),
+        dataset_id=dataset_id, target_model=target_model, mode=mode, on_existing=on_existing,
+    )
+
+
+def index_matching_identity_keys(
+    *, target_fields: tuple[str, ...],
+    source_keys: Iterable[tuple[object | None, ...]],
+    target_keys: Iterable[tuple[object | None, ...]],
+) -> MatchingIdentityKeyIndex:
+    """Normalize once for aggregate classification and protected group membership."""
 
     if (
         not target_fields
@@ -836,9 +921,6 @@ def classify_matching_identity(
     normalized_source = tuple(
         _normalized_identity_key(item) for item in source_rows
     )
-    blank_source_count = sum(
-        any(value is None for value in key) for key in normalized_source
-    )
     source_counts = Counter(
         key
         for key in normalized_source
@@ -852,6 +934,16 @@ def classify_matching_identity(
         for key in normalized_targets
         if all(value is not None for value in key)
     )
+    return MatchingIdentityKeyIndex(target_fields, normalized_source, source_counts, target_counts)
+
+
+def classify_indexed_matching_identity(
+    index: MatchingIdentityKeyIndex, *, dataset_id: str, target_model: str,
+    mode: MappingTargetMode, on_existing: str | None,
+) -> MatchingIdentityResult:
+    """Reuse the exact normalized index without another source or target pass."""
+    source_counts, target_counts = index.source_counts, index.target_counts
+    blank_source_count = sum(any(value is None for value in key) for key in index.source_rows)
     unique_source_keys = {
         key for key, count in source_counts.items() if count == 1
     }
@@ -881,9 +973,9 @@ def classify_matching_identity(
     return MatchingIdentityResult(
         dataset_id=dataset_id,
         target_model=target_model,
-        target_fields=target_fields,
+        target_fields=index.target_fields,
         status=MatchingIdentityCheckStatus.CHECKED,
-        source_row_count=len(normalized_source),
+        source_row_count=len(index.source_rows),
         source_unique_row_count=len(unique_source_keys),
         source_blank_row_count=blank_source_count,
         source_repeated_row_count=sum(repeated_source.values()),

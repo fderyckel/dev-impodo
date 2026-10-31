@@ -433,6 +433,7 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "project_run_fresh_data.html": "integrated-test-runs",
         "project_test_run_new.html": "integrated-test-runs",
         "mapping/identity_choice_review.html": "match-data",
+        "mapping/relationship_choice_review.html": "match-data",
         "mapping/page.html": "match-data",
         "workspace_business_expectations.html": "final-review",
         "workspace_business_expectation_detail.html": "final-review",

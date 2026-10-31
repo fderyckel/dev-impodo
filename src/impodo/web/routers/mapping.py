@@ -167,9 +167,12 @@ from .matching_company_refresh import (
     prepare_matching_access,
 )
 from .matching_expectations import build_matching_expectations_router
+from .relationship_choice_review import build_relationship_choice_review_router
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
 _IDENTITY_CHOICE_CAUSE_LABELS = {
+    MatchingIdentityChoiceCause.REPEATED_SOURCE: "Repeated source identity",
+    MatchingIdentityChoiceCause.AMBIGUOUS_IDENTITY_TARGET: "Several observed Odoo records match",
     MatchingIdentityChoiceCause.AMBIGUOUS_TARGET: "Several Odoo records match",
     MatchingIdentityChoiceCause.MISSING_TARGET: "No Odoo record matches",
     MatchingIdentityChoiceCause.AMBIGUOUS_INCOMING: (
@@ -233,6 +236,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
     router.include_router(build_matching_expectations_router(context))
+    router.include_router(build_relationship_choice_review_router(context))
     router.include_router(build_matching_company_refresh_router(context))
     catalog_projection_cache = MappingCatalogProjectionCache(maximum_entries=64)
     catalog_searches = MappingCatalogSearchCoordinator(maximum_editors=256)
@@ -370,17 +374,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         dataset_id = request.query_params.get("dataset", "").strip()[:500]
         target_field = request.query_params.get("field", "").strip()[:200]
         cause = request.query_params.get("cause", "").strip()
+        kind = request.query_params.get("kind", "unresolved")
+        expected_check_id = request.query_params.get("check", "")
+        group_hash = request.query_params.get("group", "")
         if cause not in {item.value for item in MatchingIdentityChoiceCause}:
             cause = ""
         after = _optional_nonnegative_query_int(request.query_params.get("after"))
         before = _optional_nonnegative_query_int(request.query_params.get("before"))
-        filters = MatchingIdentityChoiceFilter(
-            dataset_id=dataset_id,
-            target_field=target_field,
-            cause=cause,
-        )
-
         def render_identity_choices() -> Response:
+            context.workspace_access.resolve(workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ)
+            filters = MatchingIdentityChoiceFilter(
+                dataset_id=dataset_id, target_field=target_field,
+                cause=cause, kind=kind, group_hash=group_hash,
+            )
             selection = context.queries.get_mapping_source_selection(workspace_id)
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
             governance = context.queries.get_schema_governance(workspace_id)
@@ -400,6 +406,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 page_size=100,
                 after=after,
                 before=before,
+                expected_check_id=expected_check_id,
                 actor=actor,
             )
             page_context = _identity_choice_page_context(
@@ -2778,16 +2785,20 @@ def _identity_choice_page_context(
     models = {item.name: item for item in schema.models}
 
     def field_label(model_name: str, field_name: str) -> str:
+        first, separator, remaining = field_name.partition(".")
         model = models.get(model_name)
         field = next(
             (
                 item
                 for item in (model.fields if model is not None else ())
-                if item.name == field_name
+                if item.name == first
             ),
             None,
         )
-        return field.label if field is not None else field_name
+        label = field.label if field is not None else first
+        if separator:
+            return label + " → " + field_label(field.relation if field is not None and field.relation else "", remaining)
+        return label
 
     row_views = []
     for row in page.rows:
@@ -2819,6 +2830,13 @@ def _identity_choice_page_context(
                 "cause_label": _IDENTITY_CHOICE_CAUSE_LABELS[row.cause],
                 "target_match_count": row.target_match_count,
                 "incoming_match_count": row.incoming_match_count,
+                "source_match_count": row.source_match_count,
+                "member_origin": row.member_origin,
+                "member_position": row.member_position,
+                "group_url": (f"/workspaces/{workspace_id}/mapping/identity-choices?" + urlencode({
+                    "kind": "duplicates", "dataset": row.dataset_id, "cause": row.cause.value,
+                    "group": row.group_hash, "check": page.check_id,
+                })) if row.group_hash else "",
                 "edit_url": (
                     f"/workspaces/{workspace_id}/mapping?"
                     f"mapping_dataset={dataset_index}#target-identity-{dataset_index}"
@@ -2846,6 +2864,9 @@ def _identity_choice_page_context(
         "dataset": filters.dataset_id,
         "field": filters.target_field,
         "cause": filters.cause,
+        "kind": filters.kind,
+        "group": filters.group_hash,
+        "check": page.check_id,
     }
 
     def page_url(*, after_value=None, before_value=None) -> str:
@@ -2870,6 +2891,7 @@ def _identity_choice_page_context(
         "cause_options": tuple(
             (item.value, _IDENTITY_CHOICE_CAUSE_LABELS[item])
             for item in MatchingIdentityChoiceCause
+            if (item in {MatchingIdentityChoiceCause.REPEATED_SOURCE, MatchingIdentityChoiceCause.AMBIGUOUS_IDENTITY_TARGET}) == (filters.kind == "duplicates")
         ),
         "previous_url": (
             page_url(before_value=page.previous_before)

@@ -6,7 +6,14 @@ from uuid import uuid4
 from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.integration.web.test_fresh_data_controls import field
 from tests.support.browser_scenarios import POST_HEADERS
-from tests.support.hierarchy_execution import compare_hierarchy
+from tests.support.hierarchy_assertions import (
+    assert_frozen_hierarchy,
+    assert_loaded_hierarchy,
+    assert_prepared_hierarchy,
+    require_parent_receipts,
+)
+from tests.support.hierarchy_cases import CATEGORY_ROWS, supplied_files
+from tests.support.hierarchy_execution import compare_hierarchy, json2_adapters
 from tests.support.hierarchy_workflow import (
     PRODUCT_ROWS,
     HierarchyWorkflowFixture,
@@ -15,11 +22,35 @@ from tests.support.hierarchy_workflow import (
 
 
 class HierarchyRecipeTests(HierarchyWorkflowFixture):
-    def test_fresh_delivery_rebinds_hierarchy_scope_and_preserves_complete_results(
-        self,
-    ):
+    def test_generated_odoo19_local(self):
+        self._reuse(19, "LOCAL", "generated")
+
+    def test_generated_odoo20_local(self):
+        self._reuse(20, "LOCAL", "generated")
+
+    def test_generated_odoo19_remote(self):
+        self._reuse(19, "REMOTE", "generated")
+
+    def test_generated_odoo20_remote(self):
+        self._reuse(20, "REMOTE", "generated")
+
+    def test_supplied_odoo19_local(self):
+        self._reuse(19, "LOCAL", "supplied")
+
+    def test_supplied_odoo20_local(self):
+        self._reuse(20, "LOCAL", "supplied")
+
+    def test_supplied_odoo19_remote(self):
+        self._reuse(19, "REMOTE", "supplied")
+
+    def test_supplied_odoo20_remote(self):
+        self._reuse(20, "REMOTE", "supplied")
+
+    def _reuse(self, major, mode, source_shape):
         context, actor = self.context, self.actor
-        workspace_id, original = self.hierarchy()
+        workspace_id, original = self.hierarchy(
+            major=major, mode=mode, source_shape=source_shape
+        )
         self.prepare(workspace_id)
         owner = context.migration_workspaces.get(workspace_id, actor=actor)
         draft = context.recipe_publication.draft(
@@ -54,6 +85,12 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
         )
         url = f"/projects/{owner.project_id}/test-runs/{setup.run.migration_run_id}/fresh-data"
         page = self.client.get(url)
+        fresh_rows = tuple(reversed(PRODUCT_ROWS))
+        files = (
+            supplied_files(fresh_rows, categories=tuple(reversed(CATEGORY_ROWS)))
+            if source_shape == "supplied"
+            else {"products": product_csv(fresh_rows)}
+        )
         uploaded = self.client.post(
             url + "/files",
             headers=POST_HEADERS,
@@ -63,14 +100,8 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
                 "revision": field(page, "revision"),
             },
             files=[
-                (
-                    "source_file",
-                    (
-                        "products.csv",
-                        product_csv(tuple(reversed(PRODUCT_ROWS))),
-                        "text/csv",
-                    ),
-                )
+                ("source_file", (name + ".csv", value, "text/csv"))
+                for name, value in files.items()
             ],
         )
         self.assertEqual(uploaded.status_code, 303, uploaded.text)
@@ -97,7 +128,7 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
             },
         )
         self.assertEqual(accepted.status_code, 303, accepted.text)
-        schema = self.schema(setup.setup_workspace.workspace_id)
+        schema = self.schema(setup.setup_workspace.workspace_id, major=major, mode=mode)
         activated = run_local_operation_sync(
             context.test_runs.activate,
             owner.project_id,
@@ -132,26 +163,31 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
         self.assertEqual(
             category.target_scope[0].null_policy.value, "explicit_scope_null"
         )
-        _staging, quality = self.prepare(application.workspace_id)
-        self.assertEqual(quality.ready_count, 18)
+        staging, quality = self.prepare(application.workspace_id)
+        assert_prepared_hierarchy(self, application.workspace_id, staging, quality)
         self.approve(application.workspace_id)
         self.expect_business_writes(application.workspace_id)
         target, snapshot, identities = compare_hierarchy(self, application.workspace_id)
+        assert_frozen_hierarchy(self, snapshot)
+        receipts = require_parent_receipts(self, application.workspace_id, target)
+        writer, reader = json2_adapters(self, application.workspace_id, target)
         execution = context.execution.execute(
             application.workspace_id,
             expected_snapshot_hash=snapshot.semantic_hash,
-            executor=target,
+            executor=writer,
             actor=actor,
             **identities,
         )
         self.assertEqual(execution.committed_count, 13)
+        self.assertGreater(len(receipts), 0)
+        assert_loaded_hierarchy(self, target)
         write = {
             key: value for key, value in identities.items() if key.startswith("write_")
         }
         result = context.reconciliation.reconcile(
             application.workspace_id,
             expected_execution_run_id=execution.run_id,
-            reader=target,
+            reader=reader,
             actor=actor,
             **write,
         )

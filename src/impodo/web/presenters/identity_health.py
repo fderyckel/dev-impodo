@@ -74,6 +74,7 @@ def identity_health_view(
             live_check_current=live_check_current,
             running=running,
             schema_changed=schema_changed,
+            check_id=live_check.check_id if live_check is not None else "",
         )
         for view in eligible
     )
@@ -105,6 +106,7 @@ def _identity_card(
     live_check_current: bool,
     running: bool,
     schema_changed: bool,
+    check_id: str,
 ) -> dict[str, object]:
     source = view["source"]
     mapping = view.get("mapping")
@@ -135,7 +137,7 @@ def _identity_card(
     ):
         review_choices_url = (
             f"/workspaces/{workspace_id}/mapping/identity-choices?"
-            + urlencode({"dataset": source.dataset_id})
+            + urlencode({"dataset": source.dataset_id, "check": check_id})
         )
     target_fields = (
         result.target_fields
@@ -191,6 +193,16 @@ def _identity_card(
         ),
         "blocked_count": result_counts.blocked_count if result_counts else 0,
         "review_choices_url": review_choices_url,
+        "repeated_source_url": (
+            f"/workspaces/{workspace_id}/mapping/identity-choices?" + urlencode({
+                "dataset": source.dataset_id, "kind": "duplicates", "cause": "repeated_source", "check": check_id,
+            }) if result_counts and result_counts.source_repeated_group_count else ""
+        ),
+        "ambiguous_target_url": (
+            f"/workspaces/{workspace_id}/mapping/identity-choices?" + urlencode({
+                "dataset": source.dataset_id, "kind": "duplicates", "cause": "ambiguous_identity_target", "check": check_id,
+            }) if result_counts and result_counts.target_ambiguous_key_count else ""
+        ),
         "edit_url": f"{view['edit_url']}#target-identity-{view['index']}",
     }
 

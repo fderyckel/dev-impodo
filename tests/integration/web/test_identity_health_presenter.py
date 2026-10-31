@@ -31,6 +31,7 @@ class IdentityHealthPresenterTests(unittest.TestCase):
             workspace_id="workspace:test",
             dataset_views=(_dataset_view(),),
             live_check=SimpleNamespace(
+                check_id="10000000-0000-4000-8000-000000000001",
                 identity_results=(result,),
                 schema_changed=False,
             ),
@@ -65,6 +66,7 @@ class IdentityHealthPresenterTests(unittest.TestCase):
             workspace_id="workspace:test",
             dataset_views=(_dataset_view(),),
             live_check=SimpleNamespace(
+                check_id="10000000-0000-4000-8000-000000000002",
                 identity_results=(result,),
                 schema_changed=False,
             ),

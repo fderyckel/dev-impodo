@@ -295,6 +295,38 @@ workspace snapshot. A stale or failed attempt cannot replace the current
 published check, and the check never qualifies preparation, preflight, or
 execution. Final review performs its own current target comparison.
 
+That explicit check may also publish normalized protected duplicate-group
+membership. A group binds the complete key and scope, dataset, cause, source
+positions within the checked included population, and numbered observed target
+matches. Numeric Odoo identifiers remain in protected target evidence and are
+absent from the review result. Publication verifies that complete membership
+agrees with the aggregate source-repeat and target-ambiguity counts. Its
+availability marker is additive to the aggregate check; older checks require a
+fresh explicit check rather than reconstructing groups during page reads.
+
+Duplicate review requires `PROTECTED_EVIDENCE_READ`, exact current bindings,
+and the check identity carried by group links. It pages at most 100 persisted
+members without a source rescan, Odoo request, or complete snapshot decode.
+Filtering and paging cannot merge records, choose a target, or approve a
+preparation collision decision. The preparation owner retains that authority.
+
+The same explicit check may publish protected unresolved relationship-field
+choices. Each choice binds the owner dataset and field, resolver origin,
+complete related key and scope, cause, occurrence count, and affected source
+rows. Publication derives failures from the existing classification and checks
+their totals against aggregate health. Detail and the current check pointer
+commit together. Optional blanks produce no failure; a required blank retains
+its own cause. Many2many occurrence counts remain distinct from affected rows.
+
+The additive `relationship_review_version` marker defaults to zero for older
+checks. Version 1 requires complete indexed detail; a historical check needs a
+new explicit check. Authorized review verifies the exact check receipt and all
+current bindings, then pages at most 100 persisted choices. It does not decode
+the complete snapshot, rescan source data, contact Odoo, choose a record, or
+change a resolver. Ordinary cards and navigation retain aggregate facts only.
+The local index stays in the workspace engine. Server composition must expose
+the equivalent bounded verified worker projection through the query port.
+
 When a checked mapping belongs to a verified Recipe application, the workbook
 may identify that Recipe revision and classify each distinct current source
 value as covered or not covered by its Recipe-based rules. This is a fresh

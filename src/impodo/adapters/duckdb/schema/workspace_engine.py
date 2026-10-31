@@ -42,6 +42,10 @@ from .recipe_compilation import (
     create_recipe_compilation_schema,
 )
 from .reconciliation import create_reconciliation_schema
+from .relationship_choice import (
+    RELATIONSHIP_CHOICE_COLUMNS,
+    create_relationship_choice_schema,
+)
 from .source_snapshot import create_source_snapshot_schema
 from .structure import read_table_columns
 from .supporting_lookup import create_supporting_lookup_schema
@@ -161,6 +165,10 @@ _MATCHING_ORDER_PROTECTED_IDENTITY_CHOICE_COLUMNS = (
     "cause",
     "target_match_count",
     "incoming_match_count",
+    "group_hash",
+    "member_origin",
+    "member_position",
+    "source_match_count",
 )
 _ROW_INCLUSION_REVIEW_COLUMNS = (
     "snapshot_hash",
@@ -284,6 +292,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "matching_order_check_active", "matching_order_check_attempt",
         "matching_order_check_current", "matching_order_protected_snapshot",
         "matching_order_protected_identity_choice",
+        "matching_order_protected_relationship_choice",
         "mapping_row_inclusion_confirmation", "mapping_row_inclusion_current",
         "mapping_row_inclusion_review", "mapping_row_inclusion_review_row",
         "mapping_working_draft", "normalization_current", "normalization_effect",
@@ -593,12 +602,18 @@ class WorkspaceEngineSchemaMixin:
                 cause VARCHAR NOT NULL,
                 target_match_count BIGINT NOT NULL,
                 incoming_match_count BIGINT NOT NULL,
+                group_hash VARCHAR DEFAULT '',
+                member_origin VARCHAR DEFAULT '',
+                member_position BIGINT DEFAULT 0,
+                source_match_count BIGINT DEFAULT 0,
                 PRIMARY KEY (check_id, ordinal)
             );
             CREATE INDEX matching_order_protected_identity_choice_lookup
                 ON matching_order_protected_identity_choice (
                     check_id, dataset_id, target_field, cause, ordinal
                 );
+            CREATE INDEX matching_order_protected_identity_group_lookup
+                ON matching_order_protected_identity_choice (check_id, group_hash, ordinal);
 
             CREATE TABLE retired_evidence (
                 evidence_type VARCHAR NOT NULL,
@@ -1053,6 +1068,7 @@ class WorkspaceEngineSchemaMixin:
         create_supporting_review_summary_schema(connection)
         create_business_intent_schema(connection)
         create_business_intent_assessment_schema(connection)
+        create_relationship_choice_schema(connection)
         _create_row_inclusion_review_schema(connection)
         create_cross_store_coordination_schema(connection)
 
@@ -1143,6 +1159,7 @@ class WorkspaceEngineSchemaMixin:
                 "matching_order_protected_identity_choice",
                 _MATCHING_ORDER_PROTECTED_IDENTITY_CHOICE_COLUMNS,
             ),
+            ("matching_order_protected_relationship_choice", RELATIONSHIP_CHOICE_COLUMNS),
             (
                 "mapping_row_inclusion_review",
                 _ROW_INCLUSION_REVIEW_COLUMNS,
@@ -1240,4 +1257,16 @@ def _create_row_inclusion_review_schema(
     )
 
 
-WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {}
+def _upgrade_identity_group_review(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add empty membership headers; existing checks require a fresh explicit check."""
+    connection.execute("ALTER TABLE matching_order_protected_identity_choice ADD COLUMN group_hash VARCHAR DEFAULT ''")
+    connection.execute("ALTER TABLE matching_order_protected_identity_choice ADD COLUMN member_origin VARCHAR DEFAULT ''")
+    connection.execute("ALTER TABLE matching_order_protected_identity_choice ADD COLUMN member_position BIGINT DEFAULT 0")
+    connection.execute("ALTER TABLE matching_order_protected_identity_choice ADD COLUMN source_match_count BIGINT DEFAULT 0")
+    connection.execute("CREATE INDEX matching_order_protected_identity_group_lookup ON matching_order_protected_identity_choice (check_id, group_hash, ordinal)")
+
+
+WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
+    1: ForwardSchemaUpgrade("matching-identity-group-members-v2", _upgrade_identity_group_review),
+    2: ForwardSchemaUpgrade("matching-relationship-choices-v3", create_relationship_choice_schema),
+}

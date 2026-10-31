@@ -5,12 +5,18 @@ from __future__ import annotations
 import logging
 from collections import Counter, defaultdict
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from threading import RLock, Thread
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.workspace.mapping.identity_group_review import (
+    identity_duplicate_choices,
+)
+from impodo.application.workspace.mapping.relationship_choice_review import (
+    append_relationship_choices,
+)
 from impodo.domain.execution.planner import (
     MAX_KEYS_PER_RECORD_REQUEST,
     PreflightRequirementPlan,
@@ -31,6 +37,7 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
+    MatchingIdentityChoice,
     MatchingIdentityChoiceFilter,
     MatchingIdentityChoicePage,
     MatchingIdentityNotCheckableReason,
@@ -46,7 +53,8 @@ from impodo.domain.matching_order import (
     MatchingOrderRelationshipOutcome,
     MatchingOrderRelationshipResult,
     MatchingOrderSource,
-    classify_matching_identity,
+    classify_indexed_matching_identity,
+    index_matching_identity_keys,
     live_matching_order_recommendation,
     matching_order_recommendation_hash,
     recommend_dataset_matching_order,
@@ -69,6 +77,12 @@ from impodo.domain.relationship_health import (
     RelationshipHealthResult,
     RelationshipHealthStatus,
     classify_relationship_health,
+)
+from impodo.domain.relationship_review import (
+    RelationshipChoice,
+    RelationshipChoiceFilter,
+    RelationshipChoicePage,
+    RelationshipChoiceResolution,
 )
 from impodo.domain.schema.governance import (
     BusinessKeyStatus,
@@ -204,6 +218,14 @@ class MatchingOrderPreferenceRepository(Protocol):
         ...
 
 
+    def get_relationship_choice_review_page(
+        self, workspace_id: str, check_id: str, filters: RelationshipChoiceFilter,
+        *, page_size: int, after: int | None = None, before: int | None = None,
+    ) -> RelationshipChoicePage:
+        """Return bounded protected relationship evidence for the current check."""
+        ...
+
+
 class MatchingOrderSourceKeys(Protocol):
     """Read exact frozen source key tuples without publishing them."""
 
@@ -255,6 +277,8 @@ class RelationshipHealthLiveProbe:
     incomplete_row_count: int
     incoming_key_counts: tuple[tuple[tuple[str, ...], int], ...]
     relational_key_probe: IdentityRelationalLiveProbe | None = None
+    incomplete_key_counts: tuple[tuple[tuple[str | None, ...], int], ...] = ()
+    source_key_row_counts: tuple[tuple[tuple[str, ...], int], ...] = ()
 
     @property
     def source_keys(self) -> tuple[tuple[str, ...], ...]:
@@ -926,6 +950,7 @@ class MatchingOrderService:
         page_size: int,
         after: int | None = None,
         before: int | None = None,
+        expected_check_id: str = "",
         actor: Actor,
     ) -> MatchingIdentityChoicePage:
         """Read current protected relational choices after exact authorization."""
@@ -937,7 +962,7 @@ class MatchingOrderService:
             workspace_id=workspace_id,
         )
         check = preferences.get_current_check(workspace_id)
-        if check is None or not self.check_is_current(
+        if check is None or (expected_check_id and expected_check_id != check.check_id) or not self.check_is_current(
             check,
             selection,
             schema,
@@ -947,6 +972,8 @@ class MatchingOrderService:
             raise WorkspaceError(
                 "Check current data again before reviewing identity choices"
             )
+        if filters.kind == "duplicates" and check.identity_review_version != 1:
+            raise WorkspaceError("Check saved identities again to publish duplicate-group review")
         return preferences.get_identity_choice_review_page(
             workspace_id,
             check.check_id,
@@ -954,6 +981,44 @@ class MatchingOrderService:
             page_size=page_size,
             after=after,
             before=before,
+        )
+
+    def relationship_choice_review_page(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+        governance: SchemaGovernance | None,
+        draft: MappingWorkingDraft | None,
+        filters: RelationshipChoiceFilter,
+        *,
+        page_size: int,
+        actor: Actor,
+        after: int | None = None,
+        before: int | None = None,
+        expected_check_id: str = "",
+    ) -> RelationshipChoicePage:
+        """Authorize before reading exact current relationship-choice evidence."""
+        preferences, authorization = self._preference_dependencies()
+        authorization.require(
+            actor, Capability.PROTECTED_EVIDENCE_READ, workspace_id=workspace_id
+        )
+        check = preferences.get_current_check(workspace_id)
+        if (
+            check is None
+            or (expected_check_id and check.check_id != expected_check_id)
+            or not self.check_is_current(check, selection, schema, governance, draft)
+        ):
+            raise WorkspaceError(
+                "Check current data again before reviewing relationship choices"
+            )
+        if check.relationship_review_version != 1:
+            raise WorkspaceError(
+                "Check saved relationships again to publish unresolved-choice review"
+            )
+        return preferences.get_relationship_choice_review_page(
+            workspace_id, check.check_id, filters,
+            page_size=page_size, after=after, before=before,
         )
 
     def active_check_attempt(
@@ -1072,6 +1137,7 @@ class MatchingOrderService:
             )
             preferences.update_check_attempt(prepared.workspace_id, attempt)
             schema_changed = _matching_schema_changed(prepared.schema, metadata)
+            relationship_choices: list[RelationshipChoice] = []
             checked_relationship_health = (
                 tuple(
                     _not_checkable_relationship_result(
@@ -1090,7 +1156,7 @@ class MatchingOrderService:
                 )
                 if schema_changed
                 else tuple(
-                    _classify_relationship_probe(probe, records)
+                    _classify_relationship_probe(probe, records, choices=relationship_choices)
                     for probe in prepared.relationship_probes
                 )
             )
@@ -1108,6 +1174,7 @@ class MatchingOrderService:
                     is not None
                 )
             )
+            duplicate_choices: list[MatchingIdentityChoice] = []
             checked_identity_results = (
                 tuple(
                     _not_checkable_identity_result(
@@ -1122,7 +1189,7 @@ class MatchingOrderService:
                 )
                 if schema_changed
                 else tuple(
-                    _classify_identity_probe(probe, records)
+                    _classify_identity_probe(probe, records, duplicate_choices=duplicate_choices)
                     for probe in prepared.identity_probes
                 )
             )
@@ -1177,6 +1244,8 @@ class MatchingOrderService:
                 actor_display_name=prepared.actor.identity.display_name,
                 identity_results=identity_results,
                 relationship_health_results=relationship_health_results,
+                identity_review_version=1,
+                relationship_review_version=1,
             )
             protected_snapshot = canonical_json(
                 {
@@ -1227,6 +1296,13 @@ class MatchingOrderService:
                             )
                         ]
                     ),
+                    "identity_review_version": 1,
+                    "relationship_review_version": 1,
+                    "relationship_choices": [choice.protected_dict() for choice in relationship_choices],
+                    "duplicate_identity_choices": [
+                        {key: value for key, value in asdict(choice).items() if key != "ordinal"}
+                        for choice in duplicate_choices
+                    ],
                 }
             )
             attempt = replace(
@@ -1444,6 +1520,8 @@ class MatchingOrderService:
             return unchecked(
                 RelationshipHealthNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
             )
+        incomplete_keys: Counter[tuple[str | None, ...]] = Counter()
+        affected_rows: Counter[tuple[str, ...]] = Counter()
         (
             source_key_counts,
             blank_row_count,
@@ -1452,6 +1530,8 @@ class MatchingOrderService:
             relationship,
             raw_source,
             target_fields=target_fields,
+            incomplete_keys=incomplete_keys,
+            affected_rows=affected_rows,
         )
         incoming_key_counts = Counter(
             tuple(str(value).strip() for value in row)
@@ -1460,6 +1540,7 @@ class MatchingOrderService:
         )
         if (
             len(source_key_counts) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
+            or len(incomplete_keys) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
             or len(incoming_key_counts)
             > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES
         ):
@@ -1480,6 +1561,8 @@ class MatchingOrderService:
             blank_row_count=blank_row_count,
             incomplete_row_count=incomplete_row_count,
             incoming_key_counts=tuple(sorted(incoming_key_counts.items())),
+            incomplete_key_counts=tuple(sorted(incomplete_keys.items(), key=lambda item: canonical_json(item[0]))),
+            source_key_row_counts=tuple(sorted(affected_rows.items())),
         ), None
 
     def _nested_relationship_probe(
@@ -1551,6 +1634,8 @@ class MatchingOrderService:
             return unchecked(
                 RelationshipHealthNotCheckableReason.SOURCE_EVIDENCE_UNAVAILABLE
             )
+        incomplete_keys: Counter[tuple[str | None, ...]] = Counter()
+        affected_rows: Counter[tuple[str, ...]] = Counter()
         (
             raw_source_key_counts,
             blank_row_count,
@@ -1560,6 +1645,8 @@ class MatchingOrderService:
             raw_source,
             target_fields=target_fields,
             expected_width=sum(skeleton.source_widths),
+            incomplete_keys=incomplete_keys,
+            affected_rows=affected_rows,
         )
         source_key_counts: Counter[tuple[str, ...]] = Counter()
         for source_key, count in raw_source_key_counts.items():
@@ -1570,9 +1657,10 @@ class MatchingOrderService:
             )
             if normalized is None:
                 incomplete_row_count += count
+                incomplete_keys[source_key] += count
             else:
                 source_key_counts[normalized] += count
-        if len(source_key_counts) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES:
+        if max(len(source_key_counts), len(incomplete_keys)) > MAX_INCOMING_RELATIONSHIP_EVIDENCE_VALUES:
             return unchecked(
                 RelationshipHealthNotCheckableReason.EVIDENCE_LIMIT_EXCEEDED
             )
@@ -1604,6 +1692,8 @@ class MatchingOrderService:
             incomplete_row_count=incomplete_row_count,
             incoming_key_counts=relational_key_probe.incoming_key_counts,
             relational_key_probe=relational_key_probe,
+            incomplete_key_counts=tuple(sorted(incomplete_keys.items(), key=lambda item: canonical_json(item[0]))),
+            source_key_row_counts=tuple(sorted(source_key_counts.items())),
         ), None
 
     def _identity_relational_skeleton(
@@ -2477,12 +2567,27 @@ def _relationship_source_key_counts(
     *,
     target_fields: tuple[str, ...],
     expected_width: int | None = None,
+    incomplete_keys: Counter[tuple[str | None, ...]] | None = None,
+    affected_rows: Counter[tuple[str, ...]] | None = None,
 ) -> tuple[Counter[tuple[str, ...]], int, int]:
     """Reduce included source rows to bounded choice counts and row causes."""
 
     source_counts: Counter[tuple[str, ...]] = Counter()
     blank_rows = 0
     incomplete_rows = 0
+
+    def incomplete(key):
+        if incomplete_keys is not None:
+            incomplete_keys[tuple(
+                None if value is None or not str(value).strip() else str(value).strip()
+                for value in key
+            )] += 1
+
+    def add(keys):
+        source_counts.update(keys)
+        if affected_rows is not None:
+            affected_rows.update({tuple(value.strip() for value in key) for key in keys})
+
     translations = {
         item.source_value: item.target_value
         for item in relationship.resolver.value_mappings
@@ -2501,10 +2606,11 @@ def _relationship_source_key_counts(
                 not item for item in constant_key
             ):
                 incomplete_rows += 1
+                incomplete(constant_key)
             else:
-                source_counts[constant_key] += 1
+                add((constant_key,))
             continue
-        if not row or all(value is None for value in row) or (
+        if not row or all(value is None or not str(value).strip() for value in row) or (
             len(row) == 1 and row[0] in relationship.blank_source_values
         ):
             blank_rows += 1
@@ -2512,6 +2618,7 @@ def _relationship_source_key_counts(
         if relationship.kind == "many2many":
             if len(row) != 1 or len(target_fields) != 1 or row[0] is None:
                 incomplete_rows += 1
+                incomplete(row)
                 continue
             choices = tuple(
                 value
@@ -2523,18 +2630,18 @@ def _relationship_source_key_counts(
             if not choices:
                 blank_rows += 1
                 continue
-            for value in choices:
-                source_counts[(translations.get(value, value),)] += 1
+            add(tuple((translations.get(value, value),) for value in choices))
             continue
         if len(row) != (expected_width or len(target_fields)) or any(
-            value is None for value in row
+            value is None or not str(value).strip() for value in row
         ):
             incomplete_rows += 1
+            incomplete(row)
             continue
         key = tuple(str(value) for value in row)
         if translations and key:
             key = (translations.get(key[0], key[0]), *key[1:])
-        source_counts[key] += 1
+        add((key,))
     return source_counts, blank_rows, incomplete_rows
 
 
@@ -2693,9 +2800,14 @@ def _matching_schema_changed(
 def _classify_relationship_probe(
     probe: RelationshipHealthLiveProbe,
     snapshot: RecordSnapshot,
+    *,
+    choices: list[RelationshipChoice] | None = None,
 ) -> RelationshipHealthResult:
     source_key_counts = dict(probe.source_key_counts)
     incoming_key_counts = dict(probe.incoming_key_counts)
+    display_keys: dict[tuple[str, ...], tuple[str, ...]] = {}
+    affected_rows = dict(probe.source_key_row_counts)
+    key_fields = probe.target_fields
     if probe.relational_key_probe is None:
         target_keys = tuple(
             tuple(record.values.get(field) for field in probe.target_fields)
@@ -2703,6 +2815,7 @@ def _classify_relationship_probe(
         )
     else:
         relational = probe.relational_key_probe
+        key_fields = _relational_leaf_fields(relational)
         target_indexes: dict[
             int,
             tuple[Counter[str], dict[int, str]],
@@ -2714,10 +2827,13 @@ def _classify_relationship_probe(
         )
         target_keys = tuple((token,) for token in token_by_id.values())
         tokenized_source: Counter[tuple[str, ...]] = Counter()
+        tokenized_rows: Counter[tuple[str, ...]] = Counter()
         for key, count in source_key_counts.items():
             token = _relational_probe_source_token(relational, key)
             if token is not None:
                 tokenized_source[(token,)] += count
+                display_keys[(token,)] = key
+                tokenized_rows[(token,)] += affected_rows.get(key, count)
         tokenized_incoming: Counter[tuple[str, ...]] = Counter()
         for key, count in incoming_key_counts.items():
             token = _relational_probe_source_token(relational, key)
@@ -2728,8 +2844,10 @@ def _classify_relationship_probe(
             ):
                 tokenized_incoming[(token,)] += count
         source_key_counts = dict(tokenized_source)
+        affected_rows = dict(tokenized_rows)
         incoming_key_counts = dict(tokenized_incoming)
-    return classify_relationship_health(
+    resolutions: list[RelationshipChoiceResolution] = []
+    result = classify_relationship_health(
         owner_dataset_id=probe.owner_dataset_id,
         target_field=probe.target_field,
         relationship_kind=probe.relationship_kind,
@@ -2743,7 +2861,15 @@ def _classify_relationship_probe(
         incomplete_row_count=probe.incomplete_row_count,
         target_keys=target_keys,
         incoming_key_counts=incoming_key_counts,
+        unresolved_choices=resolutions if choices is not None else None,
     )
+    if choices is not None:
+        append_relationship_choices(
+            result, key_fields=key_fields, resolutions=resolutions,
+            display_keys=display_keys, affected_rows=affected_rows,
+            incomplete_keys=probe.incomplete_key_counts, choices=choices,
+        )
+    return result
 
 
 def _matching_order_relationship_result(
@@ -2968,6 +3094,7 @@ def _relational_probe_resolution(
 def _classify_identity_probe(
     probe: MatchingIdentityLiveProbe,
     snapshot: RecordSnapshot,
+    *, duplicate_choices: list[MatchingIdentityChoice] | None = None,
 ) -> MatchingIdentityResult:
     relational_by_index = {
         item.target_index: item for item in probe.relational_components
@@ -3018,12 +3145,20 @@ def _classify_identity_probe(
                 ),
             )
         target_keys.append(tuple(values))
-    return classify_matching_identity(
-        dataset_id=probe.dataset_id,
-        target_model=probe.target_model,
+    index = index_matching_identity_keys(
         target_fields=probe.target_fields,
         source_keys=probe.source_keys,
-        target_keys=tuple(target_keys),
+        target_keys=target_keys,
+    )
+    if duplicate_choices is not None:
+        duplicate_choices.extend(identity_duplicate_choices(
+            index, dataset_id=probe.dataset_id, target_model=probe.target_model,
+            display_fields=probe.domain_fields, display_keys=probe.domain_keys,
+        ))
+    return classify_indexed_matching_identity(
+        index,
+        dataset_id=probe.dataset_id,
+        target_model=probe.target_model,
         mode=probe.mode,
         on_existing=probe.on_existing,
     )

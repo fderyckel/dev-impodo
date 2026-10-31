@@ -101,6 +101,34 @@ class OdooCompatibilityTests(unittest.TestCase):
                 self.assertIsNone(version.major)
                 self.assertFalse(assess_odoo_operation(version, OdooOperation.WRITE).allowed)
 
+    def test_official_dated_packages_preserve_matching_final_release_evidence(self):
+        for raw, info in (
+            ("20.0-20261015", [20, 0, 0, "final", 0, ""]),
+            ("19.0-20260908", [19, 0, 0, "final", 0, ""]),
+            ("20.0+e-20261015", [20, 0, 0, "final", 0, "e"]),
+        ):
+            with self.subTest(raw=raw):
+                actual = recognize_odoo_version(raw, version_info=info)
+                self.assertEqual(actual, recognize_odoo_version(raw))
+                self.assertTrue(assess_odoo_operation(actual, OdooOperation.RECOVER).allowed)
+
+    def test_dated_package_exception_keeps_conflicts_and_invalid_dates_blocked(self):
+        for raw, info in (
+            ("20.0-20261015", [19, 0, 0, "final", 0, ""]),
+            ("20.0-20261015", [20, 1, 0, "final", 0, ""]),
+            ("20.0-20261015", [20, 0, 0, "alpha", 1, ""]),
+            ("20.0-20261015", [20, 0, 0, "final", 0, "e"]),
+            ("20.0+e-20261015", [20, 0, 0, "final", 0, ""]),
+            ("20.0rc1-20261015", [20, 0, 0, "candidate", 1, ""]),
+            ("20.0-20260230", [20, 0, 0, "final", 0, ""]),
+            ("20.0-20261301", [20, 0, 0, "final", 0, ""]),
+            ("20.0-custom", [20, 0, 0, "final", 0, ""]),
+        ):
+            with self.subTest(raw=raw, info=info):
+                actual = recognize_odoo_version(raw, version_info=info)
+                self.assertIs(actual.problem, OdooVersionProblem.CONFLICT)
+                self.assertFalse(assess_odoo_operation(actual, OdooOperation.WRITE).allowed)
+
     def test_present_but_malformed_structured_evidence_cannot_fall_back(self):
         for info in (None, {}, "19.0", [], [19, 0], [True, 0, 0, "final", 0],
                      ["19", 0, 0, "final", 0], [19, -1, 0, "final", 0],

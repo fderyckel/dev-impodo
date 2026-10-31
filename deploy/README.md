@@ -158,6 +158,13 @@ named Organization and confirm the assignment. Copy the one-time link from the
 result and supply it privately to the fictional recipient. The recipient uses
 it once to choose a password, then signs in through the same login page.
 
+When creating an Organization, enter a unique **Organization ID** such as
+`acme-belgium` and a **Display name** such as `Acme Belgium`. The ID must contain
+1 to 200 lowercase letters, numbers or hyphens, and must start and end with a
+letter or number. The display name can contain capital letters and spaces;
+remove spaces at the beginning or end. If either field is invalid or the ID
+already exists, the form keeps your entries and explains which field to change.
+
 The Organization Administrator can create ordinary users from **Users** and
 deliver their activation links in the same way. A user detail page supports
 replacement activation links, password reset, suspension, reactivation, and

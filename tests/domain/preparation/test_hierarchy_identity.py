@@ -116,6 +116,13 @@ def compare(plan, prepared, targets=()):
 
 
 class HierarchyIdentityTests(unittest.TestCase):
+    def test_blank_ordinary_identity_is_required_even_for_a_null_root(self):
+        plan = hierarchy_plan()
+        prepared = prepare(plan, ({"key": "ROOT", "name": "", "parent": ""},))
+        self.assertEqual(prepared.records[0].target_scope, (None,))
+        self.assertTrue(prepared.records[0].blocked)
+        self.assertIn("SOURCE_IDENTITY_INVALID", {issue.code for issue in prepared.records[0].issues})
+
     def test_incoming_identity_cycle_becomes_saved_blocker(self):
         plan = hierarchy_plan()
         prepared = prepare(

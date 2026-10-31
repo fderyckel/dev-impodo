@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import json
 import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from impodo.application.workspace.mapping.order_service import MatchingOrderService
+from impodo.application.workspace.mapping.order_service import MatchingOrderService, _classify_identity_probe
 from impodo.domain.mapping.contracts import (
     ConstantBusinessReference,
     ConstantReferenceComponent,
@@ -814,6 +815,35 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
             repository.protected,
         )
         self.assertIn('"related_model":"res.company"', repository.protected)
+        relationship_choices = json.loads(repository.protected)["relationship_choices"]
+        nested_choices = [
+            item for item in relationship_choices
+            if item["target_field"] == "product_tmpl_id"
+        ]
+        self.assertEqual(sum(item["occurrence_count"] for item in nested_choices), nested_row_count)
+        self.assertEqual(nested_choices[0]["key_fields"], ["ref", "company_id.code"])
+        self.assertEqual(nested_choices[0]["key"], ["P0000", "BE"])
+        self.assertEqual(nested_choices[0]["cause"], "missing")
+        self.assertEqual(nested_choices[0]["affected_row_count"], 1)
+
+        # The same resolved recursive tree supplies full duplicate key leaves.
+        _metadata, snapshot = reader(prepared.requirements)
+        bom_probe = next(item for item in prepared.identity_probes if item.dataset_id == "dataset:bom")
+        duplicate_probe = replace(bom_probe,
+            source_keys=(bom_probe.source_keys[0],) * 2,
+            domain_keys=(bom_probe.domain_keys[0],) * 2)
+        original = snapshot.records["mrp.bom"][0]
+        snapshot = replace(snapshot, records={**snapshot.records, "mrp.bom": (
+            original, TargetRecord("mrp.bom", 98765432, original.values),
+        )})
+        choices = []
+        duplicate_result = _classify_identity_probe(duplicate_probe, snapshot, duplicate_choices=choices)
+        self.assertEqual(duplicate_result.source_repeated_row_count, 2)
+        self.assertEqual(duplicate_result.target_ambiguous_key_count, 1)
+        self.assertEqual(len(choices), 6)
+        self.assertIn("product_tmpl_id.company_id.code", choices[0].related_fields)
+        self.assertEqual(choices[0].key, ("B0000", "P0000", "BE"))
+        self.assertNotIn("98765432", str(choices))
 
     def test_recursive_identity_cycle_stops_before_source_or_odoo_reads(self) -> None:
         evidence = _evidence()
@@ -1182,6 +1212,15 @@ class MatchingOrderLiveCheckTests(unittest.TestCase):
         self.assertEqual(result.populated_choice_count, 2)
         self.assertEqual(result.target_count, 2)
         self.assertTrue(result.ready)
+        service._run_live_check(
+            replace(prepared, check_id=str(uuid4())),
+            lambda _requirements: _product_snapshot(evidence, records=()),
+        )
+        choices = json.loads(repository.protected)["relationship_choices"]
+        self.assertEqual(len(choices), 1)
+        self.assertEqual(choices[0]["key"], ["P001"])
+        self.assertEqual(choices[0]["occurrence_count"], 2)
+        self.assertEqual(choices[0]["affected_row_count"], 2)
 
     def test_many2many_list_is_expanded_without_a_source_row_request_loop(self) -> None:
         evidence = _evidence()

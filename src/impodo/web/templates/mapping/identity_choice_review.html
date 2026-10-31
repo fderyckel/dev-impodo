@@ -1,17 +1,26 @@
 {% extends "base.html" %}
 {% block title %}Review identity choices &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
 {% block content %}
+  {% set duplicates = filters.kind == 'duplicates' %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Stage 3 of 6 &middot; Identity choices</p>
-      <h1>Review unresolved identity choices</h1>
+      <h1>{{ 'Review duplicate identity groups' if duplicates else 'Review unresolved identity choices' }}</h1>
       <p>These protected values come from the latest saved-identity check. Filters and page turns do not contact Odoo or change the matching rule.</p>
     </div>
     <span class="status review">Needs attention</span>
   </div>
 
+  {% if duplicates %}
+    <p>Repeated source identities need a business decision. Correct the source or matching rule, or use the existing duplicate review in Prepare data. Opening a group does not merge rows, choose an Odoo record, or approve a collision decision.</p>
+    <p class="muted">Included source positions number the rows used by this check, rather than physical file rows. Odoo match positions number only records observed by the bounded check; this is not a complete Odoo inventory.</p>
+  {% endif %}
+
   <section class="form-card">
     <form class="impact-tools" method="get" action="/workspaces/{{ workspace_id }}/mapping/identity-choices">
+      <input type="hidden" name="kind" value="{{ filters.kind }}">
+      <input type="hidden" name="check" value="{{ page.check_id }}">
+      {% if filters.group_hash %}<input type="hidden" name="group" value="{{ filters.group_hash }}">{% endif %}
       <label>
         Table
         <select name="dataset">
@@ -21,7 +30,7 @@
           {% endfor %}
         </select>
       </label>
-      <label>
+      {% if not duplicates %}<label>
         Identity field
         <select name="field">
           <option value="">All identity fields</option>
@@ -29,7 +38,7 @@
             <option value="{{ value }}" {% if filters.target_field == value %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>
-      </label>
+      </label>{% endif %}
       <label>
         Reason
         <select name="cause">
@@ -41,38 +50,39 @@
       </label>
       <div class="actions impact-filter-actions">
         <button class="button primary" type="submit">Apply filters</button>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/identity-choices">Clear</a>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/identity-choices?kind={{ filters.kind }}&amp;check={{ page.check_id }}">{{ 'Show all groups' if filters.group_hash else 'Clear' }}</a>
       </div>
     </form>
 
     <p class="muted" role="status">
-      {% if page.matching_count %}Showing {{ page.start_position }}&ndash;{{ page.end_position }} of {{ page.matching_count }} unresolved choices.{% else %}No unresolved choices match the current filters.{% endif %}
+      {% if page.matching_count %}Showing {{ page.start_position }}&ndash;{{ page.end_position }} of {{ page.matching_count }} {% if duplicates %}group members across {{ page.group_count }} group{{ 's' if page.group_count != 1 else '' }}{% else %}unresolved choices{% endif %}.{% else %}No {{ 'duplicate groups' if duplicates else 'unresolved choices' }} match the current filters.{% endif %}
     </p>
     {% if rows %}
-      <div class="table-scroll">
+      <div class="table-scroll" role="region" tabindex="0" aria-label="Identity review rows">
         <table class="data-table">
           <thead>
-            <tr><th>Table</th><th>Identity component</th><th>Business key</th><th>Reason</th><th>Matches found</th><th></th></tr>
+            <tr><th scope="col">Table</th><th scope="col">{{ 'Record type' if duplicates else 'Identity component' }}</th><th scope="col">Business key and scope</th>{% if duplicates %}<th scope="col">Member</th>{% endif %}<th scope="col">Reason</th><th scope="col">Matches found</th><th scope="col">Next action</th></tr>
           </thead>
           <tbody>
             {% for row in rows %}
               <tr>
                 <td>{{ row.dataset_name }}</td>
                 <td>
-                  <strong>{{ row.target_field_label }}</strong>
-                  <small class="muted"><code>{{ row.target_field }}</code> through {{ row.related_model_label }}</small>
+                  {% if duplicates %}<strong>{{ row.related_model_label }}</strong>{% else %}<strong>{{ row.target_field_label }}</strong>
+                  <small class="muted"><code>{{ row.target_field }}</code> through {{ row.related_model_label }}</small>{% endif %}
                 </td>
                 <td>
                   {% for value in row.key_values %}
                     <div><strong>{{ value.label }}:</strong> <code>{{ value.value }}</code></div>
                   {% endfor %}
                 </td>
+                {% if duplicates %}<td>{{ 'Included source position' if row.member_origin == 'source' else 'Observed Odoo match' }} {{ row.member_position }}</td>{% endif %}
                 <td><span class="status review">{{ row.cause_label }}</span></td>
                 <td>
                   <div>Odoo: {{ row.target_match_count }}</div>
-                  <div>Incoming: {{ row.incoming_match_count }}</div>
+                  {% if duplicates %}<div>Included source: {{ row.source_match_count }}</div>{% else %}<div>Incoming: {{ row.incoming_match_count }}</div>{% endif %}
                 </td>
-                <td><a class="button secondary compact" href="{{ row.edit_url }}">Review matching rule</a></td>
+                <td>{% if row.group_url and not filters.group_hash %}<a href="{{ row.group_url }}">Open complete group</a><br>{% endif %}<a href="{{ row.edit_url }}">Review matching rule</a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -80,9 +90,9 @@
       </div>
     {% endif %}
     {% if previous_url or next_url %}
-      <nav class="impact-pagination" aria-label="Unresolved identity choice pages">
+      <nav class="impact-pagination" aria-label="Identity review pages">
         {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
-        <span class="muted">Up to 100 choices per page</span>
+        <span class="muted">Up to 100 {{ 'group members' if duplicates else 'choices' }} per page</span>
         {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
       </nav>
     {% endif %}

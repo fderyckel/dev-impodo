@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from typing import Any
+from urllib.parse import urlencode
 
 from impodo.domain.mapping.contracts import ResolverOrigin
 from impodo.domain.matching_order import MatchingOrderCheck
@@ -86,6 +87,8 @@ def relationship_health_view(
             live_check_current=live_check_current,
             running=running,
             schema_changed=schema_changed,
+            workspace_id=workspace_id,
+            check_id=live_check.check_id if live_check is not None else "",
         )
         for view, relationship in mappings
     )
@@ -118,6 +121,8 @@ def _relationship_card(
     live_check_current: bool,
     running: bool,
     schema_changed: bool,
+    workspace_id: str,
+    check_id: str,
 ) -> dict[str, object]:
     source = view["source"]
     field = next(
@@ -196,12 +201,10 @@ def _relationship_card(
         "case_mismatch_count": checked.case_mismatch_count if checked else 0,
         "blocked_count": checked.blocked_count if checked else 0,
         "edit_url": edit_url,
-        "edit_label": (
-            f"Review {checked.blocked_count:,} unresolved choice"
-            f"{'s' if checked.blocked_count != 1 else ''}"
-            if checked is not None and checked.blocked_count
-            else "Review relationship"
-        ),
+        "edit_label": "Change matching rule",
+        "review_url": (f"/workspaces/{workspace_id}/mapping/relationship-choices?" + urlencode({
+            "dataset": source.dataset_id, "field": relationship.target_field, "check": check_id,
+        })) if checked is not None and checked.blocked_count else "",
         "related_url": (related_view["edit_url"] if related_view is not None else None),
         "related_action_label": (
             f"Open {related_view['source'].name}" if related_view is not None else None

@@ -6,6 +6,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from impodo.domain.identity.bootstrap import PasswordHash
 from impodo.domain.identity.recovery import LoginPrincipalKind, RecoveryTokenProof
@@ -22,6 +23,15 @@ class IdentityAdministrationError(RuntimeError):
 
 class IdentityAdministrationInputError(IdentityAdministrationError):
     """Reject invalid internal input without reproducing customer values."""
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        field: Literal["organization_id", "display_name"] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.field = field
 
 
 class IdentityAdministrationNotFoundError(IdentityAdministrationError):
@@ -589,12 +599,16 @@ def _validate_uuid(value: str) -> None:
 
 def _validate_organization_id(value: str | None) -> None:
     if value is None or _ORGANIZATION_ID_PATTERN.fullmatch(value) is None:
-        raise IdentityAdministrationInputError("Organization identity is invalid")
+        raise IdentityAdministrationInputError(
+            "Organization identity is invalid", field="organization_id",
+        )
 
 
 def _validate_display_name(value: str) -> None:
     if not value or value != value.strip() or len(value) > 200 or "\x00" in value:
-        raise IdentityAdministrationInputError("Display name is invalid")
+        raise IdentityAdministrationInputError(
+            "Display name is invalid", field="display_name",
+        )
 
 
 __all__ = [

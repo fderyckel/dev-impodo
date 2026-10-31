@@ -345,6 +345,10 @@ browser company selection supplies this adapter context.
 Connection and capture checks use the shared operation policy in
 [`domain/odoo/compatibility.py`](../../../src/impodo/domain/odoo/compatibility.py).
 The adapters cross-check structured version information when Odoo provides it.
+An official final package may append a valid calendar build date, such as
+`20.0-20261015`, while its release tuple reports `20.0`. Recognition retains
+the exact reported string and accepts this pair only when the release and
+edition agree. Other conflicts still block connection and capture.
 Unknown, malformed, or contradictory evidence cannot authorize capture. Odoo
 19 retains its existing acceptance rules. Final Odoo 20 enables connection,
 schema capture, bounded source capture, comparison reads, Recipe authoring,

@@ -28,18 +28,22 @@ loading while preserving original approval during recovery. Slice 16 adds the
 shared editor, bounded expected-versus-found review, exact confirmation, and
 zero-write completion. Proposal 10 is complete for the conventional file-source
 path; transfers and corrections retain their separate approval contracts.
-The next delivery is Slice 17's protected duplicate-group review.
+Slice 17 adds protected, paged review of repeated source identities and
+observed target ambiguity. Slice 18 completes protected relationship-choice
+review for current supported shapes. The next delivery is Slice 19's required
+values and mapping coverage checklist.
 Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
 The remaining work is specified in **Remaining implementation slices** below.
-Slices 11 through 16 are implemented. Slice 16 completes the visible
-business-intent decision journey for its current file-source scope. Slices
-17 through 21 cover the remaining protected-review, interface, and acceptance
+Slices 11 through 18 are implemented. Slice 16 completes the visible
+business-intent decision journey for its current file-source scope, and Slice
+17 completes protected duplicate-group review. Slice 18 completes protected
+relationship-field review. Slices 19 through 21 cover the remaining interface and acceptance
 commitments.
 Conditional extensions have explicit entry conditions and are not silently
-counted as delivered. Slices 17 through 21 remain proposed.
+counted as delivered. Slices 19 through 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -410,10 +414,10 @@ delivery summary recorded:
 | --- | --- | --- |
 | **1. Issue register** | Stage 2, current Stage 3 identity and relationship findings, complete-run Stage 4 preparation causes, and both preparation and comparison blockers in Stage 5 use the shared `WorkflowIssueProjection`. Stage 3 current counts persist in workspace navigation through a bounded freshness-checked read. | If evidence shows the need for one all-stage drawer, aggregate the already-persisted stage counts without moving detailed worker evidence into PostgreSQL or creating a second issue authority. |
 | **2. Supporting data** | Stage 2 saves reviewed file-source choices and explicitly captures grouped supporting reads. The source-aware plan, portable Recipe meaning, mapping checks and preparation now share those constraints through injected ports. Exact Recipe revisions and relationship reasons survive bulk extraction. Bounded summaries publish with committed evidence and rebuild without capture. Odoo-source decisions retain their existing owner. | Complete for the current local product. Qualify future server adapters through the existing worker receipt and bounded projection contracts. |
-| **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices have an authorized, freshness-checked protected paged review. | Add protected duplicate-group review. Keep target-wide blank inventory and early update-versus-unchanged forecasts conditional on their extra evidence requirements. |
+| **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices and duplicate-group members have authorized, freshness-checked protected paging. | The duplicate-review action is complete for bounded observed evidence. Keep target-wide blank inventory and early update-versus-unchanged forecasts conditional on their extra evidence requirements. |
 | **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
-| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, and recursive dataset identity components are current. Protected unresolved-choice paging currently covers relational identity components. | Add protected unresolved relationship-field review; the current card links to the rule editor. Consider nested Many2many or constant-provider keys only if authoring evidence justifies a portable source contract for them. |
+| **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, and recursive dataset identity components are current. Protected unresolved-choice paging covers both relational identity components and saved relationship fields. | Complete for currently supported shapes. Keep nested Many2many or constant-provider keys conditional on a portable authoring contract justified by operator evidence. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
@@ -825,9 +829,9 @@ receives the maximum impact score. A correct dependency plan still needs Stage
 
 **Delivery status:** Direct scalar identity proof, recursively nested governed
 Many2one key/scope proof, the Stage 3 Identity health UI, and the protected
-unresolved-choice page are implemented. The protected duplicate-group page,
-target-wide blank inventory, and update-versus-unchanged forecasting remain
-proposed.
+unresolved-choice page are implemented. Slice 17 adds protected duplicate-group
+paging with complete normalized keys and scopes. Target-wide blank inventory
+and update-versus-unchanged forecasting remain conditional proposals.
 
 **Owning stages:** Odoo data and Match data.  
 **User impact:** **10/10**.
@@ -1019,9 +1023,9 @@ counts, case-only protection, aggregate correction routes, and inverse
 One2many guidance are current. The same bounded check now proves recursively
 nested resolver-backed components of the dataset's own identity and
 source-backed Many2one relationship fields. Protected unresolved-value paging
-is current for relational identity components. Relationship-field health
-currently offers aggregate counts and a correction link to the rule editor;
-its protected value-level review remains proposed. Nested Many2many and
+is current for relational identity components and saved relationship fields.
+Relationship cards separate **Review unresolved choices** from **Change
+matching rule**. Nested Many2many and
 constant-provider keys remain conditional on a clear portable authoring
 contract.
 
@@ -1463,16 +1467,14 @@ again.
 ## Remaining implementation slices
 
 This is the delivery order as of 2026-10-31. The slice numbers
-continue the delivered increments above. Slices 11 through 16 are implemented.
-The next implementation should start with Slice 17. Each slice must leave its affected behavior and the full
+continue the delivered increments above. Slices 11 through 18 are implemented.
+The next implementation should start with Slice 19. Each slice must leave its affected behavior and the full
 repository gate green before the next slice begins.
 
 ### What is actually left
 
 | Remaining outcome | Slices | Completion evidence |
 | --- | --- | --- |
-| The data manager can inspect repeated identity groups early. | 17 | Authorized, current, paged duplicate-group evidence explains the source or observed-target cause. |
-| The data manager can inspect unresolved choices in a saved relationship field. | 18 | Protected current pages show the actual choice and cause rather than linking only to the rule editor. |
 | The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
 | The whole workflow has a verified completion boundary. | 21 | One end-to-end scenario proves the new decisions, interruption behavior, freshness, and performance structure. Conditional scope has an explicit disposition. |
 
@@ -1750,6 +1752,33 @@ current execution cockpit, including no-change runs and recovery.
 
 ### Slice 17: Review duplicate identity groups through protected paging
 
+**Delivery:** Implemented on 2026-10-31. The explicit Stage 3 check reuses its
+normalized source and target counters to publish complete duplicate membership
+with the protected evidence. The current row and distinct-key limits remain
+unchanged. Publication verifies group completeness, deterministic membership,
+and agreement with the aggregate source-repeat and target-ambiguity counts.
+
+The existing identity-review port and index now support repeated-source and
+observed-target filters, exact-check group links, and cursor pages of at most
+100 members. Source positions refer to the checked included population; target
+positions number observed matches and expose no Odoo identifiers. Ordinary
+cards and navigation retain aggregate facts only. Preparation still owns
+collision decisions.
+
+Workspace-engine version 2 adds the membership columns and group lookup index
+through a transactional 1→2 upgrade. Existing checks and protected snapshots
+retain their bytes and require a fresh check for duplicate review. No detailed
+group evidence moves into PostgreSQL or a Linux browser process.
+
+Qualification covers a 105-member group, forward and backward group paging,
+mixed compound scopes, recursively nested keys, access denial before detail
+access, stale bindings and check receipts, incomplete publication, and upgrade
+rollback. The page succeeds with the full snapshot blob made undecodable and
+source-key reads disabled. Its controlled fixture uses at most six physical
+connections, one schema check, and zero retries. Authenticated keyboard and
+390-pixel browser checks pass; two fictional screenshots are reproducible from
+the owning browser test. No live Odoo or Linux deployment latency is claimed.
+
 - Publish normalized duplicate-group membership while the existing explicit
   Stage 3 check has its source and target indexes in memory. Retain complete
   key and scope semantics, including recursive identities, and the check's
@@ -1773,6 +1802,39 @@ scopes, access denial before detail access, stale evidence, and nested keys.
 blank inventory and an early update forecast remain separate conditional work.
 
 ### Slice 18: Review unresolved relationship-field choices
+
+**Delivery:** Implemented on 2026-10-31. The explicit check emits protected
+failure facts from the same lookup branches that produce aggregate health.
+Complete key and scope, owner field, origin, cause, choice occurrences, and
+affected rows publish in the existing transaction. Publication rejects partial
+or inconsistent detail. The supported shapes include all three resolver origins,
+direct-key Many2many and constant references, and recursive source-backed
+Many2one keys. Optional blanks remain valid; required blanks and partial keys
+have explicit review causes.
+
+The distinct **Review unresolved choices** action opens an authorized current
+page of at most 100 choices. **Change matching rule** opens the correction
+separately. Exact-check links reject newer publications, stale bindings, and
+historical checks without the additive review marker. Cards and navigation
+remain aggregate-only. No page request rescans source keys, reads Odoo, or
+decodes the complete protected snapshot.
+
+Workspace-engine version 3 adds an empty protected index through a transactional
+2→3 upgrade, preserving baseline generation and existing evidence bytes. Detail
+stays in the data plane; a Linux server must consume an equivalent bounded
+verified worker projection through the application port. PostgreSQL and server
+navigation receive no protected values.
+
+Focused qualification covers compound and nested keys, target-first precedence,
+fixed references, repeated and translated list members, a 111-choice population,
+forward/backward paging, filters, access denial, stale checks, partial
+publication, and upgrade rollback. The page passes with an undecodable full
+snapshot and disabled source reads. The fixture uses six physical connections,
+one schema check, and zero retries. Controlled first/second-page timings were
+99/92 ms; the existing protected identity-review path measured 111 ms with the
+same connection structure. Authenticated keyboard and 390-pixel browser checks
+pass, and two current fictional screenshots were inspected. These checks do
+not qualify a live Odoo or Linux deployment.
 
 - During explicit check publication, classify and index missing, ambiguous,
   case-only, and incomplete choices from the existing relationship probes.

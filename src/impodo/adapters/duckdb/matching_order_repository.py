@@ -24,6 +24,10 @@ from impodo.domain.matching_order import (
     MatchingOrderPreference,
     MatchingOrderVersionConflict,
 )
+from impodo.domain.relationship_review import (
+    RelationshipChoiceFilter,
+    RelationshipChoicePage,
+)
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor
@@ -36,6 +40,11 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from .constants import DUCKDB_JSON_BATCH_MAX_BYTES
+from .relationship_choice_review import (
+    insert_relationship_choices,
+    published_relationship_choices,
+    relationship_choice_page,
+)
 from .repository import DuckDbRepository
 from .serialization import iter_encoded_json_batches
 
@@ -49,6 +58,10 @@ _IDENTITY_CHOICE_JSON_STRUCTURE = canonical_json([{
     "cause": "VARCHAR",
     "target_match_count": "BIGINT",
     "incoming_match_count": "BIGINT",
+    "group_hash": "VARCHAR",
+    "member_origin": "VARCHAR",
+    "member_position": "BIGINT",
+    "source_match_count": "BIGINT",
 }])
 
 
@@ -354,6 +367,9 @@ class MatchingOrderRepository(DuckDbRepository):
         if not isinstance(protected_payload, dict):
             raise WorkspaceError("Matching-order protected evidence is invalid")
         raw_choices = protected_payload.get("unresolved_identity_choices", [])
+        duplicate_choices = protected_payload.get("duplicate_identity_choices", [])
+        if not isinstance(duplicate_choices, list) or not all(isinstance(item, dict) for item in duplicate_choices):
+            raise WorkspaceError("Matching-order identity groups are invalid")
         if not isinstance(raw_choices, list) or not all(
             isinstance(item, dict) for item in raw_choices
         ):
@@ -361,12 +377,14 @@ class MatchingOrderRepository(DuckDbRepository):
         try:
             identity_choices = tuple(
                 MatchingIdentityChoice.from_protected_dict(item, ordinal=ordinal)
-                for ordinal, item in enumerate(raw_choices)
+                for ordinal, item in enumerate([*raw_choices, *duplicate_choices])
             )
         except (KeyError, TypeError, ValueError) as error:
             raise WorkspaceError(
                 "Matching-order identity choices are invalid"
             ) from error
+        _validate_identity_groups(check, protected_payload, identity_choices)
+        relationship_choices = published_relationship_choices(check, protected_payload)
         snapshot_hash = content_hash(protected_payload)
         projected_selection = (
             self._source_projection.get_mapping_source_selection(workspace_id)
@@ -466,6 +484,9 @@ class MatchingOrderRepository(DuckDbRepository):
                     connection,
                     check.check_id,
                     identity_choices,
+                )
+                insert_relationship_choices(
+                    connection, check.check_id, relationship_choices
                 )
                 status = (
                     MatchingOrderCheckStatus.SUCCEEDED
@@ -647,13 +668,14 @@ class MatchingOrderRepository(DuckDbRepository):
             where_sql, parameters = self._identity_choice_where(filters)
             matching = connection.execute(
                 f"""
-                SELECT COUNT(*)
+                SELECT COUNT(*), COUNT(DISTINCT NULLIF(group_hash, ''))
                   FROM matching_order_protected_identity_choice
                  WHERE check_id = ? AND {where_sql}
                 """,
                 [check_id, *parameters],
             ).fetchone()
             matching_count = int(matching[0]) if matching else 0
+            group_count = int(matching[1]) if matching else 0
             cursor_sql = ""
             cursor_parameters: list[object] = []
             order = "ASC"
@@ -668,7 +690,8 @@ class MatchingOrderRepository(DuckDbRepository):
                 f"""
                 SELECT ordinal, dataset_id, target_field, related_model,
                        related_fields_json, key_json, cause,
-                       target_match_count, incoming_match_count
+                       target_match_count, incoming_match_count,
+                       group_hash, member_origin, member_position, source_match_count
                   FROM matching_order_protected_identity_choice
                  WHERE check_id = ? AND {where_sql}{cursor_sql}
                  ORDER BY ordinal {order}
@@ -711,7 +734,30 @@ class MatchingOrderRepository(DuckDbRepository):
                 if ordinals and end_position < matching_count
                 else None
             ),
+            group_count=group_count,
+            check_id=check_id,
         )
+
+    def get_relationship_choice_review_page(
+        self,
+        workspace_id: str,
+        check_id: str,
+        filters: RelationshipChoiceFilter,
+        *,
+        page_size: int,
+        after: int | None = None,
+        before: int | None = None,
+    ) -> RelationshipChoicePage:
+        """Delegate one bounded protected query within the retained engine owner."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            return relationship_choice_page(
+                connection, check_id, filters,
+                page_size=page_size, after=after, before=before,
+            )
 
     @staticmethod
     def _insert_identity_choices(
@@ -732,6 +778,10 @@ class MatchingOrderRepository(DuckDbRepository):
                 "cause": item.cause.value,
                 "target_match_count": item.target_match_count,
                 "incoming_match_count": item.incoming_match_count,
+                "group_hash": item.group_hash,
+                "member_origin": item.member_origin,
+                "member_position": item.member_position,
+                "source_match_count": item.source_match_count,
             }
             for item in choices
         )
@@ -745,12 +795,14 @@ class MatchingOrderRepository(DuckDbRepository):
                 INSERT INTO matching_order_protected_identity_choice (
                     check_id, ordinal, dataset_id, target_field,
                     related_model, related_fields_json, key_json, cause,
-                    target_match_count, incoming_match_count
+                    target_match_count, incoming_match_count,
+                    group_hash, member_origin, member_position, source_match_count
                 )
                 SELECT ?, item.ordinal, item.dataset_id, item.target_field,
                        item.related_model, item.related_fields_json,
                        item.key_json, item.cause, item.target_match_count,
-                       item.incoming_match_count
+                       item.incoming_match_count, item.group_hash, item.member_origin,
+                       item.member_position, item.source_match_count
                   FROM (
                     SELECT unnest(from_json_strict(CAST(? AS JSON), ?)) AS item
                   )
@@ -764,6 +816,11 @@ class MatchingOrderRepository(DuckDbRepository):
     ) -> tuple[str, list[object]]:
         clauses = ["1 = 1"]
         parameters: list[object] = []
+        clauses.append("cause IN ('repeated_source', 'ambiguous_identity_target')" if filters.kind == "duplicates"
+            else "cause NOT IN ('repeated_source', 'ambiguous_identity_target')")
+        if filters.group_hash:
+            clauses.append("group_hash = ?")
+            parameters.append(filters.group_hash)
         if filters.dataset_id:
             clauses.append("dataset_id = ?")
             parameters.append(filters.dataset_id)
@@ -791,6 +848,10 @@ class MatchingOrderRepository(DuckDbRepository):
             cause=MatchingIdentityChoiceCause(str(record[6])),
             target_match_count=int(record[7]),
             incoming_match_count=int(record[8]),
+            group_hash=str(record[9] or ""),
+            member_origin=str(record[10] or ""),
+            member_position=int(record[11] or 0),
+            source_match_count=int(record[12] or 0),
         )
 
     def _read_attempt_rows(
@@ -805,6 +866,52 @@ class MatchingOrderRepository(DuckDbRepository):
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             return tuple(connection.execute(query, parameters or []).fetchall())
+
+
+def _validate_identity_groups(check: MatchingOrderCheck, payload: dict, choices: tuple[MatchingIdentityChoice, ...]) -> None:
+    """Publish complete group membership agreeing with the aggregate check."""
+    groups: dict[str, list[MatchingIdentityChoice]] = {}
+    for row in choices:
+        if row.group_hash:
+            groups.setdefault(row.group_hash, []).append(row)
+    if check.identity_review_version == 0:
+        if groups:
+            raise WorkspaceError("Duplicate review requires a versioned check")
+        return
+    if type(payload.get("identity_review_version")) is not int or payload.get("identity_review_version") != 1:
+        raise WorkspaceError("The duplicate review receipt is missing")
+    results = {item.dataset_id: item for item in check.identity_results if item.checked}
+    totals: dict[tuple[str, str], list[int]] = {}
+    seen = set()
+    for members in groups.values():
+        row = members[0]
+        result = results.get(row.dataset_id)
+        expected_hash = content_hash({"dataset": row.dataset_id, "model": row.related_model,
+            "fields": row.related_fields, "key": row.key, "cause": row.cause.value})
+        headers = {(item.dataset_id, item.target_field, item.related_model, item.related_fields,
+            item.key, item.cause, item.source_match_count, item.target_match_count) for item in members}
+        sources = [item.member_position for item in members if item.member_origin == "source"]
+        targets = [item.member_position for item in members if item.member_origin == "target"]
+        expected_targets = row.target_match_count if row.cause is MatchingIdentityChoiceCause.AMBIGUOUS_IDENTITY_TARGET else 0
+        if (result is None or result.target_model != row.related_model or expected_hash != row.group_hash
+            or len(headers) != 1 or len(sources) != row.source_match_count or len(set(sources)) != len(sources)
+            or any(position > result.source_row_count for position in sources)
+            or sorted(targets) != list(range(1, expected_targets + 1))):
+            raise WorkspaceError("Duplicate identity membership does not agree with the check")
+        for position in sources:
+            member = (row.dataset_id, row.cause, position)
+            if member in seen:
+                raise WorkspaceError("An identity row belongs to several duplicate keys")
+            seen.add(member)
+        total = totals.setdefault((row.dataset_id, row.cause.value), [0, 0])
+        total[0] += 1
+        total[1] += len(sources)
+    for dataset_id, result in results.items():
+        repeated = totals.get((dataset_id, "repeated_source"), [0, 0])
+        ambiguous = totals.get((dataset_id, "ambiguous_identity_target"), [0, 0])
+        if (repeated != [result.source_repeated_group_count, result.source_repeated_row_count]
+            or ambiguous[0] != result.target_ambiguous_key_count):
+            raise WorkspaceError("Duplicate identity totals do not agree with the check")
 
 
 def _attempt_values(attempt: MatchingOrderCheckAttempt) -> list[object]:

@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Review unresolved relationships · Impodo{% endblock %}
+{% block content %}
+  <header class="page-heading"><div><p class="eyebrow">Stage 3 of 6 · Relationship choices</p><h1>Review unresolved choices</h1><p>Review the saved related values that need correction, then change the matching rule or source data and check saved relationships again.</p></div><span class="status review">Saved check</span></header>
+  <p>Filtering and paging use the saved check. They do not contact Odoo, choose a record, or change a provider.</p>
+  <section class="form-card">
+    <form class="impact-tools" method="get">
+      <input type="hidden" name="check" value="{{ page.check_id }}">
+      <label>Table<select name="dataset"><option value="">All tables</option>{% for item in dataset_options %}<option value="{{ item.dataset_id }}" {% if filters.owner_dataset_id == item.dataset_id %}selected{% endif %}>{{ item.name }}</option>{% endfor %}</select></label>
+      <label>Linked field<select name="field"><option value="">All linked fields</option>{% for value,label in field_options %}<option value="{{ value }}" {% if filters.target_field == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label>Reason<select name="cause"><option value="">All reasons</option>{% for value,label in cause_options %}<option value="{{ value }}" {% if filters.cause == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <div class="actions"><button class="button primary" type="submit">Apply filters</button><a class="button secondary" href="{{ clear_url }}">Clear</a></div>
+    </form>
+    <p role="status">{% if page.matching_count %}Showing {{ page.start_position }}–{{ page.end_position }} of {{ page.matching_count }} unresolved choices · {{ page.occurrence_count }} choice occurrences.{% else %}No unresolved choices match these filters.{% endif %}</p>
+    <p class="muted">One row can contain several list members. Affected rows counts source rows for each choice; the same row may appear behind several choices.</p>
+    {% if rows %}<div class="table-scroll" role="region" tabindex="0" aria-label="Unresolved relationship choices"><table class="data-table"><thead><tr><th scope="col">Table and field</th><th scope="col">Related key and scope</th><th scope="col">Reason</th><th scope="col">Choice occurrences</th><th scope="col">Affected rows</th><th scope="col">Next action</th></tr></thead><tbody>
+      {% for row in rows %}<tr><td><strong>{{ row.dataset }} → {{ row.field }}</strong><div class="muted">{{ row.related_model }} · {{ row.origin }}</div></td><td>{% for item in row.key_values %}<div><strong>{{ item.label }}:</strong> {% if item.value is none %}<span class="muted">Not supplied</span>{% else %}<code>{{ item.value }}</code>{% endif %}</div>{% endfor %}</td><td><strong>{{ row.reason }}</strong><div class="muted">{{ row.where }}</div>{% if row.target_matches %}<div>Odoo matches: {{ row.target_matches }}</div>{% endif %}{% if row.incoming_matches %}<div>Incoming matches: {{ row.incoming_matches }}</div>{% endif %}</td><td>{{ row.occurrences }}</td><td>{{ row.affected_rows }}</td><td><a href="{{ row.edit_url }}">Change matching rule</a></td></tr>{% endfor %}
+    </tbody></table></div>{% endif %}
+    {% if previous_url or next_url %}<nav class="impact-pagination" aria-label="Unresolved relationship choice pages">{% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}<span>Up to 100 choices per page</span>{% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}</nav>{% endif %}
+  </section>
+  <details class="technical-details"><summary>Support details</summary><p>Saved check <code>{{ page.check_id }}</code>. Odoo match counts describe only the records observed by this bounded check.</p></details>
+  <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping#relationship-health-title">Return to Match data</a></p>
+{% endblock %}

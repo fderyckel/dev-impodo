@@ -335,7 +335,7 @@ into the protected workspace snapshot row. At publication,
 `MatchingOrderRepository` also validates and normalizes unresolved relational
 identity choices into
 `matching_order_protected_identity_choice` in the same transaction. The
-indexed rows bind to the check ID and retain only the dataset, owner field,
+indexed rows bind to the check ID and retain the dataset, owner field,
 related model and fields, symbolic key, cause, and target/incoming counts. The
 public `MatchingOrderCheck`
 contains `MatchingIdentityResult` and `RelationshipHealthResult` aggregates,
@@ -352,11 +352,102 @@ complete protected snapshot. The route performs its reads and render inside
 one page-read operation, makes no Odoo call, sets `Cache-Control: no-store`,
 and does not mutate mapping meaning.
 
+The same route accepts `kind=duplicates` with `repeated_source` or
+`ambiguous_identity_target`. Explicit check publication reuses
+`MatchingIdentityKeyIndex` for both classification and group construction.
+[`identity_duplicate_choices`](../../../src/impodo/application/workspace/mapping/identity_group_review.py)
+retains complete normalized key and scope semantics, including recursive
+business-key leaves. Repeated-source groups list included source positions;
+observed-target groups list the affected included source positions and numbered
+target matches. The target match positions contain no numeric Odoo identifiers.
+They describe only keys observed by the existing bounded read plan.
+
+The protected index adds the group hash, member origin and position, and source
+match count. Publication validates complete membership and agreement with the
+aggregate group and affected-row counts before making the check current. It
+inserts bounded 1,000-row JSON batches in the existing transaction. Paging uses
+the indexed check, group, cause, dataset, and ordinal predicates, with no source
+rescan or complete protected-snapshot decode. Group links carry the exact check
+ID and reject a newer publication rather than silently switching populations.
+
+The public check adds only `identity_review_version=1`. Its default-zero decoder
+preserves earlier serialized meaning; an older check needs a fresh explicit
+publication for duplicate review. Workspace-engine version 2 adds these index
+columns and their lookup index through the 1→2 forward upgrade. It does not
+rewrite protected snapshots, mappings, Recipes, preparation, or approvals.
+The existing preparation duplicate-resolution service remains authoritative.
+
+The isolated 105-member route fixture uses at most six physical connections,
+one schema check, and zero lock retries. It proves page navigation after the
+complete snapshot blob becomes undecodable, and after source-key reads are
+disabled. Browser qualification covers keyboard activation, group paging,
+preserved check identity, and a 390-pixel viewport. Run
+`tests.e2e.test_identity_group_review` with Playwright and
+`IMPODO_IDENTITY_GROUP_SCREENSHOT_DIRECTORY=docs/images/user` to reproduce the
+two 1440 by 1024 screenshots. These are controlled checks, not live latency
+claims.
+
+Focused evidence includes [normalized and scoped membership tests](../../../tests/application/workspace/mapping/test_identity_group_review.py),
+[transactional upgrade tests](../../../tests/integration/duckdb/test_identity_group_upgrade.py),
+and [authenticated browser qualification](../../../tests/e2e/test_identity_group_review.py).
+
 The application port is deployment-neutral. The local adapter owns the DuckDB
 projection. A Linux/shared-server adapter must page an equivalent verified,
 bounded protected projection after worker receipt publication; a server web
 process must not open worker-held DuckDB evidence. Aggregate cards and
 navigation remain value-free in both deployments.
+
+`GET /workspaces/{workspace_id}/mapping/relationship-choices` provides the
+separate **Review unresolved choices** action for saved relationship fields.
+**Change matching rule** remains a correction action. The application service
+requires `PROTECTED_EVIDENCE_READ` before reading the check, verifies its exact
+receipt and current input bindings, then delegates one bounded query. The route
+uses `run_page_read` for all local reads and rendering, sets `Cache-Control:
+no-store`, and performs no source scan, Odoo call, or mutation.
+
+The existing relationship classifier emits protected failure facts from the
+same lookup branches that produce health counts. Publication retains missing,
+ambiguous, case-only, incomplete, and required-blank choices with their owner
+field, resolver origin, complete key and scope, and affected-row counts. It
+supports the existing three origins, direct-key Many2many members and fixed
+references, and recursive source-backed Many2one keys. Target ambiguity or a
+case-only match still prevents incoming fallback. Optional blanks remain valid.
+
+The source reduction distinguishes choice occurrences from affected source
+rows. Repeated identical list members count once per row. When two distinct
+members translate to the same key, the accepted occurrence count is preserved
+while the affected-row count counts that source row once. Incomplete compound
+keys retain the supplied scope and mark absent components explicitly. Complete
+and incomplete distinct-key collections retain the existing bounded ceiling.
+
+The protected `matching_order_protected_relationship_choice` index publishes
+in the check's existing transaction, using bounded 1,000-row JSON batches.
+Publication rejects missing or duplicate detail, inconsistent metadata, and
+totals that disagree with health counts before changing the current pointer.
+Dataset, field, cause, and ordinal predicates return at most 100 JSON rows;
+paging never decodes the full protected snapshot. The additive
+`relationship_review_version=1` marker requires a fresh explicit check for old
+evidence. Workspace-engine version 3 adds the empty index through the 2→3
+transactional upgrade and preserves existing evidence bytes.
+
+The real 111-choice fixture passes forward and backward paging with the full
+snapshot made undecodable and source reads disabled. It uses six physical
+connections, one schema check, and zero retries, matching the existing protected
+identity-review path. Controlled first/second-page timings were approximately
+99/92 ms, including 40/39 ms connecting and 4.5/4.5 ms checking schema. These
+are isolated fixture measurements, not live deployment claims. The server port
+must consume a verified worker projection; it must not reopen worker DuckDB or
+copy protected choice values into PostgreSQL.
+
+Run [`tests.e2e.test_relationship_choice_review`](../../../tests/e2e/test_relationship_choice_review.py)
+with Playwright and
+`IMPODO_RELATIONSHIP_CHOICE_SCREENSHOT_DIRECTORY=docs/images/user` to reproduce
+the two fictional 1440 by 1024 screenshots. Browser qualification covers
+keyboard activation, paging, filters, exact receipts, and a 390-pixel viewport.
+Focused [classification tests](../../../tests/application/workspace/mapping/test_relationship_choice_review.py),
+[route and publication tests](../../../tests/integration/web/test_relationship_choice_review.py),
+and [upgrade rollback tests](../../../tests/integration/duckdb/test_relationship_choice_upgrade.py)
+cover the remaining contracts. No live Odoo or Linux qualification is implied.
 
 The
 [identity-health presenter](../../../src/impodo/web/presenters/identity_health.py)
@@ -912,6 +1003,8 @@ validation result for the malformed formula.
 | Matching-order check schema | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
 | Protected unresolved-identity page | [`identity_choice_review.html`](../../../src/impodo/web/templates/mapping/identity_choice_review.html) |
 | Protected unresolved-identity browser evidence | [`test_identity_choice_review.py`](../../../tests/integration/web/test_identity_choice_review.py) |
+| Protected duplicate publication and paging | [`identity_group_review.py`](../../../src/impodo/application/workspace/mapping/identity_group_review.py), [`test_identity_group_publication.py`](../../../tests/integration/duckdb/test_identity_group_publication.py), and [`test_identity_group_review.py`](../../../tests/integration/web/test_identity_group_review.py) |
+| Protected relationship-choice contract, publication, and paging | [`relationship_review.py`](../../../src/impodo/domain/relationship_review.py), [`relationship_choice_review.py`](../../../src/impodo/application/workspace/mapping/relationship_choice_review.py), the [DuckDB index](../../../src/impodo/adapters/duckdb/relationship_choice_review.py), and the [review template](../../../src/impodo/web/templates/mapping/relationship_choice_review.html) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Constant relationship validation | [`relationships.py`](../../../src/impodo/domain/mapping/validation/relationships.py) |
 | Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |

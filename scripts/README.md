@@ -12,7 +12,7 @@ The environment and dependency groups are defined in `pyproject.toml`.
 | Documentation and fictional fixtures | `capture_*.py`, including `capture_matching_rule_screenshots.py`; `generate_current_bpmn.py`; `generate_product_bom_fixture.py` |
 | Local performance qualification | `benchmark_*.py`, `qualify_transformation_scale.py` |
 | Representative migration acceptance | `qualify_representative_migration.py` |
-| Disposable Odoo qualification | `qualify_odoo*.py`, `qualify_row_inclusion_recipe.py`, `qualify_completed_load_correction.py`, `prepare_odoo_compatibility_lab.py`, `odoo20_read_qualification_support.py` |
+| Disposable Odoo qualification | `qualify_odoo*.py`, `qualify_row_inclusion_*.py`, `qualify_completed_load_correction.py`, `prepare_odoo_compatibility_lab.py`, `odoo20_read_qualification_support.py` |
 | Disposable server identity rehearsal | `rehearse_server_identity.py` |
 
 These scripts exercise current behavior or reproduce maintained evidence.
@@ -27,6 +27,15 @@ and reuses a Recipe in disposable local storage, creates only two included
 fictional Contacts, verifies exclusion, and removes its unique test records.
 The receipt distinguishes this adapter canary from journalled execution and a
 transfer between two live servers. The key is never copied into the receipt.
+
+For the complete row-rule transfer and interruption matrix, run `python -m
+scripts.qualify_row_inclusion_transfer --help`. Supply distinct disposable
+local and remote Odoo 20 connections, private key files, an output directory,
+and `--allow-write`. It uses the normal capture, review, preflight, journalled
+load, and read-back routes. Interrupted cases stop client processing after one
+accepted create batch, reopen persisted application state with the same private
+vault, and recover the original journal. Each case verifies two included
+Contacts, exclusion of the third, no duplicate creates, and exact cleanup.
 
 Run `python -m scripts.capture_transfer_row_inclusion` with Playwright installed
 to reproduce the authenticated row-builder, count-confirmation, and protected

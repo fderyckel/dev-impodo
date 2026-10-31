@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import unittest
 from datetime import UTC, datetime, timedelta
 from dataclasses import replace
@@ -26,6 +27,7 @@ from impodo.domain.identity.administration import (
     OrganizationPage,
     OrganizationStatus,
     OrganizationView,
+    IdentityAdministrationConflictError,
 )
 from impodo.domain.identity.recovery import LoginPrincipalKind
 from impodo.domain.identity.server_authentication import ServerAuthenticationResult
@@ -299,6 +301,96 @@ class ServerAdministrationTests(unittest.TestCase):
         self.assertEqual(rejected.status_code, 303)
         self.assertEqual(rejected.headers["location"], "/login")
         self.assertEqual(len(self.organizations.creations), 1)
+        self.assertEqual(self.organizations.queries, [])
+
+    def test_invalid_organization_id_retains_the_form_and_names_the_rule(self) -> None:
+        self._login()
+        for identifier in ("Acme Belgium", "acme_1", "-acme", "acme-", "a" * 201):
+            with self.subTest(identifier=identifier):
+                response = self.client.post(
+                    "/admin/organizations",
+                    data={"csrf_token": CSRF_TOKEN, "organization_id": identifier, "display_name": "Acme Belgium"},
+                    headers={"Origin": "https://impodo.example.test"},
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn("lowercase letters, numbers or hyphens", response.text)
+                form = ServerFormParser(response.text).form("/admin/organizations")
+                self.assertEqual(form["organization_id"], identifier)
+                self.assertEqual(form["display_name"], "Acme Belgium")
+                self.assertEqual(form["csrf_token"], CSRF_TOKEN)
+                self.assertIn("Acme", response.text)
+        self.assertEqual(self.organizations.creations, [])
+        self.assertFalse(self.organizations.called_on_event_loop)
+        self.assertFalse(self.sessions.called_on_event_loop)
+
+    def test_invalid_display_name_is_retained_and_escaped_without_mutation(self) -> None:
+        self._login()
+        name = ' <script>alert("fictional")</script>'
+        response = self.client.post(
+            "/admin/organizations",
+            data={"csrf_token": CSRF_TOKEN, "organization_id": "acme-belgium", "display_name": name},
+            headers={"Origin": "https://impodo.example.test"},
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("without spaces at the beginning or end", response.text)
+        self.assertIn('id="display-name-error"', response.text)
+        self.assertNotIn('<script>alert("fictional")</script>', response.text)
+        self.assertEqual(ServerFormParser(response.text).form("/admin/organizations")["display_name"], name)
+        self.assertEqual(self.organizations.creations, [])
+
+    def test_conflicting_id_retains_values_and_asks_for_another_id(self) -> None:
+        self._login()
+        with patch.object(self.organizations, "create_organization", side_effect=IdentityAdministrationConflictError("conflict")):
+            response = self.client.post(
+                "/admin/organizations",
+                data={"csrf_token": CSRF_TOKEN, "organization_id": "acme", "display_name": "Acme Belgium"},
+                headers={"Origin": "https://impodo.example.test"},
+            )
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("Choose a different ID", response.text)
+        form = ServerFormParser(response.text).form("/admin/organizations")
+        self.assertEqual(form["organization_id"], "acme")
+        self.assertEqual(form["display_name"], "Acme Belgium")
+
+    def test_human_readable_display_name_is_created_with_an_exact_valid_id(self) -> None:
+        self._login()
+        response = self.client.post(
+            "/admin/organizations",
+            data={"csrf_token": CSRF_TOKEN, "organization_id": "acme-belgium", "display_name": "Acme Belgium & Région"},
+            headers={"Origin": "https://impodo.example.test"},
+        )
+        self.assertEqual(response.status_code, 303)
+        command, _ = self.organizations.creations[-1]
+        self.assertEqual(command.organization_id, "acme-belgium")
+        self.assertEqual(command.display_name, "Acme Belgium & Région")
+
+    def test_organization_administrator_cannot_read_the_creation_error_page(self) -> None:
+        self.authenticator.principal_kind = LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+        self.authenticator.organization_id = "acme"
+        self._login()
+        response = self.client.post(
+            "/admin/organizations",
+            data={"csrf_token": CSRF_TOKEN, "organization_id": "Invalid ID", "display_name": "Fictional"},
+            headers={"Origin": "https://impodo.example.test"},
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.organizations.queries, [])
+        self.assertEqual(self.organizations.creations, [])
+
+    def test_organization_id_html_pattern_matches_the_domain_boundaries(self) -> None:
+        self._login()
+        page = self.client.get("/admin/organizations")
+        match = re.search(r'name="organization_id"\s+[^>]*pattern="([^"]+)"', page.text)
+        self.assertIsNotNone(match)
+        assert match is not None
+        pattern = match.group(1)
+        self.assertIn(r"\-", pattern)
+        for value in ("a", "1", "acme-belgium", "a" * 200):
+            with self.subTest(accepted=value):
+                self.assertIsNotNone(re.fullmatch(pattern, value))
+        for value in ("", "Acme", "acme belgium", "-acme", "acme-", "a" * 201):
+            with self.subTest(rejected=value):
+                self.assertIsNone(re.fullmatch(pattern, value))
 
     def test_logout_revokes_the_exact_touched_session(self) -> None:
         self._login()

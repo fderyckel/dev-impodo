@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
+from datetime import date
 from enum import StrEnum
 
 
@@ -111,7 +112,9 @@ def recognize_odoo_version(
 
     Odoo's release tuple is (major, minor, micro, stage, serial, suffix).
     Its version string omits micro. Five-element tuples without a suffix are
-    also accepted. An absent tuple permits string-only evidence; a supplied
+    also accepted. Official final packages may append a valid YYYYMMDD build
+    date to the matching release string without adding it to the tuple.
+    An absent tuple permits string-only evidence; a supplied
     null, malformed tuple, or conflicting string cannot fall back silently.
     """
 
@@ -123,10 +126,27 @@ def recognize_odoo_version(
         return OdooVersion(version.raw, problem=OdooVersionProblem.MALFORMED)
     if version.problem is not None:
         return version
-    if structured != version.raw:
+    if structured != version.raw and not _matches_dated_package(version.raw, structured):
         return OdooVersion(version.raw, problem=OdooVersionProblem.CONFLICT)
     # The validated tuple is authoritative; keep the exact reported string.
     return replace(_recognize_string(structured), raw=version.raw)
+
+
+def _matches_dated_package(reported: str, structured: str) -> bool:
+    """Accept only a matching final release followed by a calendar build date."""
+
+    match = re.fullmatch(
+        r"(?P<release>[1-9][0-9]*\.[0-9]+(?:\+e)?)-"
+        r"(?P<year>[0-9]{4})(?P<month>[0-9]{2})(?P<day>[0-9]{2})",
+        reported,
+    )
+    if match is None or match["release"] != structured:
+        return False
+    try:
+        date(int(match["year"]), int(match["month"]), int(match["day"]))
+    except ValueError:
+        return False
+    return True
 
 
 def assess_odoo_operation(

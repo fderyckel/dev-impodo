@@ -398,6 +398,24 @@ checks the advisory, preparation, approval, and Final review in Chromium.
 Hierarchy cause navigation is covered by
 [`test_hierarchy_causes.py`](../../../tests/integration/web/test_hierarchy_causes.py)
 and [`test_hierarchy_review.py`](../../../tests/e2e/test_hierarchy_review.py).
+The HTTP suite follows saved correction links, saves reviewed component and
+quantity columns through Match data, and confirms the corrected mapping.
+Repreparation releases the complete BoM group while preserving earlier quality
+evidence, including after the application reopens. The suite also rejects
+unavailable causes and denies evidence access before the cause query runs.
+
+The summary uses the captured schema in both LOCAL and REMOTE modes to locate
+the owning field. It resolves a transformed value's internal field identifier
+through that dataset's mapping before building the correction link. This
+projection reads saved evidence without changing a prepared value or hash.
+[`test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
+also verifies that two datasets using the same model retain their own field
+owners. [`test_hierarchy_failures.py`](../../../tests/integration/web/test_hierarchy_failures.py)
+qualifies duplicate, missing, quarantined, and deliberately excluded parents
+from separately accepted category and Product files.
+The real BoM summary fixture stays within six physical connections and one
+schema check. Its cause-detail page stays within five connections and five
+schema checks. Both routes run inside their existing bounded page-read scope.
 
 [`test_join_lookup_preparation.py`](../../../tests/integration/web/test_join_lookup_preparation.py)
 qualifies the same 65,299-input shape with a reviewed combination and a flat

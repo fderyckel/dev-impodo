@@ -3,6 +3,8 @@
 from dataclasses import asdict
 from datetime import UTC, datetime
 
+from fastapi.testclient import TestClient
+
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
@@ -23,6 +25,7 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
 )
 from impodo.domain.workspace.derived_entities import derived_dataset_links
+from impodo.web.app import create_local_app
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.browser_scenarios import (
@@ -30,7 +33,9 @@ from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
     _browser_schema,
     _created_workspace_id,
+    _csrf,
 )
+from tests.support.hierarchy_cases import CATEGORY_ROWS, supplied_files
 from tests.support.identity import resolve_local_actor
 
 PRODUCT_ROWS = (
@@ -65,6 +70,23 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         super().setUp()
         self.context = self.app.state.context
         self.actor = resolve_local_actor(self.context)
+
+    def reopen(self, **target_dependencies):
+        """Rebuild services and authenticate again against the same durable workspace."""
+
+        self.client.close()
+        self.app = create_local_app(
+            self.temporary.name,
+            launch_token="reopen-secret",
+            secret_store=self.secrets,
+            **target_dependencies,
+        )
+        self.context = self.app.state.context
+        self.actor = resolve_local_actor(self.context)
+        self.client = TestClient(self.app)
+        launched = self.client.get("/launch?token=reopen-secret", follow_redirects=False)
+        self.assertEqual(launched.status_code, 303)
+        self.csrf = _csrf(self.client.get("/projects").text)
 
     def expect_business_writes(self, workspace_id, *, intent=None):
         """Explicitly authorize the fixture's declared mapping scope before comparison."""
@@ -239,7 +261,7 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         )
         return schema
 
-    def submit(self, workspace_id, mappings):
+    def submit(self, workspace_id, mappings, *, confirm_rows=False):
         current = self.context.mapping_workspace.mappings.get_mapping_revision(
             workspace_id
         )
@@ -258,6 +280,18 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         draft = self.context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
         )
+        if confirm_rows:
+            run_local_operation_sync(
+                self.context.row_inclusion_reviews.check_current,
+                workspace_id, actor=self.actor,
+            )
+            run_local_operation_sync(
+                self.context.row_inclusion_reviews.confirm_current,
+                workspace_id, datasets=revision.definition.datasets,
+                expected_revision_version=revision.version,
+                expected_working_draft_version=draft.version,
+                actor=self.actor,
+            )
         run_local_operation_sync(
             self.context.mapping_workspace.submit_current,
             workspace_id,
@@ -273,34 +307,67 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         )
         return revision
 
-    def hierarchy(self, *, major=19, mode="LOCAL", rows=PRODUCT_ROWS):
-        workspace_id = self.freeze_files({"products": product_csv(rows)})
+    def hierarchy(
+        self, *, major=19, mode="LOCAL", rows=PRODUCT_ROWS,
+        source_shape="generated", categories=CATEGORY_ROWS,
+    ):
+        if source_shape == "supplied":
+            files = supplied_files(rows, categories=categories)
+        elif source_shape == "generated":
+            files = {"products": product_csv(rows)}
+        else:
+            raise ValueError("Unknown hierarchy source shape")
+        workspace_id = self.freeze_files(files)
         self.schema(workspace_id, major=major, mode=mode)
         physical = self.context.queries.get_source_selection(workspace_id)
-        products = physical.datasets[0]
-        columns = {column.source_name: column.stable_key for column in products.columns}
-        plan, _rule = run_local_operation_sync(
-            self.context.derived_entities.save_hierarchy,
-            workspace_id,
-            output_dataset_name="categories",
-            source_dataset_id=products.dataset_id,
-            source_level_column_keys=tuple(
-                columns[f"Level{index}"] for index in range(1, 5)
-            ),
-            target_model="product.category",
-            target_name_field="name",
-            external_id_namespace="fictional_workshop",
-            missing_parent_mode="promote",
-            missing_parent_value=None,
-            missing_leaf="use_deepest",
-            all_blank_mode="emit_null_reference",
-            all_blank_value=None,
-            expected_parent_version=None,
-            actor=self.actor,
+        products = next(
+            dataset for dataset in physical.datasets if dataset.name == "products"
         )
-        link = derived_dataset_links(plan)[0]
+        columns = {column.source_name: column.stable_key for column in products.columns}
+        if source_shape == "generated":
+            plan, _rule = run_local_operation_sync(
+                self.context.derived_entities.save_hierarchy,
+                workspace_id,
+                output_dataset_name="categories",
+                source_dataset_id=products.dataset_id,
+                source_level_column_keys=tuple(
+                    columns[f"Level{index}"] for index in range(1, 5)
+                ),
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="fictional_workshop",
+                missing_parent_mode="promote",
+                missing_parent_value=None,
+                missing_leaf="use_deepest",
+                all_blank_mode="emit_null_reference",
+                all_blank_value=None,
+                expected_parent_version=None,
+                actor=self.actor,
+            )
+            link = derived_dataset_links(plan)[0]
+            category_id = link.derived_dataset_id
+            category_key, category_name, category_parent = (
+                link.canonical_key_column_key,
+                link.name_column_key,
+                link.parent_key_column_key,
+            )
+            product_category = link.source_column_key
+        else:
+            category = next(
+                dataset for dataset in physical.datasets if dataset.name == "categories"
+            )
+            category_columns = {
+                column.source_name: column.stable_key for column in category.columns
+            }
+            category_id = category.dataset_id
+            category_key, category_name, category_parent = (
+                category_columns["Key"],
+                category_columns["Name"],
+                category_columns["Parent"],
+            )
+            product_category = columns["Category"]
         parent = RelationshipResolver(
-            origin=ResolverOrigin.DATASET, dataset_id=link.derived_dataset_id
+            origin=ResolverOrigin.DATASET, dataset_id=category_id
         )
         revision = self.submit(
             workspace_id,
@@ -321,22 +388,22 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
                         RelationshipMapping(
                             "categ_id",
                             "many2one",
-                            (link.source_column_key,),
+                            (product_category,),
                             resolver=parent,
                             categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
                         ),
                     ),
                 ),
                 DatasetMapping(
-                    link.derived_dataset_id,
+                    category_id,
                     "product.category",
-                    source_identity_column_keys=(link.canonical_key_column_key,),
+                    source_identity_column_keys=(category_key,),
                     target_identity=(
-                        IdentityComponentMapping((link.name_column_key,), ("name",)),
+                        IdentityComponentMapping((category_name,), ("name",)),
                     ),
                     target_scope=(
                         IdentityComponentMapping(
-                            (link.parent_key_column_key,),
+                            (category_parent,),
                             ("parent_id",),
                             resolver=parent,
                             null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,

@@ -18,12 +18,12 @@ def bom_workspace(fixture, *, two_problems=False):
     """Retain both original and reviewed component columns in accepted evidence."""
 
     lines = (
-        "BoM,Sequence,Component,ReviewedComponent,Quantity\n"
-        "BA100,10,PX101,PX101,2\n"
-        f"BA100,20,PX999-MISSING,PX101,{'invalid' if two_problems else '1'}\n"
-        "BA100,30,PX102,PX102,4\n"
-        "BB200,10,PX103,PX103,1\n"
-        "BB200,20,PX106,PX106,3\n"
+        "BoM,Sequence,Component,ReviewedComponent,Quantity,ReviewedQuantity\n"
+        "BA100,10,PX101,PX101,2,2\n"
+        f"BA100,20,PX999-MISSING,PX101,{'invalid' if two_problems else '1'},1\n"
+        "BA100,30,PX102,PX102,4,4\n"
+        "BB200,10,PX103,PX103,1,1\n"
+        "BB200,20,PX106,PX106,3,3\n"
     ).encode()
     workspace_id = fixture.freeze_files(
         {

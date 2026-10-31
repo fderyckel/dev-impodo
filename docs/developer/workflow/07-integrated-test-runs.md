@@ -541,6 +541,7 @@ is visible in the initial viewport and the step bar has three styled columns.
 - [`Actual worker and browser recovery`](../../../tests/integration/web/test_recipe_preparation_recovery.py)
 - [`tests/application/run/test_fresh_data_controls.py`](../../../tests/application/run/test_fresh_data_controls.py)
 - [`tests/integration/web/test_fresh_data_controls.py`](../../../tests/integration/web/test_fresh_data_controls.py)
+- [Recipe row-column browser qualification](../../../tests/e2e/test_recipe_row_columns.py) covers missing and normalized ambiguous columns, rejection before source acceptance, file correction, and fresh population confirmation against fictional Odoo 20 metadata.
 - [`tests/application/run/test_stabilization.py`](../../../tests/application/run/test_stabilization.py)
 - [`tests/integration/duckdb/test_recipe_application_evidence.py`](../../../tests/integration/duckdb/test_recipe_application_evidence.py)
 - [`tests/application/run/test_odoo_requirements.py`](../../../tests/application/run/test_odoo_requirements.py)

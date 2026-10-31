@@ -291,6 +291,7 @@ stages:
       - tests/application/run/test_stabilization.py
       - tests/application/run/test_fresh_data_controls.py
       - tests/integration/web/test_fresh_data_controls.py
+      - tests/e2e/test_recipe_row_columns.py
       - tests/application/workspace/preparation/test_recovery.py
       - tests/integration/duckdb/test_preparation_recovery.py
       - tests/integration/web/test_recipe_preparation_recovery.py
@@ -465,6 +466,7 @@ stages:
       - src/impodo/web/routers/odoo_company.py
       - src/impodo/web/routers/matching_company_refresh.py
       - src/impodo/web/routers/matching_expectations.py
+      - src/impodo/web/routers/relationship_choice_review.py
       - src/impodo/web/routers/quality.py
     templates:
       - src/impodo/web/templates/mapping/page.html
@@ -482,6 +484,14 @@ stages:
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.prepare_live_check
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.start_live_check
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.identity_choice_review_page
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.relationship_choice_review_page
+      - src/impodo/application/workspace/mapping/relationship_choice_review.py::append_relationship_choices
+      - src/impodo/domain/relationship_review.py::RelationshipChoice
+      - src/impodo/adapters/duckdb/relationship_choice_review.py::published_relationship_choices
+      - src/impodo/adapters/duckdb/relationship_choice_review.py::relationship_choice_page
+      - src/impodo/application/workspace/mapping/identity_group_review.py::identity_duplicate_choices
+      - src/impodo/domain/matching_order.py::MatchingIdentityKeyIndex
+      - src/impodo/domain/matching_order.py::index_matching_identity_keys
       - src/impodo/adapters/duckdb/matching_order_repository.py::MatchingOrderRepository
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService
       - src/impodo/application/workspace/mapping/transformation_impact.py::TransformationImpactService.prepare_mapping_review_rows
@@ -572,7 +582,16 @@ stages:
       - tests/integration/web/test_combined_hierarchy.py
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_identity_choice_review.py
+      - tests/integration/web/test_identity_group_review.py
+      - tests/e2e/test_identity_group_review.py
+      - tests/application/workspace/mapping/test_identity_group_review.py
+      - tests/integration/duckdb/test_identity_group_publication.py
+      - tests/integration/duckdb/test_identity_group_upgrade.py
       - tests/integration/web/test_relationship_health_presenter.py
+      - tests/application/workspace/mapping/test_relationship_choice_review.py
+      - tests/integration/web/test_relationship_choice_review.py
+      - tests/integration/duckdb/test_relationship_choice_upgrade.py
+      - tests/e2e/test_relationship_choice_review.py
       - tests/application/workspace/mapping/test_matching_health_issues.py
       - tests/integration/web/test_matching_health_issues_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
@@ -665,6 +684,8 @@ stages:
       - tests/domain/preparation/test_normalization.py
       - tests/integration/web/test_preparation_workflow.py
       - tests/integration/web/test_hierarchy_causes.py
+      - tests/integration/web/test_hierarchy_failures.py
+      - tests/integration/web/test_summary_presenter.py
       - tests/e2e/test_hierarchy_review.py
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/integration/web/test_mixed_join_preparation.py
@@ -880,6 +901,7 @@ stages:
       - scripts/capture_odoo_transfer_screenshots.py::capture
       - scripts/capture_transfer_row_inclusion.py::capture
       - scripts/qualify_row_inclusion_recipe.py::qualify
+      - scripts/qualify_row_inclusion_transfer.py::qualify
     tests:
       - tests/application/workspace/execution/test_service.py
       - tests/application/workspace/execution/test_company_context.py
@@ -932,6 +954,7 @@ stages:
       - tests/integration/web/test_transfer_page_reads.py
       - tests/application/workspace/test_transfer_row_inclusion.py
       - tests/integration/web/test_transfer_row_inclusion.py
+      - tests/integration/odoo/test_row_transfer_qualification.py
       - tests/integration/odoo/test_row_recipe_qualification.py
       - tests/integration/web/test_transfer_load_routes.py
       - tests/integration/duckdb/test_transfer_order_persistence.py

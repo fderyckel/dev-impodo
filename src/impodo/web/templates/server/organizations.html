@@ -1,4 +1,6 @@
 <!doctype html>
+{% set form_values = organization_values|default({}) %}
+{% set form_errors = organization_errors|default({}) %}
 <html lang="en">
   <head>
     <meta charset="utf-8">
@@ -23,10 +25,24 @@
         <h2 id="create-organization-heading">Create an Organization</h2>
         <form method="post" action="/admin/organizations">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          {% if form_errors.get('form') %}<p role="alert">{{ form_errors['form'] }}</p>{% endif %}
           <label for="organization-id">Organization ID</label>
-          <input id="organization-id" name="organization_id" pattern="[a-z0-9][a-z0-9-]*[a-z0-9]|[a-z0-9]" required>
+          <input id="organization-id" name="organization_id"
+                 value="{{ form_values.get('organization_id', '') }}"
+                 pattern="[a-z0-9](?:[a-z0-9\-]{0,198}[a-z0-9])?" maxlength="200"
+                 autocapitalize="none" spellcheck="false"
+                 title="Use lowercase letters, numbers and hyphens; start and end with a letter or number."
+                 aria-describedby="organization-id-help{% if form_errors.get('organization_id') %} organization-id-error{% endif %}"
+                 {% if form_errors.get('organization_id') %}aria-invalid="true"{% endif %} required>
+          <p id="organization-id-help">A unique ID used in administration links, for example <code>acme-belgium</code>. Use lowercase letters, numbers and hyphens.</p>
+          {% if form_errors.get('organization_id') %}<p id="organization-id-error" role="alert">{{ form_errors['organization_id'] }}</p>{% endif %}
           <label for="display-name">Display name</label>
-          <input id="display-name" name="display_name" maxlength="200" required>
+          <input id="display-name" name="display_name"
+                 value="{{ form_values.get('display_name', '') }}" maxlength="200"
+                 aria-describedby="display-name-help{% if form_errors.get('display_name') %} display-name-error{% endif %}"
+                 {% if form_errors.get('display_name') %}aria-invalid="true"{% endif %} required>
+          <p id="display-name-help">The name people see, for example <strong>Acme Belgium</strong>. Capital letters and spaces are allowed.</p>
+          {% if form_errors.get('display_name') %}<p id="display-name-error" role="alert">{{ form_errors['display_name'] }}</p>{% endif %}
           <button type="submit">Create Organization</button>
         </form>
       </section>
