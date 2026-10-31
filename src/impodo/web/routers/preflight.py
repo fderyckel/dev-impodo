@@ -392,6 +392,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         completed = context.execution.complete_no_changes(
                             workspace_id,
                             expected_snapshot_hash=preview.snapshot.semantic_hash,
+                            expected_intent_assessment_hash=preview.business_intent_assessment_hash,
                             actor=actor,
                         )
                         readback = context.readback_reader_factory(
@@ -511,6 +512,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     context.execution.complete_no_changes,
                     workspace_id,
                     expected_snapshot_hash=preview.snapshot.semantic_hash,
+                    expected_intent_assessment_hash=preview.business_intent_assessment_hash,
                     actor=actor,
                 )
                 readback = context.readback_reader_factory(

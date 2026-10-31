@@ -48,12 +48,13 @@ class SupportingImageRuntimeTests(unittest.TestCase):
             "postgres",
             "gosu",
             "nobody",
-            "id",
-            "-u",
+            "/bin/sh",
+            "-c",
+            'printf "%s:%s\\n" "$(id -u)" "$$"',
             user="0:0",
             capabilities=("SETUID", "SETGID"),
         )
-        self.assertEqual(dropped.strip(), "65534")
+        self.assertEqual(dropped.strip(), "65534:1")
 
     def test_non_root_proxy_keeps_required_modules_and_patched_dependencies(self):
         self.assertIn("v2.11.7", self.run_image("proxy", "caddy", "version"))

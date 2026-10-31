@@ -772,7 +772,7 @@ def build_execution_router(
                 f"/workspaces/{workspace_id}/load/outcome",
                 status_code=303,
             )
-        if not preview.can_load:
+        if not preview.can_load and not preview.can_complete_without_load:
             _flash(
                 request,
                 preview.scope_error
@@ -801,6 +801,29 @@ def build_execution_router(
     @router.get("/workspaces/{workspace_id}/load/confirm", response_class=HTMLResponse)
     async def confirm_load(request: Request, workspace_id: str):
         return await run_page_read(confirmation_page, request, workspace_id)
+
+    @router.post("/workspaces/{workspace_id}/load/complete-no-changes")
+    async def complete_no_changes(request: Request, workspace_id: str):
+        require_session(request)
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "snapshot_hash", "intent_assessment_hash"})
+        actor = request_identity(request, context.identity_resolver).actor
+
+        def complete():
+            context.cutover_plans.assert_application_can_execute(workspace_id, actor=actor)
+            if not _text(form, "intent_assessment_hash"):
+                raise WorkspaceError("Review business expectations before completing this comparison")
+            return context.execution.complete_no_changes(
+                workspace_id, expected_snapshot_hash=_text(form, "snapshot_hash"),
+                expected_intent_assessment_hash=_text(form, "intent_assessment_hash"), actor=actor,
+            )
+
+        try:
+            await run_local_operation(complete)
+        except (WorkspaceError, MigrationConflictError) as error:
+            _flash(request, str(error))
+            return RedirectResponse(f"/workspaces/{workspace_id}/load/review", status_code=303)
+        return RedirectResponse(f"/workspaces/{workspace_id}/load/outcome", status_code=303)
 
     @router.get(
         "/workspaces/{workspace_id}/load/outcome",

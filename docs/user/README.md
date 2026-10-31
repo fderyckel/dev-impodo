@@ -2,8 +2,8 @@
 
 This documentation is for the data manager preparing and reviewing migration
 work in the Impodo browser. Impodo can read, prepare, load, recover, and verify
-supported Odoo 19 and final Odoo 20 targets. Odoo 20 Production remains
-disabled and requires a separate promotion decision.
+supported Odoo 19 and final Odoo 20 targets, including Production rollout
+through a qualified Cutover plan.
 
 Select the question mark beside an Impodo page title to open the matching user
 guide on GitHub in a new tab. Your current Impodo page and unsaved entries stay

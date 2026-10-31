@@ -347,8 +347,8 @@ Connection and capture checks use the shared operation policy in
 The adapters cross-check structured version information when Odoo provides it.
 Unknown, malformed, or contradictory evidence cannot authorize capture. Odoo
 19 retains its existing acceptance rules. Final Odoo 20 enables connection,
-schema capture, bounded source capture, comparison reads, and Recipe authoring;
-write, recovery, and Production operations remain disabled. The live Community
+schema capture, bounded source capture, comparison reads, Recipe authoring,
+loading, recovery, and qualified-plan Production. The live Community
 and Enterprise qualification details remain available in Git history.
 
 Target evidence is either verified `LIVE_API` capture or an unverified
@@ -467,7 +467,7 @@ remains outside the migration write scope.
 | Browser presenter | [`schema.py`](../../../src/impodo/web/presenters/schema.py) |
 | Supporting-data presenter | [`supporting_models.py`](../../../src/impodo/web/presenters/supporting_models.py) |
 | Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
-| Matching-rule screenshot capture | [`capture_stage2_matching_rule_screenshots.py`](../../../scripts/capture_stage2_matching_rule_screenshots.py) |
+| Matching-rule screenshot capture | [`capture_matching_rule_screenshots.py`](../../../scripts/capture_matching_rule_screenshots.py) |
 | Odoo-source eligible-field screenshot capture | [`capture_odoo_source_eligible_fields.py`](../../../scripts/capture_odoo_source_eligible_fields.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 

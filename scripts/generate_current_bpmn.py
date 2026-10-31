@@ -577,7 +577,7 @@ def build_specs() -> tuple[ProcessSpec, ...]:
             task("Task_PR_Start", "userTask", "Start Production setup and enter export cutoff", 150, 110, "Lane_DataManager"),
             task("Task_PR_Create", "serviceTask", "Create fresh DataVersion, run, setup workspace, and binding", 380, 330, "Lane_Impodo"),
             task("Task_PR_Data", "userTask", "Add and accept the complete latest delivery", 610, 110, "Lane_DataManager"),
-            task("Task_PR_Target", "userTask", "Capture Production Odoo 19 with read-only access", 840, 110, "Lane_DataManager"),
+            task("Task_PR_Target", "userTask", "Capture same-major Production Odoo with read-only access", 840, 110, "Lane_DataManager"),
             task("Task_PR_Write", "userTask", "Supply a different bounded write key", 1070, 110, "Lane_DataManager"),
             task("Task_PR_Check", "serviceTask", "Recheck plan, coverage, drift, target, controls, and authority", 1300, 330, "Lane_Impodo"),
             gateway("Gateway_PR_Ready", "Activation ready?", 1530, 340, "Lane_Impodo"),

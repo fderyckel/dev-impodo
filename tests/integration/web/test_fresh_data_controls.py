@@ -172,7 +172,7 @@ class FreshDataControlBrowserTests(TestCase):
         self.assertNotIn('name="control_0"', page.text)
         self._activate_with_real_compiler()
 
-    def _activate_with_real_compiler(self, *, prepare=True):
+    def _activate_with_real_compiler(self, *, prepare=True, odoo_version="19.0"):
         context, setup, actor = self.context, self.setup, resolve_local_actor(self.context)
         state = context.workspace_states.repository.get(setup.setup_workspace.workspace_id)
         context.workspace_states.update_target(state.workspace_id, actor=actor, expected_revision=state.revision,
@@ -180,7 +180,7 @@ class FreshDataControlBrowserTests(TestCase):
             intended_applications=(), intended_models=("res.partner",))
         schema = OdooSchemaCatalog(
             workspace_id=state.workspace_id, policy_hash=content_hash("schema policy"), captured_at=datetime.now(UTC),
-            captured_by="Data manager", connection_mode="REMOTE", database="fictional_test", odoo_version="19.0",
+            captured_by="Data manager", connection_mode="REMOTE", database="fictional_test", odoo_version=odoo_version,
             models=(SchemaModel(name="res.partner", label="Customers", fields=(
                 SchemaField(name="name", label="Name", type="char", required=False, readonly=False, relation=None, relation_field=None, selection=()),
                 SchemaField(name="credit_limit", label="Opening balance", type="float", required=False, readonly=False, relation=None, relation_field=None, selection=()),

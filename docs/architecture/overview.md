@@ -133,7 +133,7 @@ isolated application drafts. The Project binds that run to an immutable
 CutoverPlan revision, requires ordered execution and verified read-back in
 every application, publishes exact integrated qualification, and records
 rollout selection separately. Production applies that selected meaning to a
-fresh DataVersion and different Odoo 19 target with independent credentials
+fresh DataVersion and different same-major Odoo 19 or final Odoo 20 target with independent credentials
 and evidence.
 
 ## Integrated Test run boundary
@@ -141,7 +141,7 @@ and evidence.
 One accepted Test DataVersion supplies the complete source package. The run
 planner selects only each Recipe's logical datasets, validates the dependency
 graph and conservative field-level write ownership, and provisions one
-workspace per application. The run captures one filtered Odoo 19 schema and
+workspace per application. The run captures one filtered same-major Odoo schema and
 one filtered supporting-reference bundle for the union of requirements.
 `MigrationRunTargetSchema` and `MigrationRunReferenceBundle` carry the
 `migration_run_id`; they retain the source workspace provenance without
@@ -222,8 +222,8 @@ Remote read access uses closed qualified Odoo 19 or final Odoo 20 JSON-2
 operations. Read adapters cannot
 create, write, unlink, import, execute SQL, or call arbitrary model methods.
 The separate writer acts only after exact schema-bound evidence and explicit
-confirmation. It supports Odoo 19 and final Odoo 20; Odoo 20 Production remains
-disabled by the operation policy.
+confirmation. It supports Odoo 19 and final Odoo 20, including qualified-plan
+Production with independent credentials and current target evidence.
 
 Project and run list projections are bounded registry reads. The overview
 currently opens only its one Authoring workspace when computing Recipe

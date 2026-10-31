@@ -45,12 +45,13 @@ class BusinessIntentScopeTests(unittest.TestCase):
             scope(metadata_fixture()).require_narrowing(BusinessIntent((BusinessModelIntent("product.template", "none"),)))
 
     def test_odoo_version_and_production_gates_remain_outer_constraints(self):
-        scope(metadata_fixture(odoo_version="20.0")).require_narrowing(BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
-        for version in ("18.0", "20.0rc1", "unknown"):
-            with self.subTest(version=version), self.assertRaisesRegex(BusinessIntentError, "write mode"):
-                scope(metadata_fixture(odoo_version=version)).require_narrowing(BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
-        with self.assertRaisesRegex(BusinessIntentError, "write mode"):
-            scope(metadata_fixture(odoo_version="20.0"), operation=OdooOperation.PRODUCTION).require_narrowing(BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
+        for operation in (OdooOperation.WRITE, OdooOperation.PRODUCTION):
+            for version in ("19.0", "20.0", "20.0+e"):
+                with self.subTest(version=version, operation=operation):
+                    scope(metadata_fixture(odoo_version=version), operation=operation).require_narrowing(BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
+            for version in ("18.0", "20.0rc1", "20.1", "saas-20.1", "21.0", "unknown"):
+                with self.subTest(version=version, operation=operation), self.assertRaisesRegex(BusinessIntentError, "write mode"):
+                    scope(metadata_fixture(odoo_version=version), operation=operation).require_narrowing(BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
 
     def test_pinned_odoo_updates_reuse_tier_one_approval_and_never_enable_create(self):
         fixture = metadata_fixture(source_mode=SourceMode.ODOO, mode=MappingTargetMode.ODOO_PINNED_UPDATE)

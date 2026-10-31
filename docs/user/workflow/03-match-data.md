@@ -349,6 +349,11 @@ check and confirmation. If no row is included, or a typed value cannot be
 read safely, Impodo blocks confirmation instead of treating the result as an
 ordinary exclusion.
 
+A saved Recipe keeps the rule meaning and binds it to the new Data version's
+columns. It checks that delivery's counts and requires a new confirmation for
+exclusions. A Recipe authored against Odoo 20 applies to a compatible Odoo 20
+target; an Odoo 19 Recipe requires a separate Odoo 20 authoring version.
+
 When installed Odoo applications add required fields, Impodo checks the
 current create defaults for supported required writable fields in one bounded
 read per record type. This includes a Many2one field when this exact Odoo

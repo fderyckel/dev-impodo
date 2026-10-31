@@ -9,7 +9,8 @@ status: current
 ## Goal
 
 Apply the exact selected Cutover plan to the complete rollout-day data and a
-different compatible Odoo 19 Production database. The Recipe rules come from
+different compatible Odoo 19 or Odoo 20 Production database of the same major
+version as Test. The Recipe rules come from
 the qualified plan. The data, access, checks, approval, load results, and
 verification are all new Production evidence.
 
@@ -31,6 +32,11 @@ Production check.
 
 ## Steps in Impodo
 
+Odoo 19 and Odoo 20 use the same Production setup. The Production database
+must use the major version qualified in Test.
+
+![Production setup explains that the separate Production database uses the same Odoo major version as Test.](../../images/user/05e-production-setup.png)
+
 1. Open the data project and select **Start Production setup**.
 2. Name the rollout and enter the latest export cutoff.
 3. Under **Fresh data**, add the complete latest file delivery and select
@@ -39,7 +45,8 @@ Production check.
 4. Enter the requested details and each Recipe's expected totals for this
    delivery. **Save run details** keeps valid answers while you review the
    tables. Select **Use this fresh data** when the delivery is ready.
-5. Under **Check Odoo**, connect the Production Odoo 19 database with the
+5. Under **Check Odoo**, connect a different Production Odoo 19 or Odoo 20
+   database that uses the same major version as the qualified Test, with the
    read-only key. Impodo selects the required record types and supporting
    lists from the qualified Recipes. Check the selected data with Odoo.
 6. On Production readiness, review **Accepted details for this delivery**.

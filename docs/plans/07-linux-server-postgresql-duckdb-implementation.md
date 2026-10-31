@@ -20,8 +20,11 @@ including fixable findings in the supporting images, and reproduced account,
 secret-isolation, test-fixture, and concurrency gaps. The
 [corrective checkpoint](93-2026-10-31-phase-0-4-corrective-checkpoint.md)
 records the account, secret, concurrency, fixture, and CI corrections and
-their verification limits. Supporting-image policy still fails. Vulnerability
-acceptance or upstream remediation, the first hosted image-quality run,
+their verification limits. The
+[supporting-image remediation report](../reports/2026-10-31-supporting-image-remediation.md)
+records local arm64 and amd64 builds that pass the fixable-alert policy. A
+successful hosted rerun of those replacement builds, unfixed-vulnerability
+and license acceptance,
 production secret and database-role provisioning, remote certificate policy,
 accepted supporting-image versions, and clean Debian and Ubuntu host
 rehearsals remain open. The current delivery mode is local trial only because

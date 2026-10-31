@@ -176,8 +176,8 @@ a new review rather than silently retargeting a child.
    the scenarios demonstrate a gap.
 5. **Qualify transport and recovery.** Exercise ordinary same-major Odoo 19 and
    final Odoo 20 paths. Keep deterministic transport fixtures separate from
-   live disposable local and remote target results. Odoo 20 Production remains
-   disabled. No customer Production load is part of this qualification.
+   live disposable local and remote target results. No customer Production
+   load is part of this qualification.
 6. **Measure size and failure volume.** Increase depth, fan-out, repeated names,
    and error density within each route's supported envelope. Record request
    counts, peak memory, connection and schema-check counts, retries, hashes,
@@ -318,4 +318,4 @@ remains omitted, including real model defaults, create hooks, and target access
 rules. The existing 100,000-row relationship probe remains separately opt-in
 and was not run. Shared-server and other-host release evidence is also not
 provided by these local tests. Keep this plan until that external qualification
-is recorded; Odoo 20 Production remains disabled.
+is recorded. This plan does not change the supported Odoo versions.

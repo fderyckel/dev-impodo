@@ -46,7 +46,7 @@
               <label>Allowed linked-field changes
                 <select multiple name="{{ phase }}_relations_{{ row.index }}">
                   {% for relation in row.scope[phase ~ '_relationships'] %}{% for operation in relation.operations %}
-                    <option value="{{ relation.field }}:{{ operation.value }}" {% if relation.field ~ ':' ~ operation.value in (relations if submitted and relations else row.selected_relations[phase]) %}selected{% endif %}>{{ relation.field }} · {{ operation.value }}</option>
+                    <option value="{{ relation.field }}:{{ operation.value }}" {% if relation.field ~ ':' ~ operation.value in ((relations or ()) if submitted else row.selected_relations[phase]) %}selected{% endif %}>{{ relation.field }} · {{ operation.value }}</option>
                   {% endfor %}{% endfor %}
                 </select>
               </label>

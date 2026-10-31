@@ -44,8 +44,8 @@ def metadata_for_schema(schema, requested=None):
             for field in model.fields if field.name in fields
         })
     return MetadataSnapshot(TargetFingerprint(target_hash=schema.connection_target_hash,
-        connection_mode=schema.connection_mode, database=schema.database, odoo_version="19.0",
-        snapshot_timestamp=datetime.now(UTC).isoformat(), module_versions={"base": "19.0.1.0"}), models)
+        connection_mode=schema.connection_mode, database=schema.database, odoo_version=schema.odoo_version,
+        snapshot_timestamp=datetime.now(UTC).isoformat(), module_versions={"base": f"{schema.odoo_version}.1.0"}), models)
 
 
 class FictionalOdoo:

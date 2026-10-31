@@ -53,8 +53,8 @@ def read_execution_navigation_state(
                projection.read_context_hash,
                projection.execution_shape_ready, projection.contract_version,
                execution.run_id, execution.status, reconciliation.status,
-               json_extract_string(COALESCE(json_extract_string(approval.approval_json, '$.review_json'), projection.review_json), '$.business_intent.state'),
-               json_extract_string(COALESCE(json_extract_string(approval.approval_json, '$.review_json'), projection.review_json), '$.business_intent.assessment_hash')
+               json_extract_string(COALESCE(json_extract_string(NULLIF(approval.approval_json, ''), '$.review_json'), NULLIF(projection.review_json, '')), '$.business_intent.state'),
+               json_extract_string(COALESCE(json_extract_string(NULLIF(approval.approval_json, ''), '$.review_json'), NULLIF(projection.review_json, '')), '$.business_intent.assessment_hash')
           FROM preflight_current AS current
           JOIN preflight_execution_projection AS projection
             ON projection.run_id = current.run_id

@@ -179,8 +179,9 @@ states.
 - Explain entry conditions, exit conditions, invalidation, and recovery.
 - Record security, authorization, idempotency, and concurrency boundaries.
 - For Odoo integration, state the qualified Odoo major, the API boundary, and
-  whether calls are read-only or write-capable. Keep ordinary Odoo 20 loading
-  support separate from the still-disabled Odoo 20 Production operation.
+  whether calls are read-only or write-capable. Odoo 19 and final Odoo 20
+  support loading, recovery, and the qualified-plan Production workflow.
+  Distinguish product support from the scope of each recorded acceptance run.
 - Identify batching behavior and any N+1 risk. Never document an unmeasured
   performance assumption as a guarantee.
 - Prefer a file link plus an exact symbol name over a hard-coded line-number

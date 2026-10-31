@@ -21,7 +21,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 class TransferRuleSourceValues(Protocol):
     """Project one bounded set of frozen source columns in physical row order."""
 
-    def source_key_tuples(
+    def source_condition_rows(
         self, workspace_id: str, dataset_id: str, source_column_keys: tuple[str, ...]
     ) -> Sequence[Sequence[Any]]: ...
 
@@ -31,7 +31,7 @@ class _FrozenRuleValues:
     dataset: SourceDataset
     rows: tuple[SourceRow, ...]
 
-    def source_key_tuples(
+    def source_condition_rows(
         self, workspace_id: str, dataset_id: str, source_column_keys: tuple[str, ...]
     ) -> Sequence[Sequence[Any]]:
         names = {item.stable_key: item.source_name for item in self.dataset.columns}
@@ -88,7 +88,7 @@ def evaluate_transfer_row_inclusion(
         if problems:
             raise WorkspaceError(f"{dataset.name}: {problems[0].message}")
     keys = tuple(dict.fromkeys(item.source_column_key for item in policy.conditions))
-    rows = source_values.source_key_tuples(workspace_id, dataset.dataset_id, keys)
+    rows = source_values.source_condition_rows(workspace_id, dataset.dataset_id, keys)
     if len(rows) != dataset.row_count or any(len(row) != len(keys) for row in rows):
         raise WorkspaceError(f"The frozen rows for {dataset.name} are inconsistent")
     excluded: list[int] = []

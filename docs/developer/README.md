@@ -2,7 +2,7 @@
 
 This is the entry point for developers and technical operators working on
 Impodo. Impodo supports Odoo 19 and final Odoo 20 reads, Recipe authoring,
-writes, recovery, and verification. Odoo 20 Production remains disabled.
+writes, recovery, verification, and qualified-plan Production rollout.
 Migration evidence, approval boundaries, and read-versus-write capabilities
 stay explicit.
 
@@ -59,7 +59,7 @@ routes, services, implementation status, performance risks, and focused tests.
 - [Local worktree containment](runbooks/local-worktree-containment.md)
 - [Local Odoo technical runbook](runbooks/local-odoo.md)
 - [Internal development and release](runbooks/internal-release.md)
-- [Remote Odoo 19 acceptance](runbooks/remote-odoo-acceptance.md)
+- [Remote Odoo acceptance](runbooks/remote-odoo-acceptance.md)
 - [Scenario qualification](runbooks/scenario-qualification.md)
 
 ## Python code quality ownership

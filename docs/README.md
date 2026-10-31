@@ -109,11 +109,9 @@ Qualification-only follow-up remains in the
 [Match data ordering](plans/12-smart-match-data-ordering.md), and
 [row-inclusion](plans/13-source-row-inclusion-rules.md) plans.
 
-Long-term deferred proposals remain in
-[Odoo 19 and Odoo 20 support](plans/14-odoo-19-and-20-support.md) for the Odoo 20
-Production gate and in
-[known-fallout repair](plans/06-load-fallout-source-cell-workbook.md) for an
-exact-record repair writer. Listing either plan does not activate it.
+The [known-fallout repair](plans/06-load-fallout-source-cell-workbook.md)
+proposal remains deferred for an exact-record repair writer. Listing the plan
+does not activate it.
 
 Two dated reports remain beside the active server plans because they directly
 qualify that program: the
@@ -150,7 +148,7 @@ setup, CLI, release, and acceptance procedures live under
 - [Internal development and release runbook](developer/runbooks/internal-release.md) —
   development setup, authoritative dependency locking, promotion, evidence,
   and installation of an accepted internal bundle.
-- [Remote Odoo 19 acceptance](developer/runbooks/remote-odoo-acceptance.md) —
+- [Remote Odoo acceptance](developer/runbooks/remote-odoo-acceptance.md) —
   opt-in sanitized remote load, read-back, repeat-preview, and throughput
   evidence against a disposable on-premises database.
 - [Related-table authoring](user/guides/related-tables.md) — the

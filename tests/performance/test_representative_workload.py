@@ -8,7 +8,7 @@ from unittest.mock import patch
 from impodo.domain.compiler import compile_profile_document
 from impodo.adapters.artifacts.profile_loader import load_profile
 from impodo.application.data_version.source_files import prepare_sources
-from scripts.p4_representative_runner import (
+from scripts.qualify_representative_migration import (
     PROFILE,
     TOTAL_ROWS,
     _connection_mode,
@@ -19,9 +19,9 @@ from scripts.p4_representative_runner import (
 )
 
 
-class P4RepresentativeFixtureTests(unittest.TestCase):
+class RepresentativeMigrationFixtureTests(unittest.TestCase):
     def test_sanitized_fixture_compiles_to_the_expected_practical_scope(self):
-        with tempfile.TemporaryDirectory(prefix="impodo-p4-test-") as directory:
+        with tempfile.TemporaryDirectory(prefix="impodo-representative-migration-test-") as directory:
             _write_sources(Path(directory))
             plan = compile_profile_document(load_profile(PROFILE))
             prepared = prepare_sources(plan, directory)
@@ -64,7 +64,7 @@ class P4RepresentativeFixtureTests(unittest.TestCase):
         with patch(
             "sys.argv",
             [
-                "p4_representative_runner.py",
+                "qualify_representative_migration.py",
                 "--database",
                 "production",
                 "--api-key-file",

@@ -90,7 +90,7 @@ canonical run URL. A crafted model-scope or generic schema-capture form for
 the setup also redirects without changing the Recipe-derived scope. On
 **Check this Odoo**, the run-owned Odoo-check `POST` route aligns an older
 setup's saved scope with the pinned Recipes and calls the existing bounded
-Odoo 19 metadata capture.
+Odoo metadata capture for either supported major.
 
 The same command uses the [target reader](../../../src/impodo/web/composition/target_readers.py)
 to union fields for each related Odoo model, make one combined supporting-value
@@ -146,7 +146,7 @@ until its required Recipe values are supplied.
 
 `review_test_run` verifies one frozen Test package, Project ownership, exact
 protected Recipe envelopes, physical source bindings, parameters, controls,
-Odoo 19 compatibility, and supporting reference versions. It builds a
+same-major Odoo compatibility, and supporting reference versions. It builds a
 deterministic topological order and rejects missing nodes, duplicate edges,
 self-dependencies, cycles, and incompatible versions of one named reference
 dataset.
@@ -451,7 +451,8 @@ rejected.
 
 ## Odoo compatibility and performance
 
-The current implementation accepts Odoo 19. Supporting a later Odoo major
+The current implementation supports Odoo 19 and final Odoo 20. Every selected
+Recipe must target the run's major version. Supporting another Odoo major
 version requires extending and testing the compatibility policy. The browser
 describes the selected destination as a supported Odoo target so its labels do
 not need to change for each newly supported major version.

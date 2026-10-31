@@ -62,7 +62,10 @@ class TransferPreflightService:
             )
 
         global_blockers: set[str] = set()
-        if (
+        if any(
+            item.row_inclusion.mode.value == "matching_rows"
+            for plan in (approved_match, fresh_match) for item in plan.model_matches
+        ) and (
             fresh_match.row_inclusion_scope_hash != approved_match.row_inclusion_scope_hash
             or not fresh_match.row_inclusion_confirmed
         ):

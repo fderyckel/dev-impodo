@@ -19,6 +19,7 @@ from impodo.domain.shared.models import (
     target_identity_hash,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.web.app import create_local_app
 from impodo.web.run_commands import (
     _assert_recipe_application_can_prepare,
@@ -33,6 +34,8 @@ field = fresh_data.field
 
 
 class ProductionReadinessBrowserTests(TestCase):
+    odoo_version = "19.0"
+
     def setUp(self):
         self.fixture = fresh_data.FreshDataControlBrowserTests()
         self.fixture.setUp()
@@ -43,14 +46,19 @@ class ProductionReadinessBrowserTests(TestCase):
     def ready_production(self, *, before_accept=None):
         """Qualify actual Test outcomes, then guide a separate Production delivery."""
 
-        url = self.fixture.registered_delivery()
+        def configure_version(definition):
+            contract = definition["odoo_target_contract"]
+            contract["odoo_major_version"] = int(self.odoo_version.split(".", 1)[0])
+            contract["reference_policy_hash"] = reference_policy_hash(contract["odoo_major_version"])
+
+        url = self.fixture.registered_delivery(configure_recipe=configure_version)
         page = self.client.get(url)
         accepted = self.client.post(url + "/accept", data={
             "csrf_token": field(page, "csrf_token"), "parameter_revision": "",
             "warnings_acknowledged": "1", "control_0": "125.50",
         }, headers=self.headers, follow_redirects=False)
         self.assertEqual(accepted.status_code, 303, accepted.text)
-        test_application = self.fixture._activate_with_real_compiler()
+        test_application = self.fixture._activate_with_real_compiler(odoo_version=self.odoo_version)
         context, actor = self.context, resolve_local_actor(self.context)
         project_id, test_run_id = test_application.project_id, test_application.migration_run_id
         complete_application(self, context, test_application, expected_total="125.50")
@@ -137,6 +145,7 @@ class ProductionReadinessBrowserTests(TestCase):
         self.assertEqual(context.production_runs.production_runs.get(self.run_id).state.value, "SETUP")
         self.assertIsNone(context.production_runs.activation_operation(self.run_id, actor=actor))
         self.schema, _ = context.run_planning.target_evidence_from_workspace(project_id, workspace_id, actor=actor)
+        self.assertEqual(self.schema.odoo_version, self.odoo_version)
         return test_application
 
     def _check_saved_answers(self):
@@ -182,6 +191,23 @@ class ProductionReadinessBrowserTests(TestCase):
         with patch.object(context.run_planning, "target_evidence_from_workspace", return_value=(self.schema, None)), \
                 patch.object(context, "write_identity_probe", return_value=self.identity) as probe:
             _, form = self.activation_form()
+            other_major = "20.0" if self.odoo_version == "19.0" else "19.0"
+            for version in (other_major, "20.0rc1", "21.0"):
+                with self.subTest(production_version=version), self.assertRaises(ProductionRunError):
+                    context.production_runs.activate(
+                        self.project_id, self.run_id,
+                        expected_workspace_revision=int(form["expected_workspace_revision"]),
+                        target_schema=replace(self.schema, odoo_version=version),
+                        target_reference_bundle=None,
+                        read_credential_generation=self.schema.read_credential_binding_hash,
+                        write_identity=self.identity,
+                        write_credential_generation=content_hash("fictional Production write generation"),
+                        parameter_values=None, control_values=None,
+                        operation_id=str(uuid4()), actor=resolve_local_actor(context),
+                    )
+                with self.subTest(production_version=version):
+                    self.assertIsNone(context.production_runs.activation_operation(self.run_id, actor=resolve_local_actor(context)))
+                    probe.assert_not_called()
             for change, message in (({"values_evidence_hash": "old"}, "Production setup changed"),
                                     ({"expected_workspace_revision": "0"}, "The Project changed")):
                 with self.subTest(change=change):
@@ -278,3 +304,11 @@ class ProductionReadinessBrowserTests(TestCase):
             test_execution = context.execution.journal.get_current_run(test_application.workspace_id)
             self.assertNotEqual(test_execution.run_id, execution.run_id)
             self.assertNotEqual(test_execution.target_hash, execution.target_hash)
+            preview = resumed_context.execution.current_preview(application.workspace_id, actor=resolve_local_actor(resumed_context))
+            self.assertEqual(preview.snapshot.target_odoo_version, self.odoo_version)
+
+
+class Odoo20ProductionReadinessBrowserTests(ProductionReadinessBrowserTests):
+    """Run the complete Test-to-Production lifecycle on Odoo 20 evidence too."""
+
+    odoo_version = "20.0"

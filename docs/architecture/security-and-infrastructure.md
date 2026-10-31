@@ -262,7 +262,8 @@ retry-safe merely because read-back could not find them.
 For ordinary workspaces this remains a disposable-target migration
 capability. Production authority exists only for an active Project Production
 run that pins the current selected and authenticated CutoverPlan, a fresh
-frozen Production DataVersion, a different Odoo 19 target, and exact current
+frozen Production DataVersion, a different same-major Odoo 19 or final Odoo 20
+target, and exact current
 read and write credential generations. The guard is repeated before writer
 construction. Neither qualification nor selection alone authorizes a write.
 

@@ -40,6 +40,22 @@ development evidence; it does not qualify a supported Linux host.
   This intentionally deletes that rehearsal's PostgreSQL, artifact, secret,
   and proxy state. Never put customer data in those volumes.
 
+## Build the supporting images
+
+Build the repository-owned PostgreSQL and Caddy images before running the
+one-shot provisioner or starting the stack:
+
+```sh
+docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml build --pull postgres proxy
+```
+
+Their Dockerfiles pin the upstream image digests and Go compiler. PostgreSQL
+keeps version `18.6` and rebuilds its `gosu` helper. Caddy keeps version `2.11.7`
+and uses the checked module lock and patched Alpine packages. Compose requires
+these locally built outputs and does not pull a registry replacement for their
+tags. See [Supporting image builds](images/README.md) for inputs, scans, and
+maintenance.
+
 ## Prepare fictional secrets
 
 Create one internally consistent secret set:
@@ -238,9 +254,11 @@ Store sanitized point-in-time results under `docs/reports/`. Keep generated
 secrets and disposable runtime evidence below the ignored `deploy/.local/`
 root.
 
-The pinned PostgreSQL `18.6` and Caddy `2.11.7` images are local rehearsal
-candidates. Their inclusion does not accept the production PostgreSQL major or
-replace image-vulnerability review and explicit production version approval.
+The repository-owned PostgreSQL `18.6` and Caddy `2.11.7` builds are local
+rehearsal candidates. Their upstream bases are digest-pinned. A passing
+fixable-alert gate leaves unfixed findings visible for review. Their inclusion
+does not accept the production PostgreSQL major or replace vulnerability,
+license, and production-version approval.
 
 Docker Desktop runs the Linux containers through a managed virtual machine.
 This rehearsal therefore does not prove the remote host firewall, filesystem,

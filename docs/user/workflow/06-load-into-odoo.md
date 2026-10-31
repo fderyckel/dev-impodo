@@ -52,12 +52,42 @@ downloaded.
 ### 2. Match the frozen records
 
 1. Select **Match destination data**.
-2. For each record type, choose the stable business field that identifies the
+2. Under **Rows to use**, keep **Use every row** or choose **Use only rows that
+   match** and enter the conditions for this transfer.
+3. For each record type, choose the stable business field that identifies the
    same record in both databases. Add another field only when the first field
    can repeat.
-3. Select **Check destination matches**.
-4. Review the **Reuse**, **Create**, and **Identity issues** totals.
-5. Complete every item marked **Needs decision**.
+4. Select **Check destination matches**.
+5. Review **Rows checked**, **Included**, **Excluded by rule**, and **Could not
+   be checked**, followed by the **Reuse**, **Create**, and **Identity issues**
+   totals.
+6. Select **Review rows** to inspect the decisions. If the rule excludes any
+   rows, select **Confirm N rows to use** for the exact checked result.
+7. Complete every other item marked **Needs decision**.
+
+For example, a fictional source contains Alice and Bob. Choosing **name**,
+**is exactly**, `Alice`, and **Text** includes Alice and excludes Bob. You can
+combine up to eight conditions with **all** or **any**. This keeps the accepted
+Data version unchanged.
+
+![The transfer row builder uses an exact text condition to include Alice from a fictional frozen Odoo source.](../../images/user/13a-transfer-row-rule.png)
+
+The check accounts for every original row. A rule that includes no records,
+or a value that cannot be checked as the selected type, blocks the transfer.
+Changing the rule requires another check and confirmation before transfer
+review and loading can continue.
+
+![The checked transfer accounts for two original rows, one included row, one exclusion, and no unreadable values, with explicit confirmation.](../../images/user/13b-transfer-row-counts.png)
+
+**Review rows** shows up to 100 decisions per page. Filter by source table and
+decision to inspect the relevant source values. Filtering never changes which
+records will be transferred.
+
+![The protected transfer review shows Bob as the excluded second source row.](../../images/user/13c-transfer-row-review.png)
+
+Rules and **Put this source record aside** remain separate choices. An included
+record that still needs an excluded related record remains blocked; Impodo
+does not silently drop its relationship or the included record.
 
 Use a business reference, code, or another stable value. Do not use a numeric
 Odoo record ID. For Product Categories, Impodo applies the required name and
@@ -184,9 +214,10 @@ For a prepared file-source load, the saved business expectations must agree
 with the proposed creates, updates, fields, and relationships. For example,
 an expectation of zero new Products blocks a comparison that would create
 Products. Confirming individual records or setting aside groups does not
-approve that difference. Edit **What may this load change?** in
-[Match data](03-match-data.md#set-business-expectations), then review
-the result again before loading.
+approve that difference. Use **Edit business expectations** in
+[Final review](05-final-review.md#review-your-business-expectations), then review
+**Expected versus found** again before loading. The optional editor remains
+available in [Match data](03-match-data.md#set-business-expectations).
 
 The current final review must be **Ready**. Confirm the data version purpose,
 target, exact write totals, dependency order, writable fields, and required API
@@ -225,7 +256,18 @@ sequence above for an Odoo-to-Odoo workspace.
 
 ![Current Check changes screen with exact new, changed, up-to-date, and per-table totals.](../../images/user/17-load-preview.png)
 
-![Current Confirm and load screen with the optional loading-key field and one explicit load action.](../../images/user/17b-load-confirmation.png)
+![Confirm and load repeats the approved expectations, exact target, and proposed record totals before the load action.](../../images/user/17c-expected-load-confirmation.png)
+
+Confirmation applies to the exact comparison and expectations you reviewed.
+If either changes while a load is queued, Impodo stops before starting that
+load. A load that already started keeps its original approval. On its outcome
+page, open **Originally approved changes** to review that scope; use the saved
+load and verification results to understand what happened in Odoo.
+
+When the current comparison proposes no writes, **Confirm no changes are
+needed** offers **Complete without loading**. A minimum-count expectation can
+still block that completion. Completing records your approval without an Odoo
+write; verification remains a separate read-only check.
 
 ![Current fallout outcome with the different-values card, field filter, prepared and Odoo values, and read-only re-check.](../../images/user/18-load-fallout.png)
 

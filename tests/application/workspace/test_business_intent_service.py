@@ -75,7 +75,7 @@ class BusinessIntentServiceTests(unittest.TestCase):
         self.service.get(self.workspace_id, actor=ACTOR, version=1)
         self.repository.get_business_intent.assert_called_with(self.workspace_id, 1)
 
-    def test_unknown_run_purpose_and_production_20_never_enable_upsert(self):
+    def test_unknown_run_purpose_is_rejected_and_production_20_allows_upsert(self):
         self.authorization.require.return_value = replace(self.fixture.access, run_purpose=None)
         with self.assertRaisesRegex(BusinessIntentError, "run purpose"):
             self.service.inputs(self.workspace_id, actor=ACTOR)
@@ -83,5 +83,5 @@ class BusinessIntentServiceTests(unittest.TestCase):
         self.authorization.require.return_value = replace(self.fixture.access, run_purpose="PRODUCTION")
         self.schemas.get_odoo_schema_catalog.return_value = replace(self.fixture.schema, odoo_version="20.0")
         packet = self.service.inputs(self.workspace_id, actor=ACTOR)
-        with self.assertRaisesRegex(BusinessIntentError, "write mode"):
-            self.save(packet.binding_hash, intent=BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
+        self.save(packet.binding_hash, intent=BusinessIntent((BusinessModelIntent("res.partner", "upsert"),)))
+        self.repository.save_business_intent.assert_called_once()

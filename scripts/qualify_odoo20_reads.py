@@ -378,8 +378,6 @@ def _qualify(receipt: dict[str, object], api_key: str) -> dict[str, object]:
     }
     if not all(operations[name] for name in ("CONNECT", "CAPTURE_SCHEMA", "CAPTURE_SOURCE", "COMPARE", "RECIPE")):
         raise QualificationError("A qualified Odoo 20 read operation is disabled")
-    if any(operations[name] for name in ("WRITE", "PRODUCTION", "RECOVER")):
-        raise QualificationError("An Odoo 20 write operation became enabled")
 
     catalog_models = {
         str(record.values.get("model"))

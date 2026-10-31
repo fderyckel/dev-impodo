@@ -219,17 +219,21 @@ execution snapshots.
 
 **Status:** Accepted
 
-**Decision:** The current native Odoo 19 JSON-2 profile provides
+**Decision:** The current native JSON-2 Odoo-source profile provides
 connection-only identity assurance. Endpoint, mode, and database name cannot
 distinguish a restored or cloned database, and independent JSON-2 read/write
 requests cannot implement Impodo's required atomic compare-and-write
 transaction. The executable policy therefore records
 `PRODUCTION_WRITE_UNSUPPORTED`.
 
+This decision concerns target-bound Odoo-source updates on both supported
+majors. File-source qualified-plan Production supports Odoo 19 and final Odoo
+20 under the separate Production lifecycle contract.
+
 **Consequences:**
 
 - bounded read-only Odoo-source capture may proceed;
-- existing write support remains explicitly disposable-target capability;
+- Odoo-source write support remains explicitly disposable-target capability;
 - production enablement requires a new current architecture with strong
   instance identity and one server-side atomic operation, not a hidden fallback.
 
@@ -493,7 +497,7 @@ execution.
   creates a new RecipeRevision and invalidates affected qualification.
 - The run planner rejects cyclic dependencies and implicit overlapping writes.
   General last-writer-wins or merge behavior is unsupported.
-- One run-level requirements plan unions Odoo 19 metadata, identity,
+- One run-level requirements plan unions same-major Odoo metadata, identity,
   reference, and comparison reads. No application path may add an Odoo call per
   Recipe or source row when one bounded shared capture is sufficient.
 - Test and Production runs always establish independent target, credential,

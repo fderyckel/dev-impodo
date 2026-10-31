@@ -10,10 +10,10 @@
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
   {% set target_environment = 'Production' if migration_context.data_version_purpose == 'PRODUCTION' else 'Test' if migration_context.data_version_purpose == 'TEST' else 'Target' %}
+  {% set can_confirm = preview.can_load or preview.can_complete_without_load %}
   {% if workspace_state.source_mode.value == 'FILE' and preview.business_intent %}
     {% set business_review = preview.business_intent %}
     {% set business_run_id = preview.current_run_id if preview.current_run_id is defined else preview.current_run.run_id if preview.current_run else '' %}
-    {% include "_business_intent_review.html" %}
   {% endif %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">
     <ol>
@@ -23,10 +23,10 @@
           <span><strong>Check changes</strong><small>{% if load_step == 'review' %}Current{% else %}Complete{% endif %}</small></span>
         {% if load_step == 'review' %}</span>{% else %}</a>{% endif %}
       </li>
-      <li class="load-step {% if load_step == 'confirm' %}current{% elif preview.current_run %}complete{% elif preview.can_load %}available{% else %}locked{% endif %}">
+      <li class="load-step {% if load_step == 'confirm' %}current{% elif preview.current_run %}complete{% elif can_confirm %}available{% else %}locked{% endif %}">
         {% if load_step == 'confirm' %}
           <span aria-current="step">
-        {% elif not preview.current_run and preview.can_load %}
+        {% elif not preview.current_run and can_confirm %}
           <a href="/workspaces/{{ workspace_id }}/load/confirm">
         {% else %}
           <span{% if not preview.current_run %} aria-disabled="true"{% endif %}>
@@ -34,9 +34,9 @@
           <span class="load-step-number" aria-hidden="true">2</span>
           <span>
             <strong>Confirm and load</strong>
-            <small>{% if load_step == 'confirm' %}Current{% elif preview.current_run %}Complete{% elif preview.can_load %}Available{% else %}Review first{% endif %}</small>
+            <small>{% if load_step == 'confirm' %}Current{% elif preview.current_run %}Complete{% elif can_confirm %}Available{% else %}Review first{% endif %}</small>
           </span>
-        {% if load_step != 'confirm' and not preview.current_run and preview.can_load %}</a>{% else %}</span>{% endif %}
+        {% if load_step != 'confirm' and not preview.current_run and can_confirm %}</a>{% else %}</span>{% endif %}
       </li>
       <li class="load-step {% if load_step == 'outcome' %}current{% elif preview.current_run %}attention{% else %}locked{% endif %}">
         {% if load_step == 'outcome' %}
@@ -70,13 +70,14 @@
       </div>
       {% if preview.current_run %}
         <span class="status review">{{ 'Interrupted load' if interrupted_load else 'Load already recorded' }}</span>
-      {% elif preview.can_load %}
+      {% elif preview.can_load or preview.can_complete_without_load %}
         <span class="status ready">Ready for confirmation</span>
       {% else %}
         <span class="status blocked">Cannot load</span>
       {% endif %}
     </div>
 
+    {% if business_review %}{% include "_business_intent_review.html" %}{% endif %}
     <section class="readiness-cards" aria-label="Odoo change totals">
       <div class="readiness-card ready">
         <span>New records</span>
@@ -203,12 +204,12 @@
         </div>
         <a class="button primary" href="/workspaces/{{ workspace_id }}/load/outcome">{{ 'Review interrupted load' if interrupted_load else 'View verification result' }}</a>
       </section>
-    {% elif preview.can_load %}
+    {% elif preview.can_load or preview.can_complete_without_load %}
       <section class="next-action-card ready" aria-labelledby="review-complete-title">
         <div>
           <p class="eyebrow">Review complete</p>
           <h2 id="review-complete-title">Continue to confirmation</h2>
-          <p>The next page repeats the target and totals before asking for the separate Odoo write key. Nothing has been written yet.</p>
+          <p>{% if preview.can_complete_without_load %}The next page confirms that this comparison needs no Odoo writes.{% else %}The next page repeats the target and totals before asking for the separate Odoo write key. Nothing has been written yet.{% endif %}</p>
         </div>
         <a class="button primary" href="/workspaces/{{ workspace_id }}/load/confirm">Continue to confirmation</a>
       </section>
@@ -237,12 +238,13 @@
     <div class="page-heading">
       <div>
         <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Confirm and load{% else %}Stage 6 of 6 &middot; Confirm and load{% endif %}</p>
-        <h1>Confirm the Odoo load</h1>
-        <p>Check the target and exact record count once more before allowing Impodo to write.</p>
+        <h1>{{ 'Confirm no changes are needed' if preview.can_complete_without_load else 'Confirm the Odoo load' }}</h1>
+        <p>{{ 'Save this reviewed comparison as a zero-write result.' if preview.can_complete_without_load else 'Check the target and exact record count once more before allowing Impodo to write.' }}</p>
       </div>
       <span class="status review">Your confirmation is required</span>
     </div>
 
+    {% if business_review %}{% include "_business_intent_review.html" %}{% endif %}
     <section class="load-target-banner" aria-labelledby="confirm-target-title">
       <div>
         <p class="eyebrow">Odoo database</p>
@@ -255,6 +257,17 @@
       </p>
     </section>
 
+    {% if preview.can_complete_without_load %}
+    <section class="next-action-card review" aria-labelledby="confirm-no-changes-title">
+      <div><h2 id="confirm-no-changes-title">Complete without loading</h2><p>The proposed changes meet your expectations and require no Odoo writes. Impodo saves this approval with the comparison. Verification remains a separate read-only check.</p></div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/load/complete-no-changes">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
+        <input type="hidden" name="intent_assessment_hash" value="{{ preview.business_intent_assessment_hash }}">
+        <button class="button primary" type="submit">Complete without loading</button>
+      </form>
+    </section>
+    {% else %}
     <section class="next-action-card review load-confirmation" aria-labelledby="confirm-load-title">
       <div>
         <p class="eyebrow">Explicit confirmation</p>
@@ -302,6 +315,7 @@
         <small class="muted" role="status" data-load-confirmation-status hidden>Starting the Odoo load and opening its progress page.</small>
       </form>
     </section>
+    {% endif %}
 
   {% else %}
     <div class="page-heading">
@@ -315,6 +329,7 @@
       </span>
     </div>
 
+    {% if business_review %}<details class="form-card"><summary>Originally approved changes</summary>{% include "_business_intent_review.html" %}</details>{% endif %}
     {% if completion_warning %}
       <section class="notice warning" role="status" aria-labelledby="load-completion-warning-title">
         <strong id="load-completion-warning-title">Completed-load correction is unavailable</strong>

@@ -3,10 +3,14 @@
 from dataclasses import replace
 from html import unescape
 import re
+from types import SimpleNamespace
 from unittest.mock import patch
+from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.shared.access import AuthorizationError
+from impodo.domain.workspace.business_intent import BusinessIntent, ExpectedCount
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.support.browser_scenarios import POST_HEADERS
 from tests.support.hierarchy_execution import compared_hierarchy
@@ -14,8 +18,17 @@ from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
 
 def editor_form(html):
-    form_html = re.search(r'<form method="post" action="[^"]+/summary/expectations"[^>]*>(.*?)</form>', html, re.S).group(1)
-    result = {name: unescape(value) for name, value in re.findall(r'<input type="hidden" name="([^"]+)" value="([^"]*)"', form_html)}
+    form_html = re.search(
+        r'<form method="post" action="[^"]+/summary/expectations"[^>]*>(.*?)</form>',
+        html,
+        re.S,
+    ).group(1)
+    result = {
+        name: unescape(value)
+        for name, value in re.findall(
+            r'<input type="hidden" name="([^"]+)" value="([^"]*)"', form_html
+        )
+    }
     for index in range(int(result["model_count"])):
         result[f"mode_{index}"] = "upsert"
         for phase in ("create", "update"):
@@ -27,7 +40,9 @@ def editor_form(html):
 class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
     def setUp(self):
         super().setUp()
-        self.workspace_id, _, (self.target, self.snapshot, self.identities) = compared_hierarchy(self, mode="LOCAL")
+        self.workspace_id, _, (self.target, self.snapshot, self.identities) = (
+            compared_hierarchy(self, mode="LOCAL")
+        )
         self.base = f"/workspaces/{self.workspace_id}"
 
     def editor(self):
@@ -36,13 +51,31 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         return response
 
     def save(self, form):
-        return self.client.post(self.base + "/summary/expectations", data=form, headers=POST_HEADERS, follow_redirects=False)
+        return self.client.post(
+            self.base + "/summary/expectations",
+            data=form,
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
 
     def review(self):
-        return self.context.preflight.business_intent_review(self.workspace_id, self.snapshot.semantic_hash, actor=self.actor)
+        return self.context.preflight.business_intent_review(
+            self.workspace_id, self.snapshot.semantic_hash, actor=self.actor
+        )
 
     def test_summary_and_navigation_use_published_counts_without_decoding_rows(self):
-        with patch.object(self.context.preflight, "current_execution_snapshot", side_effect=AssertionError("No row snapshot on a normal page")), patch.object(self.context.preflight.preflight, "get_business_write_observation", side_effect=AssertionError("No effect reconstruction")):
+        with (
+            patch.object(
+                self.context.preflight,
+                "current_execution_snapshot",
+                side_effect=AssertionError("No row snapshot on a normal page"),
+            ),
+            patch.object(
+                self.context.preflight.preflight,
+                "get_business_write_observation",
+                side_effect=AssertionError("No effect reconstruction"),
+            ),
+        ):
             with collect_duckdb_request_timings() as timings:
                 response = self.client.get(self.base + "/summary")
             review = self.client.get(self.base + "/load/review")
@@ -50,15 +83,38 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         self.assertIn("Expected versus found", response.text)
         self.assertIn("No count expectation", response.text)
         self.assertIn("Within expectations", review.text)
-        self.assertLessEqual(timings.connection_count, 7)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 1)
         self.assertEqual(timings.lock_retry_count, 0)
         self.assertEqual(self.target.writes, [])
+
+    def test_editor_confirmation_and_detail_keep_the_same_database_owner_budget(self):
+        review = self.review()
+        remote = len(self.target.requests)
+        # Two authorization opens precede four retained path/configuration owners.
+        for route in (
+            "/summary/expectations",
+            "/load/review",
+            "/load/confirm",
+            f"/summary/expectations/review?snapshot={review.snapshot_hash}&assessment={review.assessment_hash}&model=product.template",
+        ):
+            with self.subTest(route=route):
+                with collect_duckdb_request_timings() as timings:
+                    response = self.client.get(self.base + route)
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertLessEqual(timings.connection_count, 6)
+                self.assertLessEqual(timings.schema_check_count, 1)
+                self.assertEqual(timings.lock_retry_count, 0)
+        self.assertEqual(len(self.target.requests), remote)
 
     def test_edit_reassesses_saved_observation_and_deviation_has_correction_link(self):
         page = self.editor()
         form = editor_form(page.text)
-        index = next(index for index in range(int(form["model_count"])) if form[f"model_{index}"] == "product.template")
+        index = next(
+            index
+            for index in range(int(form["model_count"]))
+            if form[f"model_{index}"] == "product.template"
+        )
         form[f"create_max_{index}"] = "0"
         remote = len(self.target.requests)
         with collect_duckdb_request_timings() as timings:
@@ -75,7 +131,9 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         summary = self.client.get(self.base + "/summary")
         self.assertIn("At most 0", summary.text)
         self.assertIn("#expect-product.template", summary.text)
-        navigation = self.context.navigation.get_for_workspace(self.workspace_id, actor=self.actor)
+        navigation = self.context.navigation.get_for_workspace(
+            self.workspace_id, actor=self.actor
+        )
         self.assertFalse(navigation.facts.execution_preview.can_load)
         self.assertEqual(self.target.writes, [])
 
@@ -94,21 +152,41 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         self.assertEqual(self.save(form).status_code, 303)
         first = self.context.business_intents.get(self.workspace_id, actor=self.actor)
         self.assertEqual(self.save(form).status_code, 303)
-        self.assertEqual(self.context.business_intents.get(self.workspace_id, actor=self.actor), first)
+        self.assertEqual(
+            self.context.business_intents.get(self.workspace_id, actor=self.actor),
+            first,
+        )
         form["csrf_token"] = "wrong"
         self.assertEqual(self.save(form).status_code, 403)
 
     def test_detail_is_authorized_bounded_and_rejects_stale_receipt(self):
         review = self.review()
-        url = self.base + f"/summary/expectations/review?snapshot={review.snapshot_hash}&assessment={review.assessment_hash}&model=product.template"
+        url = (
+            self.base
+            + f"/summary/expectations/review?snapshot={review.snapshot_hash}&assessment={review.assessment_hash}&model=product.template"
+        )
         response = self.client.get(url)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("field effects", response.text)
         self.assertNotIn("PX101", response.text)
         self.assertEqual(self.client.get(url + "&page=0").status_code, 409)
-        with patch.object(self.context.preflight.authorization, "require", side_effect=AuthorizationError("denied")), patch.object(self.context.preflight.preflight, "get_business_intent_evidence") as repository:
+        with (
+            patch.object(
+                self.context.preflight.authorization,
+                "require",
+                side_effect=AuthorizationError("denied"),
+            ),
+            patch.object(
+                self.context.preflight.preflight, "get_business_intent_evidence"
+            ) as repository,
+        ):
             with self.assertRaises(AuthorizationError):
-                self.context.preflight.business_intent_evidence(self.workspace_id, review.snapshot_hash, actor=self.actor, expected_assessment_hash=review.assessment_hash)
+                self.context.preflight.business_intent_evidence(
+                    self.workspace_id,
+                    review.snapshot_hash,
+                    actor=self.actor,
+                    expected_assessment_hash=review.assessment_hash,
+                )
             repository.assert_not_called()
         self.expect_business_writes(self.workspace_id)
         self.assertEqual(self.client.get(url).status_code, 409)
@@ -118,12 +196,162 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         confirmation = self.client.get(self.base + "/load/confirm")
         self.assertEqual(confirmation.status_code, 200, confirmation.text)
         self.assertIn(original.assessment_hash, confirmation.text)
-        run = self.context.execution.execute(self.workspace_id, expected_snapshot_hash=self.snapshot.semantic_hash,
-            expected_intent_assessment_hash=original.assessment_hash, executor=self.target, actor=self.actor, **self.identities)
+        run = self.context.execution.execute(
+            self.workspace_id,
+            expected_snapshot_hash=self.snapshot.semantic_hash,
+            expected_intent_assessment_hash=original.assessment_hash,
+            executor=self.target,
+            actor=self.actor,
+            **self.identities,
+        )
         self.expect_business_writes(self.workspace_id)
-        run_local_operation_sync(self.context.preflight.reassess_business_intent, self.workspace_id, actor=self.actor)
-        approved = self.context.execution.current_preview(self.workspace_id, actor=self.actor).business_intent
+        run_local_operation_sync(
+            self.context.preflight.reassess_business_intent,
+            self.workspace_id,
+            actor=self.actor,
+        )
+        approved = self.context.execution.current_preview(
+            self.workspace_id, actor=self.actor
+        ).business_intent
         self.assertEqual(approved.assessment_hash, original.assessment_hash)
-        response = self.client.get(self.base + f"/summary/expectations/review?snapshot={original.snapshot_hash}&assessment={original.assessment_hash}&run={run.run_id}&model=product.template")
+        response = self.client.get(
+            self.base
+            + f"/summary/expectations/review?snapshot={original.snapshot_hash}&assessment={original.assessment_hash}&run={run.run_id}&model=product.template"
+        )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("Approved for this saved load", response.text)
+
+    def test_delayed_job_rejects_new_expectations_before_writer_construction(self):
+        original = self.review()
+        queued = {}
+
+        def enqueue(*args, **kwargs):
+            queued.update(kwargs)
+            return SimpleNamespace(job_id=str(uuid4()))
+
+        with patch.object(self.context.load_jobs, "enqueue", side_effect=enqueue):
+            response = self.client.post(
+                self.base + "/load",
+                data={
+                    "csrf_token": self.csrf,
+                    "snapshot_hash": original.snapshot_hash,
+                    "intent_assessment_hash": original.assessment_hash,
+                    "batch_rows": "10",
+                },
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+        self.assertEqual(response.status_code, 303, response.text)
+        self.expect_business_writes(self.workspace_id)
+        run_local_operation_sync(
+            self.context.preflight.reassess_business_intent,
+            self.workspace_id,
+            actor=self.actor,
+        )
+        with patch.object(self.context, "write_executor_factory") as writer:
+            with self.assertRaisesRegex(WorkspaceError, "changed after confirmation"):
+                queued["work"](
+                    queued["access_context"], lambda *args: None, lambda *args: None
+                )
+            writer.assert_not_called()
+        self.assertIsNone(
+            self.context.execution.journal.get_current_run(self.workspace_id)
+        )
+        self.assertEqual(self.target.writes, [])
+
+    def test_zero_write_completion_enforces_minimums_and_exact_review_receipt(self):
+        original = self.review()
+        self.context.execution.execute(
+            self.workspace_id,
+            expected_snapshot_hash=original.snapshot_hash,
+            expected_intent_assessment_hash=original.assessment_hash,
+            executor=self.target,
+            actor=self.actor,
+            **self.identities,
+        )
+        saved = self.context.business_intents.get(self.workspace_id, actor=self.actor)
+        self.expect_business_writes(
+            self.workspace_id,
+            intent=BusinessIntent(
+                tuple(
+                    replace(rule, creates=ExpectedCount(minimum=1))
+                    for rule in saved.intent.models
+                )
+            ),
+        )
+        report = self.context.preflight.compare(
+            self.workspace_id, reader=self.target.compare, actor=self.actor
+        )
+        self.assertEqual(report.create_count + report.update_count, 0)
+        preview = self.context.execution.current_preview(
+            self.workspace_id, actor=self.actor
+        )
+        self.assertFalse(preview.can_complete_without_load)
+        self.assertEqual(
+            self.client.get(
+                self.base + "/load/confirm", follow_redirects=False
+            ).status_code,
+            303,
+        )
+        self.expect_business_writes(
+            self.workspace_id,
+            intent=BusinessIntent(
+                tuple(
+                    replace(rule, creates=ExpectedCount(maximum=0))
+                    for rule in saved.intent.models
+                )
+            ),
+        )
+        ready = run_local_operation_sync(
+            self.context.preflight.reassess_business_intent,
+            self.workspace_id,
+            actor=self.actor,
+        )
+        preview = self.context.execution.current_preview(
+            self.workspace_id, actor=self.actor
+        )
+        confirmation = self.client.get(self.base + "/load/confirm")
+        self.assertIn("Complete without loading", confirmation.text)
+        self.assertIn("Confirm no changes", confirmation.text)
+        form = {
+            "csrf_token": self.csrf,
+            "snapshot_hash": preview.snapshot.semantic_hash,
+            "intent_assessment_hash": original.assessment_hash,
+        }
+        writes = len(self.target.writes)
+        self.client.post(
+            self.base + "/load/complete-no-changes",
+            data=form,
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertIsNone(
+            self.context.execution.journal.get_current_run(
+                self.workspace_id, preview.snapshot.semantic_hash
+            )
+        )
+        form["intent_assessment_hash"] = ready.content_hash
+        run_ids = []
+        for _ in range(2):
+            response = self.client.post(
+                self.base + "/load/complete-no-changes",
+                data=form,
+                headers=POST_HEADERS,
+                follow_redirects=False,
+            )
+            self.assertEqual(response.status_code, 303, response.text)
+            run_ids.append(
+                self.context.execution.journal.get_current_run(
+                    self.workspace_id, preview.snapshot.semantic_hash
+                ).run_id
+            )
+        run = self.context.execution.journal.get_current_run(
+            self.workspace_id, preview.snapshot.semantic_hash
+        )
+        self.assertEqual(run.total_count, 0)
+        self.assertEqual(run.status.value, "COMPLETED")
+        self.assertEqual(run_ids, [run.run_id, run.run_id])
+        self.assertIn(
+            "Verify outcome", self.client.get(self.base + "/load/outcome").text
+        )
+        self.assertEqual(len(self.target.writes), writes)

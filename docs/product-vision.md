@@ -34,7 +34,7 @@ The supported preparation boundary is currently 100,000 physical rows for an
 exact-snapshot direct mapping compiled entirely to the native columnar path,
 50,000 rows for a direct mapping that still requires the Python oracle, and
 25,000 rows for derived or materialized paths. Loading is restricted to the
-separately governed local, remote Test, or qualified-plan Production Odoo 19
+separately governed local, remote Test, or qualified-plan Production Odoo 19 or final Odoo 20
 capabilities. Production loading outside the selected qualified-plan workflow
 is not a current capability.
 
@@ -42,8 +42,8 @@ The completed disposable-target migration is retained as acceptance evidence.
 The active [remaining-work roadmap](plans/00-remaining-work.md) now prioritizes
 the shared-server Phase 2 Linux container exit gate. The composition and
 request-identity phase is complete. Scale expansion, optional clean-package,
-general production, Odoo-source guarded updates, the target-side gateway, and
-Odoo 20 Production remain deferred. The approved shared-server program is no
+general production, Odoo-source guarded updates, and the target-side gateway
+remain deferred. The approved shared-server program is no
 longer a conditional hosted track, although no multi-user server release is
 current yet.
 
@@ -606,7 +606,7 @@ one-off authoring, optional Recipe publication, and integrated Test planning
 with one isolated workspace per Recipe application. Exact ordered application evidence,
 qualified CutoverPlans, and separate rollout-candidate selection are now
 implemented. A selected plan now creates a fresh latest-data Production run,
-different Odoo 19 target binding, independent credential authority, and fresh
+different same-major Odoo 19 or final Odoo 20 target binding, independent credential authority, and fresh
 isolated applications. [ADR-014](decisions/README.md#adr-014--migration-projects-coordinate-reusable-recipes-and-cutover-plans)
 records the Project-first ownership decision.
 
@@ -759,10 +759,10 @@ Confirmed:
   wrapper for the first release;
 - the first release begins with exported `.xlsx`/`.csv` files, a local DuckDB
   staging store, and a disposable local Odoo laboratory;
-- the implemented schema, preflight, load, and reconciliation path accepts
-  Odoo 19.x. The recorded initial on-premise business target is Odoo 19.4 and
-  must be reconfirmed before cutover. Any Odoo 20 move requires a separate
-  compatibility change and target rehearsal;
+- the implemented schema, preflight, load, reconciliation, and qualified-plan
+  Production path supports Odoo 19 and final Odoo 20. The recorded initial
+  on-premise business target was Odoo 19.4. Confirm the actual target and
+  rehearse its same-major Recipes before cutover;
 - in the practical disposable-target path, the data manager confirms the validated mapping
   and explicitly confirms the current frozen load preview. A later
   higher-risk profile may require a separate signed or dual approval;

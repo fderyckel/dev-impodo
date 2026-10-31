@@ -48,7 +48,7 @@ non-secret routing values; it does not retain `db_password` or `admin_passwd`.
 | --- | --- |
 | Configuration | Selected paths and loopback routing are structurally safe |
 | PostgreSQL | `pg_isready` confirms the configured server accepts connections |
-| Odoo server | The loopback HTTP endpoint identifies Odoo 19 |
+| Odoo server | The loopback HTTP endpoint identifies supported Odoo 19 or final Odoo 20 |
 | Database access | The selected local installation can open the configured database read-only |
 
 Green means ready, orange requires action or is incomplete, red failed, and
@@ -67,7 +67,7 @@ Starting services requires explicit confirmation. Impodo:
 2. checks whether its exact PostgreSQL data directory is already running;
 3. starts PostgreSQL only when needed and waits for `pg_isready`;
 4. starts Odoo only after PostgreSQL is ready;
-5. waits for the configured Odoo 19 loopback endpoint.
+5. waits for the configured supported Odoo loopback endpoint.
 
 Commands use fixed argument lists and detected paths. Users cannot enter a
 shell command or arbitrary executable.
@@ -111,7 +111,7 @@ business records.
 | --- | --- |
 | Configuration failed | Confirm the selected file and explicit loopback host/ports |
 | PostgreSQL not ready | Review its current log and `postmaster.pid`; do not start a second data directory blindly |
-| Odoo version failed | Confirm the selected workspace is Odoo 19 |
+| Odoo version failed | Confirm the selected workspace uses supported Odoo 19 or final Odoo 20 |
 | Database access failed | Verify database name, addons/configuration, and local process permissions |
 | Stop/Restart unavailable | The service is external or belongs to an earlier session; use the workspace procedure |
 | PostgreSQL remains after Stop | Resolve the reported listener/PID mismatch before any manual stop |

@@ -28,8 +28,8 @@ most 1,000 fields, and its serialized body is limited to 1 MiB.
 
 ## Application boundary
 
-The Stage 3 **What may this load change?** editor exposes these rules for
-checked file-source mappings. It saves through the existing service with a
+The Stage 3 and Final review **What may this load change?** editors expose
+these rules for checked file-source mappings. Both save through the same service with a
 closed CSRF-protected form. Counts and permissions remain explicit run/workspace
 choices, rather than approvals copied automatically by a portable Recipe.
 
@@ -48,7 +48,8 @@ and compatibility policy. Intent can narrow that ceiling only. Create-only
 fields cannot become update fields; fields supplied by Odoo defaults cannot
 become explicit writes. Pinned Odoo-source updates retain their approved
 Tier 1 field policy. Run purpose comes from verified workspace access, and
-final Odoo 20 Production remains disabled. An unsupported path grants no mode.
+both Odoo 19 and final Odoo 20 support qualified-plan Production. An
+unsupported path grants no mode.
 
 A separately configured Odoo-to-Odoo destination requires its destination-owned
 scope. This command rejects that context rather than deriving destination
@@ -120,7 +121,11 @@ requires `PREFLIGHT_RUN`, verifies the current saved comparison through its
 compact execution-review projection, and reassesses
 its bounded observation in one local operation. It performs no Odoo read and
 does not evaluate source rows. Ordinary review reads return only the verified
-assessment hash, readiness, and one blocker rather than the full deviation list.
+assessment state, exact hashes, counts, and at most 20 model summaries in the
+existing `ExecutionReviewProjection`. Its version 2 body is additive; the
+snapshot and portable intent hashes retain their existing meaning. Navigation
+reads only scalar state and hashes. Authorized explicit detail returns at most
+50 metadata effects for one model; it does not expose row values or target IDs.
 
 The confirmation form carries the exact assessment hash. The application
 rechecks it before enqueue and at worker entry before constructing the writer.
@@ -133,9 +138,9 @@ approval. A zero-write completion must satisfy the same count expectations.
 An interrupted journal retains its original approved intent. Later edits
 govern a later run; they cannot replace that approval during recovery. Recovery
 still requires its exact read-back assessment and existing target and credential
-checks. Workspace-engine version 25 preserves the authority of journals that
-already existed before upgrade, including terminal history, without approving
-an unstarted load or creating an intent automatically.
+checks. The approval's hashed envelope retains the bounded original review so
+later edits cannot relabel that load. Fresh storage creates these tables in
+the initial workspace-engine schema; this presentation adds no storage migration.
 
 This enforcement covers the conventional file-source load boundary.
 Odoo-to-Odoo transfers and completed-load corrections retain their separate
@@ -151,6 +156,8 @@ correction authority.
 - [Observed effects and count assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
 - [Comparison, stale confirmation, concurrency, and recovery qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)
 - [Stage 3 editor and same-project retry with 150 existing related records](../../../tests/integration/web/test_matching_expectations.py)
+- [Final review editor, bounded queries, delayed jobs, and zero-write completion](../../../tests/integration/web/test_business_expectations.py)
+- [Keyboard, narrow layout, stale tabs, and interrupted approval](../../../tests/e2e/test_business_expectations.py)
 
 ## Related documentation
 

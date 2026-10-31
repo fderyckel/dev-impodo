@@ -502,8 +502,7 @@ frozen comparison and explicit load confirmation.
 
 The current load action is limited to an approved disposable Local or Remote
 Odoo 19 or final Odoo 20 target. Production loading requires separate change,
-access, backup, monitoring, and cutover controls; Odoo 20 Production remains
-disabled.
+access, backup, monitoring, and cutover controls for either supported major.
 
 Open **Load into Odoo** only after the latest comparison is complete. Review:
 

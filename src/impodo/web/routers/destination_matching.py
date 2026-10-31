@@ -6,7 +6,7 @@ from dataclasses import replace
 from datetime import date, datetime
 from math import isfinite
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -20,6 +20,7 @@ from impodo.application.destination_matching_service import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.contracts import (
     MAX_ROW_INCLUSION_CONDITIONS,
+    RowInclusionMode,
     RowInclusionPolicy,
 )
 from impodo.domain.mapping.create_field_policy import CREATE_FIXED_VALUE_TYPES
@@ -73,6 +74,58 @@ def _matching_evidence(context: WebContext, workspace_id: str):
 
 def _choice_value(dataset_id: str, source_column_key: str) -> str:
     return f"{dataset_id}::{source_column_key}"
+
+
+def _render_row_rule_review(request: Request, context: WebContext, workspace_id: str):
+    """Render one protected decision page with one bulk source projection."""
+
+    actor = request_identity(request, context.identity_resolver).actor
+    context.workspace_access.resolve(
+        workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ
+    )
+    workspace = context.queries.get(workspace_id)
+    selection, schema = _matching_evidence(context, workspace_id)
+    plan = workspace.destination_match_plan
+    if plan is None or not workspace.destination_match_current(
+        source_selection_hash=selection.content_hash, source_schema_hash=schema.content_hash
+    ):
+        return RedirectResponse(f"/workspaces/{workspace_id}/destination-matching", status_code=303)
+    selected_id = request.query_params.get("dataset_id", "")
+    outcome = request.query_params.get("outcome", "all")
+    if outcome not in {"all", "included", "excluded", "cannot_evaluate"}:
+        raise HTTPException(status_code=422, detail="Choose a current row decision filter.")
+    matches = tuple(item for item in plan.model_matches if item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS)
+    match = next((item for item in matches if item.dataset_id == selected_id), matches[0] if matches else None)
+    rows = []
+    columns = ()
+    total = 0
+    try:
+        page = max(1, int(request.query_params.get("page", "1")))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail="Choose a valid row page.") from error
+    if match is not None:
+        dataset = next(item for item in selection.datasets if item.dataset_id == match.dataset_id)
+        keys = tuple(dict.fromkeys(item.source_column_key for item in match.row_inclusion.conditions))
+        labels = {item.stable_key: item.source_name for item in dataset.columns}
+        columns = tuple(labels[key] for key in keys)
+        excluded, blocked = set(match.rule_excluded_source_row_numbers), set(match.rule_blocked_source_row_numbers)
+        decisions = tuple(
+            (number, "excluded" if number in excluded else "cannot_evaluate" if number in blocked else "included")
+            for number in range(1, match.frozen_source_row_count + 1)
+        )
+        filtered = tuple(item for item in decisions if outcome == "all" or item[1] == outcome)
+        total = len(filtered)
+        page = min(page, max(1, (total + 99) // 100))
+        values = context.categorical_coverage.source_condition_rows(workspace_id, dataset.dataset_id, keys)
+        if len(values) != match.frozen_source_row_count:
+            raise WorkspaceError("The frozen source rows changed. Check destination matching again.")
+        rows = [{"number": number, "outcome": decision, "values": values[number - 1]} for number, decision in filtered[(page - 1) * 100:page * 100]]
+    return _render(
+        request, "workspace_transfer_row_review.html", workspace_state=workspace,
+        row_matches=matches, selected_match=match, row_outcome=outcome, row_columns=columns,
+        row_decisions=rows, row_total=total, row_page=page,
+        row_has_next=page * 100 < total,
+    )
 
 
 def _confirm_row_rules(context: WebContext, workspace_id: str, form, actor: Actor):
@@ -495,6 +548,11 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     router = APIRouter()
     service = DestinationMatchingService(context.categorical_coverage)
 
+    @router.get("/workspaces/{workspace_id}/destination-matching/rows-to-use", response_class=HTMLResponse)
+    async def review_rows_to_use(request: Request, workspace_id: str):
+        require_session(request)
+        return await run_page_read(_render_row_rule_review, request, context, workspace_id)
+
     @router.post("/workspaces/{workspace_id}/destination-matching/rows-to-use/confirm")
     async def confirm_rows_to_use(request: Request, workspace_id: str):
         form = await request.form()
@@ -563,7 +621,11 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/destination-matching")
     async def check_destination_matching(request: Request, workspace_id: str):
         form = await request.form()
-        selection, schema = await run_page_read(_matching_evidence, context, workspace_id)
+        require_session(request)
+        try:
+            selection, schema = await run_page_read(_matching_evidence, context, workspace_id)
+        except WorkspaceError:
+            return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
         _secure_form(
             request,
             form,
@@ -583,14 +645,6 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
         ):
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/transfer-destination",
-                status_code=303,
-            )
-        try:
-            selection, schema = _matching_evidence(context, workspace_id)
-        except WorkspaceError as error:
-            _flash(request, str(error))
-            return RedirectResponse(
-                f"/workspaces/{workspace_id}/sources",
                 status_code=303,
             )
         try:

@@ -239,7 +239,8 @@ disposable data. For approved internal data, follow the
 
 - **Odoo 19 and final Odoo 20 are supported integration targets.** Available models and fields
   depend on the installed Odoo applications, captured schema, permissions,
-  and supported mapping and write capabilities.
+  and supported mapping and write capabilities. Both majors support loading,
+  recovery, and qualified-plan Production rollout with same-major Recipes.
 - **Impodo runs locally on Windows and macOS.** Its browser server binds to
   `127.0.0.1`. Impodo stores project data locally and does not require its own
   PostgreSQL server. Odoo and its database remain separate prerequisites.

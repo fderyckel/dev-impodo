@@ -25,6 +25,7 @@ RUN apk add --no-cache \
     'brotli-libs=1.2.1-r0' 'curl=8.23.0-r0' 'libcurl=8.23.0-r0'
 COPY --from=compiler --chmod=0755 /out/caddy /usr/bin/caddy
 COPY --from=compiler /licenses/CADDY-LICENSE /usr/share/licenses/impodo-caddy/LICENSE
+COPY --from=compiler /usr/local/go/LICENSE /usr/share/licenses/impodo-caddy/GO-LICENSE
 RUN caddy version
 LABEL org.opencontainers.image.title="Impodo Caddy rehearsal image" \
       org.opencontainers.image.version="2.11.7-impodo1" \

@@ -413,7 +413,7 @@ def _activation_view(context, project_id, migration_run_id, *, actor: Actor):
         TargetCredentialRole.WRITE,
     )
     target_ready = False
-    target_error = "Capture the Production Odoo 19 fields and supporting lists."
+    target_error = "Capture the Production Odoo fields and supporting lists."
     try:
         context.run_planning.target_evidence_from_workspace(
             project_id,

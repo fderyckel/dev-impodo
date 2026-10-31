@@ -9,7 +9,8 @@ status: current
 ## Responsibility
 
 Production rollout applies one current selected and authenticated CutoverPlan revision to a
-fresh complete Production DataVersion and different compatible Odoo 19 target.
+fresh complete Production DataVersion and different compatible Odoo 19 or
+final Odoo 20 target of the qualified Test's major version.
 It creates fresh isolated application workspaces through the existing compiler
 and execution engine. Test contributes reusable qualified meaning only.
 
@@ -145,6 +146,18 @@ can establish what happened before retry.
 
 ## Odoo compatibility and performance
 
+Odoo 19 and final Odoo 20 support Production through the shared operation
+policy. Every selected Recipe must target the run's major version. A qualified
+Odoo 19 Test cannot authorize Odoo 20 Production, or the reverse direction.
+The live schema, different target, separate credentials, and current evidence
+requirements apply to both versions.
+Production review promotes Recipe version blockers to run-level blockers, so
+a different or unsupported major stops activation before any target authority
+or application workspace is created.
+
+[`assess_odoo_operation`](../../../src/impodo/domain/odoo/compatibility.py)
+owns the shared version decision.
+
 The exact registry generation is
 `impodo-migration-registry-2026-10-31-project-root`. The initial schema at version 1
 creates the separate `production_run_values` table. Test answer JSON and hashes
@@ -178,6 +191,9 @@ call per source row, or N+1 workspace open for Project status.
 - [`tests/application/run/test_production_rollout.py`](../../../tests/application/run/test_production_rollout.py)
 - [`Typed values and stale evidence`](../../../tests/application/run/test_production_values.py)
 - [`Production browser compilation and restart recovery`](../../../tests/integration/web/test_production_readiness.py)
+- [`Supported operation matrix`](../../../tests/domain/test_odoo_compatibility.py)
+- [`Business expectation version constraints`](../../../tests/domain/workspace/test_business_intent_scope.py)
+- [`Production business expectation service`](../../../tests/application/workspace/test_business_intent_service.py)
 
 The focused gate proves fresh setup identity, exact plan pins, a different
 Production target, separate credential generations, isolated application
@@ -185,12 +201,19 @@ workspaces, stale credential-generation rejection, same-identity rotation
 after fresh comparison, target-reuse rejection, browser separation language,
 and recovery after a registry/store boundary fault.
 
-The lifecycle fixture uses real Recipe compilation, preparation, approval,
+The lifecycle fixture runs for Odoo 19 and Odoo 20 with real Recipe compilation, preparation, approval,
 comparison, execution journals, read-back reconciliation, and Test qualification.
 Only Odoo metadata, identity probes, and record transport use fictional adapters.
 The Production total differs from Test, and interrupted activation resumes after
 restart before Production completes its own evidence stages. The executed
 checks and their limits remain available in Git history.
+
+On 2026-10-31, an authenticated remote Enterprise instance reported `20.0+e`.
+The Impodo JSON-2 reader passed the identity probe, captured complete metadata
+for Contacts, Products, Countries, Units of Measure, BOMs, and BOM lines, and
+returned two bounded Country reference rows without limitations. This live
+check performed no business-record writes; Production execution and restart
+recovery are covered by the isolated lifecycle fixtures.
 
 ## Current limitations
 

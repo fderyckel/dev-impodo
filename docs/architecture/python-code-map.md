@@ -30,7 +30,7 @@ belongs or which dependencies it may introduce.
 | Reuse setup and credential status within a page | `RunSetupService.page_for_workspace`, `RunSetupPage`, and `RunOdooRequirementsUseCase.for_selection` | schema routing, requirements, and recovery share one authorized selection; active Test recovery counts blockers in SQL; the read-key dialog reuses safe status only for an identical credential owner and target |
 | Classify shared workspace navigation | `WorkspaceNavigationFacts`, `WorkspaceNavigationQueryService`, `ExecutionPreviewSummary` | `WorkspaceNavigationRepository` reads scalar current evidence and freshness-checked aggregate Stage 3 issue counts in one workspace transaction; the presenter never materializes row artifacts or opens protected matching evidence |
 | Supply mapping source contracts | `WorkspaceMappingSourceProjection` | bounded workspace source projection |
-| Record and enforce business expectations | [`BusinessIntentService`](../../src/impodo/application/business_intent_service.py), [`BusinessIntent`](../../src/impodo/domain/workspace/business_intent.py), and [`business_intent_assessment.py`](../../src/impodo/domain/workspace/business_intent_assessment.py) | injected ports; local intent revision and audit publication; comparison-owned observations and assessments; journal-owned approval; bounded review queries without source or Odoo scans |
+| Record, review, and enforce business expectations | [`BusinessIntentService`](../../src/impodo/application/business_intent_service.py), [`business_review.py`](../../src/impodo/application/workspace/execution/business_review.py), [`business_expectations.py`](../../src/impodo/web/routers/business_expectations.py), and [`business_intent_assessment.py`](../../src/impodo/domain/workspace/business_intent_assessment.py) | injected ports; shared Stage 3 and Final review editor; comparison-owned bounded review; exact journal approval retained for recovery; authorized 50-effect detail pages without source or Odoo scans |
 | Compile reusable meaning | `RecipeCompiler.compile_workspace` | reads current workspace evidence only |
 | Publish optional Recipes | `RecipePublicationService` | `RecipeRepository`, protected Recipe store |
 | Plan an integrated Test run | focused use cases under `application/run`; `MigrationRunPlanningService` is the stable facade | `MigrationRunPlanningRepository`, Project run routes |
@@ -123,6 +123,7 @@ services.
 | One existing Odoo record for every row | `domain/mapping/contracts.py` owns the portable constant business reference and shared target-field order; `domain/mapping/validation/relationships.py` applies governed-reference policy; `domain/preparation/source.py`, `domain/compiler/columnar_transformation.py`, and `adapters/polars_transformation.py` own row and native reference production; `web/presenters/mapping_forms.py`, `web/templates/mapping/_relationship_catalog.html`, and `web/static/mapping-editor.js` own bounded many2one authoring; Recipe compilation and application preserve the rule without a source binding |
 | Recoverable Match data mutation outcomes | `domain/mapping/mutations.py` defines receipts and structured conflicts; `adapters/duckdb/mapping_repository.py` commits receipts with mapping writes; `web/routers/mapping.py` and `web/static/mapping-editor.js` own read-back and recovery UX |
 | Bounded Match data catalogue searches | `web/mapping_catalog_runtime.py` owns the content-keyed projection cache, per-editor newest-generation authority, and workspace single-flight gate; `web/static/mapping-catalogs.js` owns browser cancellation and current-result application |
+| Row inclusion in Odoo transfers | `application/transfer_row_inclusion.py` uses the shared row oracle and exact source operands; `domain/workspace/destination_matching.py` owns versioned decisions and population confirmation; destination matching, transfer preflight, and execution compilation preserve those decisions; the protected row-review page belongs to the Load workflow |
 | Server-rendered pages and page-owned browser behavior | `web/templates`, `web/templates/mapping`, and `web/static` |
 | Focused evidence | `tests/architecture`, `tests/domain`, `tests/application`, `tests/integration`, `tests/e2e`, and `tests/performance` |
 | Explicit non-discovered test builders and paths | `tests/support` |
@@ -341,7 +342,7 @@ Readiness uses accepted answers rather than a second editable form.
    qualification and creates a fresh Production DataVersion, run, and setup
    workspace without target or write authority.
 2. The existing workspace source and schema services accept the complete
-   latest package and capture the different Production Odoo 19 target with
+   latest package and capture the different same-major Production Odoo target with
    read-only credential evidence.
 3. `ProductionRunValuesUseCase` builds typed prompts from one batch of pinned
    Recipe revisions. Shared parameter and control validators normalize answers
@@ -384,7 +385,7 @@ Odoo ID enters governance or Recipe meaning. The representative browser
 journey in `tests/e2e/test_stage2_matching_rules.py` covers standard,
 extended-standard, custom, and unresolved custom record types and proves that
 review and confirmation do not add connector calls. The authenticated
-`scripts/capture_stage2_matching_rule_screenshots.py` helper reproduces the
+`scripts/capture_matching_rule_screenshots.py` helper reproduces the
 documented 1440 by 1024 review states from the same fictional captured schema.
 
 ## Query and Odoo performance
@@ -425,7 +426,7 @@ not issue one repository or Odoo request per row, field, or relationship.
 Odoo adapters expose closed operations. Search and schema reads are qualified
 for Odoo 19 and final Odoo 20 and are batched by model. Target keys are indexed
 once, and write authority remains separate from read capability. Normal writes
-and recovery support both majors; Odoo 20 Production remains disabled.
+and recovery support both majors, as does qualified-plan Production.
 
 ## Focused verification
 

@@ -10,13 +10,13 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from impodo.domain.run.contracts import MigrationRunPlanningError
 from scripts.capture_match_data_recovery_screenshots import _start_server
-from tests.integration.web.test_production_readiness import ProductionReadinessBrowserTests
+from tests.integration.web.test_production_readiness import Odoo20ProductionReadinessBrowserTests
 
 
 def capture() -> None:
     from playwright.sync_api import expect, sync_playwright
 
-    fixture = ProductionReadinessBrowserTests()
+    fixture = Odoo20ProductionReadinessBrowserTests()
     fixture.setUp()
     server = thread = None
     try:
@@ -38,6 +38,11 @@ def capture() -> None:
                     "httpOnly": True, "sameSite": "Strict",
                 }])
                 page = browser_context.new_page()
+                page.goto(base_url + f"/projects/{fixture.project_id}/production-runs/new", wait_until="networkidle")
+                page.reload(wait_until="networkidle")
+                expect(page.get_by_text("What Impodo creates", exact=True)).to_be_visible()
+                page.locator("form.form-card").scroll_into_view_if_needed()
+                page.screenshot(path=str(REPOSITORY_ROOT / "docs/images/user/05e-production-setup.png"), full_page=False)
                 page.goto(base_url + fixture.fresh_url, wait_until="networkidle")
                 details = page.get_by_role("heading", name="Details for this run").locator("..")
                 details.scroll_into_view_if_needed()

@@ -283,6 +283,16 @@ class ExecutionReviewProjection:
             and not self.summary.has_attention
         )
 
+    @property
+    def can_complete_without_load(self) -> bool:
+        """Offer explicit zero-write completion from bounded current evidence."""
+        return bool(
+            not self.snapshot.write_count
+            and not self.current_run_id
+            and not self.scope_error
+            and not self.summary.has_attention
+        )
+
     def with_runtime(
         self,
         *,

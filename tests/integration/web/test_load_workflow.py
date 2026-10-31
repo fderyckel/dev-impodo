@@ -409,6 +409,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             datasets=(),
             current_run=None,
             can_load=True,
+            can_complete_without_load=False,
             scope_error="",
             scope_error_code="",
             deferred_create_count=0,

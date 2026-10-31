@@ -31,7 +31,7 @@ data choice after it loads the record types.
 Impodo supports Odoo 19 and final Odoo 20 workflows. For either supported
 major, you can check the connection, capture the live schema, freeze a bounded
 Odoo source, read matching values, author a Recipe, and continue to same-major
-loading and recovery. Odoo 20 Production remains disabled. If the server
+loading, recovery, and qualified-plan Production rollout. If the server
 reports an unknown, prerelease, SaaS, later-minor, or conflicting version,
 resolve that connection check before capturing details.
 A Recipe applies only to its authored Odoo major version, and an Odoo source

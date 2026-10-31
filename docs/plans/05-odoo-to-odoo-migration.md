@@ -23,8 +23,9 @@ need a separately qualified handler; the generic create/write path must stop
 when it cannot prove a safe result.
 
 The supported transfer pairs use two distinct disposable instances of the
-same major: 19 to 19 or 20 to 20. Cross-major transfer and Odoo 20 Production
-remain blocked.
+same major: 19 to 19 or 20 to 20. Cross-major transfer remains blocked.
+Qualified-plan file-source Production supports both majors; Odoo-source
+Production remains outside the transfer lifecycle.
 
 ## Current implementation used by this plan
 

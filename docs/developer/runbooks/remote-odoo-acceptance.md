@@ -1,8 +1,8 @@
-# Remote Odoo 19 acceptance run
+# Remote Odoo acceptance run
 
 ## Purpose
 
-Use this opt-in run after a fresh, disposable on-premises Odoo 19 database is
+Use this opt-in run after a fresh, disposable Odoo 19 or final Odoo 20 database is
 available. It exercises the real Impodo path against three models and 150
 sanitized records:
 
@@ -19,7 +19,7 @@ does not delete or roll back records.
 
 ## Target prerequisites
 
-- Odoo 19 with the Base, Contacts, and Product applications installed.
+- Odoo 19 or final Odoo 20 with the Base, Contacts, and Product applications installed.
 - A fresh database whose name begins with `impodo_p4_`.
 - A non-loopback target exposed through HTTPS with a certificate trusted by
   the workstation. Literal-loopback development Odoo remains supported.
@@ -32,16 +32,19 @@ does not delete or roll back records.
 Do not point the runner at production. It refuses database names outside the
 `impodo_p4_` namespace and refuses insecure non-loopback HTTP URLs.
 
+The disposable database prefix and fixture record codes are fixed acceptance
+identities. Repeat runs use them to verify the same records.
+
 ## Run
 
 Put the API key in a private file outside the repository, then run:
 
 ```bash
-PYTHONPATH=src .venv/bin/python scripts/p4_representative_runner.py \
+PYTHONPATH=src .venv/bin/python scripts/qualify_representative_migration.py \
   --base-url https://odoo-acceptance.example.test \
   --database impodo_p4_20260810 \
   --api-key-file /private/path/odoo-api-key.txt \
-  --output build/acceptance/remote-odoo-19.json
+  --output build/acceptance/remote-odoo.json
 ```
 
 The first empty-target run seeds 25 controlled records so the reviewed load
@@ -55,7 +58,8 @@ then reports:
 
 Timing is evidence, not a release threshold. Keep the JSON result with the
 Odoo database name, module build information, server logs, and workstation
-details used for the run. The JSON deliberately excludes the URL, API key,
+details used for the run. Run it separately for each supported major and
+retain the reported `odoo_version` with each result. The JSON deliberately excludes the URL, API key,
 and business values.
 
 ## Failure handling

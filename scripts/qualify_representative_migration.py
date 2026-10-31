@@ -1,4 +1,4 @@
-"""Run the opt-in P4 representative migration against disposable Odoo.
+"""Qualify a representative migration against disposable Odoo.
 
 The runner generates deterministic sanitized rows, captures the live read-only
 preflight, executes the same practical writer and reconciliation services used
@@ -97,7 +97,7 @@ class _Journal:
     def start_run(self, project_id, run, *, actor):
         del actor
         if project_id != run.project_id or self.run is not None:
-            raise RuntimeError("P4 journal received an invalid start")
+            raise RuntimeError("Representative migration journal received an invalid start")
         self.run = run
         self.rows = {item.row_id: item for item in run.rows}
 
@@ -106,7 +106,7 @@ class _Journal:
             self.run.project_id,
             self.run.run_id,
         ):
-            raise RuntimeError("P4 journal received an invalid outcome")
+            raise RuntimeError("Representative migration journal received an invalid outcome")
         self.rows.update({item.row_id: item for item in rows})
 
     def record_batch_started(self, project_id, run_id, rows):
@@ -122,7 +122,7 @@ class _Journal:
             self.run.project_id,
             self.run.run_id,
         ):
-            raise RuntimeError("P4 journal received an invalid finish")
+            raise RuntimeError("Representative migration journal received an invalid finish")
         self.run = replace(
             self.run,
             status=status,
@@ -146,7 +146,7 @@ class _Results:
     def publish(self, project_id, report, *, actor):
         del actor
         if report.project_id != project_id or self.report is not None:
-            raise RuntimeError("P4 result publication is invalid")
+            raise RuntimeError("Representative migration result publication is invalid")
         self.report = report
 
 
@@ -169,7 +169,7 @@ def _connection_mode(base_url: str) -> str:
 
 
 def _seed_scope() -> OdooApiScope:
-    """Return the exact fixed capability used only to prepare the P4 fixture."""
+    """Return the exact fixed capability used only to prepare the representative migration fixture."""
 
     return OdooApiScope(
         preview_hash="sha256:" + "0" * 64,
@@ -341,10 +341,10 @@ def _target_counts(records) -> dict[str, int]:
 def main() -> int:
     args = _arguments()
     if not args.database.startswith("impodo_p4_"):
-        raise SystemExit("P4 accepts only an impodo_p4_ disposable database")
+        raise SystemExit("Representative migration qualification accepts only an impodo_p4_ disposable database")
     api_key = args.api_key_file.read_text("utf-8").strip()
     if not api_key:
-        raise SystemExit("The P4 API key file is empty")
+        raise SystemExit("The representative migration API key file is empty")
     config = Json2Config(
         base_url=args.base_url.rstrip("/"),
         database=args.database,
@@ -354,7 +354,7 @@ def main() -> int:
         retries=0,
         relevant_modules=("base", "contacts", "product"),
     )
-    with tempfile.TemporaryDirectory(prefix="impodo-p4-") as directory_name:
+    with tempfile.TemporaryDirectory(prefix="impodo-representative-migration-") as directory_name:
         directory = Path(directory_name)
         preparation_started = perf_counter()
         _write_sources(directory)
@@ -362,7 +362,7 @@ def main() -> int:
         prepared = prepare_sources(plan, directory)
         preparation_seconds = perf_counter() - preparation_started
         if len(prepared.records) != TOTAL_ROWS or prepared.issues:
-            raise RuntimeError("The generated P4 source package is invalid")
+            raise RuntimeError("The generated representative source package is invalid")
 
         baseline_started = perf_counter()
         baseline, baseline_records = _capture(config, plan, prepared)
@@ -380,7 +380,7 @@ def main() -> int:
             }
             if target_counts != expected_target_counts:
                 raise RuntimeError(
-                    f"P4 target counts are {target_counts}, expected "
+                    f"Representative target counts are {target_counts}, expected "
                     f"{expected_target_counts}"
                 )
             _emit_result(
@@ -407,7 +407,7 @@ def main() -> int:
             return 0
         elif baseline.counts != EXPECTED_FIRST:
             raise RuntimeError(
-                "The disposable target is neither empty nor at the expected P4 seed state"
+                "The disposable target is neither empty nor at the expected representative seed state"
             )
 
         first_preview_started = perf_counter()
@@ -419,7 +419,7 @@ def main() -> int:
             in {Classification.BLOCKED, Classification.AMBIGUOUS}
             for decision in first.decisions
         ):
-            raise RuntimeError("The first P4 preview contains unsafe rows")
+            raise RuntimeError("The first representative preview contains unsafe rows")
 
         project_id = str(uuid4())
         frozen = _frozen(project_id, plan, prepared)
@@ -534,7 +534,7 @@ def main() -> int:
         }
         if target_counts != expected_target_counts:
             raise RuntimeError(
-                f"P4 target counts are {target_counts}, expected {expected_target_counts}"
+                f"Representative target counts are {target_counts}, expected {expected_target_counts}"
             )
 
         _emit_result(

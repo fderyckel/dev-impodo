@@ -558,7 +558,7 @@ Mapping contract version 16 adds `RowInclusionPolicy` to each dataset with an
 `all_rows` default. `matching_rows` contains one to eight distinct, stable
 conditions joined by `all` or `any`. Each condition uses a stable source-column
 key, a closed comparison operator, one supported scalar type, and a bounded
-comparison value where required. `evaluate_source_condition` is the shared
+comparison value where required. `source_condition_matches` is the shared
 typed comparison oracle. An unparseable typed source value is
 cannot-evaluate, not a silent exclusion. Older readable contracts project to
 `all_rows` without changing their stored layout.

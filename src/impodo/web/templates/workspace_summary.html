@@ -35,6 +35,8 @@
     </div>
     {% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
       <span class="status review">Duplicate review needed</span>
+    {% elif business_review and not business_review.ready and not business_run_id %}
+      <span class="status review">Expectations need review</span>
     {% elif deferred_scope and deferred_scope.decision %}
       <span class="status ready">Ready with records set aside</span>
     {% elif readiness %}
@@ -235,7 +237,7 @@
 
   {% elif readiness %}
     {% if not odoo_source %}{% include "_business_intent_review.html" %}{% endif %}
-    {% if not (load_preview and (load_preview.can_load or load_preview.current_run)) %}
+    {% if not (load_preview and (load_preview.can_load or load_preview.can_complete_without_load or load_preview.current_run)) and not (business_review and not business_review.ready and readiness.status == 'READY' and load_preview and load_preview.scope_error == 'Review business expectations against the proposed changes') %}
     <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
       <div>
         <p class="eyebrow">Next action</p>
@@ -623,7 +625,7 @@
       <p>This check is read-only. Odoo remains unchanged. <a href="/workspaces/{{ workspace_id }}/summary/manifest">Download the support file</a></p>
     </details>
 
-    {% if load_preview and (load_preview.can_load or load_preview.current_run) %}
+    {% if load_preview and (load_preview.can_load or load_preview.can_complete_without_load or load_preview.current_run) %}
       <section class="next-action-card ready" aria-labelledby="final-review-complete-title" data-final-review-transition>
         <div>
           <p class="eyebrow">Final review complete</p>

@@ -51,7 +51,7 @@ class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("<dt>Suggested</dt><dd>3</dd>", page.text)
         self.assertIn("<dt>Confirmed</dt><dd>0</dd>", page.text)
         self.assertIn("<dt>Needs attention</dt><dd>0</dd>", page.text)
-        self.assertIn("<dt>Selected record types</dt><dd>3</dd>", page.text)
+        self.assertIn("<dt>Record types</dt><dd>3</dd>", page.text)
         self.assertIn("How should Impodo find an existing Contact?", page.text)
         self.assertIn("How should Impodo find an existing Product?", page.text)
         self.assertIn("How should Impodo find an existing Asset?", page.text)

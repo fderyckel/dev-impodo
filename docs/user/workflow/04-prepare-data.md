@@ -8,8 +8,10 @@ status: current
 
 ## Goal
 
-Apply the confirmed mapping to every frozen row in the current data version,
+Apply the confirmed mapping to the included rows in the current Data version,
 check data quality, and resolve findings before comparing anything with Odoo.
+Rows excluded by the confirmed rule remain accounted for in the original
+source. They do not become prepared records or enter business totals.
 
 ## Before you start
 

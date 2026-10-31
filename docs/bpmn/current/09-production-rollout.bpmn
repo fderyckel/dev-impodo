@@ -39,7 +39,7 @@
       <bpmn:outgoing>Flow_PR_04</bpmn:outgoing>
       <bpmn:incoming>Flow_PR_09</bpmn:incoming>
     </bpmn:userTask>
-    <bpmn:userTask id="Task_PR_Target" name="Capture Production Odoo 19 with read-only access">
+    <bpmn:userTask id="Task_PR_Target" name="Capture same-major Production Odoo with read-only access">
       <bpmn:incoming>Flow_PR_04</bpmn:incoming>
       <bpmn:outgoing>Flow_PR_05</bpmn:outgoing>
     </bpmn:userTask>

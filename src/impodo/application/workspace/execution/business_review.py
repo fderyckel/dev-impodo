@@ -6,6 +6,7 @@ projection; only an authorized detail query reads field rules and approvals.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -94,8 +95,13 @@ def _business_model_reviews(
     """Aggregate all model and field facts once at publication, not at render."""
     found = {item.model: item for item in observation.models}
     rules = {item.model: item for item in revision.intent.models} if revision else {}
+    model_names = found.keys() | rules.keys()
+    causes = Counter(message.partition(":")[0] for message in assessment.deviations)
+    common_causes = sum(
+        count for name, count in causes.items() if name not in model_names
+    )
     models = []
-    for model in sorted(found.keys() | rules.keys()):
+    for model in sorted(model_names):
         rule, observed = rules.get(model), found.get(model)
         models.append(
             BusinessModelReview(
@@ -122,9 +128,7 @@ def _business_model_reviews(
                 )
                 if observed
                 else 0,
-                sum(
-                    message.startswith(model + ":") for message in assessment.deviations
-                ),
+                causes[model] + common_causes,
             )
         )
     return tuple(models)

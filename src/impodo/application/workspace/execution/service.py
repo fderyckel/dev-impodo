@@ -483,6 +483,16 @@ class ExecutionNavigationPreview:
             and not self.state.summary.has_attention
         )
 
+    @property
+    def can_complete_without_load(self) -> bool:
+        """Offer the zero-write review without decoding execution rows."""
+        return bool(
+            not self.write_count
+            and not self.current_run_id
+            and not self.scope_error
+            and not self.state.summary.has_attention
+        )
+
 
 class ExecutionService:
     """Validate, journal, and execute a reviewed disposable-target load."""

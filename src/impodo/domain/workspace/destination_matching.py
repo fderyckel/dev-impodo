@@ -613,7 +613,7 @@ class DestinationModelMatch:
         if self.destination_handling not in DESTINATION_HANDLINGS:
             raise ValueError("Destination handling is invalid")
         if any(
-            rows != tuple(sorted(set(rows))) or any(number < 1 for number in rows)
+            rows != tuple(sorted(set(rows))) or any(type(number) is not int or number < 1 for number in rows)
             for rows in (
                 self.excluded_source_row_numbers,
                 self.unreferenced_source_row_numbers,
@@ -726,10 +726,7 @@ class DestinationModelMatch:
         reasons: list[str] = []
         if self.rule_blocked_source_row_numbers:
             reasons.append("ROW_INCLUSION_CANNOT_EVALUATE")
-        if self.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS and (
-            self.frozen_source_row_count
-            == len(self.rule_excluded_source_row_numbers) + len(self.rule_blocked_source_row_numbers)
-        ):
+        if self.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS and self.source_row_count == 0:
             reasons.append("ROW_INCLUSION_ZERO_INCLUDED")
         if self.source_blank_row_count:
             reasons.append("SOURCE_KEY_BLANK")
@@ -1113,7 +1110,6 @@ class DestinationMatchPlan:
                     "unreferenced": item.unreferenced_source_row_numbers,
                 }
                 for item in self.model_matches
-                if item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
             ],
         })
 

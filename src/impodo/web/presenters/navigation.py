@@ -229,6 +229,8 @@ _TEMPLATE_LOCATION = {
     "workspace_resolution.html": ("prepare", "Review possible duplicates"),
     "workspace_normalization.html": ("prepare", "Approve prepared data"),
     "workspace_summary.html": ("review", "Final review"),
+    "workspace_business_expectations.html": ("review", "Business expectations"),
+    "workspace_business_expectation_detail.html": ("review", "Expected versus found"),
     "workspace_deferred_scope.html": ("review", "Review affected groups"),
     "workspace_load.html": ("load", "Load into Odoo"),
     "workspace_load_progress.html": ("load", "Loading into Odoo"),
@@ -1072,9 +1074,14 @@ def _build_authoring_workspace_navigation(
             facts=facts,
         )
 
-    review_complete = facts.preflight_status == "READY"
+    preview = facts.execution_preview
+    business_attention = bool(
+        preview is not None and not preview.current_run_id
+        and preview.state.summary.business_intent_state in {"MISSING", "STALE", "DEVIATION"}
+    )
+    review_complete = facts.preflight_status == "READY" and not business_attention
     review_attention = bool(
-        facts.preflight_status and facts.preflight_status != "READY"
+        (facts.preflight_status and facts.preflight_status != "READY") or business_attention
     )
     review_status = (
         "complete"
@@ -1130,10 +1137,7 @@ def _build_authoring_workspace_navigation(
     if active_load_job_id:
         load_label = "In progress"
     elif preview is not None:
-        if preview.write_count == 0 and not preview.scope_error:
-            load_status = "complete"
-            load_label = "No changes needed"
-        elif preview.current_run_id:
+        if preview.current_run_id:
             reconciliation = preview.state.reconciliation_status
             if reconciliation == ReconciliationRunStatus.VERIFIED.value:
                 load_status = "complete"
@@ -1143,6 +1147,8 @@ def _build_authoring_workspace_navigation(
                 load_label = "Needs attention"
             else:
                 load_label = "Verify outcome"
+        elif preview.can_complete_without_load:
+            load_label = "Confirm no changes"
         elif not preview.can_load:
             load_status = "attention"
             load_label = "Needs attention"
@@ -1152,7 +1158,7 @@ def _build_authoring_workspace_navigation(
         "Check changes",
         "/load/review",
         complete=preview is not None,
-        attention=preview is not None and not preview.can_load,
+        attention=preview is not None and not (preview.can_load or preview.can_complete_without_load),
     )
     if active_load_job_id:
         confirm_page = WorkflowPage(
@@ -1193,7 +1199,7 @@ def _build_authoring_workspace_navigation(
                 "Confirm and load",
                 "/load/confirm",
             )
-            if preview is not None and preview.can_load
+            if preview is not None and (preview.can_load or preview.can_complete_without_load)
             else WorkflowPage(
                 page_id="load-confirm",
                 label="Confirm and load",

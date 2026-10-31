@@ -1,9 +1,9 @@
 """Recognize reported Odoo versions and decide which operations are enabled.
 
 Recognition is separate from support. Odoo 19 preserves its existing operation
-set, including development builds. Final Odoo 20 supports the qualified read,
-Recipe-authoring, write, and recovery boundaries. Production remains a
-separate operation and is not enabled for Odoo 20. These decisions add no
+set, including development builds. Final Odoo 20 supports read,
+Recipe-authoring, write, recovery, and Production operations under the same
+workflow safeguards as Odoo 19. These decisions add no
 fields to stored fingerprints or policy hashes.
 """
 
@@ -100,6 +100,7 @@ _ODOO_20_READ_OPERATIONS = frozenset({
 _ODOO_20_WRITE_OPERATIONS = frozenset({
     OdooOperation.WRITE,
     OdooOperation.RECOVER,
+    OdooOperation.PRODUCTION,
 })
 
 
@@ -136,8 +137,8 @@ def assess_odoo_operation(
 
     The accepted Odoo 19 release forms retain their previous behavior. SaaS
     series, Odoo 20 prereleases, and all other majors remain disabled. Final
-    Odoo 20 permits qualified read, Recipe-authoring, write, and recovery
-    operations. Production remains disabled. Model, access, schema freshness,
+    Odoo 20 permits read, Recipe-authoring, write, recovery, and Production
+    operations. Model, access, schema freshness,
     and Production checks still apply.
     """
 

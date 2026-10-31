@@ -181,7 +181,7 @@
                   <div><dt>Could not be checked</dt><dd>{{ row.result.rule_blocked_source_row_numbers|length }}</dd></div>
                 </dl>
                 {% if row.result.rule_blocked_source_row_numbers %}<p class="notice warning">Correct the comparison type or source values, then check again. Values that could not be checked block this transfer.</p>{% elif 'ROW_INCLUSION_ZERO_INCLUDED' in row.result.blocking_reasons %}<p class="notice warning">This rule includes no rows. Change it and check again before continuing.</p>{% endif %}
-                {% if row.result.rule_excluded_source_row_numbers %}<details class="matching-technical-details"><summary>Review excluded source rows</summary><p>Original source row numbers: {{ row.result.rule_excluded_source_row_numbers|join(', ') }}.</p></details>{% endif %}
+                <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/destination-matching/rows-to-use?dataset_id={{ row.result.dataset_id|urlencode }}">Review rows</a></p>
               {% endif %}
               <dl class="matching-result-metrics">
                 <div><dt>Source</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd><small>{% if row.result.unreferenced_source_row_numbers %}referenced records checked; {{ row.result.unreferenced_source_row_numbers|length }} unrelated record(s) ignored{% elif row.result.excluded_source_row_numbers %}records included; {{ row.result.excluded_source_row_numbers|length }} put aside{% else %}records checked{% endif %}</small></div>

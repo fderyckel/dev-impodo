@@ -12,6 +12,10 @@ Compare every eligible prepared row in the current data version with
 fresh Odoo evidence and decide whether the proposed outcome is safe to take to
 the load stage.
 
+Rows excluded by your confirmed **Rows to use** rule stay outside this
+comparison and the later load. Their source decisions remain available for
+review. Their absence never asks Odoo to delete an existing record.
+
 ## Before you start
 
 Prepared data must be complete for the current source, schema, and mapping.
@@ -23,6 +27,30 @@ against the saved business expectations. A safe individual record can still
 conflict with the intended purpose of the load. Setting aside groups changes
 the totals, so the remaining records must still satisfy any minimum or maximum
 counts before loading.
+
+### Review your business expectations
+
+Use **Expected versus found** to compare the allowed changes and expected
+counts with the proposed result for each record type. For example, **At most
+0** new Products with **6** found means the proposed load needs review. A
+blank count appears as **No count expectation**; it never means zero.
+
+![Final review shows six proposed new Products against an explicit limit of zero, with a correction link for that record type.](../../images/user/16j-expected-versus-found.png)
+
+Select **Review Products expectations** to return to that record type, or
+**Edit business expectations** to review all choices. In **What may this load
+change?**, choose the allowed changes and optional minimum and maximum counts.
+Open **Limit which matched fields may change** only when the load needs a
+narrower list of value or linked-field changes. Saving reassesses the saved
+comparison without reading Odoo again. Correct the source or matching rules
+instead when the proposed changes are wrong.
+
+![The business expectations editor keeps allowed changes and optional count limits together for Categories and Products.](../../images/user/16i-business-expectations.png)
+
+Use the field-count links to inspect the expected and proposed field effects.
+The detail page shows one record type and up to 50 effects at a time. If
+another tab saves newer expectations, reload the saved choices before editing
+again. Your older form cannot overwrite them silently.
 
 ## Steps in Impodo
 

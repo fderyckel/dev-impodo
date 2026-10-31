@@ -3,7 +3,7 @@
 ## Status and decision
 
 **Status:** Ranked first in the cross-plan implementation order and reassessed
-against the current checkout on 2026-10-30. Proposals 1, 3, 4, 5, 6, 7, 8,
+against the current checkout on 2026-10-31. Proposals 1, 3, 4, 5, 6, 7, 8,
 and 10 have useful implemented foundations. Proposals 2 and 9 are complete for
 their current scope.
 The shared root-cause correction journey from Proposals 1 and 8 now covers
@@ -24,19 +24,22 @@ supporting reads. Slice 13 completes Recipe closure and downstream checks for
 those decisions. Slice 14 now records portable business-intent revisions through
 an authorized command and an atomic data-plane store. Slice 15 now assesses
 the exact conventional file-source snapshot and enforces its intent before
-loading while preserving original approval during recovery. The next delivery
-is Slice 16's editor and expected-versus-found presentation from Proposal 10.
+loading while preserving original approval during recovery. Slice 16 adds the
+shared editor, bounded expected-versus-found review, exact confirmation, and
+zero-write completion. Proposal 10 is complete for the conventional file-source
+path; transfers and corrections retain their separate approval contracts.
+The next delivery is Slice 17's protected duplicate-group review.
 Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
 The remaining work is specified in **Remaining implementation slices** below.
-Slices 11 through 15 are implemented. Slice 16 completes the remaining visible
-business-intent decision journey. Slices
+Slices 11 through 16 are implemented. Slice 16 completes the visible
+business-intent decision journey for its current file-source scope. Slices
 17 through 21 cover the remaining protected-review, interface, and acceptance
 commitments.
 Conditional extensions have explicit entry conditions and are not silently
-counted as delivered. Slices 16 through 21 remain proposed.
+counted as delivered. Slices 17 through 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -414,7 +417,7 @@ delivery summary recorded:
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
-| **10. Intent and cockpit** | Load has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. Portable business intent now has authorized persistence, exact snapshot assessment, and enforcement for conventional file-source loads. | Add the editor and present expected versus observed effects with existing execution and recovery evidence. Preserve the separate transfer and correction approvals. |
+| **10. Intent and cockpit** | Load has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. Portable business intent has shared browser editing, bounded expected-versus-found review, exact snapshot enforcement, and zero-write completion for conventional file-source loads. | Complete for this file-source scope. Preserve separate transfer and correction approvals and qualify future server adapters through the existing worker boundary. |
 
 The impact score measures the benefit to the data manager, not implementation
 cost:
@@ -1362,8 +1365,10 @@ relationship status, a durable row journal, unknown-outcome handling,
 read-back-gated recovery, resume of the same journal, and final reconciliation.
 The explicit business-intent contract and authorized persistence API are also
 implemented. Exact snapshot assessment and enforcement are current for the
-conventional file-source path. Browser editing and one consolidated
-expected-versus-found presentation remain proposed.
+conventional file-source path. The shared browser editor, bounded
+expected-versus-found presentation, exact confirmation, zero-write completion,
+and original approved view during recovery are implemented through Slice 16.
+Odoo-to-Odoo transfers and completed-load corrections retain their own approvals.
 
 **Owning stages:** Final review and Load into Odoo.  
 **User impact:** **9.5/10**.
@@ -1457,16 +1462,15 @@ again.
 
 ## Remaining implementation slices
 
-This is the delivery order as of 2026-10-30. The slice numbers
-continue the delivered increments above. Slices 11 through 15 are implemented.
-The next implementation should start with Slice 16. Each slice must leave its affected behavior and the full
+This is the delivery order as of 2026-10-31. The slice numbers
+continue the delivered increments above. Slices 11 through 16 are implemented.
+The next implementation should start with Slice 17. Each slice must leave its affected behavior and the full
 repository gate green before the next slice begins.
 
 ### What is actually left
 
 | Remaining outcome | Slices | Completion evidence |
 | --- | --- | --- |
-| The data manager can edit and review business intent in the browser. | 16 | Display the saved expectation and enforced assessment with the existing journal and reconciliation states. Contract, persistence, and conventional file-source enforcement are delivered in Slices 14–15. |
 | The data manager can inspect repeated identity groups early. | 17 | Authorized, current, paged duplicate-group evidence explains the source or observed-target cause. |
 | The data manager can inspect unresolved choices in a saved relationship field. | 18 | Protected current pages show the actual choice and cause rather than linking only to the rule editor. |
 | The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
@@ -1689,6 +1693,36 @@ must prove zero writes; pre-execution rejection must also prove no new journal.
 browser controls, while the existing comparison and recovery remain authoritative.
 
 ### Slice 16: Show expected versus found in the current load journey
+
+**Delivery:** Implemented on 2026-10-31 for conventional file-source loads.
+Final review and confirmation consume a versioned bounded review published in
+the existing comparison transaction. The shared Stage 3 editor saves exact
+revision and binding receipts; explicit detail returns one model and 50 field
+effects. Main pages show at most 20 model summaries, and navigation reads only
+scalar readiness and hashes. No new storage migration or PostgreSQL rule copy
+is introduced.
+
+The approval envelope retains the original bounded review. Later edits do not
+replace an interrupted or completed run's approval. No-change completion checks
+the same expectations and exact receipt before publishing an empty journal;
+the adapter skips an empty bulk row insert while retaining approval and audit.
+Progress, recovery, and verified outcomes remain journal and reconciliation facts.
+
+Authenticated browser qualification covers native disclosure keys, error focus,
+stale tabs, a 390-pixel viewport, horizontal keyboard scrolling, confirmation,
+and the original interrupted approval. Route tests cover repeated saves,
+authorization, stale details, delayed worker entry, zero writes on rejection,
+zero-write minimums, and idempotent completion. The owning screenshots
+are captured from the isolated fictional application.
+
+Controlled hierarchy routes use six connections and one schema check, with no
+lock retries. Moving confirmation into one complete page callback reduces that
+fixture from 77 connections and 16 schema checks to six and one. Fresh-process
+1,000-row and 25,000-row probes retain the same 16-connection, three-schema-check
+comparison budget, with no retries. Their action-rich summary uses seven
+connections and Check changes uses six, each with one schema check. These are
+controlled measurements; a restarted live local or Linux deployment was not
+qualified by this slice.
 
 - Add the intent editor and **Expected versus found** assessment to Final
   review, with one correction action for each deviation. Show which rules were

@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Review rows to use &middot; Impodo{% endblock %}
+{% block content %}
+  <h1>Review rows to use</h1>
+  <p>These decisions belong to the current checked source and row rule. Filtering this page does not change the transfer.</p>
+  <form method="get">
+    <label>Source table <select name="dataset_id">{% for match in row_matches %}<option value="{{ match.dataset_id }}" {% if selected_match and match.dataset_id == selected_match.dataset_id %}selected{% endif %}>{{ match.model_label }}</option>{% endfor %}</select></label>
+    <label>Decision <select name="outcome">{% for value, label in [('all', 'Every row'), ('included', 'Included'), ('excluded', 'Excluded by rule'), ('cannot_evaluate', 'Could not be checked')] %}<option value="{{ value }}" {% if row_outcome == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    <button class="button secondary" type="submit">Filter rows</button>
+  </form>
+  <p>{{ row_total }} matching rows. Page {{ row_page }}. Up to 100 rows are shown.</p>
+  <div class="table-scroll"><table class="data-table">
+    <thead><tr><th scope="col">Source row</th><th scope="col">Decision</th>{% for column in row_columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for row in row_decisions %}<tr><td>{{ row.number }}</td><td>{{ {'included': 'Included', 'excluded': 'Excluded by rule', 'cannot_evaluate': 'Could not be checked'}[row.outcome] }}</td>{% for value in row['values'] %}<td>{{ value if value is not none else '' }}</td>{% endfor %}</tr>{% else %}<tr><td colspan="{{ row_columns|length + 2 }}">No matching rows.</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if selected_match %}<nav aria-label="Decision pages">
+    {% if row_page > 1 %}<a class="button secondary" href="?dataset_id={{ selected_match.dataset_id|urlencode }}&amp;outcome={{ row_outcome }}&amp;page={{ row_page - 1 }}">Previous page</a>{% endif %}
+    {% if row_has_next %}<a class="button secondary" href="?dataset_id={{ selected_match.dataset_id|urlencode }}&amp;outcome={{ row_outcome }}&amp;page={{ row_page + 1 }}">Next page</a>{% endif %}
+  </nav>{% endif %}
+  <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/destination-matching#matching-results">Back to destination matching</a></p>
+{% endblock %}

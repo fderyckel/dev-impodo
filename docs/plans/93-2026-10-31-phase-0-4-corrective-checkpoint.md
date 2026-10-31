@@ -119,6 +119,10 @@ Local logs are temporary verification aids:
 
 ## Supporting images still block acceptance
 
+This section records the original failing candidates. The later
+[supporting-image remediation report](../reports/2026-10-31-supporting-image-remediation.md)
+records repository-owned replacement builds and the remaining release limits.
+
 The Compose candidates retain the same PostgreSQL and Caddy versions but use
 refreshed official image digests:
 

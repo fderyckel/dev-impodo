@@ -205,28 +205,29 @@ class ExecutionRepository(DuckDbRepository):
                         run.write_context_hash,
                     ],
                 )
-                connection.executemany(
-                    """
-                    INSERT INTO execution_row VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
+                if run.rows:
+                    connection.executemany(
+                        """
+                        INSERT INTO execution_row VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
                         [
-                            canonical_run_id,
-                            ordinal,
-                            item.row_id,
-                            item.dataset,
-                            item.target_model,
-                            item.operation,
-                            item.status.value,
-                            item.attempt,
-                            item.odoo_id,
-                            item.safe_error,
-                            item.to_json(),
-                            run.started_at.isoformat(),
-                        ]
-                        for ordinal, item in enumerate(run.rows)
-                    ],
-                )
+                            [
+                                canonical_run_id,
+                                ordinal,
+                                item.row_id,
+                                item.dataset,
+                                item.target_model,
+                                item.operation,
+                                item.status.value,
+                                item.attempt,
+                                item.odoo_id,
+                                item.safe_error,
+                                item.to_json(),
+                                run.started_at.isoformat(),
+                            ]
+                            for ordinal, item in enumerate(run.rows)
+                        ],
+                    )
                 connection.execute(
                     "INSERT OR REPLACE INTO execution_current VALUES (1, ?)",
                     [canonical_run_id],

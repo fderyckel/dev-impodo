@@ -31,8 +31,10 @@ write-role credential.
 
 Normal loading and recovery support Odoo 19 and final Odoo 20 without a
 version-specific opt-in switch. The shared compatibility policy enables final
-Odoo 20 `WRITE` and `RECOVER` operation decisions. It continues to block
-`PRODUCTION`, prerelease builds, SaaS series, and other major versions.
+Odoo 20 `WRITE`, `RECOVER`, and `PRODUCTION` operation decisions. It continues
+to block Odoo 20 prerelease builds, SaaS series, and other major versions.
+Production retains its qualified-plan, same-major, target, access, and evidence
+checks.
 
 The 2026-10-08 controlled Odoo 20 write canary proved one synthetic Contact
 create, exact read-back, and repeat identity match against final Enterprise
@@ -47,7 +49,8 @@ Community, where the journal recorded three creates and reconciliation
 verified all three. This evidence supports the declared normal-load boundary.
 Visual JavaScript browser behavior, interrupted-write recovery, completed-load
 correction, non-Contact execution, Integrated Test, and transfer remain known
-coverage gaps to resolve as encountered. Production remains disabled.
+live-acceptance coverage gaps to resolve as encountered. These are limits of
+that recorded canary, rather than version-specific product restrictions.
 
 ## Odoo-to-Odoo transfer boundary in Stage 6
 
@@ -58,6 +61,62 @@ paths are Odoo 19 to Odoo 19 and final Odoo 20 to final Odoo 20. The destination
 key is used for matching, preflight, confirmed loading, and read-back; the
 source key is never substituted for it and no third credential role is
 introduced.
+
+### Rows to use in a transfer
+
+Destination-matching contract version 16 adds the same guided
+`RowInclusionPolicy` used by file mappings. The data manager authors it on
+**Match destination data**, checks the population, reviews protected decisions,
+and confirms exact exclusions before building transfer order or review.
+Zero retained rows and cannot-evaluate values remain blocking. A rule edit
+retires the previous order, review approval, and preflight through the existing
+matching-plan publication boundary.
+
+[`evaluate_transfer_row_inclusion`](../../../src/impodo/application/transfer_row_inclusion.py)
+projects all rule columns once per dataset before evaluating rows.
+[`CategoricalCoverageService.source_condition_rows`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py)
+preserves exact text, blanks, and Boolean values. It deliberately bypasses
+the identity projection's trimming and false-to-blank normalization.
+[`row_is_included`](../../../src/impodo/domain/mapping/row_inclusion.py) and
+`source_condition_matches` remain the authoritative Python evaluators. There
+is no repository or Odoo access inside the rule loop and no new native route.
+
+[`confirm_destination_row_inclusion`](../../../src/impodo/domain/workspace/destination_matching.py)
+checks the submitted plan hash and records its population hash. The hash binds
+source and schema evidence, policy meaning, original counts, and rule, manual,
+and unreferenced decisions for every dataset. Preflight and load preparation
+carry confirmation only when a fresh evaluation produces that same population.
+`ROW_INCLUSION_SCOPE_DRIFT` prevents a changed rule from inheriting approval,
+even when the retained row count happens to be unchanged.
+[`compile_transfer_execution_snapshot`](../../../src/impodo/application/transfer_execution_service.py)
+also re-evaluates the frozen rule operands before omitting rows. Included
+owners whose dependencies were excluded remain blocked by the existing
+relationship checks. Recovery retains the journal's exact compiled snapshot.
+
+`GET /destination-matching/rows-to-use` renders up to 100 protected decisions
+per page under the workspace prefix. It requires protected-evidence read
+access and performs one bulk operand projection. The confirmation POST uses
+`run_local_operation` and performs no remote call. Its route regression bounds
+connections at six: two request-binding reads and four operation owners. It
+also bounds schema checks at one. The page projection uses `run_page_read`.
+These are isolated-fixture connection measurements, not live latency claims.
+
+The authenticated 1440 by 1024 captures and keyboard checks are reproducible
+with [`capture_transfer_row_inclusion.py`](../../../scripts/capture_transfer_row_inclusion.py).
+Focused coverage lives in
+[`test_transfer_row_inclusion.py`](../../../tests/application/workspace/test_transfer_row_inclusion.py)
+and the [route regression](../../../tests/integration/web/test_transfer_row_inclusion.py).
+
+The opt-in [`qualify_row_inclusion_recipe.py`](../../../scripts/qualify_row_inclusion_recipe.py)
+passed against final remote Odoo `20.0+e` on 2026-10-31. It published a real
+Recipe from two fictional rows, applied it to three fresh rows, required
+confirmation of the new two-included/one-excluded population, and prepared
+only the two included Contacts. A scoped JSON-2 canary created and read back
+those two Contacts, verified the excluded reference was absent, and removed
+the synthetic records. This qualifies Recipe reuse and the scoped adapter
+canary. It does not qualify the execution journal or a transfer between two
+live Odoo servers. The [canary safety tests](../../../tests/integration/odoo/test_row_recipe_qualification.py)
+cover explicit write authorization and cleanup after a lost create reply.
 
 `DestinationMatchingService` performs bounded metadata and natural-key reads
 for every frozen source model. It resolves generic many-to-one and many-to-many
@@ -627,6 +686,20 @@ requires current read-back evidence. Ordinary review reads fetch bounded state,
 one blocker, and hashes without rebuilding row effects. These ports introduce
 no Linux browser access to worker-owned DuckDB.
 
+The confirmation page reads its complete preview, target context, and template
+inside one `run_page_read` callback. Its hidden assessment hash binds the
+reviewed intent and snapshot. `POST /workspaces/{workspace_id}/load/complete-no-changes`
+requires that same receipt and publishes an empty completed journal through
+`ExecutionService.complete_no_changes` in one local command scope. Repeating
+the completed submission returns the same run. Recipe Test automatic zero-write
+completion also passes its exact preview assessment hash.
+
+Journal approval stores the bounded review inside its hashed approval envelope.
+Check changes and **Originally approved changes** use that original projection
+after later intent edits. Execution progress, uncertainty, recovery, and
+completion still come from the journal and reconciliation. No display state
+can grant write authority or certify an Odoo outcome.
+
 ## Completion and navigation
 
 No-change previews complete without transport. A write run completes only when
@@ -859,6 +932,6 @@ supported Odoo target.
 - [Security and infrastructure](../../architecture/security-and-infrastructure.md)
 - [Local browser database operation scopes](../../architecture/code-organization.md#local-browser-database-operation-scopes)
 - [Platform support and testing](../reference/platform-support-and-testing.md)
-- [Remote Odoo 19 acceptance](../runbooks/remote-odoo-acceptance.md)
+- [Remote Odoo acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Proposed exact-record repair for known fallout](../../plans/06-load-fallout-source-cell-workbook.md)

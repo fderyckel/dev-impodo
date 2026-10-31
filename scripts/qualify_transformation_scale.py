@@ -1,4 +1,4 @@
-"""Run the Phase 7 transformation-scale qualification matrix.
+"""Qualify transformation performance across representative workloads.
 
 The release profile executes three fresh outer processes for every fixture.
 Each outer process performs first and repeat preparation in separate production
@@ -69,8 +69,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--customer-baseline",
         type=Path,
         help=(
-            "Three-run Phase-0 1,000-row customer benchmark captured on the "
-            "same workstation; required for release qualification."
+            "Three-run 1,000-row customer benchmark at the pinned baseline "
+            "revision, captured on the same workstation; required for release "
+            "qualification."
         ),
     )
     parser.add_argument(

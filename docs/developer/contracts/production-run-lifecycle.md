@@ -9,7 +9,8 @@ status: current
 ## Scope
 
 This contract governs use of one selected qualified CutoverPlan with a fresh
-complete Production DataVersion and a different compatible Odoo 19 target. It
+complete Production DataVersion and a different compatible Odoo 19 or final
+Odoo 20 target of the qualified Test's major version. It
 defines setup, activation, evidence separation, execution authority, recovery,
 and bounded persistence. The current Production path accepts file-source plans only;
 Odoo-source round-trip writes remain unsupported.
@@ -54,7 +55,8 @@ Activation requires all of the following:
 - the selected plan, Recipe revisions, dependencies, semantic requirements,
   shared controls, and field-level write owners remain exact;
 - current source bindings, delivery parameters, and controls are covered;
-- current Odoo 19 schema and supporting references satisfy the plan;
+- current Odoo 19 or final Odoo 20 schema and supporting references satisfy
+  the same-major plan;
 - the Production connection target differs from the qualified Test target;
 - read and write credential generations are distinct and target-bound; and
 - the write probe proves readable and writable access for the bounded plan

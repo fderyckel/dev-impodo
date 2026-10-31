@@ -1299,7 +1299,7 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(schema.origin, SchemaOrigin.LOCAL_MANUAL)
         self.assertEqual(
             schema.odoo_version,
-            "unverified local draft (expected Odoo 19)",
+            "unverified local draft",
         )
         self.assertEqual(
             self.schema_repository.get_odoo_schema_catalog(self.workspace_state.workspace_id),

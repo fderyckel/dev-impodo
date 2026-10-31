@@ -90,12 +90,7 @@ does not override this list.
     Guided inclusion is already available and useful. Finish the authenticated
     examples and documentation. Native execution remains conditional unless
     the bounded fallback becomes a measured release blocker.
-12. **Activate the remaining [Odoo 20 Production promotion](14-odoo-19-and-20-support.md)
-    only when product demand requires it.** Ordinary Odoo 19 and Odoo 20 work
-    is already supported. The remaining Production matrix is important for an
-    organization that needs that exact release path, but it should not outrank
-    improvements that help every current migration.
-13. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
+12. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
     alongside the product work it protects.** This remains important because
     unclear ownership makes safe changes slower and riskier. It is supporting
     work rather than a standalone data-manager feature, so extract the focused
@@ -558,15 +553,7 @@ behavior remains available. The proposed exact-ID writer in
 scheduled and must not be inferred from the existing successor correction
 workflow.
 
-### 7. Promote Odoo 20 Production
-
-**Status:** Deferred. Final Odoo 20 supports the qualified ordinary read,
-write, recovery, and same-major Recipe boundaries. Production remains blocked
-until its separate deployment, browser, recovery, Integrated Test, transfer,
-and representative-model promotion gate is activated and passed. The
-[dual-version support plan](14-odoo-19-and-20-support.md) owns that gate.
-
-### 8. Conditional target-side gateway
+### 7. Conditional target-side gateway
 
 **Status:** Deferred.
 
@@ -576,7 +563,7 @@ requirement cannot be met safely through the existing bounded connector and
 executor contracts. No generic RPC, SQL, `sudo`, or caller-selected method
 surface is permitted.
 
-### 9. Native row-inclusion execution
+### 8. Native row-inclusion execution
 
 **Status:** Deferred unless measurement makes the Python fallback a release
 blocker. The implemented evaluator remains bounded and authoritative. A native

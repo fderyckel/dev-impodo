@@ -5,14 +5,14 @@
 <section id="expected-versus-found" class="form-card business-review" aria-labelledby="expectation-review-title" data-business-review>
   <div class="page-heading compact">
     <div><p class="eyebrow">{{ 'Approved for this saved load' if business_run_id else 'Business expectations' }}</p><h2 id="expectation-review-title">Expected versus found</h2></div>
-    {% if business_review %}<span class="status {{ 'ready' if business_review.ready else 'review' }}">{{ 'Within expectations' if business_review.ready else 'Needs review' }}</span>{% endif %}
+    {% if business_review %}<span class="status {{ 'ready' if business_review.ready else 'review' }}">{{ 'Approved scope' if business_run_id else 'Within expectations' if business_review.ready else 'Needs review' }}</span>{% endif %}
   </div>
   {% if business_review %}
     <p>{{ business_review.message }}</p>
     {% if business_run_id %}<p class="muted">This saved load keeps the expectations approved when it started.</p>{% endif %}
     {% if business_review.state != 'STALE' %}
-    <div class="table-scroll" tabindex="0" aria-label="Expected and proposed changes by record type">
-      <table><thead><tr><th scope="col">Record type</th><th scope="col">Allowed changes</th><th scope="col">Expected new</th><th scope="col">Found new</th><th scope="col">Expected updates</th><th scope="col">Found updates</th><th scope="col">Result and next action</th></tr></thead>
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Expected and proposed changes by record type">
+      <table class="data-table"><thead><tr><th scope="col">Record type</th><th scope="col">Allowed changes</th><th scope="col">Expected new</th><th scope="col">Found new</th><th scope="col">Expected updates</th><th scope="col">Found updates</th><th scope="col">Result and next action</th></tr></thead>
       <tbody>{% for model in business_review.models %}<tr>
         <th scope="row">{{ model.label }}</th>
         <td>{{ change_modes[model.mode] if business_review.intent_version else 'No saved choice' }}</td>

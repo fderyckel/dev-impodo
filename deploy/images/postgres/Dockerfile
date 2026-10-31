@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM ${POSTGRES_IMAGE} AS runtime
 COPY --from=compiler --chmod=0755 /out/gosu /usr/local/bin/gosu
 COPY --from=compiler /source/LICENSE /usr/local/share/licenses/impodo-gosu/LICENSE
+COPY --from=compiler /usr/local/go/LICENSE /usr/local/share/licenses/impodo-gosu/GO-LICENSE
 RUN gosu --version && test "$(gosu nobody id -u)" = "65534"
 LABEL org.opencontainers.image.title="Impodo PostgreSQL rehearsal image" \
       org.opencontainers.image.version="18.6-impodo1" \

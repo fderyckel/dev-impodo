@@ -292,8 +292,6 @@ def _qualify(base_url: str, database: str, api_key: str) -> dict[str, object]:
     }
     if not all(operations[name] for name in ("CONNECT", "CAPTURE_SCHEMA", "CAPTURE_SOURCE", "COMPARE", "RECIPE")):
         raise RunbotQualificationError("A qualified Odoo 20 read operation is disabled")
-    if any(operations[name] for name in ("WRITE", "PRODUCTION", "RECOVER")):
-        raise RunbotQualificationError("An Odoo 20 write operation became enabled")
 
     return {
         "contract_version": 1,

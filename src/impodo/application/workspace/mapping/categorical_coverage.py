@@ -361,6 +361,31 @@ class CategoricalCoverageService:
             )
         return tuple(result)
 
+    def source_condition_rows(
+        self,
+        workspace_id: str,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+    ) -> tuple[tuple[object, ...], ...]:
+        """Project exact rule operands without identity trimming or blank coercion.
+
+        Row rules distinguish padded text from exact text and Boolean false
+        from a missing value. This protected projection must never use the
+        normalized matching-key representation returned by source_key_tuples.
+        """
+
+        keys = tuple(source_column_keys)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        dataset = next((item for item in selection.datasets if item.dataset_id == dataset_id), None) if selection else None
+        if (
+            selection is None or dataset is None or not keys
+            or len(keys) != len(set(keys))
+            or not set(keys).issubset(item.stable_key for item in dataset.columns)
+        ):
+            raise WorkspaceError("Choose current rows-to-use columns")
+        frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
+        return tuple(frame.select(keys).iter_rows())
+
     def source_identity_issue_rows(
         self,
         workspace_id: str,

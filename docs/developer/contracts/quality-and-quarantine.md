@@ -107,6 +107,13 @@ incomplete evidence, and inconsistent hashes fail closed. Set-aside and
 governed-excluded rows are removed before Odoo request planning while their
 evidence remains visible and reconciled.
 
+For an Odoo-to-Odoo transfer, the destination-matching plan owns the rule and
+manual omission decisions before request planning. The transfer review
+reconciles original and retained counts, and the execution compiler verifies
+the frozen rule decisions again. The [execution contract](execution-and-reconciliation.md)
+owns that transfer boundary; these omissions do not create additional
+canonical business-quality rows.
+
 ## Publication and invalidation
 
 Rules, runs, row results, issues, accounting links, and quarantine entries are

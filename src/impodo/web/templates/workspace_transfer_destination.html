@@ -14,7 +14,7 @@
 
   <div class="notice warning">
     <strong>Nothing will be written to either Odoo instance.</strong>
-    This stage checks the destination server, database, Odoo 19 version, and authenticated read access. Field matching and loading remain separate later stages.
+    This stage checks the destination server, database, supported Odoo version, and authenticated read access. The destination must use the same Odoo major version as the source. Field matching and loading remain separate later stages.
   </div>
 
   {% if workspace_state.destination_company and not workspace_state.destination_verified %}

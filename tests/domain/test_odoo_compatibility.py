@@ -43,13 +43,13 @@ class OdooCompatibilityTests(unittest.TestCase):
                     self.assertEqual(decision.reason, "ODOO_19_LEGACY_ACCEPTED")
 
     def test_disabled_majors_prereleases_and_saas_cannot_enable_any_operation(self):
-        for raw in ("18.0", "20.0rc1", "20.1a1", "21.0", "saas~19.4", "saas-20.1"):
+        for raw in ("18.0", "20.0b2", "20.0rc1", "20.1", "20.1a1", "21.0", "saas~19.4", "saas-20.1"):
             for operation in OdooOperation:
                 with self.subTest(raw=raw, operation=operation):
                     self.assertFalse(assess_odoo_operation(raw, operation).allowed)
 
-    def test_final_odoo20_supports_qualified_operations_but_not_production(self):
-        for raw in ("20.0", "20.0+e"):
+    def test_final_odoo20_supports_every_operation_including_production(self):
+        for raw in ("20.0", "20.0+e", "20.0-20261031"):
             for operation in (
                 OdooOperation.CONNECT,
                 OdooOperation.CAPTURE_SCHEMA,
@@ -61,22 +61,11 @@ class OdooCompatibilityTests(unittest.TestCase):
                     decision = assess_odoo_operation(raw, operation)
                     self.assertTrue(decision.allowed)
                     self.assertEqual(decision.reason, "ODOO_20_READ_QUALIFIED")
-            for operation in (OdooOperation.WRITE, OdooOperation.RECOVER):
+            for operation in (OdooOperation.WRITE, OdooOperation.RECOVER, OdooOperation.PRODUCTION):
                 with self.subTest(raw=raw, operation=operation):
                     decision = assess_odoo_operation(raw, operation)
                     self.assertTrue(decision.allowed)
                     self.assertEqual(decision.reason, "ODOO_20_WRITE_SUPPORTED")
-            decision = assess_odoo_operation(raw, OdooOperation.PRODUCTION)
-            self.assertFalse(decision.allowed)
-            self.assertEqual(decision.reason, "ODOO_OPERATION_DISABLED")
-
-    def test_prerelease_and_production_operations_remain_disabled(self):
-        for raw, operation in (
-            ("20.0rc1", OdooOperation.WRITE),
-            ("20.0", OdooOperation.PRODUCTION),
-        ):
-            with self.subTest(raw=raw, operation=operation):
-                self.assertFalse(assess_odoo_operation(raw, operation).allowed)
 
     def test_missing_and_malformed_strings_never_establish_a_major(self):
         for raw in (None, "", "unknown", 19, True, [], {}, "19", "19.", "19.garbage",

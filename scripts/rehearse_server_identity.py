@@ -1,4 +1,4 @@
-"""Exercise Phase 4 through the loopback TLS browser with fictional accounts.
+"""Rehearse server account and session workflows through the loopback TLS browser.
 
 Run with the checkout uv runner, ``--group quality --with playwright python``,
 then this script. Supply ``--operator-email`` and ``--password-file`` for the
@@ -38,9 +38,9 @@ def main() -> int:
     )
     if not 16 <= len(operator_password) <= 1024:
         parser.error("The operator password file is invalid")
-    output = arguments.output or Path(mkdtemp(prefix="impodo-phase4-browser-"))
+    output = arguments.output or Path(mkdtemp(prefix="impodo-server-identity-browser-"))
     output.mkdir(parents=True, exist_ok=True)
-    identifier = "phase4-browser-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S")
+    identifier = "server-identity-browser-" + datetime.now(UTC).strftime("%Y%m%d%H%M%S")
     admin_email = f"administrator@{identifier}.example.test"
     user_email = f"person@{identifier}.example.test"
     password = "Fictional browser trial password 2026!"
@@ -121,11 +121,11 @@ def main() -> int:
             form = platform.locator('form[action="/admin/organizations"]')
             form.locator('[name="organization_id"]').fill(identifier)
             form.locator('[name="display_name"]').fill(
-                f"Phase 4 fictional browser trial {identifier}"
+                f"Server identity fictional browser trial {identifier}"
             )
             form.get_by_role("button", name="Create Organization", exact=True).click()
             platform.get_by_role(
-                "link", name=f"Phase 4 fictional browser trial {identifier}", exact=True
+                "link", name=f"Server identity fictional browser trial {identifier}", exact=True
             ).click()
             step = "administrator assignment and activation"
             form = action_form(platform, "assign-administrator")
@@ -243,7 +243,7 @@ def main() -> int:
             for context in contexts:
                 context.close()
             browser.close()
-        print(f"Phase 4 browser rehearsal passed. Fictional Organization: {identifier}")
+        print(f"Server identity browser rehearsal passed. Fictional Organization: {identifier}")
         print(f"Screenshots without token material: {output}")
         print("Token-bearing request URLs: 0")
         return 0
@@ -251,7 +251,7 @@ def main() -> int:
         # Playwright exception text can include the attempted fragment URL.
         # Report only the fixed step and exception class, never its text.
         print(
-            f"Phase 4 browser rehearsal failed at {step} ({type(error).__name__}).",
+            f"Server identity browser rehearsal failed at {step} ({type(error).__name__}).",
             file=sys.stderr,
         )
         print(

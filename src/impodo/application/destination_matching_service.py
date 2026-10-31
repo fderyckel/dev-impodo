@@ -87,6 +87,10 @@ _TEXT_KEY_TYPES = frozenset({"char", "text", "selection"})
 
 
 class DestinationSourceValueReader(Protocol):
+    def source_condition_rows(
+        self, workspace_id: str, dataset_id: str, source_column_keys: Sequence[str]
+    ) -> tuple[tuple[object, ...], ...]: ...
+
     def source_identity_counts(
         self,
         workspace_id: str,

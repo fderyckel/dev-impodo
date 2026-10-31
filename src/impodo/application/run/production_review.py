@@ -70,12 +70,21 @@ class ProductionRunReviewUseCase:
             actor=actor,
         )
         issues = list(review.planning_issues)
+        issues.extend(
+            issue
+            for application in review.applications
+            for issue in application.assessment.issues
+            if issue.code in {
+                "RECIPE_TARGET_VERSION_UNSUPPORTED",
+                "RECIPE_TARGET_VERSION_INCOMPATIBLE",
+            }
+        )
         if target_schema.connection_target_hash == test_connection_target_hash:
             issues.append(
                 blocking_run_issue(
                     "PRODUCTION_TARGET_NOT_INDEPENDENT",
                     "Production uses the same Odoo target as Integrated Test.",
-                    "Capture the compatible Odoo 19 Production database instead.",
+                    "Capture a different Production database with the qualified Odoo major version.",
                     tuple(item.recipe_id for item in plan.selected_revisions),
                 )
             )
@@ -88,8 +97,8 @@ class ProductionRunReviewUseCase:
             issues.append(
                 blocking_run_issue(
                     "PRODUCTION_TARGET_EVIDENCE_UNSUPPORTED",
-                    "Production target evidence is not a current live Odoo 19 capture.",
-                    "Capture the Production Odoo 19 fields and supporting lists again.",
+                    "Production target evidence is not a current live capture of a supported Odoo version.",
+                    "Capture the Production Odoo fields and supporting lists again.",
                     tuple(item.recipe_id for item in plan.selected_revisions),
                 )
             )

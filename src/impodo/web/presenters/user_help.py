@@ -465,6 +465,7 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "workspace_transfer_order.html": "load-into-odoo",
         "workspace_transfer_preflight.html": "load-into-odoo",
         "workspace_transfer_review.html": "load-into-odoo",
+        "workspace_transfer_row_review.html": "load-into-odoo",
         "workspace_transformation_impact.html": "match-data",
     }
 )

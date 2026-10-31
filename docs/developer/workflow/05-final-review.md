@@ -15,6 +15,12 @@ execution snapshot.
 
 It is read-only with respect to Odoo and does not authorize a write.
 
+Confirmed row-inclusion exclusions and cannot-evaluate decisions remain in
+source accounting. They never enter target comparison, request planning, or
+execution eligibility. The [canonical staging contract](../contracts/canonical-staging.md)
+owns that disposition boundary. A missing source candidate does not imply a
+destination deletion.
+
 ## Contextual user guidance
 
 The blocked-record action and affected-group preview each link to their own
@@ -320,6 +326,43 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 
 ## Evidence and state
 
+### Bounded business-expectation review
+
+The file-source comparison transaction extends `ExecutionReviewProjection`
+with [`BusinessIntentReview`](../../../src/impodo/application/workspace/execution/business_review.py): assessment state, exact snapshot and intent
+hashes, counts, and at most 20 model summaries. Navigation extracts only scalar
+state and the assessment hash. Summary and Check changes do not decode the
+execution rows or reconstruct field effects. An intent edit marks only the
+future review candidate stale; explicit reassessment uses the saved observation.
+
+`business_expectations.py` exposes the Final review editor and explicit detail
+query. It reuses the Stage 3 form parser and `BusinessIntentService`; no second
+compiler or permission policy exists. Page reads enclose projection and render
+in `run_page_read`, while save and reassessment use one `run_local_operation`.
+Stale forms retain their original expected version, binding hash, operation
+identity, and submitted values on the 422 response.
+
+`PreflightService.business_intent_evidence` requires `PROJECT_VIEW` before any
+detail read and validates current comparison bindings or the immutable journal
+approval receipt. The adapter reads bounded intent and observation metadata,
+then returns at most 50 field effects for one model. The all-model picker is
+bounded by the intent's 100-model contract. No values, numeric Odoo identifiers,
+source scans, or Odoo calls enter this query.
+
+The integration fixture verifies six physical connections and one schema check
+for summary, Check changes, confirmation, editor, and detail requests. The save
+request also uses six connections: two authorization opens and four retained
+database path/configuration owners. These controlled counts are not a live
+latency guarantee. The 25,000-row action-rich performance fixture has a separate
+seven-connection summary ceiling because it traverses another evidence owner.
+
+See [bounded DTO tests](../../../tests/application/workspace/execution/test_business_review.py),
+[route and stale-approval tests](../../../tests/integration/web/test_business_expectations.py),
+and [authenticated browser qualification](../../../tests/e2e/test_business_expectations.py).
+To refresh the workflow images, run the browser test with
+`IMPODO_EXPECTATIONS_SCREENSHOT_DIRECTORY` set to `docs/images/user` and
+Playwright available. It uses isolated fictional data and a loopback server.
+
 For file-source loads, comparison also publishes a bounded business-write
 observation and immutable intent assessment in its existing transaction.
 [`observe_business_writes` and `assess_business_intent`](../../../src/impodo/domain/workspace/business_intent_assessment.py)
@@ -346,7 +389,8 @@ drift, and concurrent changes to intended fields.
 
 ## Completion and navigation
 
-Final review is complete only when the current report status is `READY`.
+Final review is complete only when the current report status is `READY` and
+the file-source business-expectation assessment is current and ready.
 Ambiguous or blocked rows keep the stage in **Needs attention**. File-source
 load requires a ready report. Odoo-source load remains unavailable under the
 current same-database pinned-update policy even when every checked row is safe.

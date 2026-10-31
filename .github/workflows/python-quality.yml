@@ -48,7 +48,8 @@ jobs:
   behavior:
     name: Behavior (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # The complete portable suite takes about an hour on Linux and longer on other hosts.
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

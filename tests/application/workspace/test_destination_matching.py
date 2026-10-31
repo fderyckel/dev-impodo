@@ -85,6 +85,9 @@ class _SourceValues:
     def source_key_tuples(self, _workspace_id, dataset_id, source_column_keys):
         return self.rows[(dataset_id, tuple(source_column_keys))]
 
+    def source_condition_rows(self, workspace_id, dataset_id, source_column_keys):
+        return self.source_key_tuples(workspace_id, dataset_id, source_column_keys)
+
 
 class DestinationMatchingTests(unittest.TestCase):
     def test_destination_handling_uses_canonical_relationship_origins(self) -> None:

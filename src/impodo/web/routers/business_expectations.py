@@ -51,6 +51,7 @@ def build_business_expectations_router(context: WebContext) -> APIRouter:
             request,
             "workspace_business_expectations.html",
             workspace_id=workspace_id,
+            workspace_state=context.queries.get(workspace_id),
             expectations=expectations,
             editor_error=error,
             submitted=submitted,
@@ -115,6 +116,7 @@ def build_business_expectations_router(context: WebContext) -> APIRouter:
                 request,
                 "workspace_business_expectation_detail.html",
                 workspace_id=workspace_id,
+                workspace_state=context.queries.get(workspace_id),
                 evidence=None,
                 evidence_error=str(error),
                 status_code=409,
@@ -123,6 +125,7 @@ def build_business_expectations_router(context: WebContext) -> APIRouter:
             request,
             "workspace_business_expectation_detail.html",
             workspace_id=workspace_id,
+            workspace_state=context.queries.get(workspace_id),
             evidence=result,
             evidence_error="",
         )

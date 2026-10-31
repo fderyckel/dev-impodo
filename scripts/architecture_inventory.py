@@ -1,4 +1,4 @@
-"""Build and verify the deterministic Phase 0 Python import baseline."""
+"""Build and verify the deterministic Python architecture inventory."""
 
 from __future__ import annotations
 
@@ -254,7 +254,7 @@ def _digest(value: object) -> str:
 
 
 def build_snapshot(package_root: Path = DEFAULT_PACKAGE_ROOT) -> dict[str, object]:
-    """Build the concise, reviewable Phase 0 architecture snapshot."""
+    """Build a concise, reviewable Python architecture snapshot."""
 
     modules = discover_modules(package_root)
     edges = discover_imports(modules)

@@ -1,4 +1,4 @@
-"""Capture the qualified Stage 2 matching-rule decisions.
+"""Capture Odoo business-key and matching-rule decisions.
 
 The helper serves an isolated authenticated Impodo application, uses only
 fictional captured Odoo 19 schema evidence, and writes four 1440 by 1024 PNG

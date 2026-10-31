@@ -57,6 +57,22 @@ supporting row remains blocking. Before execution compilation omits a row, it
 must prove that the full frozen row count and the approved exclusion count
 still match the current plan and review package.
 
+Destination-matching contract version 16 also stores the shared
+`RowInclusionPolicy`, ordered rule-excluded and cannot-evaluate row numbers,
+and an exact population-confirmation hash. Rule decisions remain separate
+from manual source-record omissions and unreferenced setup rows. Their union
+determines the retained population, so an overlapping manual omission is
+counted once without erasing the manual decision.
+
+An invalid rule, unreadable typed operand, or empty retained rule population
+cannot authorize a transfer. Exclusions require confirmation of the complete
+source, rule meaning, counts, and ordered decisions. A changed population
+invalidates downstream transfer evidence. Fresh preflight re-evaluates the
+rule against frozen source values, and execution compilation checks those
+values again before constructing the journal's exact row set. Recovery uses
+that same bound snapshot and cannot reintroduce an excluded row. Earlier plan
+payloads retain their original hashes and require a new destination check.
+
 ## Authorization and binding
 
 Prepared-data execution requires a current `READY` final-review report. An

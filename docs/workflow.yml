@@ -351,11 +351,15 @@ stages:
       - src/impodo/adapters/duckdb/production_run_repository.py::ProductionRunRepository
       - src/impodo/adapters/duckdb/migration_run_planning_repository.py::MigrationRunPlanningRepository.activate_production_run
       - src/impodo/domain/run/production.py::ProductionRunBinding
+      - src/impodo/domain/odoo/compatibility.py::assess_odoo_operation
       - src/impodo/web/routers/execution.py::build_execution_router
     tests:
       - tests/application/run/test_production_rollout.py
       - tests/application/run/test_production_values.py
       - tests/integration/web/test_production_readiness.py
+      - tests/domain/test_odoo_compatibility.py
+      - tests/domain/workspace/test_business_intent_scope.py
+      - tests/application/workspace/test_business_intent_service.py
     contracts:
       - docs/developer/contracts/production-run-lifecycle.md
       - docs/developer/contracts/cutover-plan-lifecycle.md
@@ -410,8 +414,8 @@ stages:
       - src/impodo/adapters/duckdb/supporting_review_repository.py::SupportingReviewRecords
       - src/impodo/web/presenters/schema.py::_schema_key_views
       - src/impodo/web/presenters/supporting_models.py::supporting_model_plan_view
-      - scripts/capture_stage2_matching_rule_screenshots.py::capture
-      - scripts/capture_stage2_matching_rule_screenshots.py::capture_supporting_review
+      - scripts/capture_matching_rule_screenshots.py::capture
+      - scripts/capture_matching_rule_screenshots.py::capture_supporting_review
       - scripts/capture_product_supporting_review.py::capture
     tests:
       - tests/integration/duckdb/test_workspace.py
@@ -705,6 +709,10 @@ stages:
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.deferred_scope_review
       - src/impodo/application/preflight_service.py::PreflightService.accept_deferred_scope
+      - src/impodo/application/preflight_service.py::PreflightService.business_intent_review
+      - src/impodo/application/preflight_service.py::PreflightService.business_intent_evidence
+      - src/impodo/application/workspace/execution/business_review.py::BusinessIntentReview
+      - src/impodo/application/workspace/execution/business_review.py::business_intent_evidence_page
       - src/impodo/application/workspace/execution/navigation.py::ExecutionPreviewSummary
       - src/impodo/application/workspace/execution/navigation.py::ExecutionReviewProjection
       - src/impodo/application/workspace/execution/navigation.py::build_execution_review_projection
@@ -752,12 +760,16 @@ stages:
       - tests/integration/duckdb/test_navigation_repository.py
       - tests/architecture/test_workspace_navigation_boundaries.py
       - tests/integration/web/test_recipe_comparison_recovery.py
+      - tests/application/workspace/execution/test_business_review.py
+      - tests/integration/web/test_business_expectations.py
+      - tests/e2e/test_business_expectations.py
       - tests/integration/web/test_odoo_transfer_journey.py
       - tests/domain/preparation/test_target_first_relationships.py
     contracts:
       - docs/developer/contracts/preflight.md
       - docs/developer/contracts/quality-and-quarantine.md
       - docs/developer/contracts/deferred-record-groups.md
+      - docs/developer/contracts/business-intent.md
 
   - id: load
     order: 6
@@ -782,6 +794,7 @@ stages:
       - src/impodo/web/templates/workspace_correction_progress.html
       - src/impodo/web/templates/workspace_transfer_destination.html
       - src/impodo/web/templates/workspace_destination_matching.html
+      - src/impodo/web/templates/workspace_transfer_row_review.html
       - src/impodo/web/templates/workspace_transfer_order.html
       - src/impodo/web/templates/workspace_transfer_review.html
       - src/impodo/web/templates/workspace_transfer_preflight.html
@@ -799,6 +812,7 @@ stages:
       - src/impodo/adapters/duckdb/business_intent_assessment_repository.py::BusinessIntentAssessmentRepository
       - src/impodo/adapters/duckdb/business_intent_repository.py::BusinessIntentRepository
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.complete_no_changes
       - src/impodo/application/workspace/execution/service.py::ExecutionService.review_recovery
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
       - src/impodo/application/workspace/execution/service.py::_targeted_recovery_row_ids
@@ -840,6 +854,10 @@ stages:
       - src/impodo/application/destination_matching_service.py::destination_governed_key_choices
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_counts
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_issue_rows
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_condition_rows
+      - src/impodo/application/transfer_row_inclusion.py::evaluate_transfer_row_inclusion
+      - src/impodo/application/transfer_row_inclusion.py::verify_transfer_row_inclusion
+      - src/impodo/domain/workspace/destination_matching.py::confirm_destination_row_inclusion
       - src/impodo/domain/workspace/destination_matching.py::DestinationCreateFieldDecision
       - src/impodo/domain/workspace/destination_matching.py::DestinationCreateIncomingReferenceCandidate
       - src/impodo/domain/workspace/destination_matching.py::DestinationModelMatch
@@ -860,6 +878,8 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
       - scripts/capture_load_recovery.py::capture
       - scripts/capture_odoo_transfer_screenshots.py::capture
+      - scripts/capture_transfer_row_inclusion.py::capture
+      - scripts/qualify_row_inclusion_recipe.py::qualify
     tests:
       - tests/application/workspace/execution/test_service.py
       - tests/application/workspace/execution/test_company_context.py
@@ -910,6 +930,9 @@ stages:
       - tests/integration/web/test_transfer_review_presenter.py
       - tests/integration/web/test_transfer_preflight_routes.py
       - tests/integration/web/test_transfer_page_reads.py
+      - tests/application/workspace/test_transfer_row_inclusion.py
+      - tests/integration/web/test_transfer_row_inclusion.py
+      - tests/integration/odoo/test_row_recipe_qualification.py
       - tests/integration/web/test_transfer_load_routes.py
       - tests/integration/duckdb/test_transfer_order_persistence.py
     contracts:

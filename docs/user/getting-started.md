@@ -16,7 +16,7 @@ Recipe to start or finish the work.
 For a file project, collect the related CSV or XLSX exports from the legacy
 system. For an Odoo-source project, have the exact supported Odoo 19 or final
 Odoo 20 address, database name, and read-only API key. Both supported majors
-can continue through same-major loading. Odoo 20 Production is not enabled.
+can continue through same-major loading and qualified-plan Production rollout.
 
 ## Steps in Impodo
 

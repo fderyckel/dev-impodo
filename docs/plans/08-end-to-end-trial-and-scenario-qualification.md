@@ -115,8 +115,8 @@ requested path as already available.
 | Continuous end-to-end monitoring | A common definition/result contract and committed offline Contact canary now exist. There is no scheduler, trend store, or complete risk catalogue yet. | Add the remaining catalogue, scheduler entry point, retention, and comparable trend reporting. |
 | Every record and every linked record from one Odoo model | Current capture is explicitly selected and bounded. It does not recursively crawl arbitrary Odoo links. | Add a reviewed, bounded relationship-capture plan. Never expose an unrestricted graph crawl. |
 
-The existing `scripts/p4_representative_runner.py` remains a valuable seed. It
-already proves a disposable database namespace, generated sanitized inputs,
+The existing `scripts/qualify_representative_migration.py` remains a valuable
+seed. It already proves a disposable database namespace, generated sanitized inputs,
 real preflight and execution services, reconciliation, repeat comparison, and
 credential-safe JSON output. The current scenario runner has absorbed the
 definition, compact result, local namespace, durable journal, reconciliation,
