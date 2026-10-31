@@ -195,6 +195,7 @@ class PreflightPublicationTests(unittest.TestCase):
         )
 
         with (
+            patch("impodo.application.preflight_service.observe_business_writes"),
             patch(
                 "impodo.application.preflight_service.reduce_execution_snapshot",
                 return_value=reduced,
@@ -318,7 +319,7 @@ class PreflightPublicationTests(unittest.TestCase):
         )
         service._load_frozen_input = MagicMock(
             return_value=SimpleNamespace(
-                plan=SimpleNamespace(semantic_hash="sha256:" + "8" * 64),
+                plan=SimpleNamespace(semantic_hash="sha256:" + "8" * 64, datasets=()),
                 prepared=SimpleNamespace(records=()),
                 captured_schema=SimpleNamespace(odoo_version="19.0"),
                 revision=object(),
@@ -407,6 +408,7 @@ class PreflightPublicationTests(unittest.TestCase):
                 ),
             ),
             self.assertRaisesRegex(WorkspaceError, "injected persistence failure"),
+            patch("impodo.application.preflight_service.observe_business_writes"),
         ):
             service.compare(
                 workspace_id,

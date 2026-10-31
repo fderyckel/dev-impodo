@@ -27,6 +27,11 @@ from typing import Any
 
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
+from impodo.domain.odoo.company import (
+    CompanyReferenceCheck,
+    OdooCompanyAccess,
+    OdooCompanySelection,
+)
 from impodo.domain.odoo.compatibility import (
     OdooOperation,
     assess_odoo_operation,
@@ -114,6 +119,28 @@ class LocalOdooMetadataReader:
     ) -> None:
         self._runner = runner or _run_local_shell
         self._timeout_seconds = timeout_seconds
+
+    def get_company_access(self, workspace_state: WorkspaceState, profile: LocalStackProfile) -> OdooCompanyAccess:
+        """Read available companies through the fixed rolled-back metadata shell."""
+        payload = self._invoke(workspace_state, profile, _script('''
+companies = env["res.company"].search_read(
+    [("id", "in", env.user.company_ids.ids), ("active", "=", True)],
+    ["id", "name"], limit=1001, order="name asc, id asc")
+payload = {"database": env.cr.dbname, "version": release.version,
+    "version_info": release.version_info, "login": env.user.login,
+    "default_company_name": env.user.company_id.display_name, "companies": companies}
+'''))
+        rows = payload.get("companies")
+        if not isinstance(rows, list) or not rows or len(rows) > 1000:
+            raise LocalOdooReaderError("Local Odoo company choices are incomplete")
+        target = self._fingerprint(workspace_state, payload).target_hash
+        try:
+            choices = tuple(OdooCompanySelection(target, row["id"], row["name"]) for row in rows)
+            if len({item.company_id for item in choices}) != len(choices):
+                raise ValueError("Duplicated company")
+            return OdooCompanyAccess(str(payload["login"]), str(payload["default_company_name"]), choices)
+        except (KeyError, TypeError, ValueError) as error:
+            raise LocalOdooReaderError("Local Odoo company choices are invalid") from error
 
     def get_target_fingerprint(
         self,
@@ -419,6 +446,7 @@ class LocalOdooMetadataReader:
             MetadataSnapshot(
                 fingerprint=fingerprint,
                 models=parsed_models,
+                company_checks=tuple(CompanyReferenceCheck.from_dict(item) for item in payload.get("company_checks", ())),
                 create_defaults=create_defaults,
                 complete=True,
                 limitations=(
@@ -443,6 +471,8 @@ class LocalOdooMetadataReader:
         """Run one fixed script against the validated local stack and parse it."""
 
         _validate_local_binding(workspace_state, profile)
+        if workspace_state.odoo_company is not None:
+            script = f"env = env(context=dict(env.context, allowed_company_ids={workspace_state.odoo_operation_context['allowed_company_ids']!r}))\n" + script
         python_path = profile.python_path
         odoo_bin_path = profile.odoo_bin_path
         if python_path is None or odoo_bin_path is None:
@@ -818,12 +848,31 @@ for request in record_requests:
             break
         offset += len(page)
     captured_records.setdefault(request["model"], []).extend(rows)
+company_checks = []
+company_groups = {{}}
+for model_name, captured in captured_models.items():
+    for field_name in captured["fields"]:
+        field = env[model_name]._fields[field_name]
+        if field.type != "many2one" or not field.company_dependent or not field.check_company:
+            continue
+        related = env[field.comodel_name].sudo().with_context(active_test=False)
+        ids = sorted({{row["id"] for row in captured_records.get(field.comodel_name, [])}})
+        domain = related._check_company_domain(env.company)
+        key = (field.comodel_name, str(domain))
+        if key not in company_groups:
+            allowed = set()
+            for start in range(0, len(ids), 500):
+                allowed.update(related.search([("id", "in", ids[start:start+500])] + list(domain)).ids)
+            company_groups[key] = sorted(set(ids) - allowed)
+        company_checks.append({{"parent_model": model_name, "field": field_name,
+            "relation_model": field.comodel_name, "incompatible_ids": company_groups[key]}})
 payload = {{
     "database": env.cr.dbname,
     "version": release.version,
     "version_info": release.version_info,
     "models": captured_models,
     "records": captured_records,
+    "company_checks": company_checks,
 }}
 """
     )

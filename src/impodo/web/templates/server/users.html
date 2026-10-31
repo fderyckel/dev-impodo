@@ -1,61 +1,33 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Users · Impodo administration</title>
-  </head>
-  <body>
-    <header>
-      <strong>Impodo administration</strong>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">Sign out</button>
-      </form>
-    </header>
-    <main>
-      <h1>Users</h1>
-      <p>Role: Organization Administrator. This session is permanently bound to one Organization.</p>
-      <p>Project roles and Project access remain read-only until Phase 5 implements their assignment.</p>
-
-      <form method="get" action="/admin/users">
-        <label for="status">Account status</label>
-        <select id="status" name="status">
-          <option value="">All statuses</option>
-          {% for value in ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED'] %}
-            <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value }}</option>
-          {% endfor %}
-        </select>
-        <button type="submit">Filter</button>
-      </form>
-
-      {% if page.items %}
-        <table>
-          <thead>
-            <tr><th>Name</th><th>Login email</th><th>Account kind</th><th>Status</th></tr>
-          </thead>
-          <tbody>
-            {% for user in page.items %}
-              <tr>
-                <td><a href="/admin/users/{{ user.user_id }}">{{ user.display_name }}</a></td>
-                <td>{{ user.normalized_login_email }}</td>
-                <td>{{ user.principal_kind.value }}</td>
-                <td>{{ user.status.value }}</td>
-              </tr>
-            {% endfor %}
-          </tbody>
-        </table>
-      {% else %}
-        <p>No users match this filter.</p>
-      {% endif %}
-
-      {% if page.next_after_user_id %}
-        <form method="get" action="/admin/users">
-          <input type="hidden" name="after_user_id" value="{{ page.next_after_user_id }}">
-          {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
-          <button type="submit">Next page</button>
-        </form>
-      {% endif %}
-    </main>
-  </body>
-</html>
+{% extends "server/base.html" %}
+{% block title %}Users · Impodo administration{% endblock %}
+{% block content %}
+<h1>Users</h1><p>Role: Organization Administrator. Organization: {{ session.subject.organization_id }}.</p>
+<p>You manage accounts in this Organization. Creating an account does not grant Project access.</p>
+<section><h2>Create a user</h2>
+<form method="post" action="/admin/users">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label>Display name <input name="display_name" maxlength="200" required></label>
+  <label>Login email <input name="login_email" type="email" maxlength="320" autocomplete="off" required></label>
+  <button type="submit">Create user and activation link</button>
+</form></section>
+<section><h2>Current users</h2>
+<form method="get" action="/admin/users">
+  <label>Account status <select name="status"><option value="">All statuses</option>
+    {% for value in ['PENDING_ACTIVATION', 'ACTIVE', 'SUSPENDED', 'DEACTIVATED'] %}
+    <option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|replace('_', ' ')|title }}</option>
+    {% endfor %}</select></label><button type="submit">Filter</button>
+</form>
+{% if page.items %}<div class="table-scroll"><table>
+  <thead><tr><th>Name</th><th>Login email</th><th>Account kind</th><th>Status</th></tr></thead>
+  <tbody>{% for user in page.items %}<tr>
+    <td><a href="/admin/users/{{ user.user_id }}">{{ user.display_name }}</a></td>
+    <td>{{ user.normalized_login_email }}</td><td>{{ user.principal_kind.value|replace('_', ' ')|title }}</td><td>{{ user.status.value|replace('_', ' ')|title }}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>{% else %}<p>No users match this filter.</p>{% endif %}
+{% if page.next_after_user_id %}<form method="get" action="/admin/users">
+  <input type="hidden" name="after_user_id" value="{{ page.next_after_user_id }}">
+  {% if status %}<input type="hidden" name="status" value="{{ status }}">{% endif %}
+  <button type="submit">Next page</button>
+</form>{% endif %}
+</section>
+{% endblock %}

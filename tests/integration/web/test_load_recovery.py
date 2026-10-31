@@ -136,6 +136,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             mocks = {}
             def patched(name, owner, method, **kwargs):
                 mocks[name] = stack.enter_context(patch.object(owner, method, **kwargs))
+            patched("business_intent", type(context.execution), "require_business_intent", return_value=None)
             patched("preview", type(context.execution), "current_preview",
                     **({"side_effect": preview_reader} if preview_reader else {"return_value": self.preview}))
             patched("bounded_review", type(context.execution), "current_review",

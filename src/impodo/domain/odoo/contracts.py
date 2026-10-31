@@ -20,6 +20,8 @@ from impodo.domain.shared.models import (
     portable_value,
 )
 
+from .company import CompanyReferenceCheck
+
 
 @dataclass(frozen=True, slots=True)
 class MetadataRequest:
@@ -67,6 +69,7 @@ class MetadataSnapshot:
     limitations: tuple[str, ...] = ()
     reference_evidence: tuple[ReferenceEvidenceBinding, ...] = ()
     content_hash: str | None = None
+    company_checks: tuple[CompanyReferenceCheck, ...] = ()
 
 
 def merge_disjoint_metadata_snapshots(
@@ -123,6 +126,7 @@ def merge_disjoint_metadata_snapshots(
                 | set(addition.reference_evidence)
             )
         ),
+        company_checks=(*current.company_checks, *addition.company_checks),
         content_hash=None,
     )
 
@@ -229,6 +233,8 @@ def metadata_snapshot_payload(snapshot: MetadataSnapshot) -> dict[str, Any]:
             }
             for item in sorted(snapshot.reference_evidence)
         ]
+    if snapshot.company_checks:
+        payload["company_checks"] = [item.to_dict() for item in snapshot.company_checks]
     return payload
 
 

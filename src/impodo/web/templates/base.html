@@ -336,6 +336,12 @@
               {{ user_help_link(page_help_target, "page-help-link") }}
             </div>
           {% endif %}
+          {% if workspace_state and workspace_state.source_mode is defined %}
+            {% set operation_company = workspace_state.destination_company if workspace_state.source_mode.value == 'ODOO' else workspace_state.odoo_company %}
+            {% if operation_company %}
+              <p class="muted" data-operation-company><strong>{{ 'Destination company' if workspace_state.source_mode.value == 'ODOO' else 'Company used for this import' }}:</strong> {{ operation_company.name }}</p>
+            {% endif %}
+          {% endif %}
           {% block content %}{% endblock %}
         </div>
       </main>

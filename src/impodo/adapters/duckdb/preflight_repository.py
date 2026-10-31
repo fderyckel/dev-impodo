@@ -35,6 +35,7 @@ from impodo.domain.odoo.contracts import (
 )
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import canonical_json_text, target_identity_hash
+from impodo.domain.workspace.business_intent_assessment import BusinessWriteObservation
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
@@ -43,13 +44,16 @@ from ...domain.preflight.reports import (
     ReadinessRow,
     ReadinessRowPage,
 )
+from .business_intent_assessment_repository import (
+    BusinessIntentAssessmentRepository,
+    publish_business_observation,
+)
 from .constants import PREFLIGHT_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
-from .repository import DuckDbRepository
 from .workspace_state_repository import WorkspaceStateRepository
 
 
-class PreflightRepository(DuckDbRepository):
+class PreflightRepository(BusinessIntentAssessmentRepository):
     """Own immutable readiness runs and the current compatible report pointer.
 
     Numeric Odoo IDs are permitted only in the protected target snapshots
@@ -239,6 +243,7 @@ class PreflightRepository(DuckDbRepository):
         execution_summary: ExecutionPreviewSummary | None = None,
         execution_review: ExecutionReviewProjection | None = None,
         expected_workspace_revision: int | None = None,
+        business_observation: BusinessWriteObservation | None = None,
     ) -> None:
         """Atomically publish a report, rows, snapshots, pointer, and audit event.
 
@@ -648,6 +653,10 @@ class PreflightRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if business_observation is not None:
+                    if execution_summary is None or business_observation.workspace_id != workspace_id or business_observation.snapshot_hash != execution_summary.snapshot_hash or business_observation.preflight_run_id != canonical_run_id or business_observation.target_hash != report.target_hash:
+                        raise WorkspaceError("Business effects differ from the comparison publication")
+                    publish_business_observation(connection, business_observation)
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -668,6 +677,7 @@ class PreflightRepository(DuckDbRepository):
         execution_review: ExecutionReviewProjection,
         decision_hash: str,
         actor: Actor,
+        business_observation: BusinessWriteObservation | None = None,
     ) -> None:
         """Publish the compact load projection for one reviewed safe remainder."""
 
@@ -793,6 +803,10 @@ class PreflightRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
+                if business_observation is not None:
+                    if business_observation.workspace_id != workspace_id or business_observation.snapshot_hash != execution_summary.snapshot_hash or business_observation.reduced_scope_hash != decision_hash:
+                        raise WorkspaceError("Business effects differ from the reduced scope")
+                    publish_business_observation(connection, business_observation)
                 connection.commit()
             except Exception:
                 connection.rollback()

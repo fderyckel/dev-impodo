@@ -1,0 +1,7 @@
+{% extends "server/base.html" %}
+{% block title %}Account request · Impodo{% endblock %}
+{% block content %}
+<h1>Account request</h1><p>{{ message }}</p>
+{% if guidance %}<p>{{ guidance }}</p>{% endif %}
+<p><a href="/login">Sign in</a></p>
+{% endblock %}

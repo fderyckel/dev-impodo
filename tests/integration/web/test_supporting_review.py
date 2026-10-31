@@ -197,6 +197,11 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         path = repository.workspace_directory(self.workspace_id) / "workspace-engine.duckdb"
         with repository._connect(path) as connection:
             original = connection.execute("SELECT review_json FROM supporting_data_review").fetchone()[0]
+            connection.execute("DROP TABLE business_intent_approval")
+            connection.execute("DROP TABLE business_intent_current")
+            connection.execute("DROP TABLE business_intent_assessment")
+            connection.execute("DROP TABLE business_write_observation")
+            connection.execute("DROP TABLE odoo_company_binding")
             connection.execute("DROP TABLE business_intent_revision")
             connection.execute("DROP TABLE supporting_review_projection")
             connection.execute("UPDATE schema_version SET version = 21")

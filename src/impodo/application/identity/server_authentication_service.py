@@ -1,4 +1,4 @@
-"""Authenticate either supported shared-server administrator identity."""
+"""Authenticate globally unique server identities within permanent tenant scope."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ _DUMMY_PASSWORD_HASH = PasswordHash(
 
 
 class ServerAuthenticationService:
-    """Apply one generic policy across Platform and Organization login."""
+    """Apply one generic policy across all supported server identities."""
 
     def __init__(
         self,
@@ -67,7 +67,7 @@ class ServerAuthenticationService:
         *,
         deployment_id: str,
     ) -> ServerAuthenticationResult:
-        """Verify one globally unique administrator credential generically."""
+        """Verify one globally unique credential without disclosing account state."""
 
         attempted_at = self._clock()
         if attempted_at.tzinfo is None or attempted_at.utcoffset() is None:

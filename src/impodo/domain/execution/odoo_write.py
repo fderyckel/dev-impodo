@@ -14,7 +14,9 @@ MAX_PROJECTED_RECEIPT_IDS = 500
 class OdooWriteError(RuntimeError):
     """Base class for safe Odoo load failures."""
 
-    def __init__(self, message: str, *, diagnostic: OdooWriteDiagnostic | None = None) -> None:
+    def __init__(
+        self, message: str, *, diagnostic: OdooWriteDiagnostic | None = None
+    ) -> None:
         super().__init__(message)
         self.diagnostic = diagnostic
 

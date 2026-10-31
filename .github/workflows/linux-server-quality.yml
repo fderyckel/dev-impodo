@@ -72,7 +72,7 @@ jobs:
 
       - name: Run Linux-owned tests
         run: >-
-          uv run --frozen --group quality python -m unittest discover
+          uv run --frozen --group quality --extra test python -m unittest discover
           -s tests/platform/linux -t . -p "test_*.py" -v
 
       - name: Run server integration contracts

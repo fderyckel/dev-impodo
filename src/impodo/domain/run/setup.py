@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -39,6 +40,8 @@ class MigrationRunTargetSetup:
     database: str
     intended_applications: tuple[str, ...]
     updated_at: datetime
+    company_binding_hash: str = ""
+    company_workspace_id: str | None = None
 
     def __post_init__(self) -> None:
         require_uuid(self.migration_run_id, "migration_run_id")
@@ -65,6 +68,12 @@ class MigrationRunTargetSetup:
             clean_target_choices(self.intended_applications),
         )
         require_aware(self.updated_at, "updated_at")
+        if bool(self.company_binding_hash) != bool(self.company_workspace_id):
+            raise MigrationFoundationError("The Odoo company binding is incomplete")
+        if self.company_workspace_id is not None:
+            require_uuid(self.company_workspace_id, "company_workspace_id")
+            if re.fullmatch(r"sha256:[0-9a-f]{64}", self.company_binding_hash) is None:
+                raise MigrationFoundationError("The Odoo company binding is invalid")
 
 
 class MigrationRunTargetSetupRepository(Protocol):
@@ -158,6 +167,12 @@ class MigrationRunTargetSetupService:
             database=database,
             intended_applications=tuple(intended_applications),
             updated_at=utc_now(),
+            company_binding_hash=(current.company_binding_hash if current is not None
+                and current.connection_mode == connection_mode and current.base_url == base_url.rstrip("/")
+                and current.database == database else ""),
+            company_workspace_id=(current.company_workspace_id if current is not None
+                and current.connection_mode == connection_mode and current.base_url == base_url.rstrip("/")
+                and current.database == database else None),
         )
         if current is not None and (
             setup.connection_mode == current.connection_mode

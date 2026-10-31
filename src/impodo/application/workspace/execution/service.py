@@ -65,6 +65,10 @@ from impodo.domain.shared.models import (
     target_record_binding_hash,
 )
 from impodo.domain.target_numeric_precision import TargetNumericPrecisionLosses
+from impodo.domain.workspace.business_intent_assessment import (
+    BusinessIntentAssessment,
+    BusinessIntentAssessmentSummary,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -194,6 +198,13 @@ def _targeted_recovery_row_ids(
     return frozenset(selected)
 
 
+def _business_intent_error(assessment: BusinessIntentAssessment | BusinessIntentAssessmentSummary | None) -> str:
+    """Give one actionable blocker without rendering unbounded rule detail."""
+    if assessment is None:
+        return "Review business expectations against the current comparison before loading"
+    return assessment.deviations[0] if assessment.deviations else "Review business expectations before loading"
+
+
 class ExecutionWorkspaceRepository(Protocol):
     """Read the target configuration needed to validate an execution snapshot."""
 
@@ -203,6 +214,10 @@ class ExecutionWorkspaceRepository(Protocol):
 
 
 class ExecutionSnapshotRepository(Protocol):
+    def current_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessment | BusinessIntentAssessmentSummary | None: ...
+
+    def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None: ...
+
     """Read current and historical immutable load-preview snapshots."""
 
     def current_execution_snapshot(
@@ -243,6 +258,7 @@ class ExecutionJournalRepository(Protocol):
         *,
         actor: Actor,
         transfer_preflight_hash: str = "",
+        intent_assessment_hash: str = "",
     ) -> None:
         """Durably start the run that ``ExecutionService`` has authorized."""
         ...
@@ -369,6 +385,7 @@ class ExecutionPreview:
         default_factory=ExecutionBlockerSummary
     )
     prior_interrupted_run: ExecutionRun | None = None
+    business_intent_assessment_hash: str = ""
 
     @property
     def can_load(self) -> bool:
@@ -525,6 +542,16 @@ class ExecutionService:
             dataset_counts.setdefault(row.dataset, Counter())[row.disposition] += 1
         snapshot_error = _execution_snapshot_error(workspace_state, snapshot)
         scope_error = credential_error or snapshot_error
+        assessment_hash = ""
+        if workspace_state.source_mode is SourceMode.FILE:
+            if current is None:
+                assessment = self.preflight.current_business_intent_assessment(workspace_id, snapshot.semantic_hash)
+                if assessment is None or not assessment.ready:
+                    scope_error = credential_error or _business_intent_error(assessment)
+                else:
+                    assessment_hash = assessment.content_hash
+            else:
+                self.preflight.require_business_intent_approval(workspace_id, current)
         return ExecutionPreview(
             snapshot=snapshot,
             datasets=tuple(
@@ -550,6 +577,7 @@ class ExecutionService:
             dependency_summary=_execution_dependency_summary(snapshot),
             blocker_summary=_execution_blocker_summary(snapshot),
             prior_interrupted_run=prior,
+            business_intent_assessment_hash=assessment_hash,
         )
 
     def current_review(
@@ -574,9 +602,14 @@ class ExecutionService:
             workspace_state=workspace_state,
             actor=actor,
         )
+        scope_error = validated.scope_error
+        if workspace_state.source_mode is SourceMode.FILE and not projection.current_run_id:
+            assessment = self.preflight.current_business_intent_assessment(workspace_id, projection.summary.snapshot_hash)
+            if assessment is None or not assessment.ready:
+                scope_error = _business_intent_error(assessment)
         return projection.with_scope_error(
-            validated.scope_error,
-            code=_execution_scope_error_code(validated.scope_error),
+            scope_error,
+            code=_execution_scope_error_code(scope_error),
             credential_refresh_required=validated.credential_refresh_required,
         )
 
@@ -718,6 +751,24 @@ class ExecutionService:
             workspace_id, run, preview.snapshot.preflight_run_id, actor=actor,
         )
 
+    def require_business_intent(
+        self, workspace_id: str, *, expected_snapshot_hash: str,
+        expected_assessment_hash: str, actor: Actor, recovery_run_id: str = "",
+    ) -> None:
+        """Recheck the confirmed sidecar before enqueue or writer construction."""
+        self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
+        if recovery_run_id:
+            run = self.journal.get_run(workspace_id, recovery_run_id)
+            if run is None or run.snapshot_hash != expected_snapshot_hash or run.status is not ExecutionRunStatus.RUNNING:
+                raise WorkspaceError("The interrupted load changed before recovery")
+            self.preflight.require_business_intent_approval(workspace_id, run)
+            return
+        assessment = self.preflight.current_business_intent_assessment(workspace_id, expected_snapshot_hash)
+        if assessment is None or not assessment.ready:
+            raise WorkspaceError(_business_intent_error(assessment))
+        if not expected_assessment_hash or assessment.content_hash != expected_assessment_hash:
+            raise WorkspaceError("Business expectations changed after confirmation; review them again")
+
     def execute(
         self,
         workspace_id: str,
@@ -731,6 +782,7 @@ class ExecutionService:
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
         progress: Callable[[ExecutionRun], None] | None = None,
+        expected_intent_assessment_hash: str | None = None,
     ) -> ExecutionRun:
         """Start and carry out a reviewed conventional Odoo load.
 
@@ -758,6 +810,8 @@ class ExecutionService:
             raise WorkspaceError("The load preview changed. Review it again.")
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
+        if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
+            raise WorkspaceError("Business expectations changed after confirmation; review them again")
         self._validate_execution_scope(workspace_state, preview, executor)
         _validate_write_identity(
             preview,
@@ -833,7 +887,7 @@ class ExecutionService:
                 write_identity.context_hash if write_identity is not None else ""
             ),
         )
-        self.journal.start_run(workspace_id, run, actor=actor)
+        self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
         return self._continue_run(
             workspace_state,
             snapshot,
@@ -1056,6 +1110,7 @@ class ExecutionService:
             or run.target_database != snapshot.target_database
         ):
             raise WorkspaceError("The interrupted load or preview is no longer current")
+        self.preflight.require_business_intent_approval(workspace_id, run)
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError(
                 "The recovery writer points to a different Odoo target"
@@ -1665,7 +1720,10 @@ class ExecutionService:
                         batch=next_transport_batch,
                     )
                     next_transport_batch += 1
-                    import_create = (create_with_external_ids or workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE)
+                    import_create = (
+                        create_with_external_ids
+                        or workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                    )
                     try:
                         values = tuple(item[1] for item in prepared_group)
                         if import_create:
@@ -1685,7 +1743,10 @@ class ExecutionService:
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                                 safe_error=str(error),
-                                diagnostic=_write_diagnostic(error, row, len(prepared_group), method="load" if import_create else "create"),
+                                diagnostic=_write_diagnostic(
+                                    error, row, len(prepared_group),
+                                    method="load" if import_create else "create",
+                                ),
                             )
                             for row, _values, _deferred in prepared_group
                         )
@@ -1705,7 +1766,10 @@ class ExecutionService:
                                 recorded[row.row_id],
                                 status=ExecutionRowStatus.FAILED,
                                 safe_error=str(error),
-                                diagnostic=_write_diagnostic(error, row, len(prepared_group), method="load" if import_create else "create"),
+                                diagnostic=_write_diagnostic(
+                                    error, row, len(prepared_group),
+                                    method="load" if import_create else "create",
+                                ),
                             )
                             for row, _values, _deferred in prepared_group
                         )
@@ -2139,6 +2203,7 @@ class ExecutionService:
         *,
         expected_snapshot_hash: str,
         actor: Actor,
+        expected_intent_assessment_hash: str | None = None,
     ) -> ExecutionRun:
         """Record completion for a reviewed snapshot with no Odoo writes.
 
@@ -2175,6 +2240,8 @@ class ExecutionService:
             )
         if preview.scope_error and preview.scope_error != NO_WRITE_ROWS_MESSAGE:
             raise WorkspaceError(preview.scope_error)
+        if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
+            raise WorkspaceError("Business expectations changed after confirmation; review them again")
         if not preview.can_complete_without_load:
             raise WorkspaceError(
                 "Only a complete comparison with no proposed Odoo changes can finish here"
@@ -2195,7 +2262,7 @@ class ExecutionService:
             completed_at=None,
             rows=(),
         )
-        self.journal.start_run(workspace_id, run, actor=actor)
+        self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
         return self.journal.finish_run(
             workspace_id,
             run.run_id,
@@ -2774,7 +2841,7 @@ class ExecutionService:
                     attempt,
                     status=ExecutionRowStatus.OUTCOME_UNKNOWN,
                     safe_error=str(error),
-                    diagnostic=_write_diagnostic(error, row),
+                    diagnostic=_write_diagnostic(error, row, method="write"),
                 )
                 self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
@@ -2784,7 +2851,7 @@ class ExecutionService:
                 outcome = replace(
                     attempt,
                     status=ExecutionRowStatus.PARTIALLY_APPLIED,
-                    diagnostic=_write_diagnostic(error, row),
+                    diagnostic=_write_diagnostic(error, row, method="write"),
                     safe_error=(
                         "Record was created, but its deferred relationship "
                         f"update failed: {error}"
@@ -3309,6 +3376,14 @@ def _validate_write_identity(
     )
     if identity.target_hash != preview.snapshot.target_hash:
         raise WorkspaceError("The write principal belongs to a different Odoo target")
+    if (
+        preview.snapshot.read_context_hash
+        and identity.context_hash != preview.snapshot.read_context_hash
+    ):
+        raise WorkspaceError(
+            "The write credential does not use the reviewed Odoo company context; "
+            "check the Odoo access and compare again"
+        )
     if identity.readable_models != expected_readable:
         raise WorkspaceError("The write principal read-back scope changed")
     if identity.writable_models != expected_writable:
@@ -3445,6 +3520,10 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
     model_names = sorted(set(write_fields) | set(read_fields) | set(lookup_fields))
     return OdooApiScope(
         preview_hash=snapshot.semantic_hash,
+        # This transient permission check is derived from the frozen rows. It
+        # does not change historical API-scope hashes used during recovery.
+        creatable_models=tuple(sorted({row.target_model for row in snapshot.rows
+            if row.disposition == "CREATE" and write_fields.get(row.target_model)})),
         models=tuple(
             OdooModelScope(
                 model=model,
@@ -4067,12 +4146,22 @@ def _domain_cache_key(
     return canonical_json_text({"model": model, "domain": domain})
 
 
-def _write_diagnostic(error: OdooWriteError, row: ExecutionRow, batch_size: int = 1, *, method: str | None = None) -> OdooWriteDiagnostic:
+def _write_diagnostic(
+    error: OdooWriteError,
+    row: ExecutionRow,
+    batch_size: int = 1,
+    *,
+    method: str | None = None,
+) -> OdooWriteDiagnostic:
     """Always retain operation context, even when Odoo supplies no useful detail."""
 
     return error.diagnostic or OdooWriteDiagnostic(
-        code=(WriteFailureCode.UNKNOWN if isinstance(error, OdooWriteOutcomeUnknown)
-              else WriteFailureCode.REJECTED),
-        model=row.target_model, method=method or ("create" if row.disposition == "CREATE" else "write"),
+        code=(
+            WriteFailureCode.UNKNOWN
+            if isinstance(error, OdooWriteOutcomeUnknown)
+            else WriteFailureCode.REJECTED
+        ),
+        model=row.target_model,
+        method=method or ("create" if row.disposition == "CREATE" else "write"),
         batch_size=batch_size,
     )

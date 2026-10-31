@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Impodo administration{% endblock %}</title>
+    <link rel="stylesheet" href="/administration.css">
+  </head>
+  <body>
+    <header>
+      <a href="/">Impodo administration</a>
+      {% if session %}
+      <nav aria-label="Account navigation">
+        {% if session.subject.principal_kind.value == 'PLATFORM_ADMINISTRATOR' %}
+        <a href="/admin/organizations">Organizations</a>
+        {% elif session.subject.principal_kind.value == 'ORGANIZATION_ADMINISTRATOR' %}
+        <a href="/admin/users">Users</a><a href="/admin/sessions">Sessions</a><a href="/admin/history">Security history</a>
+        {% endif %}
+        <a href="/account">My account</a>
+      </nav>
+      <form method="post" action="/logout">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button type="submit">Sign out</button>
+      </form>
+      {% endif %}
+    </header>
+    <main>{% block content %}{% endblock %}</main>
+  </body>
+</html>

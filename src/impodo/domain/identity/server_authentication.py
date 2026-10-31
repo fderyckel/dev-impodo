@@ -60,10 +60,9 @@ class ServerAuthenticationCredential:
             )
             or (
                 self.principal_kind
-                is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+                in {LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR, LoginPrincipalKind.CUSTOMER_USER}
                 and not self.organization_id
             )
-            or self.principal_kind is LoginPrincipalKind.CUSTOMER_USER
         ):
             raise ServerAuthenticationStorageError(
                 "Server authentication credential is invalid"
@@ -115,10 +114,9 @@ class ServerAuthenticationSecurityEvent:
             )
             or (
                 self.principal_kind
-                is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+                in {LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR, LoginPrincipalKind.CUSTOMER_USER}
                 and not self.organization_id
             )
-            or self.principal_kind is LoginPrincipalKind.CUSTOMER_USER
             or self.occurred_at.tzinfo is None
             or self.occurred_at.utcoffset() is None
         ):

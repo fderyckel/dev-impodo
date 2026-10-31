@@ -66,6 +66,23 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         self.context = self.app.state.context
         self.actor = resolve_local_actor(self.context)
 
+    def expect_business_writes(self, workspace_id, *, intent=None):
+        """Explicitly authorize the fixture's declared mapping scope before comparison."""
+        from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent
+        from uuid import uuid4
+
+        def save():
+            service = self.context.business_intents
+            packet = service.inputs(workspace_id, actor=self.actor)
+            previous = service.get(workspace_id, actor=self.actor)
+            rules = intent or BusinessIntent(tuple(BusinessModelIntent(model.model,
+                "upsert" if model.creates and model.updates else "create" if model.creates else "update" if model.updates else "none")
+                for model in packet.scope.models))
+            return service.save(workspace_id, intent=rules,
+                expected_version=previous.version if previous else 0,
+                expected_binding_hash=packet.binding_hash, operation_id=str(uuid4()), actor=self.actor)
+        return run_local_operation_sync(save)
+
     def freeze_files(self, files):
         created = self._post(
             "/projects/new",

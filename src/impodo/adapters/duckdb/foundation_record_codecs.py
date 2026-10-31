@@ -305,6 +305,8 @@ class FoundationRecordCodecs(FoundationRepositoryMixin):
                 for item in json.loads(str(value["intended_applications_json"]))
             ),
             updated_at=datetime.fromisoformat(str(value["updated_at"])),
+            company_binding_hash=str(value.get("company_binding_hash") or ""),
+            company_workspace_id=str(value["company_workspace_id"]) if value.get("company_workspace_id") else None,
         )
 
     @staticmethod

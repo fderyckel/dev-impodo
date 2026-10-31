@@ -20,6 +20,7 @@ from impodo.application.workspace.execution.navigation import (
 )
 from impodo.domain.cutover.governance import DryRun
 from impodo.domain.derived_value_artifact import DerivedValueArtifact
+from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.mapping.artifacts import MappingRevision, MappingSubmission
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preflight.reports import (
@@ -62,6 +63,11 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactCounts,
     TransformationImpactReport,
     TransformationImpactRow,
+)
+from impodo.domain.workspace.business_intent_assessment import (
+    BusinessIntentAssessment,
+    BusinessIntentAssessmentSummary,
+    BusinessWriteObservation,
 )
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
@@ -624,6 +630,14 @@ class PreflightRepository(Protocol):
     cannot be returned through a loose workspace-level current pointer.
     """
 
+    def get_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessmentSummary | None: ...
+
+    def get_business_write_observation(self, workspace_id: str, snapshot_hash: str) -> BusinessWriteObservation: ...
+
+    def reassess_business_intent(self, workspace_id: str, snapshot_hash: str, *, actor: Actor) -> BusinessIntentAssessment: ...
+
+    def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None: ...
+
     def get_readiness_report(
         self,
         workspace_id: str,
@@ -670,6 +684,7 @@ class PreflightRepository(Protocol):
         execution_summary: ExecutionPreviewSummary | None = None,
         execution_review: ExecutionReviewProjection | None = None,
         expected_workspace_revision: int | None = None,
+        business_observation: BusinessWriteObservation | None = None,
     ) -> None:
         """Atomically store evidence, optionally requiring the reserved revision.
 
@@ -688,6 +703,7 @@ class PreflightRepository(Protocol):
         execution_review: ExecutionReviewProjection,
         decision_hash: str,
         actor: Actor,
+        business_observation: BusinessWriteObservation | None = None,
     ) -> None:
         """Replace the current load projection after reviewed local reduction."""
         ...

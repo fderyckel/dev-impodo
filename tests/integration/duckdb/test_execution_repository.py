@@ -12,6 +12,7 @@ from uuid import uuid4
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.execution_repository import ExecutionRepository
+from tests.support.business_intent_assessment import seed_journal_assessment
 from impodo.adapters.duckdb.reconciliation_repository import ReconciliationRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.domain.execution.models import (
@@ -43,12 +44,23 @@ HASH = "sha256:" + "1" * 64
 TARGET_HASH = "sha256:" + "2" * 64
 
 
+class _AssessedExecutionRepository(ExecutionRepository):
+    """Keep row-journal tests independent from comparison and intent authoring."""
+
+    def start_run(self, workspace_id, run, *, actor, **kwargs):
+        if not kwargs.get("correction_plan_hash") and not kwargs.get("transfer_preflight_hash"):
+            path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+            with self._connect(path) as connection:
+                kwargs["intent_assessment_hash"] = seed_journal_assessment(connection, run, actor=actor)
+        return super().start_run(workspace_id, run, actor=actor, **kwargs)
+
+
 class ExecutionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(self.database)
-        self.repository = ExecutionRepository(self.database)
+        self.repository = _AssessedExecutionRepository(self.database)
         self.reconciliation = ReconciliationRepository(self.database)
         self.workspace_state = WorkspaceState(
             workspace_id=str(uuid4()),

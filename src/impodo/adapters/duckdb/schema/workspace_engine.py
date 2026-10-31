@@ -17,6 +17,10 @@ from ..request_timing import record_duckdb_schema_timing
 from ..unit_of_work import validate_schema_once_for_operation
 from .advanced_coverage import create_advanced_coverage_schema
 from .business_intent import BUSINESS_INTENT_COLUMNS, create_business_intent_schema
+from .business_intent_assessment import (
+    BUSINESS_ASSESSMENT_TABLES,
+    create_business_intent_assessment_schema,
+)
 from .cross_store_coordination import (
     CROSS_STORE_DATA_RECEIPT_COLUMNS,
     WORKSPACE_FENCE_COLUMNS,
@@ -313,6 +317,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "supporting_data_review",
         "supporting_review_projection",
         "business_intent_revision",
+        *BUSINESS_ASSESSMENT_TABLES,
+        "odoo_company_binding",
         "transformation_impact_row", "transformation_impact_run",
         "transformation_rule_acknowledgement", "transformation_rule_impact",
         "workspace_fence", "workspace_projection_cache",
@@ -1030,6 +1036,7 @@ class WorkspaceEngineSchemaMixin:
             CREATE SEQUENCE audit_event_sequence START 1;
             """
         )
+        _create_odoo_company_bindings(connection)
         create_schema_migration_ledger(connection)
         create_preflight_schema(connection)
         create_advanced_coverage_schema(connection)
@@ -1044,6 +1051,7 @@ class WorkspaceEngineSchemaMixin:
         create_supporting_review_schema(connection)
         create_supporting_review_summary_schema(connection)
         create_business_intent_schema(connection)
+        create_business_intent_assessment_schema(connection)
         _create_row_inclusion_review_schema(connection)
         create_cross_store_coordination_schema(connection)
 
@@ -1115,6 +1123,7 @@ class WorkspaceEngineSchemaMixin:
         for table, expected in (
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
+            ("odoo_company_binding", ("binding_hash", "selection_json")),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
             (
                 "mapping_mutation_receipt",
@@ -1171,6 +1180,7 @@ class WorkspaceEngineSchemaMixin:
             ("supporting_data_review", SUPPORTING_REVIEW_COLUMNS),
             ("supporting_review_projection", SUPPORTING_REVIEW_SUMMARY_COLUMNS),
             ("business_intent_revision", BUSINESS_INTENT_COLUMNS),
+            *BUSINESS_ASSESSMENT_TABLES.items(),
         ):
             if table_columns.get(table, ()) != expected:
                 raise WorkspaceStateCompatibilityError(
@@ -1647,7 +1657,20 @@ def _upgrade_workspace_engine_v19_to_v20(
     )
 
 
+def _create_odoo_company_bindings(connection: duckdb.DuckDBPyConnection) -> None:
+    """Keep target-specific numeric company choices in the protected data plane."""
+    connection.execute("CREATE TABLE odoo_company_binding (binding_hash VARCHAR PRIMARY KEY, selection_json VARCHAR NOT NULL)")
+
+
 WORKSPACE_ENGINE_UPGRADES = {
+    24: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v24-to-v25-business-intent-assessment",
+        apply=create_business_intent_assessment_schema,
+    ),
+    23: ForwardSchemaUpgrade(
+        migration_id="workspace-engine-v23-to-v24-operation-company",
+        apply=_create_odoo_company_bindings,
+    ),
     22: ForwardSchemaUpgrade(
         migration_id="workspace-engine-v22-to-v23-business-intent",
         apply=create_business_intent_schema,

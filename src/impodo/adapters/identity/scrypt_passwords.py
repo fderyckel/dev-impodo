@@ -79,13 +79,13 @@ class ScryptPasswordHasher:
 
         return (
             password_hash.algorithm != "scrypt"
-            or password_hash.parameters
-            != (
-                ("n", SCRYPT_COST),
-                ("r", SCRYPT_BLOCK_SIZE),
-                ("p", SCRYPT_PARALLELIZATION),
-                ("dklen", SCRYPT_DIGEST_BYTES),
-            )
+            or dict(password_hash.parameters)
+            != {
+                "n": SCRYPT_COST,
+                "r": SCRYPT_BLOCK_SIZE,
+                "p": SCRYPT_PARALLELIZATION,
+                "dklen": SCRYPT_DIGEST_BYTES,
+            }
             or len(password_hash.salt) != SCRYPT_SALT_BYTES
             or len(password_hash.digest) != SCRYPT_DIGEST_BYTES
         )

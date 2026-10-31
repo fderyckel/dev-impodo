@@ -9,6 +9,8 @@ from pathlib import Path
 from threading import RLock
 from uuid import UUID
 
+import duckdb
+
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
@@ -21,6 +23,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
+from .business_intent_assessment_repository import record_business_intent_approval
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
 
@@ -72,6 +75,7 @@ class ExecutionRepository(DuckDbRepository):
         actor: Actor,
         correction_plan_hash: str = "",
         transfer_preflight_hash: str = "",
+        intent_assessment_hash: str = "",
     ) -> None:
         self._assert_workspace_mutable(workspace_id)
         try:
@@ -86,7 +90,6 @@ class ExecutionRepository(DuckDbRepository):
             or run.batch_rows is None
             or run.batch_rows < 1
             or run.batch_rows > MAX_CREATE_BATCH_ROWS
-            or not run.rows
             or any(item.status is not ExecutionRowStatus.PLANNED for item in run.rows)
         ):
             raise WorkspaceError("Execution run is invalid")
@@ -161,6 +164,9 @@ class ExecutionRepository(DuckDbRepository):
                             "The load preview is no longer current. "
                             "Compare with Odoo again."
                         )
+                if not correction and not transfer:
+                    record_business_intent_approval(connection, workspace_id, run,
+                        expected_hash=intent_assessment_hash, actor=actor)
                 previous = connection.execute(
                     """
                     SELECT run.status
@@ -246,10 +252,13 @@ class ExecutionRepository(DuckDbRepository):
                     ),
                     actor=actor,
                 )
-                connection.commit()
             except Exception:
                 connection.rollback()
                 raise
+            try:
+                connection.commit()
+            except (duckdb.ConstraintException, duckdb.TransactionException) as error:
+                raise WorkspaceError("The load or its approval changed while starting; review the current result") from error
 
     def record_outcomes(
         self,

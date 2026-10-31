@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from tests.support.business_intent_assessment import assessment_for
+
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -66,6 +68,7 @@ from impodo.domain.workspace.workbench import (
 )
 from impodo.web.composition.target_writers import _write_executor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.odoo.company import OdooCompanySelection
 
 
 HASH = "sha256:" + "1" * 64
@@ -520,6 +523,7 @@ class _Journal:
         *,
         actor,
         transfer_preflight_hash="",
+        intent_assessment_hash="",
     ):
         del project_id, actor
         self.run = run
@@ -697,7 +701,11 @@ class ExecutionServiceTests(unittest.TestCase):
         )
         service = ExecutionService(
             SimpleNamespace(get=lambda _project_id: project),
-            SimpleNamespace(current_execution_snapshot=lambda _project_id: snapshot),
+            SimpleNamespace(
+                current_execution_snapshot=lambda _project_id: snapshot,
+                current_business_intent_assessment=lambda _id, _hash: assessment_for(snapshot),
+                require_business_intent_approval=lambda _id, _run: None,
+            ),
             journal,
             CapabilityAuthorizationPolicy(),
         )
@@ -816,6 +824,7 @@ class ExecutionServiceTests(unittest.TestCase):
         preflight = SimpleNamespace(
             current_execution_review_projection=lambda _workspace_id: projection,
             current_execution_snapshot=fail_full_snapshot,
+            current_business_intent_assessment=lambda _id, _hash: SimpleNamespace(ready=True),
         )
         service = ExecutionService(
             SimpleNamespace(get=lambda _workspace_id: workspace),
@@ -3322,6 +3331,7 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(run.partially_applied_count, 1)
         self.assertEqual(run.rows[0].odoo_id, 10)
         self.assertIn("Record was created", run.rows[0].safe_error)
+        self.assertEqual(run.rows[0].diagnostic.method, "write")
         self.assertEqual(run.rows[1].status, ExecutionRowStatus.COMMITTED)
 
     def test_uncertain_cycle_patch_keeps_exact_created_id(self):
@@ -3345,6 +3355,7 @@ class ExecutionServiceTests(unittest.TestCase):
         self.assertEqual(run.status, ExecutionRunStatus.OUTCOME_UNKNOWN)
         self.assertEqual(run.rows[0].status, ExecutionRowStatus.OUTCOME_UNKNOWN)
         self.assertEqual(run.rows[0].odoo_id, 10)
+        self.assertEqual(run.rows[0].diagnostic.method, "write")
         self.assertEqual(run.rows[1].status, ExecutionRowStatus.COMMITTED)
 
     def test_existing_identity_retarget_is_rejected_before_journal(self):
@@ -4009,13 +4020,18 @@ class TargetWriterFactoryTests(unittest.TestCase):
                 ),
             ),
         )
-        project = SimpleNamespace(
+        company = OdooCompanySelection(target_identity_hash(
+            connection_mode="REMOTE", base_url="https://odoo.example.test", database="fresh_migration"), 7, "Fictional company")
+        workspace_state = WorkspaceState(
+            workspace_id=str(uuid4()), name="Company-scoped import", source_system="CSV",
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://odoo.example.test",
             odoo_database="fresh_migration",
+            source_mode=SourceMode.FILE,
+            odoo_company=company,
         )
 
-        executor = _write_executor(project, "secret", scope)
+        executor = _write_executor(workspace_state, "secret", scope)
 
         self.assertIsInstance(executor, Json2WriteExecutor)
         self.assertEqual(executor.config.connection_mode, "REMOTE")

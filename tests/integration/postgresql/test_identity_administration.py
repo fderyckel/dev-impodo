@@ -22,6 +22,9 @@ from impodo.domain.identity.administration import (
     CustomerUserRecord,
     CustomerUserStatus,
     IdentityAdministrationNotFoundError,
+    IdentityAdministrationConflictError,
+    OrganizationDetailQuery,
+    OrganizationMutationCommand,
     OrganizationListQuery,
     ReplaceOrganizationAdministratorCommand,
 )
@@ -170,6 +173,36 @@ def _customer_row(
 
 
 class PostgreSQLIdentityAdministrationTests(unittest.TestCase):
+    def test_platform_detail_reads_only_exact_organization_and_assignment(self) -> None:
+        session = _Session(responses=[("ACTIVE",), ("acme", "Acme", "ACTIVE", 1, 2), _customer_row(kind=LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR)])
+        view = _repository(session).get_organization(OrganizationDetailQuery(_platform_actor(), "acme"))
+        self.assertEqual(view.organization.organization_id, "acme")
+        self.assertEqual(view.administrator.user_id, USER_ID)
+        self.assertTrue(session.closed)
+        self.assertTrue(all("acme" in event[2] for event in session.events[1:]))
+        self.assertNotIn("project", "\n".join(event[1] for event in session.events))
+
+    def test_replacement_activation_checks_tenant_kind_and_revision_before_insertion(self) -> None:
+        session = _Session(responses=[("ACTIVE", "ACTIVE"), _customer_row(status=CustomerUserStatus.PENDING_ACTIVATION)], affected=[0])
+        command = CustomerUserMutationCommand(_organization_actor(), "acme", USER_ID, 1)
+        with self.assertRaises(IdentityAdministrationConflictError):
+            _repository(session).reissue_customer_activation(command, _issue(), _event(AdministrationEventKind.CUSTOMER_ACTIVATION_TOKEN_REISSUED, _organization_actor()))
+        self.assertTrue(session.rolled_back)
+        self.assertFalse(any("INSERT INTO impodo_control.account_recovery_token" in event[1] for event in session.events))
+        predicate = next(event for event in session.events if event[0] == "execute_affected")
+        self.assertIn("organization_id = %s AND user_id = %s AND optimistic_revision = %s", predicate[1])
+
+    def test_administrator_recovery_requires_exact_assignment_and_platform_revision(self) -> None:
+        session = _Session(responses=[("ACTIVE",), ("ACTIVE", 3), (USER_ID, 1), (*_customer_row(kind=LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR), 2, "ACTIVE")], affected=[1])
+        _repository(session).issue_administrator_token(
+            OrganizationMutationCommand(_platform_actor(), "acme", 3), _issue(RecoveryTokenPurpose.PASSWORD_RESET),
+            _event(AdministrationEventKind.CUSTOMER_RESET_TOKEN_ISSUED, _platform_actor()),
+        )
+        queries = "\n".join(event[1] for event in session.events)
+        self.assertIn("organization_administrator_assignment", queries)
+        self.assertIn("WHERE u.organization_id = %s AND u.user_id = %s", queries)
+        self.assertTrue(session.committed)
+
     def test_organization_page_is_authorized_and_uses_a_stable_keyset(self) -> None:
         session = _Session(
             responses=[("ACTIVE",)],
@@ -447,7 +480,8 @@ class PostgreSQLIdentityAdministrationTests(unittest.TestCase):
         )
         self.assertIn("WHERE organization_id = %s", query_event[1])
         self.assertIn("subject_user_id = %s", query_event[1])
-        self.assertEqual(query_event[2][:3], ("acme", USER_ID, USER_ID))
+        self.assertEqual(query_event[2][:5], ("acme", "acme", "acme", USER_ID, USER_ID))
+        self.assertIn("server_security_event", query_event[1])
 
     def test_repository_contract_uses_one_connection_per_operation(self) -> None:
         self.assertEqual(POSTGRESQL_IDENTITY_ADMIN_CONNECTION_BUDGET, 1)

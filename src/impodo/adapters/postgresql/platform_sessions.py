@@ -1,4 +1,4 @@
-"""Persist bounded shared-server administrator session transitions."""
+"""Persist bounded shared-server session transitions for every principal kind."""
 
 from __future__ import annotations
 
@@ -59,6 +59,14 @@ _LOCK_ORGANIZATION_ADMINISTRATOR_QUERY: LiteralString = (
     "WHERE u.user_id = %s AND u.organization_id = %s\n"
     "  AND u.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
     "FOR UPDATE OF u, o, a"
+)
+_LOCK_CUSTOMER_USER_QUERY: LiteralString = (
+    "SELECT u.status, u.security_revision, o.status\n"
+    "FROM impodo_control.customer_user AS u\n"
+    "JOIN impodo_control.organization AS o ON o.organization_id = u.organization_id\n"
+    "WHERE u.user_id = %s AND u.organization_id = %s\n"
+    "  AND u.principal_kind = 'CUSTOMER_USER'\n"
+    "FOR UPDATE OF u, o"
 )
 _INSERT_SESSION_QUERY: LiteralString = (
     "INSERT INTO impodo_control.server_session (\n"
@@ -573,11 +581,16 @@ def _lock_subject(
             raise ServerSessionStorageError(
                 "Session subject state is invalid"
             ) from error
-    if subject.principal_kind is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR:
+    if subject.principal_kind in {
+        LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+        LoginPrincipalKind.CUSTOMER_USER,
+    }:
         if subject.organization_id is None:
             return None
         row = session.fetch_one(
-            _LOCK_ORGANIZATION_ADMINISTRATOR_QUERY,
+            _LOCK_ORGANIZATION_ADMINISTRATOR_QUERY
+            if subject.principal_kind is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+            else _LOCK_CUSTOMER_USER_QUERY,
             (subject.principal_id, subject.organization_id),
         )
         if row is None:

@@ -1,0 +1,5 @@
+{% macro confirmation(csrf_token, revision, identity, effect) %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="expected_revision" value="{{ revision }}">
+  <label class="confirmation"><input type="checkbox" name="confirmation" value="{{ identity }}" required> {{ effect }}</label>
+{% endmacro %}

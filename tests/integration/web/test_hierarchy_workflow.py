@@ -44,6 +44,7 @@ class HierarchyWorkflowTests(HierarchyWorkflowFixture):
             {("Machines",), ("Maintenance",), ("Tools",)},
         )
         self.approve(workspace_id)
+        self.expect_business_writes(workspace_id)
         schema = self.context.queries.get_odoo_schema_catalog(workspace_id)
         target = HierarchyOdoo(schema)
         report = self.context.preflight.compare(

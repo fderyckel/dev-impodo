@@ -1,0 +1,72 @@
+{% extends "server/base.html" %}
+{% from "server/_forms.html" import confirmation %}
+{% set organization = view.organization %}
+{% block title %}{{ organization.display_name }} · Organization{% endblock %}
+{% block content %}
+<h1>{{ organization.display_name }}</h1>
+<p>Organization ID: <code>{{ organization.organization_id }}</code>. Status: {{ organization.status.value|title }}.</p>
+<p>You manage this Organization's access. This does not grant access to customer Projects or artifacts.</p>
+<section>
+  <h2>Organization Administrator</h2>
+  {% if view.administrator %}
+  <p>{{ view.administrator.display_name }} · {{ view.administrator.normalized_login_email }} · {{ view.administrator.status.value|replace('_', ' ')|title }}</p>
+  {% else %}<p>No administrator is assigned yet.</p>{% endif %}
+  {% if organization.status.value == 'ACTIVE' %}
+  <form method="post" action="/admin/organizations/{{ organization.organization_id }}/actions">
+    <input type="hidden" name="action" value="assign-administrator">
+    <label>Administrator display name <input name="display_name" maxlength="200" required></label>
+    <label>Administrator email <input name="login_email" type="email" maxlength="320" autocomplete="off" required></label>
+    {% if view.administrator %}
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm replacing the administrator of ' ~ organization.display_name ~ '. The current administrator will be deactivated and signed out.') }}
+    <button type="submit">Replace administrator and create activation link</button>
+    {% else %}
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm assigning this administrator to ' ~ organization.display_name ~ '.') }}
+    <button type="submit">Assign administrator and create activation link</button>
+    {% endif %}
+  </form>
+  {% if view.administrator and view.administrator.status.value in ['PENDING_ACTIVATION', 'ACTIVE'] %}
+  <form method="post" action="/admin/organizations/{{ organization.organization_id }}/actions">
+    {% if view.administrator.status.value == 'PENDING_ACTIVATION' %}
+    <input type="hidden" name="action" value="administrator-activation">
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm replacing the activation link for ' ~ view.administrator.display_name ~ '. The earlier link will stop working.') }}
+    <button type="submit">Create replacement activation link</button>
+    {% else %}
+    <input type="hidden" name="action" value="administrator-reset">
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm creating a password reset link for ' ~ view.administrator.display_name ~ '. Using it will sign out all of their sessions.') }}
+    <button type="submit">Create administrator reset link</button>
+    {% endif %}
+  </form>
+  {% endif %}
+  {% else %}<p>Reactivate this Organization before assigning an administrator or issuing a link.</p>{% endif %}
+</section>
+<section>
+  <h2>Organization details</h2>
+  <form method="post" action="/admin/organizations/{{ organization.organization_id }}/actions">
+    <input type="hidden" name="action" value="rename">
+    <label>Display name <input name="display_name" value="{{ organization.display_name }}" maxlength="200" required></label>
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm renaming ' ~ organization.display_name ~ '.') }}
+    <button type="submit">Save display name</button>
+  </form>
+</section>
+<section>
+  <h2>Access controls</h2>
+  <form method="post" action="/admin/organizations/{{ organization.organization_id }}/actions">
+    {% if organization.status.value == 'ACTIVE' %}
+    <input type="hidden" name="action" value="suspend">
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm suspending ' ~ organization.display_name ~ '. Every user will be signed out and new logins will be refused.') }}
+    <button type="submit">Suspend Organization</button>
+    {% else %}
+    <input type="hidden" name="action" value="reactivate">
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm reactivating ' ~ organization.display_name ~ '. Active users can sign in again; old sessions stay revoked.') }}
+    <button type="submit">Reactivate Organization</button>
+    {% endif %}
+  </form>
+  <form method="post" action="/admin/organizations/{{ organization.organization_id }}/actions">
+    <input type="hidden" name="action" value="reauthenticate">
+    <input type="hidden" name="expected_policy_revision" value="{{ organization.policy_revision }}">
+    {{ confirmation(csrf_token, organization.optimistic_revision, organization.organization_id, 'I confirm requiring everyone in ' ~ organization.display_name ~ ' to sign in again. This revokes all current sessions.') }}
+    <button type="submit">Require new sign-in for everyone</button>
+  </form>
+</section>
+<p><a href="/admin/organizations">Back to Organizations</a></p>
+{% endblock %}

@@ -1,0 +1,22 @@
+{% extends "server/base.html" %}
+{% from "server/_forms.html" import confirmation %}
+{% block title %}Sessions · Impodo administration{% endblock %}
+{% block content %}
+<h1>Sessions</h1><p>Organization: {{ session.subject.organization_id }}. Revoking a session signs out that browser. Revoked sessions remain in history.</p>
+{% if user_id %}<p>Showing sessions for account <code>{{ user_id }}</code>. <a href="/admin/sessions">Show all</a></p>{% endif %}
+{% if page.items %}<div class="table-scroll"><table>
+<thead><tr><th>Account</th><th>Started</th><th>Last used</th><th>Status</th><th>Action</th></tr></thead>
+<tbody>{% for item in page.items %}<tr>
+  <td><a href="/admin/users/{{ item.user_id }}">{{ item.user_id }}</a>{% if item.session_id == session.session_id %}<br>This browser{% endif %}</td>
+  <td>{{ item.created_at.isoformat() }}</td><td>{{ item.last_seen_at.isoformat() }}</td><td>{{ item.state|title }}</td>
+  <td>{% if item.state == 'ACTIVE' %}<form method="post" action="/admin/sessions/{{ item.session_id }}/revoke">
+    {{ confirmation(csrf_token, item.optimistic_revision, item.session_id, 'I confirm signing out session ' ~ item.session_id ~ ' for account ' ~ item.user_id ~ '.') }}
+    <button type="submit">Revoke session</button>
+  </form>{% endif %}</td>
+</tr>{% endfor %}</tbody></table></div>{% else %}<p>No sessions match this page.</p>{% endif %}
+{% if page.next_before_session_id %}<form method="get" action="/admin/sessions">
+  {% if user_id %}<input type="hidden" name="user_id" value="{{ user_id }}">{% endif %}
+  <input type="hidden" name="before_created_at" value="{{ page.next_before_created_at.isoformat() }}">
+  <input type="hidden" name="before_session_id" value="{{ page.next_before_session_id }}"><button type="submit">Older sessions</button>
+</form>{% endif %}
+{% endblock %}

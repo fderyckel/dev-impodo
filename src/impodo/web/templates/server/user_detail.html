@@ -1,36 +1,44 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{{ user.display_name }} · Impodo administration</title>
-  </head>
-  <body>
-    <header>
-      <strong>Impodo administration</strong>
-      <form method="post" action="/logout">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button type="submit">Sign out</button>
-      </form>
-    </header>
-    <main>
-      <p><a href="/admin/users">Back to Users</a></p>
-      <h1>{{ user.display_name }}</h1>
-      <dl>
-        <dt>Login email</dt><dd>{{ user.normalized_login_email }}</dd>
-        <dt>Account kind</dt><dd>{{ user.principal_kind.value }}</dd>
-        <dt>Status</dt><dd>{{ user.status.value }}</dd>
-        <dt>Security revision</dt><dd>{{ user.security_revision }}</dd>
-      </dl>
-      {% if user.principal_kind.value == 'CUSTOMER_USER' %}
-        <p>Lifecycle, password-reset, and session actions will appear here in the next dashboard increment.</p>
-      {% else %}
-        <p>The assigned Organization Administrator cannot administer its own privileged account from this page.</p>
-      {% endif %}
-      <section aria-labelledby="access-summary-heading">
-        <h2 id="access-summary-heading">Project access</h2>
-        <p>Project roles and access summaries are not editable until Phase 5.</p>
-      </section>
-    </main>
-  </body>
-</html>
+{% extends "server/base.html" %}
+{% from "server/_forms.html" import confirmation %}
+{% block title %}{{ user.display_name }} · Impodo administration{% endblock %}
+{% block content %}
+<p><a href="/admin/users">Back to Users</a></p><h1>{{ user.display_name }}</h1>
+<dl><dt>Login email</dt><dd>{{ user.normalized_login_email }}</dd>
+<dt>Account kind</dt><dd>{{ user.principal_kind.value|replace('_', ' ')|title }}</dd>
+<dt>Status</dt><dd>{{ user.status.value|replace('_', ' ')|title }}</dd></dl>
+<p><a href="/admin/sessions?user_id={{ user.user_id }}">View sessions</a> · <a href="/admin/history?user_id={{ user.user_id }}">View security history</a></p>
+{% if user.principal_kind.value == 'CUSTOMER_USER' %}
+<section><h2>Account actions</h2>
+{% if user.status.value == 'PENDING_ACTIVATION' %}
+<form method="post" action="/admin/users/{{ user.user_id }}/actions">
+  <input type="hidden" name="action" value="activation">
+  {{ confirmation(csrf_token, user.optimistic_revision, user.user_id, 'I confirm replacing the activation link for ' ~ user.display_name ~ '. The earlier link will stop working.') }}
+  <button type="submit">Create replacement activation link</button>
+</form>{% endif %}
+{% if user.status.value == 'ACTIVE' %}
+<form method="post" action="/admin/users/{{ user.user_id }}/actions">
+  <input type="hidden" name="action" value="reset">
+  {{ confirmation(csrf_token, user.optimistic_revision, user.user_id, 'I confirm creating a password reset link for ' ~ user.display_name ~ '. Using it will sign out all of their sessions.') }}
+  <button type="submit">Create password reset link</button>
+</form>
+<form method="post" action="/admin/users/{{ user.user_id }}/actions">
+  <input type="hidden" name="action" value="suspend">
+  {{ confirmation(csrf_token, user.optimistic_revision, user.user_id, 'I confirm suspending ' ~ user.display_name ~ '. All sessions will be revoked and login will be refused.') }}
+  <button type="submit">Suspend user</button>
+</form>{% endif %}
+{% if user.status.value == 'SUSPENDED' %}
+<form method="post" action="/admin/users/{{ user.user_id }}/actions">
+  <input type="hidden" name="action" value="reactivate">
+  {{ confirmation(csrf_token, user.optimistic_revision, user.user_id, 'I confirm reactivating ' ~ user.display_name ~ '. They can sign in again; old sessions stay revoked.') }}
+  <button type="submit">Reactivate user</button>
+</form>{% endif %}
+{% if user.status.value != 'DEACTIVATED' %}
+<form method="post" action="/admin/users/{{ user.user_id }}/actions">
+  <input type="hidden" name="action" value="deactivate">
+  {{ confirmation(csrf_token, user.optimistic_revision, user.user_id, 'I confirm permanently deactivating ' ~ user.display_name ~ '. This cannot be undone. Their audit history will be retained.') }}
+  <button type="submit">Permanently deactivate user</button>
+</form>{% endif %}
+</section>
+{% else %}<p>The assigned Organization Administrator cannot administer its own privileged account from this page. Contact the platform operator for recovery or replacement.</p>{% endif %}
+<section><h2>Project access</h2><p>Account administration does not assign Project roles or access. No Project grants are changed by these actions.</p></section>
+{% endblock %}

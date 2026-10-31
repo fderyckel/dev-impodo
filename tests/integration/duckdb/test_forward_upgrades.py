@@ -91,6 +91,9 @@ def _workspace() -> MigrationWorkspace:
 
 
 def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
+    for table in ("business_write_observation", "business_intent_assessment", "business_intent_current", "business_intent_approval"):
+        connection.execute(f"DROP TABLE IF EXISTS {table}")
+    connection.execute("DROP TABLE IF EXISTS odoo_company_binding")
     connection.execute("DROP TABLE IF EXISTS business_intent_revision")
     connection.execute("DROP TABLE IF EXISTS supporting_review_projection")
     connection.execute("DROP TABLE IF EXISTS supporting_data_review")
@@ -120,6 +123,9 @@ def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
     connection.execute("DROP TABLE schema_migration")
     tables = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
+    if "migration_run_target_setup" in tables:
+        connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
+        connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
     if "normalization_run" in tables:
         connection.execute(
             "ALTER TABLE normalization_run DROP COLUMN reviewed_group_count"
@@ -264,6 +270,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (4, 5, "migration-registry-v4-to-v5-correction-binding"),
                     (5, 6, "migration-registry-v5-to-v6-run-control-values"),
                     (6, 7, "migration-registry-v6-to-v7-production-values"),
+                    (7, 8, "migration-registry-v7-to-v8-operation-company"),
                 ],
             )
             self.assertEqual(
@@ -286,12 +293,14 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                  "local", "operator", "Data manager", CREATED_AT.isoformat()])
             original = connection.execute("SELECT * FROM test_run_parameter_values").fetchall()
             connection.execute("DROP TABLE production_run_values")
+            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
+            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
             connection.execute("UPDATE schema_version SET version = 6")
             ensure_migration_registry_schema(connection, path)
             ensure_migration_registry_schema(connection, path)
             self.assertEqual(connection.execute("SELECT * FROM test_run_parameter_values").fetchall(), original)
             self.assertEqual(connection.execute("SELECT * FROM production_run_values").fetchall(), [])
-            self.assertEqual(connection.execute("SELECT from_version, to_version FROM schema_migration").fetchall(), [(6, 7)])
+            self.assertEqual(connection.execute("SELECT from_version, to_version FROM schema_migration ORDER BY from_version").fetchall(), [(6, 7), (7, 8)])
 
     def test_data_version_v1_upgrades_without_rewriting_package_data(self) -> None:
         connection = duckdb.connect(":memory:")
@@ -473,6 +482,8 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     (20, 21, "workspace-engine-v20-to-v21-supporting-data-review"),
                     (21, 22, "workspace-engine-v21-to-v22-supporting-review-projection"),
                     (22, 23, "workspace-engine-v22-to-v23-business-intent"),
+                    (23, 24, "workspace-engine-v23-to-v24-operation-company"),
+                    (24, 25, "workspace-engine-v24-to-v25-business-intent-assessment"),
                 ],
             )
             self.assertEqual(

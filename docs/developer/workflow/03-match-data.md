@@ -967,6 +967,12 @@ identifier, port, exit code, and restart attempt, but no launch token or
 session secret. The same-port and same-session behavior is exercised with two
 real spawned server processes on Windows.
 
+The listener ownership check reads the kernel's listening state without
+accepting a connection. On macOS it reads the first `tcpi_state` byte from
+Darwin's public `TCP_CONNECTION_INFO` option because `SO_ACCEPTCONN` is not a
+supported socket query there. Other platforms retain `SO_ACCEPTCONN`. Bound,
+connected, closed, and wrong-port sockets cannot satisfy this check.
+
 `POST /diagnostics/bundle` requires the authenticated session, same-origin
 request policy, and CSRF token. Bundle construction runs in the bounded thread
 pool. It reads at most 5,000 bounded log records and re-sanitizes every field

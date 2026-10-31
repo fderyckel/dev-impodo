@@ -66,6 +66,7 @@ from ..target_credentials import (
     target_read_credential_id,
     target_write_credential_id,
 )
+from .odoo_company import build_odoo_company_router
 from .schema import _capture_selected_schema
 
 _LOCAL_STACK_RETURN_TARGET = "target"
@@ -230,6 +231,7 @@ async def _validate_selected_local_connection(
 
 def build_target_router(context: WebContext) -> APIRouter:
     router = APIRouter()
+    router.include_router(build_odoo_company_router(context))
 
     @router.post(
         "/projects/{project_id}/workspaces/{workspace_id}/target/read-credential/quick"

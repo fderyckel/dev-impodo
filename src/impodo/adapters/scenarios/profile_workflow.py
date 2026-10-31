@@ -64,6 +64,7 @@ from impodo.domain.scenarios import (
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.shared.models import PreflightResult, TargetRecord
+from impodo.domain.workspace.business_intent_assessment import BusinessIntentAssessment
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -118,6 +119,19 @@ class _ScenarioNormalizationEvidence:
 class _ScenarioExecutionSnapshots:
     workspace_id: str
     snapshot: ExecutionSnapshot
+    assessment: BusinessIntentAssessment | None = None
+
+    def current_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessment | None:
+        """Use independently declared disposable-scenario expectations as intent."""
+        if workspace_id != self.workspace_id or snapshot_hash != self.snapshot.semantic_hash:
+            return None
+        return self.assessment
+
+    def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None:
+        """Keep scenario qualification bound to its declared definition."""
+        assessment = self.current_business_intent_assessment(workspace_id, run.snapshot_hash)
+        if assessment is None or not assessment.ready:
+            raise WorkspaceError("The scenario business expectation is unavailable")
 
     def current_execution_snapshot(
         self,
@@ -315,9 +329,18 @@ class ProfileScenarioWorkflow:
                 result=self._last_preflight,
             )
             write_scenario_execution_snapshot(snapshot, self._evidence_directory)
+            expected = definition.expectations.first_comparison
+            assessment = BusinessIntentAssessment(
+                self._workspace_id, snapshot.preflight_run_id, snapshot.semantic_hash,
+                snapshot.target_hash, definition.semantic_hash, 1, definition.semantic_hash,
+                () if expected is not None and all(int(snapshot.counts.get(name, 0)) == count
+                    for name, count in expected.as_classification_counts().items())
+                else ("The disposable scenario differs from its declared comparison expectations",),
+            )
             preflight = _ScenarioExecutionSnapshots(
                 workspace_id=self._workspace_id,
                 snapshot=snapshot,
+                assessment=assessment,
             )
             workspace = WorkspaceState(
                 workspace_id=self._workspace_id,

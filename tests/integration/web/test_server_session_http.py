@@ -133,6 +133,7 @@ class ServerSessionHttpTests(unittest.TestCase):
             self.assertEqual(response.headers["cache-control"], "no-store")
             self.assertEqual(response.headers["x-frame-options"], "DENY")
             self.assertEqual(response.headers["x-content-type-options"], "nosniff")
+            self.assertEqual(response.headers["referrer-policy"], "same-origin")
             self.assertIn("frame-ancestors 'none'", response.headers["content-security-policy"])
 
 

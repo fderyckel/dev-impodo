@@ -6,14 +6,20 @@ from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.readback import Json2ReadbackReader
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.web.composition.target_writers import _readback_reader, _write_executor
+from impodo.domain.workspace.workbench import WorkspaceState, OdooConnectionMode
+from impodo.domain.odoo.company import OdooCompanySelection
+from impodo.domain.shared.models import target_identity_hash
+from uuid import uuid4
 
 
 class Json2ReadbackRetryTests(unittest.TestCase):
     def test_load_composition_retries_verification_and_identity_reads(self):
-        workspace = SimpleNamespace(
+        workspace = WorkspaceState(
+            workspace_id=str(uuid4()), name="Local verification", source_system="CSV",
             odoo_base_url="http://127.0.0.1:8069",
             odoo_database="odoo19_disposable",
-            odoo_connection_mode=SimpleNamespace(value="LOCAL"),
+            odoo_connection_mode=OdooConnectionMode.LOCAL,
+            odoo_company=OdooCompanySelection(target_identity_hash(connection_mode="LOCAL", base_url="http://127.0.0.1:8069", database="odoo19_disposable"), 3, "Fictional local company"),
         )
         scope = OdooApiScope(
             preview_hash="sha256:" + "a" * 64,

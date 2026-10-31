@@ -12,6 +12,48 @@ from impodo.domain.execution.write_diagnostics import (
 
 
 class WriteDiagnosticTests(TestCase):
+    def test_company_rejection_is_not_specific_to_accounting_relationships(self):
+        result = import_rejection_diagnostic(
+            [{
+                "type": "error",
+                "message": (
+                    "Incompatible companies on records:\n"
+                    "- Private route (x_region_id: 'Private region') belongs to another company."
+                ),
+            }],
+            model="x.delivery.route",
+            fields=("name", "x_region_id/.id"),
+            batch_size=2,
+        )
+
+        self.assertEqual(result.code, WriteFailureCode.COMPANY_MISMATCH)
+        self.assertEqual(result.model, "x.delivery.route")
+        self.assertEqual(result.fields, ("x_region_id",))
+        self.assertNotIn("Private", json.dumps(result.to_dict()) + result.summary)
+
+    def test_company_rejection_retains_only_reviewed_fields_without_names(self):
+        message = (
+            "Uh-oh! You’ve got some company inconsistencies here:\n"
+            "- “Private customer” belongs to company “” while “Payment” "
+            "(x_term_id: 'Private term') belongs to another company.\n"
+            "- “Private customer” belongs to company “” while “Position” "
+            "(x_position_id: 'Private position') belongs to another company.\n"
+            "- “Private customer” (password: 'secret') belongs to another company.\n"
+            "To avoid a mess, no company crossover is allowed!"
+        )
+        result = import_rejection_diagnostic(
+            [{"type": "error", "message": message, "rows": {"from": 0, "to": 0}}],
+            model="x.customer",
+            fields=("name", "x_term_id/.id", "x_position_id/.id"),
+            batch_size=1,
+        )
+        self.assertEqual(result.code, WriteFailureCode.COMPANY_MISMATCH)
+        self.assertEqual(OdooWriteDiagnostic.from_dict(result.to_dict()), result)
+        self.assertEqual(result.fields, ("x_position_id", "x_term_id"))
+        self.assertNotIn("Private", result.summary + json.dumps(result.to_dict()))
+        self.assertNotIn("secret", result.summary + json.dumps(result.to_dict()))
+        self.assertIn("intended Odoo company", result.summary)
+
     def test_known_error_retains_field_range_and_fingerprint_without_values(self):
         diagnostic = import_rejection_diagnostic(
             [

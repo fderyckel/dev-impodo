@@ -267,6 +267,7 @@
       <form method="post" action="/workspaces/{{ workspace_id }}/load" data-load-confirmation-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="snapshot_hash" value="{{ preview.snapshot.semantic_hash }}">
+        <input type="hidden" name="intent_assessment_hash" value="{{ preview.business_intent_assessment_hash }}">
         {% if preview.prior_interrupted_run %}
           <input type="hidden" name="prior_execution_run_id" value="{{ preview.prior_interrupted_run.run_id }}">
         {% endif %}

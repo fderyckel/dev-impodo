@@ -9,7 +9,7 @@ extension, and custom Odoo schema surfaces without code changes.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from hashlib import sha256
 
 from impodo.domain.shared.models import canonical_json_bytes
@@ -63,6 +63,7 @@ class OdooApiScope:
 
     preview_hash: str
     models: tuple[OdooModelScope, ...]
+    creatable_models: tuple[str, ...] = field(default=(), compare=False)
 
     def __post_init__(self) -> None:
         if not self.preview_hash.startswith("sha256:"):
@@ -70,6 +71,9 @@ class OdooApiScope:
         names = tuple(item.model for item in self.models)
         if not names or tuple(sorted(set(names))) != names:
             raise ValueError("Odoo model scopes must be sorted, unique, and non-empty")
+        if (tuple(sorted(set(self.creatable_models))) != self.creatable_models
+            or not set(self.creatable_models).issubset(item.model for item in self.models if item.write_fields)):
+            raise ValueError("Odoo create checks must stay inside the reviewed write scope")
 
     @property
     def semantic_hash(self) -> str:

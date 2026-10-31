@@ -1,4 +1,4 @@
-"""Persist global Platform and Organization Administrator login facts."""
+"""Persist global login facts for platform and tenant-bound customer identities."""
 
 from __future__ import annotations
 
@@ -51,6 +51,8 @@ _LOAD_ATTEMPT_QUERY: LiteralString = (
     "         WHEN li.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
     "           THEN u.status = 'ACTIVE' AND o.status = 'ACTIVE'\n"
     "             AND assignment.user_id IS NOT NULL\n"
+    "         WHEN li.principal_kind = 'CUSTOMER_USER'\n"
+    "           THEN u.status = 'ACTIVE' AND o.status = 'ACTIVE'\n"
     "         ELSE false\n"
     "       END AS eligible,\n"
     "       (EXISTS (\n"
@@ -66,15 +68,16 @@ _LOAD_ATTEMPT_QUERY: LiteralString = (
     "LEFT JOIN impodo_control.login_identity AS li\n"
     "  ON li.normalized_login_email = %s\n"
     " AND li.principal_kind IN "
-    "('PLATFORM_ADMINISTRATOR', 'ORGANIZATION_ADMINISTRATOR')\n"
+    "('PLATFORM_ADMINISTRATOR', 'ORGANIZATION_ADMINISTRATOR', 'CUSTOMER_USER')\n"
     "LEFT JOIN impodo_control.platform_administrator AS a\n"
     "  ON li.principal_kind = 'PLATFORM_ADMINISTRATOR'\n"
     " AND a.administrator_id = li.principal_id\n"
     "LEFT JOIN impodo_control.platform_administrator_password_identity AS ap\n"
     "  ON ap.administrator_id = a.administrator_id\n"
     "LEFT JOIN impodo_control.customer_user AS u\n"
-    "  ON li.principal_kind = 'ORGANIZATION_ADMINISTRATOR'\n"
+    "  ON li.principal_kind IN ('ORGANIZATION_ADMINISTRATOR', 'CUSTOMER_USER')\n"
     " AND u.user_id = li.principal_id\n"
+    " AND u.principal_kind = li.principal_kind\n"
     "LEFT JOIN impodo_control.customer_user_password_identity AS up\n"
     "  ON up.user_id = u.user_id\n"
     "LEFT JOIN impodo_control.organization AS o\n"

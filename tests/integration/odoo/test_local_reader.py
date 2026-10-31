@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from dataclasses import replace
 from impodo.adapters.odoo.local_reader import (
     LocalOdooMetadataReader,
     LocalOdooReaderError,
@@ -37,17 +38,27 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
             ("unknown", [19, 0, 0, "final", 0, ""], False),
         ):
             with self.subTest(version=version, info=info):
-                payload = {"database": "odoo19_local", "version": version, "version_info": info}
+                payload = {
+                    "database": "odoo19_local",
+                    "version": version,
+                    "version_info": info,
+                }
                 reader = LocalOdooMetadataReader(runner=lambda *_: _result(payload))
                 if allowed:
-                    self.assertEqual(reader.get_target_fingerprint(self.workspace_state, self.profile).odoo_version, version)
+                    self.assertEqual(
+                        reader.get_target_fingerprint(
+                            self.workspace_state, self.profile
+                        ).odoo_version,
+                        version,
+                    )
                 else:
                     with self.assertRaises(LocalOdooReaderError):
-                        reader.get_target_fingerprint(self.workspace_state, self.profile)
+                        reader.get_target_fingerprint(
+                            self.workspace_state, self.profile
+                        )
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.workspace = Path(self.temporary.name) / "odoo_ve"
         self.config = self.workspace / "config" / "odoo.conf"
         self.python = self.workspace / "venv" / "Scripts" / "python.exe"
@@ -135,7 +146,9 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertIn('env["ir.model"].sudo().search_read', script)
         self.assertIn("env.cr.rollback()", script)
 
-    def test_fields_get_captures_effective_inherited_fields_once_per_model(self) -> None:
+    def test_fields_get_captures_effective_inherited_fields_once_per_model(
+        self,
+    ) -> None:
         calls = []
         payload = {
             "database": "odoo19_local",
@@ -303,9 +316,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
                 ]
             },
         }
-        reader = LocalOdooMetadataReader(
-            runner=lambda *_args: _result(payload)
-        )
+        reader = LocalOdooMetadataReader(runner=lambda *_args: _result(payload))
 
         _metadata, records = reader.get_preflight_snapshots(
             self.workspace_state,
@@ -343,9 +354,7 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
 
     def test_reader_exposes_no_generic_shell_or_write_surface(self) -> None:
         public = {
-            name
-            for name in dir(LocalOdooMetadataReader)
-            if not name.startswith("_")
+            name for name in dir(LocalOdooMetadataReader) if not name.startswith("_")
         }
         self.assertEqual(
             public,
@@ -354,8 +363,38 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
                 "get_model_catalog",
                 "get_model_metadata",
                 "get_preflight_snapshots",
+                "get_company_access",
             },
         )
+
+    def test_company_choices_and_selected_context_use_the_fixed_rolled_back_shell(self):
+        calls = []
+        payload = {
+            "database": "odoo19_local",
+            "version": "19.0",
+            "login": "local-metadata@example.test",
+            "default_company_name": "Fictional Group",
+            "companies": [
+                {"id": 3, "name": "Fictional Group"},
+                {"id": 7, "name": "Fictional Factory"},
+            ],
+        }
+
+        def runner(_command, script, _cwd, _timeout):
+            calls.append(script)
+            return _result(payload)
+
+        reader = LocalOdooMetadataReader(runner=runner)
+        access = reader.get_company_access(self.workspace_state, self.profile)
+        self.assertEqual([company.company_id for company in access.choices], [3, 7])
+        selected = replace(self.workspace_state, odoo_company=access.choices[1])
+        reader.get_target_fingerprint(selected, self.profile)
+        self.assertTrue(
+            calls[1].startswith(
+                "env = env(context=dict(env.context, allowed_company_ids=[7]))"
+            )
+        )
+        self.assertIn("env.cr.rollback()", calls[1])
 
 
 def _result(payload: dict[str, object]) -> LocalShellResult:

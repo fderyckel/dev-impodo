@@ -17,6 +17,10 @@
     This stage checks the destination server, database, Odoo 19 version, and authenticated read access. Field matching and loading remain separate later stages.
   </div>
 
+  {% if workspace_state.destination_configured %}
+    {% include "_odoo_company_choice.html" %}
+  {% endif %}
+
   <section class="form-card" aria-labelledby="source-destination-title">
     <p class="eyebrow">Transfer boundary</p>
     <h2 id="source-destination-title">Source and destination stay separate</h2>

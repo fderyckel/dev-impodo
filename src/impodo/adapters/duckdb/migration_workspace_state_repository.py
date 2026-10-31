@@ -70,6 +70,16 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         )
         if migration_workspace.state is not MigrationWorkspaceState.OPEN:
             raise WorkspaceStateError("A closed MigrationWorkspace cannot be initialized")
+        target = self.foundation.get_migration_run_target_setup(
+            migration_workspace.migration_run_id
+        )
+        company = (
+            self.get_odoo_company_binding(
+                target.company_workspace_id, target.company_binding_hash
+            )
+            if target is not None and target.company_workspace_id is not None
+            else None
+        )
         directory = self.workspace_directory(workspace.workspace_id)
         database_path = directory / "workspace-engine.duckdb"
         if database_path.is_file():
@@ -88,6 +98,14 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             (directory / "protected").chmod(0o700)
             with self._connect(database_path) as connection:
                 self._initialize_workspace_database(connection)
+                if company is not None:
+                    # Each isolated worker needs its own protected evidence.
+                    # The run's canonical hash remains the authority; workers
+                    # never open a sibling setup workspace to resolve it.
+                    connection.execute(
+                        "INSERT INTO odoo_company_binding VALUES (?, ?)",
+                        [company.binding_hash, company.to_json()],
+                    )
                 self._insert_workspace(connection, workspace)
                 self._insert_audit(
                     connection,
@@ -149,6 +167,10 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             ),
             odoo_base_url=target.base_url if target is not None else "",
             odoo_database=target.database if target is not None else "",
+            odoo_company=(self.get_odoo_company_binding(workspace_id, target.company_binding_hash)
+                if target is not None and target.company_workspace_id is not None and package.origin is SourcePackageOrigin.FILE else None),
+            destination_company=(self.get_odoo_company_binding(workspace_id, target.company_binding_hash)
+                if target is not None and target.company_workspace_id is not None and package.origin is SourcePackageOrigin.ODOO else None),
             intended_applications=(
                 target.intended_applications if target is not None else ()
             ),
@@ -173,6 +195,10 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         migration_workspace = self.foundation.get_migration_workspace(
             workspace.workspace_id
         )
+        if event_type == "WORKSPACE_COMPANY_UPDATED":
+            run = self.foundation.get_migration_run(migration_workspace.migration_run_id)
+            if run.purpose.value != "AUTHORING" and run.target_binding_id is not None:
+                raise WorkspaceStateError("The company is fixed for this activated run. Start a fresh run with the saved Recipes to choose another company.")
         super().save(
             workspace,
             expected_revision=expected_revision,
@@ -180,7 +206,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             event_detail=event_detail,
             actor=actor,
         )
-        if event_type == "WORKSPACE_TARGET_UPDATED":
+        if event_type in {"WORKSPACE_TARGET_UPDATED", "WORKSPACE_COMPANY_UPDATED", "WORKSPACE_TRANSFER_DESTINATION_UPDATED"}:
             self._replace_run_target(
                 migration_workspace.migration_run_id,
                 workspace,
@@ -335,17 +361,20 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             raise WorkspaceStateError("Choose Local Odoo or Remote Odoo")
         run = self.foundation.get_migration_run(migration_run_id)
         current = self.foundation.get_migration_run_target_setup(migration_run_id)
+        company = workbench.destination_company if workbench.source_mode is SourceMode.ODOO else workbench.odoo_company
         values = (
             workbench.odoo_connection_mode.value,
             workbench.odoo_base_url,
             workbench.odoo_database,
             workbench.intended_applications,
+            company.binding_hash if company else "",
         )
         if current is not None and values == (
             current.connection_mode.value,
             current.base_url,
             current.database,
             current.intended_applications,
+            current.company_binding_hash,
         ):
             return
         self.foundation.replace_migration_run_target_setup(
@@ -358,6 +387,10 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
                 database=workbench.odoo_database,
                 intended_applications=workbench.intended_applications,
                 updated_at=utc_now(),
+                company_binding_hash=company.binding_hash if company else "",
+                company_workspace_id=(workbench.workspace_id if company and
+                    (current is None or current.company_binding_hash != company.binding_hash)
+                    else current.company_workspace_id if current and company else None),
             ),
             expected_revision=current.revision if current else None,
             actor=actor,

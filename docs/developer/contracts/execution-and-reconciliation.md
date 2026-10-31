@@ -22,6 +22,13 @@ It uses a narrow write capability, journals intent before transport, stops on
 unknown outcomes, and proves the resulting target state through a separate
 read-back capability.
 
+Conventional file-source loading also requires the current
+[business intent assessment](business-intent.md). Confirmation and worker entry
+bind its exact hash. Journal creation records the original intent approval in
+the same transaction and rejects a racing edit. An interrupted journal retains
+that approval while recovery still requires fresh read-back evidence. The
+business assessment is a sidecar; it does not rewrite historical snapshot hashes.
+
 It exposes no generic Odoo client and provides no whole-migration rollback.
 
 The Odoo-to-Odoo read-only preflight in Stage 6 is deliberately outside execution. It
@@ -185,6 +192,25 @@ method.
 
 ## Safe write diagnostics
 
+Conventional execution checks that a supplied write identity uses the ready
+comparison's company context before it creates a load journal. This repeats
+the browser's company-context guard inside the application service. Different
+checking and loading users remain permitted; the context must agree. Legacy
+local snapshots without remote read identity keep their existing path.
+
+The browser requires a confirmed operation company before constructing a
+writer or probing loading access. The factories apply the same closed
+single-company context to writes, duplicate checks, generated receipt reads
+and read-back. This does not add `company_id` to a payload or change an
+explicitly blank record company. The checking and loading keys independently
+prove access to that context; there is no checking-key fallback for loading.
+
+Loading access also checks create permission for the models with reviewed
+creates. This set is derived transiently from the immutable preview and does
+not change historical API-scope or permission hashes used for recovery.
+Model-level probes do not certify individual record rules, field access or
+custom business constraints. Odoo's write validation remains authoritative.
+
 Every newly rejected or uncertain write retains an `OdooWriteDiagnostic` in
 the affected attempt's existing JSON journal payload. Historical payloads
 without that optional member retain their original serialized form. The
@@ -200,6 +226,12 @@ values. Field names must belong to the reviewed request. An unrecognized or
 missing error retains operation context and a generic rejection code; it must
 not invent a root cause. Create, update, completion, and uncertain outcomes
 have a generic fallback when no structured diagnostic is supplied.
+
+Recognized company-inconsistency messages retain `ODOO_COMPANY_MISMATCH` and
+only technical field names that belong to the reviewed write. Customer names,
+related-record labels, company names and arbitrary server text remain outside
+the diagnostic payload. The classifier does not imply that preflight proves
+every model-specific Odoo company rule.
 
 The support log records only aggregate reason codes and affected-attempt
 counts after execution returns. Neither that projection nor diagnostic

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.domain.project.foundation import MigrationFoundationError
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.run.contracts import MigrationRunPlanningError
 from impodo.domain.run.production import ProductionRunError
 from impodo.domain.serialization import content_hash
@@ -107,6 +108,11 @@ class ProductionReadinessBrowserTests(TestCase):
             connection_target_hash=target_identity_hash(connection_mode="REMOTE", base_url="https://production.example.test", database="fictional_production"), read_credential_binding_hash=read.binding_hash,
             read_principal_hash=content_hash("production reader"), read_permission_hash=content_hash("production read permissions"),
             read_context_hash=content_hash("production context"), content_hash=content_hash("production schema"))
+        company = OdooCompanySelection(self.schema.connection_target_hash, 809, "Fictional Production factory")
+        state = context.workspace_states.repository.get(workspace_id)
+        context.workspace_states.select_odoo_company(workspace_id, actor=actor,
+            expected_revision=state.revision, selection=company)
+        self.schema = replace(self.schema, read_context_hash=company.context_hash)
         self.identity = OdooWriteIdentity(target_hash=self.schema.connection_target_hash,
             principal_hash=content_hash("production writer"), permission_hash=content_hash("production write permissions"),
             context_hash=self.schema.read_context_hash, readable_models=("res.partner",), writable_models=("res.partner",),

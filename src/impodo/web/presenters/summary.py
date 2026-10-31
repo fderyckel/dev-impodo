@@ -94,6 +94,7 @@ def _render_target(
     status_code: int = 200,
     open_local_stack: bool = False,
     setup_attention_requested: bool = False,
+    company_access=None,
 ):
     connection_purpose = (
         OdooConnectionPurpose.SOURCE_READ
@@ -103,6 +104,7 @@ def _render_target(
     return _render(
         request,
         "workspace_target.html",
+        company_access=company_access,
         workspace_state=workspace_state,
         applications=ODOO_APPLICATIONS,
         local_stack=context.local_stack.get(workspace_state.workspace_id),

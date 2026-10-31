@@ -470,6 +470,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     f"/projects/{project_id}/runs/{migration_run_id}", status_code=303,
                 )
             workspace_state = context.queries.get(workspace_id)
+            _require_run_read_credential(context, workspace_state)
+            _require_run_company(workspace_state)
             plan = context.run_setups.odoo_check_requirements_for_workspace(
                 workspace_id,
                 actor=actor,
@@ -1288,6 +1290,8 @@ def _run_odoo_check_scope(
             "Confirm the Recipe details on Fresh data before checking Odoo"
         )
     workspace_state = context.queries.get(binding.setup_workspace_id)
+    _require_run_read_credential(context, workspace_state)
+    _require_run_company(workspace_state)
     plan = context.run_setups.odoo_check_requirements_for_workspace(
         workspace_state.workspace_id,
         actor=actor,
@@ -1297,6 +1301,14 @@ def _run_odoo_check_scope(
             "The selected Recipes do not contain an Odoo requirement"
         )
     return binding, run, workspace_state, plan
+
+
+def _require_run_company(workspace_state: WorkspaceState) -> None:
+    """Confirm the company before a browser check can activate Recipe workspaces."""
+    if workspace_state.odoo_company is None:
+        raise WorkspaceStateError(
+            "Choose the company used for this run in Odoo access before checking Odoo"
+        )
 
 
 def _require_run_read_credential(

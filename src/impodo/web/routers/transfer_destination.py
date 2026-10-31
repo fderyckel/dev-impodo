@@ -59,6 +59,7 @@ def _render_destination(
     *,
     error: str | None = None,
     status_code: int = 200,
+    company_access=None,
 ):
     destination_target = (
         transfer_destination_workspace(workspace_state)
@@ -69,6 +70,7 @@ def _render_destination(
         request,
         "workspace_transfer_destination.html",
         workspace_state=workspace_state,
+        company_access=company_access,
         destination_connection=(
             context.remote_connections.get(
                 destination_target,

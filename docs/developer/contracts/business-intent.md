@@ -84,9 +84,57 @@ metadata. Publication rechecks headers without decoding validation history.
 There are no per-field repository calls, source row scans, Odoo calls, or
 process-wide connection caches.
 
-Saving intent preserves the current comparison, approval, execution snapshot,
-and journal. It grants no write permission. This contract currently records
-expectations; the existing execution path does not consume them as approval.
+Saving intent preserves the current comparison, execution snapshot, and any
+already-started journal. It retires the assessment candidate for the next load
+while retaining its observation for local reassessment. Saving grants no write
+permission.
+
+## Assessment and enforcement
+
+The file-source comparison builds `BusinessWriteObservation` while its exact
+execution snapshot and compiled rules are in memory. The observation records
+model counts, scalar fields, and authored relationship operations. It binds
+the snapshot, prepared input, mapping, target, comparison, and any reviewed
+reduced-scope decision. It contains no row values or Odoo identifiers.
+
+Each business identity counts once per create or update phase. Supporting
+creates count as writes. A relationship completed after creation belongs to
+that create and adds no update count. Reusing a target reference adds no write
+to the referenced model. Omitted fields add no effect. Authored add and remove
+operations retain their meaning even when the writer uses a final replacement
+payload.
+
+The comparison transaction publishes the observation and an immutable
+`BusinessIntentAssessment` against the current intent. Missing intent, a
+different checked mapping, forbidden effects, or count deviations block loading.
+Accepting reduced scope creates a fresh observation and assessment, including
+minimum counts. Row confirmation cannot acknowledge a business deviation.
+
+After an explicit intent edit, `PreflightService.reassess_business_intent`
+requires `PREFLIGHT_RUN`, verifies the current saved snapshot, and reassesses
+its bounded observation in one local operation. It performs no Odoo read and
+does not evaluate source rows. Ordinary review reads return only the verified
+assessment hash, readiness, and one blocker rather than the full deviation list.
+
+The confirmation form carries the exact assessment hash. The application
+rechecks it before enqueue and at worker entry before constructing the writer.
+`ExecutionService` repeats the check before journal creation. The journal
+transaction rechecks the current intent and assessment and records the Actor's
+approval atomically with the new run. Intent editing and journal publication
+touch the same current row, so a racing edit cannot commit alongside a stale
+approval. A zero-write completion must satisfy the same count expectations.
+
+An interrupted journal retains its original approved intent. Later edits
+govern a later run; they cannot replace that approval during recovery. Recovery
+still requires its exact read-back assessment and existing target and credential
+checks. Workspace-engine version 25 preserves the authority of journals that
+already existed before upgrade, including terminal history, without approving
+an unstarted load or creating an intent automatically.
+
+This enforcement covers the conventional file-source load boundary.
+Odoo-to-Odoo transfers and completed-load corrections retain their separate
+existing authorization contracts. This contract grants neither destination nor
+correction authority.
 
 ## Verification
 
@@ -94,6 +142,8 @@ expectations; the existing execution path does not consume them as approval.
 - [Supported-scope tests](../../../tests/domain/workspace/test_business_intent_scope.py)
 - [Authorized service tests](../../../tests/application/workspace/test_business_intent_service.py)
 - [Persistence, migration, concurrency, and connection-budget tests](../../../tests/integration/duckdb/test_business_intent.py)
+- [Observed effects and count assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
+- [Comparison, stale confirmation, concurrency, and recovery qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)
 
 ## Related documentation
 

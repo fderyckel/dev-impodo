@@ -18,7 +18,7 @@ from .structure import read_table_columns
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 7
+MIGRATION_REGISTRY_VERSION = 8
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -85,6 +85,8 @@ EXPECTED_REGISTRY_COLUMNS = {
         "database",
         "intended_applications_json",
         "updated_at",
+        "company_binding_hash",
+        "company_workspace_id",
     ),
     "migration_workspace_identity": ("workspace_id",),
     "migration_workspace": (
@@ -651,7 +653,17 @@ def _create_production_run_values(connection: duckdb.DuckDBPyConnection) -> None
     """)
 
 
+def _add_run_company_binding(connection: duckdb.DuckDBPyConnection) -> None:
+    """Reference protected company choices without copying Odoo identifiers."""
+    connection.execute("ALTER TABLE migration_run_target_setup ADD COLUMN company_binding_hash VARCHAR DEFAULT ''")
+    connection.execute("ALTER TABLE migration_run_target_setup ADD COLUMN company_workspace_id VARCHAR")
+
+
 MIGRATION_REGISTRY_UPGRADES = {
+    7: ForwardSchemaUpgrade(
+        migration_id="migration-registry-v7-to-v8-operation-company",
+        apply=_add_run_company_binding,
+    ),
     1: ForwardSchemaUpgrade(
         migration_id="migration-registry-v1-to-v2-migration-ledger",
         apply=_upgrade_migration_registry_v1_to_v2,
@@ -798,7 +810,9 @@ def _initialize_migration_registry(
                 base_url VARCHAR NOT NULL,
                 database VARCHAR NOT NULL,
                 intended_applications_json VARCHAR NOT NULL,
-                updated_at VARCHAR NOT NULL
+                updated_at VARCHAR NOT NULL,
+                company_binding_hash VARCHAR NOT NULL DEFAULT '',
+                company_workspace_id VARCHAR
             );
 
             CREATE TABLE migration_workspace (

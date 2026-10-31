@@ -17,6 +17,7 @@ class WriteFailureCode(StrEnum):
     RELATED_RECORD = "ODOO_RELATED_RECORD_NOT_FOUND"
     ACCESS_DENIED = "ODOO_ACCESS_DENIED"
     CONSTRAINT = "ODOO_CONSTRAINT_REJECTED"
+    COMPANY_MISMATCH = "ODOO_COMPANY_MISMATCH"
     VALIDATION = "ODOO_VALUE_REJECTED"
     REJECTED = "ODOO_WRITE_REJECTED"
     UNKNOWN = "ODOO_WRITE_OUTCOME_UNKNOWN"
@@ -27,6 +28,10 @@ _MESSAGES = {
     WriteFailureCode.RELATED_RECORD: "Odoo could not resolve a linked record",
     WriteFailureCode.ACCESS_DENIED: "Odoo denied access to this operation",
     WriteFailureCode.CONSTRAINT: "An Odoo constraint rejected the operation",
+    WriteFailureCode.COMPANY_MISMATCH: (
+        "A linked Odoo record belongs to a different company. "
+        "Use the intended Odoo company and compare again"
+    ),
     WriteFailureCode.VALIDATION: "Odoo rejected a field value",
     WriteFailureCode.REJECTED: "Odoo rejected this operation; no specific reason was available",
     WriteFailureCode.UNKNOWN: "The Odoo write outcome is uncertain; do not retry it",

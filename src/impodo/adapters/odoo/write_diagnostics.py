@@ -7,6 +7,7 @@ See docs/developer/contracts/execution-and-reconciliation.md.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 
@@ -61,6 +62,17 @@ def import_rejection_diagnostic(
         probe = text.casefold()
         code = WriteFailureCode.REJECTED
         if (
+            "company inconsistencies" in probe
+            or "incompatible companies on records" in probe
+            or "belongs to another company" in probe
+        ):
+            code = WriteFailureCode.COMPANY_MISMATCH
+            reported.update(
+                name
+                for name in re.findall(r"\(([A-Za-z_][A-Za-z0-9_]*):", text)
+                if name in permitted
+            )
+        elif (
             "missing required" in probe
             or "required field" in probe
             or "mandatory field" in probe

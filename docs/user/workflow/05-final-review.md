@@ -18,6 +18,12 @@ Prepared data must be complete for the current source, schema, and mapping.
 Use a reachable supported Odoo 19 or final Odoo 20 target with the approved
 read access.
 
+For a prepared file-source load, Impodo also checks the proposed changes
+against the saved business expectations. A safe individual record can still
+conflict with the intended purpose of the load. Setting aside groups changes
+the totals, so the remaining records must still satisfy any minimum or maximum
+counts before loading.
+
 ## Steps in Impodo
 
 1. Open **Final review**.

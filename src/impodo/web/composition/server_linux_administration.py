@@ -15,6 +15,9 @@ from impodo.adapters.identity.secure_sessions import SecureSessionSecretFactory
 from impodo.adapters.postgresql.identity_administration import (
     PsycopgIdentityAdministrationRepository,
 )
+from impodo.adapters.postgresql.platform_recovery import (
+    PsycopgAccountRecoveryRepository,
+)
 from impodo.adapters.postgresql.platform_sessions import (
     PsycopgServerSessionRepository,
 )
@@ -30,10 +33,13 @@ from impodo.adapters.secrets.linux_files import (
 from impodo.application.identity.administration_service import (
     IdentityAdministrationService,
 )
+from impodo.application.identity.recovery_ports import PasswordResetDeliveryError
+from impodo.application.identity.recovery_service import AccountRecoveryService
 from impodo.application.identity.server_authentication_service import (
     ServerAuthenticationService,
 )
 from impodo.application.identity.session_service import ServerSessionService
+from impodo.domain.identity.recovery import PasswordResetDelivery
 from impodo.domain.identity.sessions import ServerSessionPolicy
 from impodo.web.composition.server_administration import (
     ServerAdministrationDependencies,
@@ -46,6 +52,14 @@ from impodo.web.composition.server_config import (
 )
 
 IDENTIFIER_DIGEST_KEY_FILENAME = "identifier-digest-key"
+
+
+class _LocalTrialRecoveryDelivery:
+    """Fail closed until an operator accepts and configures an email channel."""
+
+    def deliver(self, delivery: PasswordResetDelivery) -> None:
+        del delivery
+        raise PasswordResetDeliveryError("Local trial email delivery is disabled")
 
 
 def create_file_secret_server_administration_dependencies(
@@ -121,6 +135,11 @@ def create_file_secret_server_administration_dependencies(
         templates=Jinja2Templates(directory=package_directory / "templates"),
         deployment_id=settings.deployment_id,
         session_absolute_timeout=session_policy.absolute_timeout,
+        account_recovery=AccountRecoveryService(
+            PsycopgAccountRecoveryRepository(read_dsn, settings.postgres_dsn_file),
+            SecureRecoveryTokenFactory(), identifier_digester, password_hasher,
+            _LocalTrialRecoveryDelivery(),
+        ),
     )
 
 

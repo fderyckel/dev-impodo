@@ -1988,6 +1988,18 @@ a.impact-card:focus-visible,
   margin: 0;
 }
 
+.exact-join-field-tools .exact-join-field-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  justify-content: flex-start;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.exact-join-field-actions .button {
+  flex: 0 0 auto;
+}
+
 .exact-join-field-tools .status,
 .exact-join-field-tools .notice {
   grid-column: 1 / -1;

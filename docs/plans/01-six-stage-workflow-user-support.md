@@ -22,19 +22,21 @@ source-aware dependency planner and its authorized application query. Slice 12
 now saves reviewed file-source choices and authorizes their exact grouped
 supporting reads. Slice 13 completes Recipe closure and downstream checks for
 those decisions. Slice 14 now records portable business-intent revisions through
-an authorized command and an atomic data-plane store. The next delivery is
-Slice 15's snapshot assessment and execution enforcement from Proposal 10.
+an authorized command and an atomic data-plane store. Slice 15 now assesses
+the exact conventional file-source snapshot and enforces its intent before
+loading while preserving original approval during recovery. The next delivery
+is Slice 16's editor and expected-versus-found presentation from Proposal 10.
 Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
 The remaining work is specified in **Remaining implementation slices** below.
-Slices 11 through 14 are implemented. Slices 15 and 16 complete the remaining
-business-intent safety capability. Slices
+Slices 11 through 15 are implemented. Slice 16 completes the remaining visible
+business-intent decision journey. Slices
 17 through 21 cover the remaining protected-review, interface, and acceptance
 commitments.
 Conditional extensions have explicit entry conditions and are not silently
-counted as delivered. Slices 15 through 21 remain proposed.
+counted as delivered. Slices 16 through 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -373,7 +375,28 @@ The controlled save fixture opens four database owners, checks the engine
 schema once, and performs zero lock retries, source row scans, or Odoo calls.
 The shared application graph injects the store through a port; detailed rules
 stay out of PostgreSQL and the Linux browser process. Snapshot assessment and
-write enforcement remain Slice 15, and the browser editor remains Slice 16.
+write enforcement are delivered in Slice 15, and the browser editor remains
+Slice 16.
+
+### Implemented fifteenth slice
+
+The conventional file-source comparison now observes exact business effects
+while the snapshot and compiled rules are in memory. It counts supporting
+creates, keeps deferred relationships with their original create, preserves
+authored add/remove meaning, and excludes reference reuse from updates. The
+comparison transaction publishes an immutable observation and assessment.
+Reduced scope gets a new assessment, including minimum counts. An expectation
+edit can be reassessed locally without source evaluation or another Odoo read.
+
+Confirmation, enqueue, and worker entry bind the same assessment hash before
+writer construction. The journal transaction records Actor approval and
+conflicts with a racing intent edit. Recovery retains that journal's original
+approval, while still requiring its exact read-back assessment. Version 25
+preserves pre-existing journal authority without approving an unstarted load.
+Ordinary review reads return bounded readiness, one blocker, and hashes.
+Detailed effects and approvals remain worker data-plane evidence. Transfer and
+completed-load correction retain their separate existing approvals; the
+Slice 14 contract does not infer destination scope from a source schema.
 
 ### Additional current foundations found during reassessment
 
@@ -391,7 +414,7 @@ delivery summary recorded:
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
 | **8. Root-cause repair** | Prepare data persists causal dependency evidence, publishes direct and transitive impact counts, checks exact post-transformation Decimal values against schema-bound Odoo capacity, and indexes every direct or dependency-affected row for bounded drill-down. Stages 4 and 5 project value-free cards with the saved rule, Odoo-schema alternative, recheck, and paged affected-record action. Browser paging does not rescan the issue graph or numeric values. | Complete for current preparation causes. Extend the shared issue projection only when another stage has authoritative evidence to contribute. |
 | **9. Shared comparison** | The single Stage 4-to-Stage 5 comparison and reviewed deferred-record-group workflow are complete. | Preserve this owner; do not add another target scan. |
-| **10. Intent and cockpit** | Load already has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. Portable business-intent revisions now persist through the authorized application API. | Assess the exact execution snapshot, enforce the saved intent, and present expected versus observed effects with existing execution and recovery evidence. |
+| **10. Intent and cockpit** | Load has dependency groups, bounded blockers, durable row journals, unknown-outcome states, read-back-gated recovery, reconciliation, and progressive relationship status. Portable business intent now has authorized persistence, exact snapshot assessment, and enforcement for conventional file-source loads. | Add the editor and present expected versus observed effects with existing execution and recovery evidence. Preserve the separate transfer and correction approvals. |
 
 The impact score measures the benefit to the data manager, not implementation
 cost:
@@ -516,7 +539,7 @@ stages.
 | **3. Match data** | The data manager defines row inclusion, record identity, scalar values, transformations, defaults, and relationships. Impodo checks direct and recursively nested relational identity, direct and recursively nested source-backed Many2one relationship health, predicts source-backed numeric precision loss, and can show protected unresolved identity choices, rule effects, and a workbook. | A compact cross-table coverage view remains missing. Nested Many2many and constant-provider keys remain conditional rather than required. |
 | **4. Prepare data** | Impodo applies the confirmed mapping to every accepted row, accounts for every row, resolves source duplicates, evaluates incoming relationships, checks exact prepared numeric capacity, freezes normalization decisions, publishes complete-run cause counts, and offers an indexed cause-specific record drill-down for the shared repair queue. | The remaining preparation improvements depend on the relational-identity and supporting-data evidence still missing upstream, not another issue store. |
 | **5. Final review** | Impodo reads current Odoo evidence, classifies every eligible prepared row, produces the final action queue and execution snapshot, can retain a reviewed safe remainder, reuses the Stage 4 repair projection, and publishes every Final-review-only blocking cause through the shared issue journey. | Indirect identities and target-only relationships that the early checks cannot prove may still first become visible here. Move those decisions earlier only with authoritative Stage 3 evidence; do not duplicate the target comparison. |
-| **6. Load into Odoo** | Impodo revalidates the reviewed target scope, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Recovery is already evidence-led. The main remaining gap is an explicit business-intent comparison that catches a technically valid load whose create, update, field, or relationship effects contradict the migration purpose. |
+| **6. Load into Odoo** | Impodo revalidates the reviewed target scope, enforces saved business intent for conventional file-source loads, writes in dependency order, journals each attempted row, requires read-back before recovery, and verifies the result through reconciliation. | Add the business-intent editor and consolidate expected versus observed effects with the existing recovery evidence. |
 
 The current boundaries are defined by the paired
 [user workflow](../user/workflow/01-source-data.md) and
@@ -1338,9 +1361,9 @@ dependency groups, grouped snapshot blockers, progressive first-pass and
 relationship status, a durable row journal, unknown-outcome handling,
 read-back-gated recovery, resume of the same journal, and final reconciliation.
 The explicit business-intent contract and authorized persistence API are also
-implemented. Assessment against the exact execution snapshot, enforcement,
-browser editing, and one consolidated expected-versus-found presentation remain
-proposed.
+implemented. Exact snapshot assessment and enforcement are current for the
+conventional file-source path. Browser editing and one consolidated
+expected-versus-found presentation remain proposed.
 
 **Owning stages:** Final review and Load into Odoo.  
 **User impact:** **9.5/10**.
@@ -1435,15 +1458,15 @@ again.
 ## Remaining implementation slices
 
 This is the delivery order as of 2026-10-30. The slice numbers
-continue the delivered increments above. Slices 11 through 14 are implemented.
-The next implementation should start with Slice 15. Each slice must leave its affected behavior and the full
+continue the delivered increments above. Slices 11 through 15 are implemented.
+The next implementation should start with Slice 16. Each slice must leave its affected behavior and the full
 repository gate green before the next slice begins.
 
 ### What is actually left
 
 | Remaining outcome | Slices | Completion evidence |
 | --- | --- | --- |
-| Impodo rejects technically valid writes that contradict the approved migration purpose. | 15–16 | The saved business-intent revision is assessed against the exact execution snapshot, enforced before writes, and displayed with the existing journal and reconciliation states. Contract and persistence are delivered in Slice 14. |
+| The data manager can edit and review business intent in the browser. | 16 | Display the saved expectation and enforced assessment with the existing journal and reconciliation states. Contract, persistence, and conventional file-source enforcement are delivered in Slices 14–15. |
 | The data manager can inspect repeated identity groups early. | 17 | Authorized, current, paged duplicate-group evidence explains the source or observed-target cause. |
 | The data manager can inspect unresolved choices in a saved relationship field. | 18 | Protected current pages show the actual choice and cause rather than linking only to the rule editor. |
 | The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
@@ -1582,7 +1605,7 @@ and pinned-field policies. Separate Odoo transfer destinations require their
 own scope and cannot inherit source authority. Domain, service, persistence,
 migration, concurrent-edit, and bounded-connection tests cover this foundation.
 The existing load flow does not yet enforce these expectations. Snapshot
-assessment and enforcement remain Slice 15; browser editing and cockpit
+assessment and enforcement are delivered in Slice 15; browser editing and cockpit
 presentation remain Slice 16.
 
 The data manager should be able to say “Update Contacts, create no Products,
@@ -1615,6 +1638,17 @@ expose a load action until enforcement is ready.
 authoritative persisted revision. They grant no write permission.
 
 ### Slice 15: Assess intent and enforce it before execution
+
+**Delivery:** Implemented on 2026-10-31 for the conventional file-source
+boundary supported by Slice 14. Observation and assessment publish with
+comparison evidence, reviewed reductions are reassessed, and intent-only edits
+reuse saved observations without Odoo reads. Confirmation, enqueue, worker
+entry, and journal publication reject missing, deviating, or stale intent.
+Approval records retain verified Actor provenance, and a racing edit conflicts
+with journal publication. Recovery keeps the original approval. Workspace-engine
+version 25 preserves existing journals without creating new intent or approval
+for an unstarted load. The editor and full expected-versus-found view remain
+Slice 16.
 
 Final review should catch an unexpected create or field change even when its
 individual rows pass every technical check.

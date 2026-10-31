@@ -17,6 +17,8 @@ from impodo.domain.identity.administration import (
     CustomerUserRecord,
     CustomerUserStatus,
     CustomerUserView,
+    OrganizationAdministrationView,
+    OrganizationDetailQuery,
     OrganizationListQuery,
     OrganizationMutationCommand,
     OrganizationPage,
@@ -48,6 +50,18 @@ class IdentityAdministrationRepository(Protocol):
         self,
         query: OrganizationListQuery,
     ) -> OrganizationPage: ...
+
+    def get_organization(self, query: OrganizationDetailQuery) -> OrganizationAdministrationView: ...
+
+    def reissue_customer_activation(
+        self, command: CustomerUserMutationCommand, issue: RecoveryTokenIssue,
+        event: AdministrationSecurityEvent,
+    ) -> None: ...
+
+    def issue_administrator_token(
+        self, command: OrganizationMutationCommand, issue: RecoveryTokenIssue,
+        event: AdministrationSecurityEvent,
+    ) -> None: ...
 
     def rename_organization(
         self,

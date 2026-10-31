@@ -1,23 +1,12 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Sign in · Impodo administration</title>
-  </head>
-  <body>
-    <main>
-      <h1>Impodo administration</h1>
-      <p>Sign in with your Platform or Organization Administrator account.</p>
-      {% if error %}<p role="alert">{{ error }}</p>{% endif %}
-      <form method="post" action="/login">
-        <label for="login-email">Login email</label>
-        <input id="login-email" name="login_email" type="email" autocomplete="username" required>
-        <label for="password">Password</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <button type="submit">Sign in</button>
-      </form>
-      <p>This local trial permits password-only administrator access. Internet deployment remains blocked until privileged WebAuthn is enforced.</p>
-    </main>
-  </body>
-</html>
+{% extends "server/base.html" %}
+{% block title %}Sign in · Impodo{% endblock %}
+{% block content %}
+<h1>Sign in to Impodo</h1><p>Use your Impodo account email and password.</p>
+{% if error %}<p role="alert">{{ error }}</p>{% endif %}
+<form method="post" action="/login">
+  <label>Login email <input name="login_email" type="email" maxlength="320" autocomplete="username" required></label>
+  <label>Password <input name="password" type="password" maxlength="1024" autocomplete="current-password" required></label>
+  <button type="submit">Sign in</button>
+</form>
+<p><a href="/forgot-password">Forgot your password?</a></p>
+{% endblock %}

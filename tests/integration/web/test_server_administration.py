@@ -6,6 +6,8 @@ import asyncio
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from fastapi import FastAPI
 from fastapi.templating import Jinja2Templates
@@ -16,6 +18,10 @@ from impodo.domain.identity.administration import (
     CustomerUserPage,
     CustomerUserStatus,
     CustomerUserView,
+    AdministrationEventPage,
+    OrganizationAdministrationView,
+    OrganizationSessionPage,
+    ProvisionedCustomerUserResult,
     OrganizationPage,
     OrganizationStatus,
     OrganizationView,
@@ -33,6 +39,9 @@ from impodo.web.composition.server_administration import (
     ServerAdministrationDependencies,
     create_server_administration_router,
 )
+from impodo.web.composition.local_app import create_local_app
+from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from tests.support.server_identity_browser import ServerFormParser
 from impodo.web.composition.server_session_http import (
     SERVER_CSRF_COOKIE_NAME,
     ServerBrowserSecurityMiddleware,
@@ -352,6 +361,83 @@ class ServerAdministrationTests(unittest.TestCase):
             headers={"Origin": "https://impodo.example.test"},
         )
         self.assertEqual(response.status_code, 303)
+
+    def test_platform_provisioning_requires_confirmation_and_preserves_revision(self) -> None:
+        self._login()
+        view = OrganizationAdministrationView(
+            organization=OrganizationView("acme", "Acme", OrganizationStatus.ACTIVE, 1, 7),
+            administrator=None,
+        )
+        user = CustomerUserView(CUSTOMER_ID, "acme", "admin@acme.test", "Administrator", LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR, CustomerUserStatus.PENDING_ACTIVATION, 1, 1)
+        with (
+            patch.object(self.organizations, "get_organization", return_value=view, create=True),
+            patch.object(self.organizations, "replace_organization_administrator", return_value=ProvisionedCustomerUserResult(user, "fictional-one-use-token", NOW + timedelta(hours=1)), create=True) as provision,
+        ):
+            page = self.client.get("/admin/organizations/acme")
+            path = "/admin/organizations/acme/actions"
+            values = ServerFormParser(page.text).form(path, operation="assign-administrator")
+            values.update(display_name="Administrator", login_email="admin@acme.test")
+            refused = self.client.post(path, data=dict(values, confirmation=""), headers={"Origin": "https://impodo.example.test"})
+            self.assertEqual(refused.status_code, 400)
+            provision.assert_not_called()
+            result = self.client.post(path, data=values, headers={"Origin": "https://impodo.example.test"})
+            self.assertEqual(result.status_code, 200)
+            self.assertIn("/activate#fictional-one-use-token", result.text)
+            self.assertEqual(result.headers["cache-control"], "no-store")
+            self.assertEqual(result.headers["referrer-policy"], "no-referrer")
+            command = provision.call_args.args[0]
+            self.assertEqual(command.expected_organization_revision, 7)
+            self.assertEqual(command.actor.principal_id, ADMINISTRATOR_ID)
+
+    def test_activation_needs_anonymous_csrf_and_never_echoes_invalid_secrets(self) -> None:
+        with patch.object(self.organizations, "activate_customer_user", create=True) as activate:
+            page = self.client.get("/activate")
+            values = ServerFormParser(page.text).form("/activate")
+            values.update(token="fictional-secret", password="fictional-long-password", password_confirmation="different")
+            rejected = self.client.post("/activate", data=values, headers={"Origin": "https://impodo.example.test"})
+            self.assertEqual(rejected.status_code, 400)
+            self.assertNotIn("fictional-secret", rejected.text)
+            self.assertNotIn("fictional-long-password", rejected.text)
+            activate.assert_not_called()
+            values.update(password_confirmation=values["password"], csrf_token="wrong")
+            self.assertEqual(self.client.post("/activate", data=values, headers={"Origin": "https://impodo.example.test"}).status_code, 400)
+            activate.assert_not_called()
+            self.assertEqual(self.client.post("/activate", data=values, headers={"Origin": "https://other.example.test"}).status_code, 403)
+            values["csrf_token"] = "invalid-unicode-\u00e9"
+            self.assertEqual(self.client.post("/activate", data=values, headers={"Origin": "https://impodo.example.test"}).status_code, 400)
+
+    def test_customer_login_reaches_account_and_cannot_open_administration(self) -> None:
+        self.authenticator.principal_kind = LoginPrincipalKind.CUSTOMER_USER
+        self.authenticator.organization_id = "acme"
+        response = self.client.post("/login", data={"login_email": "user@example.test", "password": "fictional"}, headers={"Origin": "https://impodo.example.test"})
+        self.assertEqual(response.headers["location"], "/account")
+        self.assertEqual(self.client.get("/account").status_code, 200)
+        self.assertEqual(self.client.get("/admin/users").status_code, 403)
+        self.assertEqual(self.client.get("/admin/sessions").status_code, 403)
+        self.assertEqual(self.client.get("/admin/history").status_code, 403)
+
+    def test_history_and_session_filters_use_only_session_organization(self) -> None:
+        self.authenticator.principal_kind = LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR
+        self.authenticator.organization_id = "acme"
+        self._login()
+        with (
+            patch.object(self.organizations, "list_security_events", return_value=AdministrationEventPage((), None, None), create=True) as history,
+            patch.object(self.organizations, "list_sessions", return_value=OrganizationSessionPage((), None, None), create=True) as sessions,
+        ):
+            self.assertEqual(self.client.get(f"/admin/history?organization_id=other&user_id={CUSTOMER_ID}").status_code, 200)
+            self.assertEqual(self.client.get(f"/admin/sessions?organization_id=other&user_id={CUSTOMER_ID}").status_code, 200)
+            for operation in (history, sessions):
+                query = operation.call_args.args[0]
+                self.assertEqual(query.organization_id, "acme")
+                self.assertEqual(query.user_id, CUSTOMER_ID)
+            self.assertEqual(self.client.get("/admin/history?before_occurred_at=bad").status_code, 400)
+
+    def test_local_application_keeps_launch_session_and_has_no_server_account_routes(self) -> None:
+        with TemporaryDirectory(prefix="impodo-local-identity-isolation-") as directory:
+            app = create_local_app(Path(directory), secret_store=MemorySecretStore(), launch_token="fictional-launch-token")
+            paths = {getattr(route, "path", "") for route in app.routes}
+            self.assertTrue(paths.isdisjoint({"/login", "/logout", "/activate", "/reset-password", "/forgot-password", "/account", "/admin/users", "/admin/organizations"}))
+            self.assertTrue(any("Session" in type(middleware).__name__ or "Session" in str(middleware) for middleware in app.user_middleware))
 
 
 if __name__ == "__main__":

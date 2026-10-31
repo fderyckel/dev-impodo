@@ -2,13 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import timedelta
-from typing import Protocol
-
 from fastapi import APIRouter, Request
 from fastapi.responses import RedirectResponse, Response
-from fastapi.templating import Jinja2Templates
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData
 
@@ -33,7 +28,6 @@ from impodo.domain.identity.recovery import LoginPrincipalKind
 from impodo.domain.identity.server_authentication import (
     ServerAuthenticationCommand,
     ServerAuthenticationRejectedError,
-    ServerAuthenticationResult,
     ServerAuthenticationStorageError,
     ServerAuthenticationUnavailableError,
 )
@@ -51,6 +45,15 @@ from impodo.domain.identity.sessions import (
     SessionAuthenticationMethod,
     SessionSubject,
 )
+from impodo.web.composition.server_account_routes import create_server_account_router
+from impodo.web.composition.server_administration_context import (
+    ServerAdministrationDependencies,
+    ServerRoleForbiddenError,
+)
+from impodo.web.composition.server_customer_routes import create_server_customer_router
+from impodo.web.composition.server_organization_routes import (
+    create_server_organization_router,
+)
 from impodo.web.composition.server_session_http import (
     SERVER_CSRF_COOKIE_NAME,
     SERVER_SESSION_COOKIE_NAME,
@@ -60,77 +63,6 @@ from impodo.web.composition.server_session_http import (
 
 _AUTHENTICATION_ERROR = "Login was not accepted."
 _UNAVAILABLE_ERROR = "Administration is temporarily unavailable."
-
-
-class ServerRoleForbiddenError(RuntimeError):
-    """Keep a valid session while denying the other administrator boundary."""
-
-
-class ServerAuthenticator(Protocol):
-    """Authenticate one supported shared-server administrator."""
-
-    def authenticate(
-        self,
-        command: ServerAuthenticationCommand,
-        *,
-        deployment_id: str,
-    ) -> ServerAuthenticationResult: ...
-
-
-class ServerSessionManager(Protocol):
-    """Create, resolve, and revoke supported administrator sessions."""
-
-    def create(
-        self,
-        command: CreateServerSessionCommand,
-        *,
-        deployment_id: str,
-    ) -> ServerSessionCredentials: ...
-
-    def access(self, command: AccessServerSessionCommand) -> CurrentSessionView: ...
-
-    def revoke(
-        self,
-        command: RevokeServerSessionCommand,
-        *,
-        deployment_id: str,
-    ) -> None: ...
-
-
-class ServerIdentityAdministration(Protocol):
-    """Expose bounded Platform and Organization administration reads."""
-
-    def list_organizations(self, query: OrganizationListQuery) -> OrganizationPage: ...
-
-    def create_organization(
-        self,
-        command: CreateOrganizationCommand,
-        *,
-        deployment_id: str,
-    ) -> OrganizationView: ...
-
-    def list_customer_users(self, query: CustomerUserListQuery) -> CustomerUserPage: ...
-
-    def get_customer_user(self, query: CustomerUserDetailQuery) -> CustomerUserView: ...
-
-
-class ServerIdentifierDigester(Protocol):
-    """Protect a low-entropy request identifier with a deployment key."""
-
-    def digest(self, value: str, *, scope: str) -> str: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ServerAdministrationDependencies:
-    """Bind authenticated dashboard services without process-wide connections."""
-
-    authenticator: ServerAuthenticator
-    sessions: ServerSessionManager
-    organizations: ServerIdentityAdministration
-    identifier_digester: ServerIdentifierDigester
-    templates: Jinja2Templates
-    deployment_id: str
-    session_absolute_timeout: timedelta
 
 
 def create_server_administration_router(
@@ -180,7 +112,7 @@ def create_server_administration_router(
                 password,
                 source_digest,
             )
-        except ServerAuthenticationRejectedError:
+        except (ServerAuthenticationRejectedError, ServerSessionRejectedError):
             return _template(
                 dependencies,
                 request,
@@ -462,6 +394,9 @@ def create_server_administration_router(
         clear_server_session_cookie(response)
         return response
 
+    router.include_router(create_server_organization_router(dependencies))
+    router.include_router(create_server_customer_router(dependencies))
+    router.include_router(create_server_account_router(dependencies))
     return router
 
 
@@ -637,6 +572,8 @@ def _home_path(session: CurrentSessionView) -> str:
         return "/admin/organizations"
     if session.subject.principal_kind is LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR:
         return "/admin/users"
+    if session.subject.principal_kind is LoginPrincipalKind.CUSTOMER_USER:
+        return "/account"
     raise ServerSessionRejectedError(SESSION_REJECTED_MESSAGE)
 
 

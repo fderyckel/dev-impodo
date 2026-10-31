@@ -12,6 +12,7 @@ def compared_hierarchy(fixture, *, major=19, mode="LOCAL"):
     workspace_id, revision = fixture.hierarchy(major=major, mode=mode)
     fixture.prepare(workspace_id)
     fixture.approve(workspace_id)
+    fixture.expect_business_writes(workspace_id)
     return workspace_id, revision, compare_hierarchy(fixture, workspace_id)
 
 

@@ -62,6 +62,16 @@ class ScryptPasswordHasherTests(unittest.TestCase):
         self.assertTrue(old_hasher.verify("fictional-bootstrap-password", old_hash))
         self.assertTrue(old_hasher.needs_rehash(old_hash))
 
+    def test_database_parameter_order_does_not_trigger_a_rehash(self) -> None:
+        hasher = ScryptPasswordHasher()
+        current = hasher.hash("fictional-bootstrap-password")
+        reordered = type(current)(
+            algorithm=current.algorithm, parameters=tuple(reversed(current.parameters)),
+            salt=current.salt, digest=current.digest,
+        )
+        self.assertTrue(hasher.verify("fictional-bootstrap-password", reordered))
+        self.assertFalse(hasher.needs_rehash(reordered))
+
 
 if __name__ == "__main__":
     unittest.main()

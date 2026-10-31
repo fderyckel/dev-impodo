@@ -82,7 +82,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The topology initializes PostgreSQL, creates the fixed runtime and migration
-roles, applies the current migration suffix through schema version `11`, starts
+roles, applies the current migration suffix through schema version `12`, starts
 the authenticated Platform and Organization administration web process, and then starts the
 loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
@@ -105,7 +105,7 @@ The two responses contain only generic status. The service list must show no
 published web, worker, or PostgreSQL port.
 
 Run the migration command twice after the initial start. Both runs must report
-schema version `11` and apply no new migration:
+schema version `12` and apply no new migration:
 
 ```sh
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
@@ -127,12 +127,45 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 The first run must report completion. Repeating the command must refuse with
 exit code `78` because one active Platform Administrator now exists. Open
 `https://localhost:8443/login` and sign in with the fictional email and the
-generated Platform Administrator password. The browser can list and create
-Organizations, and **Sign out** revokes the exact current session. A separately
-provisioned, active, and exactly assigned Organization Administrator can use the
-same login page to list and inspect ordinary users in only that Organization.
-The activation and reset forms, account and customer-session actions, and
-security-history pages remain later Work Package 4.5 increments.
+generated Platform Administrator password. Create an Organization, open its
+name, and use **Assign administrator and create activation link**. Review the
+named Organization and confirm the assignment. Copy the one-time link from the
+result and supply it privately to the fictional recipient. The recipient uses
+it once to choose a password, then signs in through the same login page.
+
+The Organization Administrator can create ordinary users from **Users** and
+deliver their activation links in the same way. A user detail page supports
+replacement activation links, password reset, suspension, reactivation, and
+permanent deactivation. Each lifecycle action names the affected account and
+requires confirmation. **Sessions** supports exact session revocation;
+**Security history** combines account, login, and session events with bounded
+pagination. An ordinary user signs in to **My account**. These administration
+actions do not grant Project access.
+
+For an Organization Administrator's recovery, the Platform Administrator opens
+the Organization and uses **Create administrator reset link**. The Platform
+Administrator can create their own reset link from **My account**. Consuming
+a reset link revokes the affected account's previous sessions. **Sign out**
+revokes the exact current session.
+
+The public recovery form always gives one generic acknowledgement. Email
+delivery is disabled in this trial; authorized administrators supply account
+links manually. Keep complete links private. Their tokens use URL fragments,
+which are not sent in request URLs, and are removed from browser history when
+the form loads. Link pages are not cached. A replacement invalidates the earlier
+link, and activation/reset consumes the new link once.
+
+Run the real-browser rehearsal against an already bootstrapped local stack:
+
+```sh
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --group quality --with playwright python scripts/rehearse_server_identity.py --operator-email platform.operator@example.test --password-file deploy/.local/secrets/platform-admin-password
+```
+
+The script uses installed Edge in headless mode, accepts only loopback HTTPS,
+and reads the password from the protected file without printing it. It creates
+and retains a fictional Organization and audit history. It verifies the account
+journey and that no token appears in a request URL. It captures only token-free
+pages under an operating-system temporary directory. Use fictional values only.
 
 Confirm that the application runs as the fixed unprivileged identity and that
 its application tree is not writable. Then add a fictional marker to the
@@ -165,7 +198,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml exec web test -r /var/lib/impodo/artifacts/.local-rehearsal-marker
 ```
 
-The final migration result must still report schema version `11` with no newly
+The final migration result must still report schema version `12` with no newly
 applied migration, and the final marker check must pass. Together these prove
 that the PostgreSQL and artifact volumes survived container recreation. No
 customer file belongs in this rehearsal.

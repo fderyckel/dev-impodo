@@ -8,6 +8,17 @@ status: current
 
 ## Responsibility
 
+Odoo access also confirms the operation company without rebuilding the Project.
+The protected [company binding](../../../src/impodo/domain/odoo/company.py)
+belongs to the run's target setup. The closed
+[company reader](../../../src/impodo/web/composition/odoo_company.py) supplies
+only the authenticated user's available choices. The
+[Odoo data workflow](02-odoo-data.md#company-selection-and-protected-ownership)
+owns context propagation, invalidation and Recipe rebinding. The
+[route tests](../../../tests/integration/web/test_odoo_company.py) and
+[authenticated browser test](../../../tests/e2e/test_odoo_company.py) verify
+that the same project retains its accepted source and saved matches.
+
 Setup creates a real `MigrationProject`, Authoring DataVersion 1, Authoring
 MigrationRun 1, and one open MigrationWorkspace. It creates no Recipe. The
 data manager can continue the normal workflow and complete one-off work without

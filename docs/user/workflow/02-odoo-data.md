@@ -45,6 +45,41 @@ same secret. Production continues to require a separate limited write key.
 
 ## Steps in Impodo
 
+### Choose the company used for this import
+
+Open **Odoo access**, then select **Choose Odoo company**. Impodo shows the
+checking user, that user's default company, and the companies available to
+that user. Choose **Odoo company** and select **Use this company**, even when
+there is only one available choice. The saved choice appears above the
+workflow pages.
+
+For example, a checking user can have Northwind Group as their default while
+this import belongs to Northwind Factory. Select Factory before checking its
+company-specific values. Impodo uses Factory when matching, loading and
+verifying those values. The user's default company stays Group.
+
+![Odoo access showing a confirmed Northwind Factory import company separately from the checking user's Northwind Group default.](../../images/user/08j-odoo-company-selection.png)
+
+This choice does not fill the **Company** field on incoming records. A shared
+record remains shared when its mapped company is blank. Odoo decides which
+shared or parent-company linked records are valid; matching company numbers
+alone would reject some valid links. Both the checking user and the loading
+user need access to the selected company. Their API keys may belong to
+different users.
+
+You can correct the company in the same authoring project. Accepted files,
+combined tables and saved field matches stay in place. Select **Check for Odoo
+changes** in Odoo data, refresh company-specific matching choices, check and
+confirm the matches, then prepare and compare again. A company-only refresh
+preserves saved matches when fields and access are unchanged. Structural or
+access changes still require the normal review. An active or uncertain load
+must be verified before changing its company.
+
+A Recipe keeps reusable rules and business keys. A new run requires its own
+company choice; it does not inherit the authoring database's company number.
+Confirm this choice before activating the run. An activated Recipe run keeps
+its company fixed, so use a fresh run to choose another company.
+
 ### Choose record types and supporting data
 
 1. Open **Odoo data**. In an Odoo-source project this is shown first as

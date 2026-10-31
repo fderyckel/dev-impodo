@@ -25,6 +25,7 @@ from enum import StrEnum
 from typing import Protocol
 from uuid import UUID, uuid4
 
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo_capture import (
     OdooCaptureContractError,
@@ -184,6 +185,18 @@ class WorkspaceState:
     mapping_version: str | None = None
     current_run_id: str | None = None
     approval_status: ApprovalStatus = ApprovalStatus.NOT_STARTED
+    odoo_company: OdooCompanySelection | None = None
+    destination_company: OdooCompanySelection | None = None
+
+    @property
+    def odoo_operation_context(self) -> dict[str, object]:
+        """Project the run-owned company into this target's closed API context."""
+        if self.odoo_company is not None and self.odoo_company.target_hash != target_identity_hash(
+            connection_mode=self.odoo_connection_mode.value if self.odoo_connection_mode else "",
+            base_url=self.odoo_base_url, database=self.odoo_database,
+        ):
+            raise WorkspaceStateError("The saved Odoo company belongs to another target")
+        return self.odoo_company.context if self.odoo_company is not None else {}
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_mode", SourceMode(self.source_mode))
@@ -622,6 +635,34 @@ class WorkspaceStateService:
             actor=actor,
         )
 
+    def select_odoo_company(
+        self, workspace_id: str, *, actor: Actor, expected_revision: int,
+        selection: OdooCompanySelection,
+    ) -> WorkspaceState:
+        """Confirm a verified target company while preserving source and mapping rules."""
+        workspace = self._target_editable(workspace_id, expected_revision, actor=actor)
+        if workspace.odoo_connection_mode is None:
+            raise WorkspaceStateError("Choose a company for the configured Odoo target")
+        expected_target = transfer_destination_identity_hash(workspace) if workspace.source_mode is SourceMode.ODOO else target_identity_hash(
+            connection_mode=workspace.odoo_connection_mode.value,
+            base_url=workspace.odoo_base_url, database=workspace.odoo_database,
+        )
+        if selection.target_hash != expected_target:
+            raise WorkspaceStateError("The company belongs to another Odoo target")
+        if workspace.source_mode is SourceMode.ODOO:
+            if selection == workspace.destination_company:
+                return workspace
+            return self._save(replace(workspace, destination_company=selection,
+                destination_verified_target_hash="", destination_verified_credential_binding_hash="",
+                destination_verified_read_principal_hash="", destination_verified_odoo_version="",
+                destination_verified_at=None, destination_match_plan=None, transfer_order_plan=None,
+                transfer_review_package=None, transfer_review_approval=None, transfer_preflight_report=None),
+                workspace, "WORKSPACE_COMPANY_UPDATED", actor=actor)
+        if selection == workspace.odoo_company:
+            return workspace
+        return self._save(replace(workspace, odoo_company=selection), workspace,
+                          "WORKSPACE_COMPANY_UPDATED", actor=actor)
+
     def target_update_changes(
         self,
         workspace_id: str,
@@ -681,6 +722,10 @@ class WorkspaceStateService:
             odoo_connection_mode=connection_mode,
             odoo_base_url=base_url,
             odoo_database=database,
+            odoo_company=(workspace.odoo_company if (
+                workspace.odoo_connection_mode == connection_mode
+                and workspace.odoo_base_url == base_url and workspace.odoo_database == database
+            ) else None),
             intended_applications=_clean_choices(intended_applications),
             intended_models=(
                 _clean_choices(intended_models)
@@ -758,6 +803,7 @@ class WorkspaceStateService:
             destination_odoo_connection_mode=connection_mode,
             destination_odoo_base_url=base_url,
             destination_odoo_database=database,
+            destination_company=None if changed else workspace.destination_company,
             destination_verified_target_hash=(
                 "" if changed else workspace.destination_verified_target_hash
             ),
@@ -1796,6 +1842,7 @@ def transfer_destination_workspace(workspace: WorkspaceState) -> WorkspaceState:
         odoo_connection_mode=workspace.destination_odoo_connection_mode,
         odoo_base_url=workspace.destination_odoo_base_url,
         odoo_database=workspace.destination_odoo_database,
+        odoo_company=workspace.destination_company,
         intended_applications=(),
         intended_models=(),
     )

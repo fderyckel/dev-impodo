@@ -1,0 +1,24 @@
+{% extends "server/base.html" %}
+{% block title %}Account access · Impodo{% endblock %}
+{% block content %}
+{% if mode == 'activate' %}<h1>Activate your account</h1>
+{% elif mode == 'reset-password' %}<h1>Choose a new password</h1>
+{% else %}<h1>Request password recovery</h1>{% endif %}
+<form method="post" action="/{{ mode }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if mode == 'forgot-password' %}
+  <label>Email <input name="login_email" type="email" maxlength="320" autocomplete="username" required></label>
+  <p>Email delivery is disabled in this local trial. Your administrator can create a recovery link after verifying your identity.</p>
+  <button type="submit">Request recovery</button>
+  {% else %}
+  <label>Account token <input id="account-token" name="token" maxlength="1024" autocomplete="off" spellcheck="false" required></label>
+  <p>The token is filled from your link. If it is blank, reopen the complete link supplied by your administrator.</p>
+  <label>New password <input name="password" type="password" minlength="16" maxlength="1024" autocomplete="new-password" required></label>
+  <label>Repeat new password <input name="password_confirmation" type="password" minlength="16" maxlength="1024" autocomplete="new-password" required></label>
+  <p>Use at least 16 characters. Passwords are case-sensitive.</p>
+  <button type="submit">{% if mode == 'activate' %}Activate account{% else %}Reset password{% endif %}</button>
+  <script src="/account-token.js" defer></script>
+  {% endif %}
+</form>
+<p><a href="/login">Back to sign in</a></p>
+{% endblock %}

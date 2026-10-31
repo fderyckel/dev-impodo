@@ -54,6 +54,9 @@ stages:
       - src/impodo/application/data_version/service.py::DataVersionService
       - src/impodo/application/run/service.py::MigrationRunService
       - src/impodo/domain/run/setup.py::MigrationRunTargetSetupService
+      - src/impodo/domain/odoo/company.py::OdooCompanySelection
+      - src/impodo/web/composition/odoo_company.py::read_company_access
+      - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.select_odoo_company
       - src/impodo/application/workspace/service.py::MigrationWorkspaceService
       - src/impodo/application/workspace/access.py::WorkspaceAccessService
       - src/impodo/web/security.py::WorkspaceAccessMiddleware
@@ -95,6 +98,8 @@ stages:
       - tests/domain/recipe/test_representative_shapes.py
       - tests/application/workspace/test_odoo_connection.py
       - tests/integration/web/test_target_workflow.py
+      - tests/integration/web/test_odoo_company.py
+      - tests/e2e/test_odoo_company.py
       - tests/integration/web/test_local_stack.py
     contracts:
       - docs/developer/contracts/recipe-lifecycle.md
@@ -372,12 +377,16 @@ stages:
     router_modules:
       - src/impodo/web/routers/schema.py
       - src/impodo/web/routers/supporting_review.py
+      - src/impodo/web/routers/odoo_company.py
     templates:
       - src/impodo/web/templates/workspace_schema.html
     code_references:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.check_refresh
+      - src/impodo/domain/odoo/company_domains.py::operation_company_domain
+      - src/impodo/adapters/odoo/company_checks.py::capture_company_checks
+      - src/impodo/domain/preparation/company_references.py::check_company_references
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.govern_complete
@@ -405,6 +414,11 @@ stages:
     tests:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
+      - tests/domain/odoo/test_company_domains.py
+      - tests/integration/odoo/test_company_reference_checks.py
+      - tests/integration/odoo/test_company_transport.py
+      - tests/integration/web/test_joined_recipe_preparation.py
+      - tests/integration/web/test_mixed_join_preparation.py
       - tests/domain/workspace/test_business_keys.py
       - tests/domain/workspace/test_supporting_models.py
       - tests/domain/workspace/test_supporting_plan.py
@@ -709,6 +723,7 @@ stages:
       - tests/integration/artifacts/test_reporting_cli.py
       - tests/integration/artifacts/test_preflight_outputs.py
       - tests/integration/odoo/test_connectors.py
+      - tests/integration/odoo/test_company_context_identity.py
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
       - tests/integration/web/test_summary_presenter.py
@@ -761,6 +776,10 @@ stages:
       - src/impodo/application/business_intent_service.py::BusinessIntentService
       - src/impodo/domain/workspace/business_intent.py::BusinessIntent
       - src/impodo/domain/workspace/business_intent_scope.py::derive_business_intent_scope
+      - src/impodo/domain/workspace/business_intent_assessment.py::BusinessIntentAssessment
+      - src/impodo/domain/workspace/business_intent_assessment.py::observe_business_writes
+      - src/impodo/domain/workspace/business_intent_assessment.py::assess_business_intent
+      - src/impodo/adapters/duckdb/business_intent_assessment_repository.py::BusinessIntentAssessmentRepository
       - src/impodo/adapters/duckdb/business_intent_repository.py::BusinessIntentRepository
       - src/impodo/application/workspace/execution/service.py::ExecutionService.execute
       - src/impodo/application/workspace/execution/service.py::ExecutionService.review_recovery
@@ -826,10 +845,13 @@ stages:
       - scripts/capture_odoo_transfer_screenshots.py::capture
     tests:
       - tests/application/workspace/execution/test_service.py
+      - tests/application/workspace/execution/test_company_context.py
       - tests/domain/workspace/test_business_intent.py
       - tests/domain/workspace/test_business_intent_scope.py
       - tests/application/workspace/test_business_intent_service.py
       - tests/integration/duckdb/test_business_intent.py
+      - tests/domain/workspace/test_business_intent_assessment.py
+      - tests/integration/duckdb/test_business_intent_assessment.py
       - tests/application/workspace/execution/test_recomparison.py
       - tests/integration/web/test_execution.py
       - tests/integration/web/test_hierarchy_workflow.py

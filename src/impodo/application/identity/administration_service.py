@@ -31,6 +31,8 @@ from impodo.domain.identity.administration import (
     CustomerUserStatus,
     CustomerUserView,
     IdentityAdministrationInputError,
+    OrganizationAdministrationView,
+    OrganizationDetailQuery,
     OrganizationListQuery,
     OrganizationMutationCommand,
     OrganizationPage,
@@ -134,6 +136,48 @@ class IdentityAdministrationService:
             ),
             occurred_at=occurred_at,
         )
+
+    def get_organization(self, query: OrganizationDetailQuery) -> OrganizationAdministrationView:
+        """Read one exact Organization and its assigned administrator."""
+
+        return self._repository.get_organization(query)
+
+    def reissue_customer_activation(
+        self, command: CustomerUserMutationCommand, *, deployment_id: str,
+    ) -> AuthorizedRecoveryTokenResult:
+        """Replace a pending ordinary user's expired or lost activation link."""
+
+        return self._issue_administration_token(command, RecoveryTokenPurpose.ACTIVATION, deployment_id)
+
+    def issue_administrator_token(
+        self, command: OrganizationMutationCommand, purpose: RecoveryTokenPurpose,
+        *, deployment_id: str,
+    ) -> AuthorizedRecoveryTokenResult:
+        """Issue a link for the exact current administrator under platform authority."""
+
+        return self._issue_administration_token(command, purpose, deployment_id)
+
+    def _issue_administration_token(
+        self, command: CustomerUserMutationCommand | OrganizationMutationCommand,
+        purpose: RecoveryTokenPurpose, deployment_id: str,
+    ) -> AuthorizedRecoveryTokenResult:
+        occurred_at = self._aware_now()
+        material = self._token_factory.create(purpose)
+        issue = self._issue(material.token_id, material.digest, occurred_at, purpose)
+        event = self._event(
+            deployment_id,
+            AdministrationEventKind.CUSTOMER_ACTIVATION_TOKEN_REISSUED
+            if purpose is RecoveryTokenPurpose.ACTIVATION
+            else AdministrationEventKind.CUSTOMER_RESET_TOKEN_ISSUED,
+            command.organization_id,
+            command.user_id if isinstance(command, CustomerUserMutationCommand) else None,
+            command.actor, occurred_at,
+        )
+        if isinstance(command, CustomerUserMutationCommand):
+            self._repository.reissue_customer_activation(command, issue, event)
+        else:
+            self._repository.issue_administrator_token(command, issue, event)
+        return AuthorizedRecoveryTokenResult(purpose=purpose, token=material.token, expires_at=issue.expires_at)
 
     def suspend_organization(
         self,

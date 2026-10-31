@@ -1,0 +1,28 @@
+{% set selected_company = workspace_state.destination_company if workspace_state.source_mode.value == 'ODOO' else workspace_state.odoo_company %}
+{% set company_action = '/workspaces/' ~ workspace_id ~ ('/transfer-destination/company' if workspace_state.source_mode.value == 'ODOO' else '/target/company') %}
+      <section id="odoo-operation-company" class="form-card" aria-labelledby="odoo-operation-company-title">
+        <h2 id="odoo-operation-company-title">Company used for this import</h2>
+        <p>Impodo checks, saves and verifies company-specific values for this company. Shared records keep their mapped company value.</p>
+        <p><strong>Current choice:</strong> {{ selected_company.name if selected_company else 'Choose a company before loading' }}.</p>
+        {% if company_access %}
+          <p><strong>Checking user:</strong> {{ company_access.login }}. <strong>User default:</strong> {{ company_access.default_company_name }}.</p>
+          <form method="post" action="{{ company_action }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+            <label for="odoo-operation-company-select">Odoo company</label>
+              <select id="odoo-operation-company-select" name="company_id" required>
+                <option value="">Choose a company</option>
+                {% for choice in company_access.choices %}
+                  <option value="{{ choice.company_id }}" {% if selected_company and selected_company.company_id == choice.company_id or not selected_company and company_access.choices|length == 1 %}selected{% endif %}>{{ choice.name }}</option>
+                {% endfor %}
+              </select>
+            <button class="button secondary" type="submit">Use this company</button>
+          </form>
+        {% else %}
+          <form method="post" action="{{ company_action }}/choices">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Choose Odoo company</button>
+          </form>
+        {% endif %}
+        <p class="muted">Your Odoo user's default company stays unchanged. Changing this choice requires fresh checks; saved source data and matching rules are kept.</p>
+      </section>

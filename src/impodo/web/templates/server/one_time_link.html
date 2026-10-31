@@ -1,0 +1,9 @@
+{% extends "server/base.html" %}
+{% block title %}One-time account link · Impodo{% endblock %}
+{% block content %}
+<h1>{% if purpose == 'activate' %}Activation link{% else %}Password reset link{% endif %}</h1>
+<p>This link is shown only in this response. Copy it now and share it privately with the intended person. Anyone holding it can complete this account action.</p>
+<label>One-time link <textarea readonly rows="4" autocomplete="off" spellcheck="false">{{ link }}</textarea></label>
+<p>Expires at {{ expires_at.isoformat() }}. The link works once. A replacement link invalidates the earlier link.</p>
+<p><a href="{{ back_url }}">Return to administration</a></p>
+{% endblock %}

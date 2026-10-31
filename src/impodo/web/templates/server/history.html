@@ -1,0 +1,19 @@
+{% extends "server/base.html" %}
+{% block title %}Security history · Impodo administration{% endblock %}
+{% block content %}
+<h1>Security history</h1><p>Organization: {{ session.subject.organization_id }}. Account changes, sign-ins, and session events appear newest first.</p>
+{% if user_id %}<p>Showing events for account <code>{{ user_id }}</code>. <a href="/admin/history">Show all</a></p>{% endif %}
+{% if page.items %}<div class="table-scroll"><table>
+  <thead><tr><th>Time</th><th>Event</th><th>Affected account</th><th>Actor</th></tr></thead>
+  <tbody>{% for item in page.items %}<tr>
+    <td>{{ item.occurred_at.isoformat() }}</td><td>{{ item.kind.value|replace('_', ' ')|title }}</td>
+    <td>{% if item.subject_user_id %}<a href="/admin/users/{{ item.subject_user_id }}">{{ item.subject_user_id }}</a>{% else %}Organization{% endif %}</td>
+    <td>{{ item.actor_kind.value|replace('_', ' ')|title if item.actor_kind else 'Account or system' }}{% if item.actor_id %}<br><code>{{ item.actor_id }}</code>{% endif %}</td>
+  </tr>{% endfor %}</tbody>
+</table></div>{% else %}<p>No events match this page.</p>{% endif %}
+{% if page.next_before_event_id %}<form method="get" action="/admin/history">
+  {% if user_id %}<input type="hidden" name="user_id" value="{{ user_id }}">{% endif %}
+  <input type="hidden" name="before_occurred_at" value="{{ page.next_before_occurred_at.isoformat() }}">
+  <input type="hidden" name="before_event_id" value="{{ page.next_before_event_id }}"><button type="submit">Older events</button>
+</form>{% endif %}
+{% endblock %}

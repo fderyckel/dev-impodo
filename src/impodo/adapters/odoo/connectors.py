@@ -36,6 +36,11 @@ from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
+from impodo.domain.odoo.company import (
+    CompanyReferenceCheck,
+    OdooCompanyAccess,
+    OdooCompanySelection,
+)
 from impodo.domain.odoo.compatibility import OdooVersionProblem, recognize_odoo_version
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -50,6 +55,8 @@ from impodo.domain.shared.models import (
     portable_value,
     target_identity_hash,
 )
+
+from .company_checks import capture_company_checks
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100
@@ -251,6 +258,8 @@ class SnapshotConnector:
             create_defaults=projected_defaults,
             complete=complete,
             limitations=tuple(self._metadata_data.get("limitations", ())),
+            company_checks=tuple(CompanyReferenceCheck.from_dict(item) for item in self._metadata_data.get("company_checks", ())
+                if item.get("parent_model") in models and item.get("field") in models[item["parent_model"]].fields),
             content_hash=None,
         )
 
@@ -468,6 +477,7 @@ class Json2ReadConnector:
         self._now = now or (lambda: datetime.now(UTC))
         self._fingerprint: TargetFingerprint | None = None
         self._fingerprint_limitations: tuple[str, ...] = ()
+        self._company_domains: dict[tuple[str, str], object] = {}
 
     def get_target_fingerprint(self) -> TargetFingerprint:
         """Read and cache the Odoo version, database, time, and module versions.
@@ -542,6 +552,39 @@ class Json2ReadConnector:
         )
         self._fingerprint_limitations = tuple(limitations)
         return self._fingerprint
+
+    def get_company_access(self) -> OdooCompanyAccess:
+        """Read the authenticated user and its bounded available company choices."""
+        raw = self._post_read_method("res.users", "context_get", {"context": {}})
+        if not isinstance(raw, Mapping) or type(raw.get("uid")) is not int or raw["uid"] <= 0:
+            raise ConnectorIncompleteResultError("Odoo did not identify the API user")
+        users = self._post_read_method("res.users", "search_read", {
+            "domain": [["id", "=", raw["uid"]]], "fields": ["id", "login", "company_id"],
+            "limit": 2, "order": "id asc", "context": {},
+        })
+        rows = self._post_read_method("res.company", "search_read", {
+            "domain": [["user_ids", "in", [raw["uid"]]], ["active", "=", True]],
+            "fields": ["id", "name"], "limit": _MAX_IDENTITY_COMPANIES + 1,
+            "order": "name asc, id asc", "context": {},
+        })
+        if not isinstance(users, list) or len(users) != 1 or not isinstance(users[0], Mapping) or users[0].get("id") != raw["uid"]:
+            raise ConnectorIncompleteResultError("Odoo did not return the exact API user")
+        if not isinstance(rows, list) or not rows or len(rows) > _MAX_IDENTITY_COMPANIES:
+            raise ConnectorIncompleteResultError("Odoo company choices are incomplete")
+        target = self.get_target_fingerprint().target_hash
+        try:
+            choices = tuple(OdooCompanySelection(target, row["id"], row["name"]) for row in rows)
+            default_company = users[0]["company_id"]
+            if not isinstance(default_company, (tuple, list)) or len(default_company) != 2:
+                raise ValueError("Invalid default company")
+            login = users[0]["login"]
+            if not isinstance(login, str) or not login or len(login) > 320:
+                raise ValueError("Invalid API user")
+        except (KeyError, TypeError, ValueError) as error:
+            raise ConnectorIncompleteResultError("Odoo company choices are invalid") from error
+        if len({item.company_id for item in choices}) != len(choices):
+            raise ConnectorIncompleteResultError("Odoo company choices are ambiguous")
+        return OdooCompanyAccess(login, str(default_company[1]), choices)
 
     def probe_read_identity(
         self,
@@ -669,6 +712,27 @@ class Json2ReadConnector:
             raise ConnectorIncompleteResultError(
                 "Odoo read identity company scope is invalid"
             ) from error
+        configured_companies = self._config.context.get("allowed_company_ids")
+        if configured_companies is not None:
+            if (
+                not isinstance(configured_companies, (list, tuple))
+                or not configured_companies
+                or len(configured_companies) > _MAX_IDENTITY_COMPANIES
+                or any(type(item) is not int or item <= 0 for item in configured_companies)
+                or len(set(configured_companies)) != len(configured_companies)
+            ):
+                raise ConnectorConfigurationError(
+                    "The selected Odoo company context is invalid"
+                )
+            selected_ids = tuple(configured_companies)
+            if not set(selected_ids).issubset(company_ids):
+                raise ConnectorAuthorizationError(
+                    "The selected Odoo company is not available to this API user"
+                )
+            # Odoo takes the first enabled company as env.company. Sorting
+            # changes company-dependent values even when membership is equal.
+            primary_company_id = selected_ids[0]
+            company_ids = selected_ids
         if primary_company_id not in company_ids:
             raise ConnectorIncompleteResultError(
                 "Odoo read identity omitted the primary company"
@@ -783,6 +847,7 @@ class Json2ReadConnector:
                         "related",
                         "translate",
                         "company_dependent",
+                        "domain",
                         "searchable",
                         "sortable",
                         "exportable",
@@ -801,6 +866,9 @@ class Json2ReadConnector:
                 for name, details in response.items()
                 if request.all_fields or name in request.fields
             }
+            for name, details in response.items():
+                if name in fields and isinstance(details, Mapping):
+                    self._company_domains[(request.model, name)] = details.get("domain")
             models[request.model] = ModelMetadata(
                 model=request.model,
                 description=None,
@@ -845,6 +913,13 @@ class Json2ReadConnector:
             create_defaults=create_defaults,
             limitations=tuple(limitations),
         )
+
+    def check_company_references(self, metadata: MetadataSnapshot, records: RecordSnapshot) -> MetadataSnapshot:
+        """Capture company-dependent relationship checks using the selected API context."""
+        companies = self._config.context.get("allowed_company_ids")
+        if not isinstance(companies, (list, tuple)) or len(companies) != 1 or type(companies[0]) is not int:
+            return metadata
+        return capture_company_checks(metadata, records, self._company_domains, companies[0], self._post_read_method)
 
     def _get_unique_constraints(
         self,
@@ -1199,6 +1274,8 @@ class Json2WriteIdentityConnector:
         self,
         readable_models: Sequence[str],
         writable_models: Sequence[str],
+        *,
+        creatable_models: Sequence[str] = (),
     ) -> OdooWriteIdentity:
         """Probe read-back plus write access without making a target change."""
 
@@ -1234,6 +1311,15 @@ class Json2WriteIdentityConnector:
                 raise ConnectorAuthorizationError(
                     f"Odoo write principal cannot access model {model}"
                 )
+        requested_creates = tuple(sorted(set(creatable_models)))
+        if not set(requested_creates).issubset(requested_writes):
+            raise ConnectorConfigurationError("Create checks exceed the reviewed write scope")
+        for model in requested_creates:
+            allowed = self._reader._post_read_method(model, "has_access", {
+                "ids": [], "operation": "create", "context": dict(self._reader._config.context),
+            })
+            if allowed is not True:
+                raise ConnectorAuthorizationError(f"Odoo loading user cannot create records in {model}")
         return OdooWriteIdentity(
             target_hash=read_identity.target_hash,
             principal_hash=read_identity.principal_hash,
@@ -1284,6 +1370,14 @@ def write_metadata_snapshot(
                         "relation": field.relation,
                         "relation_field": field.relation_field,
                         "selection": [list(item) for item in field.selection],
+                        **{key: value for key, value in {
+                            "store": field.stored, "compute": field.computed,
+                            "inverse": field.has_inverse, "related": field.related,
+                            "translate": field.translated, "company_dependent": field.company_dependent,
+                            "searchable": field.searchable, "sortable": field.sortable,
+                            "exportable": field.exportable, "digits": field.digits,
+                            "currency_field": field.currency_field,
+                        }.items() if value is not None},
                     }
                     for field_name, field in sorted(model.fields.items())
                 },
@@ -1298,6 +1392,9 @@ def write_metadata_snapshot(
             for name, model in sorted(snapshot.models.items())
         },
     }
+    if snapshot.company_checks:
+        payload["company_checks"] = [item.to_dict() for item in snapshot.company_checks]
+    payload["create_defaults"] = {model: dict(values) for model, values in snapshot.create_defaults.items()}
     _write_json(output_path, payload)
 
 

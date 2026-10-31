@@ -22,13 +22,15 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 23)
+            self.assertEqual(SCHEMA_VERSION, 25)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
             self.assertIn("supporting_lookup_revision", tables)
             self.assertIn("supporting_lookup_current", tables)
             self.assertIn("business_intent_revision", tables)
+            self.assertIn("business_intent_assessment", tables)
+            self.assertIn("business_intent_approval", tables)
             self.assertIn("workspace_projection_cache", tables)
             self.assertIn("schema_migration", tables)
             self.assertIn("mapping_mutation_receipt", tables)

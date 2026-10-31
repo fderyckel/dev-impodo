@@ -40,6 +40,8 @@ from impodo.domain.identity.administration import (
     IdentityAdministrationNotFoundError,
     IdentityAdministrationStorageError,
     IdentityAdministrationUnavailableError,
+    OrganizationAdministrationView,
+    OrganizationDetailQuery,
     OrganizationListQuery,
     OrganizationMutationCommand,
     OrganizationPage,
@@ -57,6 +59,7 @@ from impodo.domain.identity.bootstrap import PlatformAdministratorStatus
 from impodo.domain.identity.recovery import (
     LoginPrincipalKind,
     RecoveryTokenIssue,
+    RecoveryTokenPurpose,
 )
 
 POSTGRESQL_IDENTITY_ADMIN_CONNECT_TIMEOUT_SECONDS = 5
@@ -93,6 +96,23 @@ _LIST_ORGANIZATIONS_QUERY: LiteralString = (
     "FROM impodo_control.organization\n"
     "WHERE (%s::text IS NULL OR (display_name, organization_id) > (%s, %s))\n"
     "ORDER BY display_name ASC, organization_id ASC\nLIMIT %s"
+)
+_GET_ORGANIZATION_QUERY: LiteralString = (
+    "SELECT organization_id, display_name, status, policy_revision, optimistic_revision\n"
+    "FROM impodo_control.organization WHERE organization_id = %s"
+)
+_GET_ASSIGNED_ADMINISTRATOR_QUERY: LiteralString = (
+    "SELECT u.user_id, u.organization_id, u.normalized_login_email, u.display_name,\n"
+    "       u.principal_kind, u.status, u.security_revision, u.optimistic_revision\n"
+    "FROM impodo_control.customer_user AS u\n"
+    "JOIN impodo_control.organization_administrator_assignment AS a\n"
+    "  ON a.organization_id = u.organization_id AND a.user_id = u.user_id\n"
+    "WHERE u.organization_id = %s AND u.principal_kind = 'ORGANIZATION_ADMINISTRATOR'"
+)
+_ADVANCE_CUSTOMER_REVISION_QUERY: LiteralString = (
+    "UPDATE impodo_control.customer_user\n"
+    "SET optimistic_revision = optimistic_revision + 1, updated_at = %s\n"
+    "WHERE organization_id = %s AND user_id = %s AND optimistic_revision = %s"
 )
 _RENAME_ORGANIZATION_QUERY: LiteralString = (
     "UPDATE impodo_control.organization\n"
@@ -334,7 +354,15 @@ _ADVANCE_CUSTOMER_SECURITY_QUERY: LiteralString = (
 _LIST_EVENTS_QUERY: LiteralString = (
     "SELECT event_id, event_kind, organization_id, subject_user_id,\n"
     "       actor_principal_kind, actor_principal_id, occurred_at\n"
-    "FROM impodo_control.identity_administration_event\n"
+    "FROM (\n"
+    "  SELECT event_id, event_kind, organization_id, subject_user_id,\n"
+    "         actor_principal_kind, actor_principal_id, occurred_at\n"
+    "  FROM impodo_control.identity_administration_event WHERE organization_id = %s\n"
+    "  UNION ALL\n"
+    "  SELECT event_id, event_kind, organization_id, principal_id AS subject_user_id,\n"
+    "         NULL::varchar AS actor_principal_kind, NULL::uuid AS actor_principal_id, occurred_at\n"
+    "  FROM impodo_control.server_security_event WHERE organization_id = %s\n"
+    ") AS history\n"
     "WHERE organization_id = %s\n"
     "  AND (%s::uuid IS NULL OR subject_user_id = %s)\n"
     "  AND (%s::timestamptz IS NULL OR (occurred_at, event_id) < (%s, %s))\n"
@@ -622,6 +650,84 @@ class PsycopgIdentityAdministrationRepository:
             )
 
         return self._run("identity_admin.list_customer_users", read)
+
+    def get_organization(self, query: OrganizationDetailQuery) -> OrganizationAdministrationView:
+        """Read one provisioned Organization without customer Project access."""
+
+        def read(session: _MeasuredSession) -> OrganizationAdministrationView:
+            _authorize_actor(session, query.actor, organization_id=None)
+            row = session.fetch_one(_GET_ORGANIZATION_QUERY, (query.organization_id,))
+            if row is None:
+                raise IdentityAdministrationNotFoundError("Organization is not available")
+            administrator = session.fetch_one(_GET_ASSIGNED_ADMINISTRATOR_QUERY, (query.organization_id,))
+            return OrganizationAdministrationView(
+                organization=_decode_organization(row),
+                administrator=_decode_customer(administrator) if administrator is not None else None,
+            )
+
+        return self._run("identity_admin.get_organization", read)
+
+    def reissue_customer_activation(
+        self, command: CustomerUserMutationCommand, issue: RecoveryTokenIssue,
+        event: AdministrationSecurityEvent,
+    ) -> None:
+        """Replace activation for an exact pending ordinary account atomically."""
+
+        def reissue(session: _MeasuredSession) -> None:
+            _authorize_actor(session, command.actor, organization_id=command.organization_id)
+            row = session.fetch_one(_LOAD_CUSTOMER_USER_QUERY, (command.organization_id, command.user_id))
+            if row is None:
+                raise IdentityAdministrationNotFoundError("Customer account is not available")
+            user = _decode_customer(row)
+            if (
+                user.principal_kind is not LoginPrincipalKind.CUSTOMER_USER
+                or user.status is not CustomerUserStatus.PENDING_ACTIVATION
+                or issue.purpose is not RecoveryTokenPurpose.ACTIVATION
+            ):
+                raise IdentityAdministrationNotFoundError("Customer account is not available")
+            _advance_customer_revision(session, user, command.expected_revision, issue.issued_at)
+            _replace_customer_token(session, user, issue, command.actor, None)
+            _insert_event(session, event, user.organization_id, user.user_id)
+
+        self._run("identity_admin.reissue_customer_activation", reissue)
+
+    def issue_administrator_token(
+        self, command: OrganizationMutationCommand, issue: RecoveryTokenIssue,
+        event: AdministrationSecurityEvent,
+    ) -> None:
+        """Issue a link for only the current assignment under the platform lock."""
+
+        def issue_token(session: _MeasuredSession) -> None:
+            _authorize_actor(session, command.actor, organization_id=None)
+            organization = _require_active_organization(session, command.organization_id)
+            if organization[1] != command.expected_revision:
+                raise IdentityAdministrationConflictError("Organization changed")
+            assignment = session.fetch_one(_LOCK_ADMINISTRATOR_ASSIGNMENT_QUERY, (command.organization_id,))
+            if assignment is None:
+                raise IdentityAdministrationNotFoundError("Administrator is not available")
+            user_id = str(assignment[0])
+            if issue.purpose is RecoveryTokenPurpose.ACTIVATION:
+                row = session.fetch_one(_LOAD_CUSTOMER_USER_QUERY, (command.organization_id, user_id))
+                user = _decode_customer(row)
+                password_revision = None
+                eligible = user.status is CustomerUserStatus.PENDING_ACTIVATION
+            else:
+                row = session.fetch_one(_LOCK_CUSTOMER_RESET_SUBJECT_QUERY, (command.organization_id, user_id))
+                context = _decode_reset_subject(row)
+                if context is None:
+                    raise IdentityAdministrationNotFoundError("Administrator is not available")
+                user, password_revision = context.user, context.password_revision
+                eligible = user.status is CustomerUserStatus.ACTIVE
+            if not eligible or user.principal_kind is not LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR:
+                raise IdentityAdministrationNotFoundError("Administrator is not available")
+            if session.execute_affected(_ADVANCE_ORGANIZATION_REVISION_QUERY, (
+                issue.issued_at, command.organization_id, command.expected_revision,
+            )) != 1:
+                raise IdentityAdministrationConflictError("Organization changed")
+            _replace_customer_token(session, user, issue, command.actor, password_revision)
+            _insert_event(session, event, user.organization_id, user.user_id)
+
+        self._run("identity_admin.issue_administrator_token", issue_token)
 
     def get_customer_user(
         self,
@@ -1022,6 +1128,7 @@ class PsycopgIdentityAdministrationRepository:
                 _REVOKE_OUTSTANDING_RESET_QUERY,
                 (issue.issued_at, context.user.user_id),
             )
+            _advance_customer_revision(session, context.user, command.expected_revision, issue.issued_at)
             _insert_recovery_token(
                 session,
                 context.user,
@@ -1126,6 +1233,8 @@ class PsycopgIdentityAdministrationRepository:
             rows = session.fetch_rows(
                 _LIST_EVENTS_QUERY,
                 (
+                    query.organization_id,
+                    query.organization_id,
                     query.organization_id,
                     query.user_id,
                     query.user_id,
@@ -1288,6 +1397,24 @@ class _ResetSubject:
         self.user = user
         self.password_revision = password_revision
         self.organization_status = organization_status
+
+
+def _advance_customer_revision(
+    session: _MeasuredSession, user: CustomerUserView,
+    expected_revision: int, occurred_at: datetime,
+) -> None:
+    if session.execute_affected(_ADVANCE_CUSTOMER_REVISION_QUERY, (
+        occurred_at, user.organization_id, user.user_id, expected_revision,
+    )) != 1:
+        raise IdentityAdministrationConflictError("Customer account changed")
+
+
+def _replace_customer_token(
+    session: _MeasuredSession, user: CustomerUserView, issue: RecoveryTokenIssue,
+    actor: AdministrationActor, password_revision: int | None,
+) -> None:
+    session.execute(_REVOKE_USER_TOKENS_QUERY, (issue.issued_at, user.user_id))
+    _insert_recovery_token(session, user, issue, actor, password_revision=password_revision)
 
 
 def _authorize_actor(

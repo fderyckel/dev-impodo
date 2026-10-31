@@ -182,6 +182,7 @@ class SchemaWorkspaceRepository(SupportingReviewRepository, Protocol):
         expected_content_hash: str,
         expected_read_credential_binding_hash: str,
         actor: Actor,
+        expected_company_context_hash: str | None = None,
     ) -> None:
         """Store supplemental create defaults without retiring dependents."""
         ...
@@ -719,6 +720,27 @@ class SchemaWorkspaceService:
         current_semantic_hash = _schema_semantic_hash(current)
         candidate_semantic_hash = _schema_semantic_hash(candidate_catalog)
         checked_at = candidate_catalog.captured_at
+
+        workspace = self.workspaces.get(workspace_id)
+        if (workspace.odoo_company is not None
+            and current.read_context_hash != candidate_catalog.read_context_hash
+            and candidate_catalog.read_context_hash == workspace.odoo_company.context_hash
+            and _same_company_refresh_structure(current, candidate_catalog)):
+            candidates = {model.name: {field.name: field for field in model.fields}
+                          for model in candidate_catalog.models}
+            checked = replace(current, models=tuple(replace(model, fields=tuple(
+                replace(field,
+                    create_default_present=candidates[model.name][field.name].create_default_present,
+                    create_default_value=candidates[model.name][field.name].create_default_value)
+                for field in model.fields)) for model in current.models),
+                read_context_hash=candidate_catalog.read_context_hash,
+                last_checked_at=checked_at, last_checked_by=actor.identity.display_name,
+                pending_refresh=None)
+            self.schemas.save_odoo_create_defaults(workspace_id, checked,
+                expected_content_hash=current.content_hash,
+                expected_read_credential_binding_hash=current.read_credential_binding_hash,
+                expected_company_context_hash=workspace.odoo_company.context_hash, actor=actor)
+            return checked
 
         if current_semantic_hash == candidate_semantic_hash:
             checked = replace(
@@ -1763,6 +1785,17 @@ def _schema_field_structure(field: SchemaField) -> dict[str, object]:
     return semantics
 
 
+def _same_company_refresh_structure(current: OdooSchemaCatalog, candidate: OdooSchemaCatalog) -> bool:
+    """Permit only a confirmed company change with identical schema and API access."""
+    def structure(catalog: OdooSchemaCatalog):
+        return (catalog.connection_target_hash, catalog.policy_hash, catalog.connection_mode,
+            catalog.database, catalog.odoo_version, catalog.origin, catalog.read_principal_hash,
+            catalog.read_permission_hash, catalog.read_credential_binding_hash,
+            tuple((model.name, tuple(_schema_field_structure(field) for field in sorted(model.fields, key=lambda value: value.name)),
+                   model.unique_constraints) for model in sorted(catalog.models, key=lambda value: value.name)))
+    return structure(current) == structure(candidate)
+
+
 def _schema_semantic_hash(catalog: OdooSchemaCatalog) -> str:
     """Hash schema meaning while excluding observation and display metadata."""
 
@@ -2017,7 +2050,14 @@ def _validate_read_identity(
         "read_context_hash": "",
     }
     if workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL and identity is None:
-        return empty
+        return {
+            **empty,
+            "read_context_hash": (
+                workspace_state.odoo_company.context_hash
+                if workspace_state.odoo_company is not None
+                else ""
+            ),
+        }
     if identity is None:
         raise WorkspaceError(
             "Verify the remote Odoo read principal before storing metadata"

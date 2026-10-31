@@ -86,6 +86,13 @@ class FoundationMigrationRunRecords(FoundationRepositoryMixin):
                 raise MigrationConflictError(
                     "MigrationRun target setup has inconsistent ownership"
                 )
+            if setup.company_workspace_id is not None:
+                owner = connection.execute(
+                    "SELECT migration_run_id, project_id FROM migration_workspace WHERE workspace_id = ?",
+                    [setup.company_workspace_id],
+                ).fetchone()
+                if owner != (setup.migration_run_id, setup.project_id):
+                    raise MigrationConflictError("The Odoo company evidence belongs to another run")
             current = connection.execute(
                 "SELECT revision FROM migration_run_target_setup "
                 "WHERE migration_run_id = ?",
@@ -98,7 +105,7 @@ class FoundationMigrationRunRecords(FoundationRepositoryMixin):
                     )
                 connection.execute(
                     "INSERT INTO migration_run_target_setup "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [
                         setup.migration_run_id,
                         setup.project_id,
@@ -108,6 +115,8 @@ class FoundationMigrationRunRecords(FoundationRepositoryMixin):
                         setup.database,
                         canonical_json(list(setup.intended_applications)),
                         setup.updated_at.isoformat(),
+                        setup.company_binding_hash,
+                        setup.company_workspace_id,
                     ],
                 )
             else:
@@ -128,7 +137,7 @@ class FoundationMigrationRunRecords(FoundationRepositoryMixin):
                     UPDATE migration_run_target_setup
                        SET revision = ?, connection_mode = ?, base_url = ?,
                            database = ?, intended_applications_json = ?,
-                           updated_at = ?
+                           updated_at = ?, company_binding_hash = ?, company_workspace_id = ?
                      WHERE migration_run_id = ? AND revision = ?
                      RETURNING migration_run_id
                     """,
@@ -139,6 +148,8 @@ class FoundationMigrationRunRecords(FoundationRepositoryMixin):
                         setup.database,
                         canonical_json(list(setup.intended_applications)),
                         setup.updated_at.isoformat(),
+                        setup.company_binding_hash,
+                        setup.company_workspace_id,
                         setup.migration_run_id,
                         expected,
                     ],

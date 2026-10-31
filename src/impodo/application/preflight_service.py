@@ -22,6 +22,7 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     GovernedArtifactStores,
 )
+from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     plan_preflight_requirements,
@@ -38,6 +39,11 @@ from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
+from impodo.domain.workspace.business_intent_assessment import (
+    BusinessIntentAssessment,
+    BusinessIntentAssessmentSummary,
+    observe_business_writes,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
@@ -301,6 +307,22 @@ class PreflightService:
             database=workspace_state.odoo_database,
         )
         return report if report.target_hash == expected_target else None
+
+    def current_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessmentSummary | None:
+        """Read bounded current assessment evidence without traversing rows."""
+        return self.preflight.get_business_intent_assessment(workspace_id, snapshot_hash)
+
+    def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None:
+        """Retain original journal approval during read-back-gated recovery."""
+        self.preflight.require_business_intent_approval(workspace_id, run)
+
+    def reassess_business_intent(self, workspace_id: str, *, actor: Actor) -> BusinessIntentAssessment:
+        """Reassess a verified saved comparison locally after an explicit edit."""
+        self.authorization.require(actor, Capability.PREFLIGHT_RUN, workspace_id=workspace_id)
+        snapshot = self.current_execution_snapshot(workspace_id)
+        if snapshot is None:
+            raise WorkspaceError("Compare with Odoo before assessing business expectations")
+        return self.preflight.reassess_business_intent(workspace_id, snapshot.semantic_hash, actor=actor)
 
     def current_execution_review_projection(
         self,
@@ -793,6 +815,11 @@ class PreflightService:
             accepted_by=actor.identity,
             accepted_at=datetime.now(UTC),
         )
+        original_observation = self.preflight.get_business_write_observation(workspace_id, full_snapshot.semantic_hash)
+        business_observation = observe_business_writes(
+            reduced, authored_operations=original_observation.authored_operations,
+            reduced_scope_hash=decision.semantic_hash,
+        )
         report = self.current_report(workspace_id)
         if report is None or report.run_id != review.comparison_id:
             raise DeferredScopeEvidenceError(
@@ -849,6 +876,7 @@ class PreflightService:
                 execution_review=execution_review,
                 decision_hash=decision.semantic_hash,
                 actor=actor,
+                business_observation=business_observation,
             )
         except Exception:
             for filename, _content in payloads:
@@ -1368,6 +1396,14 @@ class PreflightService:
             execution_snapshot,
             execution_shape_ready=execution_summary.execution_shape_ready,
         )
+        business_observation = observe_business_writes(
+            execution_snapshot,
+            authored_operations=tuple(
+                (dataset.name, name, rule.operation)
+                for dataset in frozen.plan.datasets
+                for name, rule in dataset.relations.items()
+            ),
+        )
         decision_count = len(report.rows)
         decision_rows = iter(report.rows)
         report = replace(report, rows=())
@@ -1401,6 +1437,7 @@ class PreflightService:
                 execution_review=execution_review,
                 expected_workspace_revision=expected_workspace_revision,
                 actor=actor,
+                business_observation=business_observation,
             )
         except PreflightPublicationCommittedError:
             logging.getLogger(__name__).warning(

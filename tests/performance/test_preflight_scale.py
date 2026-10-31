@@ -13,9 +13,11 @@ import unittest
 from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
+from uuid import uuid4
 
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
+from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent, ExpectedCount
 from tests.performance import test_preparation_scale as preparation_scale
 from tests.support.identity import resolve_local_actor
 from tests.support.paths import REPOSITORY_ROOT
@@ -185,6 +187,13 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 actor=resolve_local_actor(context),
             )
             self.assertTrue(summary.frozen)
+            actor = resolve_local_actor(context)
+            packet = context.business_intents.inputs(workspace_id, actor=actor)
+            context.business_intents.save(workspace_id, actor=actor,
+                intent=BusinessIntent(tuple(BusinessModelIntent(model.model, "none",
+                    creates=ExpectedCount(maximum=0), updates=ExpectedCount(maximum=0)) for model in packet.scope.models)),
+                expected_version=0, expected_binding_hash=packet.binding_hash,
+                operation_id=str(uuid4()))
 
             workspace = context.workspace_states.repository.get(workspace_id)
             workspace_root = context.migration_workspaces.get(

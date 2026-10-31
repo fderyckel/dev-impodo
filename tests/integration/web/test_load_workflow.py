@@ -721,6 +721,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 side_effect=current_preview,
             ),
             patch.object(type(context.execution), "execute", side_effect=execute),
+            patch.object(type(context.execution), "require_business_intent", return_value=None),
             patch.object(
                 type(context.reconciliation),
                 "reconcile",

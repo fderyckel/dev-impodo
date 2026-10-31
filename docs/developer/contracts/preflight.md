@@ -70,6 +70,29 @@ of supporting relations introduces a per-row Odoo call.
 
 ## Target evidence
 
+For a confirmed operation company, the browser captures company compatibility
+for company-dependent Many2one fields from Odoo's generated company-domain
+prefix. A restricted AST interpreter accepts only closed company predicates
+and the selected company variable; it never evaluates arbitrary expressions.
+The local-shell adapter uses Odoo's native related-model company domain.
+Both routes ask Odoo to evaluate shared and parent-company semantics instead
+of imposing numeric company equality.
+
+Compatibility reads reuse captured related IDs, group identical model/domain
+requests, and page at most 500 distinct IDs. Protected metadata stores the
+incompatible IDs for each model and relationship. The engine joins that
+evidence through its existing business-key indexes and raises
+`REFERENCE_COMPANY_MISMATCH` for an exact incompatible target. Optional blanks
+retain normal requiredness behavior. No source-row RPC or additional source
+scan is introduced.
+
+Unrecognized domains are recorded as metadata limitations. Ordinary
+relationships whose company depends on each incoming record, and custom
+business constraints beyond this captured domain, remain subject to Odoo's
+write validation. A global model or shared record must not be rejected merely
+because it has no company field. Model access checks do not prove every row,
+field or business constraint will pass.
+
 Metadata and record snapshots share one target fingerprint. They bind the
 current target, Odoo version, capture time, relevant modules, requested
 coverage, and the applicable CLI profile or browser evidence. They exclude

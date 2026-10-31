@@ -770,6 +770,8 @@ class Json2ConnectorTests(unittest.TestCase):
             public,
             {
                 "get_target_fingerprint",
+                "get_company_access",
+                "check_company_references",
                 "get_model_metadata",
                 "get_records",
                 "probe_read_identity",

@@ -4,10 +4,12 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Organizations · Impodo administration</title>
+    <link rel="stylesheet" href="/administration.css">
   </head>
   <body>
     <header>
       <strong>Impodo administration</strong>
+      <a href="/account">My account</a>
       <form method="post" action="/logout">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <button type="submit">Sign out</button>
@@ -32,21 +34,21 @@
       <section aria-labelledby="organization-list-heading">
         <h2 id="organization-list-heading">Current Organizations</h2>
         {% if page.items %}
-          <table>
+          <div class="table-scroll"><table>
             <thead>
               <tr><th>Name</th><th>ID</th><th>Status</th><th>Policy revision</th></tr>
             </thead>
             <tbody>
               {% for organization in page.items %}
                 <tr>
-                  <td>{{ organization.display_name }}</td>
+                  <td><a href="/admin/organizations/{{ organization.organization_id }}">{{ organization.display_name }}</a></td>
                   <td>{{ organization.organization_id }}</td>
                   <td>{{ organization.status.value }}</td>
                   <td>{{ organization.policy_revision }}</td>
                 </tr>
               {% endfor %}
             </tbody>
-          </table>
+          </table></div>
         {% else %}
           <p>No Organizations have been created.</p>
         {% endif %}

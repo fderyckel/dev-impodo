@@ -26,6 +26,7 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.mapping.validation.evidence import mapping_issue_fingerprint
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
@@ -88,7 +89,9 @@ class MixedJoinPreparationTests(TestCase):
         )
         self.assertEqual(sum(d.row_count for d in physical.datasets), sum(row_counts))
         self.assertEqual(sum(len(d.columns) for d in physical.datasets), 262)
-        self._schema(workspace_id)
+        schema = self._schema(workspace_id)
+        if getattr(self, "company_binding", False):
+            self._confirm_company(workspace_id, schema, 105)
         primary, details, addresses = (
             by_name[name]
             for name in (
@@ -190,6 +193,28 @@ class MixedJoinPreparationTests(TestCase):
         )
         return schema
 
+    def _confirm_company(self, workspace_id, schema, company_id):
+        state = self.context.queries.get(workspace_id)
+        company = OdooCompanySelection(
+            schema.connection_target_hash, company_id, f"Fictional factory {company_id}"
+        )
+        self.context.workspace_states.select_odoo_company(
+            workspace_id,
+            actor=self.actor,
+            expected_revision=state.revision,
+            selection=company,
+        )
+        refreshed = replace(schema, read_context_hash=company.context_hash)
+        self.context.schema_workspace.schemas.save_odoo_create_defaults(
+            workspace_id,
+            refreshed,
+            expected_content_hash=schema.content_hash,
+            expected_read_credential_binding_hash=schema.read_credential_binding_hash,
+            expected_company_context_hash=company.context_hash,
+            actor=self.actor,
+        )
+        return refreshed
+
     def _map(self, workspace_id):
         context, actor = self.context, self.actor
         effective = context.queries.get_mapping_source_selection(workspace_id)
@@ -269,6 +294,11 @@ class MixedJoinPreparationTests(TestCase):
         )
 
     def _worker(self, workspace_id, expected_rows, physical_rows=65299):
+        if getattr(self, "company_binding", False):
+            state = self.context.queries.get(workspace_id)
+            schema = self.context.queries.get_odoo_schema_catalog(workspace_id)
+            self.assertIsNotNone(state.odoo_company)
+            self.assertEqual(schema.read_context_hash, state.odoo_company.context_hash)
         # These traps cover in-process paths. The durable large-run manifest
         # independently disables materialized fallback inside spawned workers.
         page = self.fixture.client.get(f"/workspaces/{workspace_id}/summary")
@@ -343,6 +373,7 @@ class MixedJoinPreparationTests(TestCase):
         return run
 
     def test_65299_rows_with_second_combined_output_and_recipe_reuse(self):
+        self.company_binding = True
         workspace_id, count = self._setup()
         self._worker(workspace_id, count)
         self._reuse(workspace_id, count)
@@ -497,6 +528,11 @@ class MixedJoinPreparationTests(TestCase):
             )
             self.assertEqual(response.status_code, 303, response.text)
         schema = self._schema(setup.setup_workspace.workspace_id)
+        if getattr(self, "company_binding", False):
+            self.assertIsNone(
+                context.queries.get(setup.setup_workspace.workspace_id).odoo_company
+            )
+            schema = self._confirm_company(setup.setup_workspace.workspace_id, schema, 707)
         activated = run_local_operation_sync(
             context.test_runs.activate,
             owner.project_id,

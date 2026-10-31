@@ -1,6 +1,7 @@
 """Verify joined Many2one aliases through preparation and saved Recipe reuse."""
 
 from datetime import UTC, datetime
+from dataclasses import replace
 from unittest import TestCase
 from unittest.mock import patch
 from uuid import uuid4
@@ -19,6 +20,7 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.mapping.validation.evidence import mapping_issue_fingerprint
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.serialization import content_hash
@@ -153,12 +155,40 @@ class JoinedRecipePreparationTests(TestCase):
     def test_joined_many2one_leave_blank_survives_preparation_and_recipe_reuse(self):
         self._exercise_recipe_reuse(uncovered_choice=False, blank_choice=True)
 
-    def _exercise_recipe_reuse(self, *, uncovered_choice, blank_choice=False):
+    def test_joined_recipe_rebinds_company_in_a_fresh_run_without_copying_odoo_ids(
+        self,
+    ):
+        self._exercise_recipe_reuse(uncovered_choice=False, company_binding=True)
+
+    def _exercise_recipe_reuse(
+        self, *, uncovered_choice, blank_choice=False, company_binding=False
+    ):
         context, actor, fixture = self.context, self.actor, self.fixture
         workspace_id, physical, by_name = fixture._frozen_customer_workspace(
             several_tables=True
         )
-        self._schema(workspace_id)
+        authoring_schema = self._schema(workspace_id)
+        if company_binding:
+            state = context.queries.get(workspace_id)
+            company = OdooCompanySelection(
+                authoring_schema.connection_target_hash,
+                105,
+                "Fictional authoring factory",
+            )
+            context.workspace_states.select_odoo_company(
+                workspace_id,
+                actor=actor,
+                expected_revision=state.revision,
+                selection=company,
+            )
+            context.schema_workspace.schemas.save_odoo_create_defaults(
+                workspace_id,
+                replace(authoring_schema, read_context_hash=company.context_hash),
+                expected_content_hash=authoring_schema.content_hash,
+                expected_read_credential_binding_hash=authoring_schema.read_credential_binding_hash,
+                expected_company_context_hash=company.context_hash,
+                actor=actor,
+            )
         form = fixture._join_group_form(physical, by_name)
         items = [
             (name, item)
@@ -259,6 +289,10 @@ class JoinedRecipePreparationTests(TestCase):
             publication.recipe.recipe_id, publication.revision.version
         )
         definition = envelope["recipe"]
+        if company_binding:
+            self.assertNotIn("odoo_company", str(definition))
+            self.assertNotIn("company_binding_hash", str(definition))
+            self.assertNotIn(company.name, str(definition))
         saved = definition["mapping"]["datasets"][0]["relationships"][0]
         self.assertEqual(
             saved["blank_source_values"], ["Fictional Retail"] if blank_choice else []
@@ -358,6 +392,47 @@ class JoinedRecipePreparationTests(TestCase):
         )
         self.assertEqual(accepted.status_code, 303, accepted.text)
         fresh_schema = self._schema(setup.setup_workspace.workspace_id)
+        if company_binding:
+            fresh_id = setup.setup_workspace.workspace_id
+            state = context.queries.get(fresh_id)
+            self.assertIsNone(state.odoo_company)
+            keys = context.schema_workspace.schemas.get_schema_governance(
+                fresh_id
+            ).business_keys
+            state = context.workspace_states.update_target(
+                fresh_id,
+                actor=actor,
+                expected_revision=state.revision,
+                odoo_connection_mode="LOCAL",
+                odoo_base_url=state.odoo_base_url,
+                odoo_database="fictional_rehearsal",
+                intended_applications=(),
+                intended_models=state.intended_models,
+            )
+            new_company = OdooCompanySelection(
+                _browser_schema(state).fingerprint.target_hash,
+                7001,
+                "Fictional rehearsal factory",
+            )
+            context.workspace_states.select_odoo_company(
+                fresh_id,
+                actor=actor,
+                expected_revision=state.revision,
+                selection=new_company,
+            )
+            fresh_schema = replace(
+                fresh_schema,
+                database=state.odoo_database,
+                connection_target_hash=new_company.target_hash,
+                read_context_hash=new_company.context_hash,
+                content_hash=content_hash(
+                    (fresh_schema.content_hash, "fresh-company-target")
+                ),
+            )
+            context.schema_workspace.schemas.save_odoo_schema_catalog(
+                fresh_id, fresh_schema, actor=actor
+            )
+            context.schema_workspace.govern(fresh_id, business_keys=keys, actor=actor)
         evaluator = context.run_planning.compiler.preparation.group_evaluator
         original_review = evaluator.review
 
@@ -387,6 +462,21 @@ class JoinedRecipePreparationTests(TestCase):
             )
         join_review.assert_called_once()
         application = activated.applications[0]
+        if company_binding:
+            applied_state = context.queries.get(application.workspace_id)
+            self.assertEqual(applied_state.odoo_company, new_company)
+            self.assertEqual(
+                applied_state.odoo_operation_context, {"allowed_company_ids": [7001]}
+            )
+            with self.assertRaisesRegex(ValueError, "fixed for this activated run"):
+                context.workspace_states.select_odoo_company(
+                    application.workspace_id,
+                    actor=actor,
+                    expected_revision=applied_state.revision,
+                    selection=replace(
+                        new_company, company_id=9003, name="Another company"
+                    ),
+                )
         if uncovered_choice:
             self.assertEqual(application.status, RecipeApplicationStatus.BLOCKED)
             issues = context.run_planning.repository.list_issues(

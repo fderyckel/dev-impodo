@@ -74,6 +74,13 @@ class AdministrationEventKind(StrEnum):
     CUSTOMER_RESET_TOKEN_ISSUED = "CUSTOMER_RESET_TOKEN_ISSUED"
     CUSTOMER_PASSWORD_RESET = "CUSTOMER_PASSWORD_RESET"
     CUSTOMER_SESSION_REVOKED = "CUSTOMER_SESSION_REVOKED"
+    CUSTOMER_ACTIVATION_TOKEN_REISSUED = "CUSTOMER_ACTIVATION_TOKEN_REISSUED"
+    AUTHENTICATION_SUCCEEDED = "AUTHENTICATION_SUCCEEDED"
+    AUTHENTICATION_REJECTED = "AUTHENTICATION_REJECTED"
+    PASSWORD_REHASHED = "PASSWORD_REHASHED"
+    SESSION_CREATED = "SESSION_CREATED"
+    SESSION_ROTATED = "SESSION_ROTATED"
+    SESSION_REVOKED = "SESSION_REVOKED"
 
 
 @dataclass(frozen=True, slots=True)
@@ -298,6 +305,19 @@ class OrganizationPage:
 
 
 @dataclass(frozen=True, slots=True)
+class OrganizationDetailQuery:
+    """Read provisioned Organization metadata as a Platform Administrator."""
+
+    actor: AdministrationActor
+    organization_id: str
+
+    def __post_init__(self) -> None:
+        _validate_organization_id(self.organization_id)
+        if self.actor.principal_kind is not LoginPrincipalKind.PLATFORM_ADMINISTRATOR:
+            raise IdentityAdministrationNotFoundError("Organization is not available")
+
+
+@dataclass(frozen=True, slots=True)
 class CustomerUserView:
     """Return bounded customer-account facts without credentials or tokens."""
 
@@ -309,6 +329,14 @@ class CustomerUserView:
     status: CustomerUserStatus
     security_revision: int
     optimistic_revision: int
+
+
+@dataclass(frozen=True, slots=True)
+class OrganizationAdministrationView:
+    """Return one Organization and only its assigned administrator metadata."""
+
+    organization: OrganizationView
+    administrator: CustomerUserView | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -443,6 +471,11 @@ class AdministrationEventQuery:
             raise IdentityAdministrationInputError("Event cursor is invalid")
         if self.before_event_id is not None:
             _validate_uuid(self.before_event_id)
+        if self.before_occurred_at is not None and (
+            self.before_occurred_at.tzinfo is None
+            or self.before_occurred_at.utcoffset() is None
+        ):
+            raise IdentityAdministrationInputError("Event cursor is invalid")
         if self.actor.organization_id != self.organization_id:
             raise IdentityAdministrationNotFoundError("Security events are not available")
 
@@ -494,6 +527,11 @@ class OrganizationSessionQuery:
             raise IdentityAdministrationInputError("Session cursor is invalid")
         if self.before_session_id is not None:
             _validate_uuid(self.before_session_id)
+        if self.before_created_at is not None and (
+            self.before_created_at.tzinfo is None
+            or self.before_created_at.utcoffset() is None
+        ):
+            raise IdentityAdministrationInputError("Session cursor is invalid")
         if self.actor.organization_id != self.organization_id:
             raise IdentityAdministrationNotFoundError("Sessions are not available")
 
@@ -583,6 +621,8 @@ __all__ = [
     "IdentityAdministrationNotFoundError",
     "IdentityAdministrationStorageError",
     "IdentityAdministrationUnavailableError",
+    "OrganizationAdministrationView",
+    "OrganizationDetailQuery",
     "OrganizationListQuery",
     "OrganizationMutationCommand",
     "OrganizationPage",

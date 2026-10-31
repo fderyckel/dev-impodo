@@ -59,6 +59,7 @@ class ServerSessionService:
         if command.subject.principal_kind not in {
             LoginPrincipalKind.PLATFORM_ADMINISTRATOR,
             LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+            LoginPrincipalKind.CUSTOMER_USER,
         }:
             raise ServerSessionInputError("Session subject is not supported")
         created_at = self._aware_now()

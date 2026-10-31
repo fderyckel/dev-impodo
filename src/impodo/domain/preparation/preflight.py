@@ -36,6 +36,7 @@ from impodo.domain.preparation.canonical import (
     parse_value,
     values_equal,
 )
+from impodo.domain.preparation.company_references import check_company_references
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -108,7 +109,8 @@ class PreflightEngine:
             ),
         )
         catalog = TargetCatalog(record_snapshot.records)
-        with_metadata_issues = _apply_dataset_issues(prepared.records, metadata_issues)
+        company_checked = check_company_references(prepared.records, plan, catalog, metadata_snapshot.company_checks)
+        with_metadata_issues = _apply_dataset_issues(company_checked, metadata_issues)
         with_selection_issues = apply_live_selection_domains(
             plan,
             with_metadata_issues,

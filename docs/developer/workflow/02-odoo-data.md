@@ -45,6 +45,75 @@ resumes the same Stage 1 model refresh.
 
 ## Implementation flow
 
+### Company selection and protected ownership
+
+`odoo_company.py` exposes closed POST commands to read available companies
+and confirm one operation company. The commands require the current session,
+CSRF token and Project-edit authority. Confirmation rechecks the workspace
+revision, credential generation and available choice after the remote read.
+Available choices come from the authenticated user's active companies through
+bounded JSON-2 reads, or from the fixed local-shell reader. Neither path
+changes the user's default company.
+
+`MigrationRunTargetSetup` owns the company binding hash and its workspace
+owner. Workspace-engine schema migration 23-to-24 adds the immutable
+`odoo_company_binding` companion table. Registry migration 7-to-8 adds the
+pointer columns. The protected DTO verifies its exact target and content hash
+when projected into `WorkspaceState`. Old projects acquire no implicit
+company confirmation. No numeric company ID enters a Recipe or registry
+business payload.
+
+Materialization copies the protected immutable company DTO into each isolated
+application workspace. Its current run binding hash remains authoritative.
+The browser and preparation worker read the local copy and verify that hash;
+neither opens a sibling setup workspace during a workspace-bound command.
+The Recipe-run browser check requires this company's confirmation before it
+can activate application workspaces.
+
+The context contains only `allowed_company_ids` with the single confirmed
+company. Target schema, defaults, supporting choices, comparison, writer and
+read-back factories use that context. Local shell reads apply it to their
+environment; their context evidence does not claim an authenticated API
+principal or model permission probe. Source capture retains its independently
+pinned context. Odoo-to-Odoo destination selection uses the destination key
+and projects `destination_company` only into the destination workspace.
+
+A safe change retires supporting lookups and preparation, comparison and
+approval pointers while preserving source, schema and mapping rules. A
+company-only schema refresh preserves mapping meaning only when the target,
+principal, permissions, credential and field structure agree. Changed defaults
+and company context are refreshed through a narrow guarded repository write.
+Other changes retain the pending-schema-review path. Active, partially applied
+or uncertain writes block a company change. An activated non-authoring run
+requires a fresh run to choose a different company.
+
+Local command preparation and publication use separate bounded synchronous
+operations; every DuckDB owner closes before the Odoo read. The company-save
+fixture measures ten physical connections across four owner paths, two schema
+checks and zero retries. It performs no source-row or Parquet scan. This is
+controlled structural evidence, not a live latency benchmark.
+
+`test_odoo_company.py` covers browser persistence, stale and unavailable
+choices, transfer isolation, local context and active-load rejection.
+`test_company_transport.py` covers both qualified majors, a model without a
+company field, shared records, load context, read-back and create-access
+rejection. The joined Recipe tests rebind another company on another database;
+the 65,299-row test retains two combined outputs and confirms a fresh company
+for Recipe reuse. Hosted Linux deployment and live Odoo writes are separate
+qualification activities; these fictional tests do not certify them.
+
+The implementation and focused checks are:
+
+- [Company-domain interpreter](../../../src/impodo/domain/odoo/company_domains.py)
+  and its [closed-expression tests](../../../tests/domain/odoo/test_company_domains.py).
+- [Grouped Odoo compatibility reads](../../../src/impodo/adapters/odoo/company_checks.py)
+  and [protected preflight application](../../../src/impodo/domain/preparation/company_references.py),
+  covered by [shared and parent-company tests](../../../tests/integration/odoo/test_company_reference_checks.py).
+- [Native transport tests](../../../tests/integration/odoo/test_company_transport.py)
+  for model-independent matching, loading, read-back and create access.
+- [Joined Recipe reuse](../../../tests/integration/web/test_joined_recipe_preparation.py)
+  and [65,299-row preparation with two combined outputs](../../../tests/integration/web/test_mixed_join_preparation.py).
+
 `target.py` and `OdooConnectionTestService` identify the exact database and
 verify either source-read or destination-read purpose without discovering
 models or fields. `schema.py` then refreshes the permitted model catalogue,
@@ -231,6 +300,14 @@ Local capture uses the isolated local reader. Remote capture uses the narrow
 JSON-2 read connector. Both normalize metadata into the same domain catalogue
 before governance is saved.
 
+When an adapter supplies `allowed_company_ids`, the identity probe verifies
+that each company is available to the authenticated user and preserves their
+order. The first company determines Odoo's current company and therefore the
+value of company-dependent fields. Empty, duplicated or invalid selections
+cannot produce identity evidence. Without a supplied context, the existing
+user-default and available-company behavior remains unchanged. The explicit
+browser company selection supplies this adapter context.
+
 ## Contract invariants
 
 Connection and capture checks use the shared operation policy in
@@ -342,6 +419,7 @@ remains outside the migration write scope.
 
 | Role | Code |
 | --- | --- |
+| Target company choice boundary | [`odoo_company.py`](../../../src/impodo/web/routers/odoo_company.py) |
 | Schema orchestration | [`SchemaWorkspaceService`](../../../src/impodo/application/schema_workspace_service.py) |
 | Purpose-specific connection check | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Schema governance | [`governance.py`](../../../src/impodo/domain/schema/governance.py) |

@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo_capture import OdooCaptureSelection
 from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipScope,
@@ -22,6 +23,7 @@ from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.workbench import (
     SourceFile,
+    SourceMode,
     WorkspaceState,
     WorkspaceStateConflictError,
     WorkspaceStateError,
@@ -244,6 +246,23 @@ class WorkspaceStateRepository(DuckDbRepository):
                     raise WorkspaceStateConflictError(
                         "The workspace was modified by another request"
                     )
+                if event_type == "WORKSPACE_COMPANY_UPDATED":
+                    active = connection.execute(
+                        "SELECT status FROM execution_run AS run "
+                        "WHERE run_id IN (SELECT run_id FROM execution_current) "
+                        "AND (status IN ('RUNNING', 'OUTCOME_UNKNOWN') OR EXISTS ("
+                        "SELECT 1 FROM execution_row AS item WHERE item.run_id = run.run_id "
+                        "AND item.status IN ('IN_FLIGHT', 'PARTIALLY_APPLIED', 'OUTCOME_UNKNOWN')))"
+                    ).fetchone()
+                    if active is not None:
+                        raise WorkspaceStateError("Verify or finish the current load before changing its Odoo company")
+                    company = workspace.destination_company if workspace.source_mode is SourceMode.ODOO else workspace.odoo_company
+                    if company is None:
+                        raise WorkspaceStateError("Choose an Odoo company")
+                    connection.execute(
+                        "INSERT INTO odoo_company_binding VALUES (?, ?) ON CONFLICT DO NOTHING",
+                        [company.binding_hash, company.to_json()],
+                    )
                 target_changed = event_type == "WORKSPACE_TARGET_UPDATED" and (
                     str(current[3] or "")
                     != (
@@ -273,6 +292,9 @@ class WorkspaceStateRepository(DuckDbRepository):
                         connection,
                         reason="WORKSPACE_TARGET_CHANGED",
                     )
+                elif event_type == "WORKSPACE_COMPANY_UPDATED":
+                    connection.execute("DELETE FROM supporting_lookup_current")
+                    self._invalidate_canonical_staging(connection, reason="WORKSPACE_COMPANY_CHANGED")
                 elif governance_changed:
                     self._invalidate_quality(
                         connection,
@@ -705,6 +727,22 @@ class WorkspaceStateRepository(DuckDbRepository):
         workspace = self.get(workspace_id)
         if workspace.status is WorkspaceStatus.REGISTERED:
             self._write_registration_manifest(workspace)
+
+    def get_odoo_company_binding(self, workspace_id: str, binding_hash: str) -> OdooCompanySelection:
+        """Read one immutable, hash-verified choice from its protected owner."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute("SELECT selection_json FROM odoo_company_binding WHERE binding_hash = ?", [binding_hash]).fetchone()
+        if row is None:
+            raise WorkspaceStateError("The selected Odoo company evidence is missing")
+        try:
+            selection = OdooCompanySelection.from_json(str(row[0]))
+        except (ValueError, TypeError) as error:
+            raise WorkspaceStateError("The selected Odoo company evidence is invalid") from error
+        if selection.binding_hash != binding_hash:
+            raise WorkspaceStateError("The selected Odoo company evidence changed")
+        return selection
 
     def _get_workspace_unresolved(self, workspace_id: str) -> WorkspaceState:
         database_path = (

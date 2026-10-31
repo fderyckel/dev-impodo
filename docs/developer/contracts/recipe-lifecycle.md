@@ -117,6 +117,13 @@ Recipe identities because an existing run keeps its pinned revision.
 
 ## Current application boundary
 
+The run confirms its target operation company before activation. The company
+ID, protected binding and authoring endpoint are excluded from the Recipe.
+Each application workspace projects the run's new company, while portable
+relationship keys and explicit blank decisions retain their saved meaning.
+After activation the run keeps that company fixed. A different company
+requires a fresh run, not a change to historical target evidence.
+
 An integrated Test run applies several exact Recipe revisions inside one
 Project-owned MigrationRun. Each receives a separate RecipeApplication and workspace while
 the run owns unioned target requirements and target evidence. Application

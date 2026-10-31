@@ -38,9 +38,9 @@ def _password_hash() -> PasswordHash:
     )
 
 
-def _credential(*, eligible: bool = True) -> ServerAuthenticationCredential:
+def _credential(*, eligible: bool = True, kind: LoginPrincipalKind = LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR) -> ServerAuthenticationCredential:
     return ServerAuthenticationCredential(
-        principal_kind=LoginPrincipalKind.ORGANIZATION_ADMINISTRATOR,
+        principal_kind=kind,
         principal_id=ADMINISTRATOR_ID,
         organization_id="acme",
         eligible=eligible,
@@ -115,6 +115,15 @@ def _service(repository: _Repository, policy: _PasswordPolicy) -> ServerAuthenti
 
 
 class ServerAuthenticationServiceTests(unittest.TestCase):
+    def test_ordinary_customer_login_preserves_its_permanent_organization(self) -> None:
+        repository = _Repository(_credential(kind=LoginPrincipalKind.CUSTOMER_USER))
+        result = _service(repository, _PasswordPolicy(verified=True)).authenticate(
+            ServerAuthenticationCommand("person@acme.test", "fictional-password", SOURCE_DIGEST), deployment_id="local-trial",
+        )
+        self.assertEqual(result.principal_kind, LoginPrincipalKind.CUSTOMER_USER)
+        self.assertEqual(result.organization_id, "acme")
+        self.assertEqual(repository.successes[0].organization_id, "acme")
+
     def test_organization_administrator_success_returns_tenant_binding(self) -> None:
         repository = _Repository(_credential())
         result = _service(repository, _PasswordPolicy(verified=True)).authenticate(

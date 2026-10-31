@@ -121,6 +121,13 @@ class BusinessIntentRepository(DuckDbRepository):
                     detail=f"intent revision {revision.version}: {len(revision.intent.models)} record types",
                     actor=actor,
                 )
+                # Keep the observation for local reassessment, but retire the
+                # approval candidate. Journal start touches this same row so
+                # a racing edit cannot commit alongside a stale approval.
+                try:
+                    connection.execute("UPDATE business_intent_current SET assessment_hash = '' WHERE singleton_id = 1")
+                except duckdb.TransactionException as error:
+                    raise BusinessIntentError("A load or business expectations changed; retry the exact operation or review the current revision") from error
             except Exception:
                 connection.rollback()
                 raise

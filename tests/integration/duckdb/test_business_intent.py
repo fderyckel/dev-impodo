@@ -156,10 +156,12 @@ class BusinessIntentStoreTests(ProjectSetupBrowserTestCase):
         with self.repository._connect(self.path) as connection:
             original = connection.execute("SELECT revision_json FROM mapping_revision").fetchall()
             connection.execute("DROP TABLE business_intent_revision")
+            for table in ("business_write_observation", "business_intent_assessment", "business_intent_current", "business_intent_approval", "odoo_company_binding"):
+                connection.execute(f"DROP TABLE IF EXISTS {table}")
             connection.execute("UPDATE schema_version SET version = 22")
         self.assertIsNone(self.current())
         with self.repository._connect(self.path) as connection:
-            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 23)
+            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 25)
             self.assertEqual(connection.execute("SELECT revision_json FROM mapping_revision").fetchall(), original)
         first = self.save()
         self.assertEqual(first.version, 1)

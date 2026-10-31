@@ -22,8 +22,8 @@ no remote Impodo server is allocated. Local Phase 3 persistence increments may
 proceed after the local trial continuation gate below, but this does not pass
 the Phase 2 supported-host exit gate or authorize a shared release. The current
 supported Impodo product remains the local application; the container has
-progressed beyond health-only behavior to a limited Platform administration
-trial, but it is still qualification infrastructure rather than a shared
+completed the local Phase 3 persistence and Phase 4 account-administration
+trials, but it is still qualification infrastructure rather than a shared
 multi-user release.
 
 This document is for maintainers who will implement and review the shared
@@ -1616,10 +1616,10 @@ can pass security acceptance. TOTP alone does not satisfy that release gate.
 WebAuthn enrollment and enforcement remain implementation work, so the gate is
 currently blocked.
 
-This increment does not expose an HTTP login or reset route. Work package 4.4
-now binds activation issuance and consumption atomically to a pending customer
-account. Work package 4.5 must still present that authorized link once and add
-the browser route that consumes it. Treating the already-active Platform
+The authentication-foundation checkpoint did not expose an HTTP route. Work
+package 4.4 binds activation issuance and consumption atomically to a pending
+customer account. Work package 4.5 now presents the authorized link once and
+provides the browser route that consumes it. Treating the already-active Platform
 Administrator or a deactivated account as pending activation remains
 incorrect. The server therefore remains suitable only for the local trial.
 
@@ -1673,9 +1673,9 @@ CSRF-bound resolve, rotation, rejection of the old handle, revocation,
 digest-only storage, and runtime-role delete denial before all containers
 returned healthy.
 
-This work deliberately does not add an HTTP login, logout, reset, or session
-administration route. Work package 4.4 now persists customer and Organization
-Administrator principals, but the browser cannot authenticate them yet.
+The session-foundation checkpoint did not add HTTP routes. Work package 4.5
+now connects login, logout, recovery, and session administration for all three
+principal kinds to the persisted identity and session services.
 Therefore the server is still a loopback-only trial and the Internet security
 gate remains blocked on WebAuthn enrollment and route enforcement.
 
@@ -1736,9 +1736,10 @@ event queries, runtime delete denial, and database rejection of a cross-kind
 administrator assignment. The persistent local image advanced from schema
 version `8` through `9` and `10`; both immediate replays applied no migration.
 
-This work deliberately adds no route, presenter, template, customer login, or
-delivery channel. Work package 4.5 still owns the administration dashboard and
-the browser activation, reset, and session actions. Remote Debian and Ubuntu
+The service-foundation checkpoint added no browser or delivery channel. Work
+package 4.5 now supplies the administration dashboard and the browser
+activation, reset, and session actions with manual private delivery of links.
+Remote Debian and Ubuntu
 qualification and the privileged WebAuthn release gate also remain open.
 
 ### Work package 4.5 - Build the administration dashboard
@@ -1811,12 +1812,50 @@ Platform Organization route returned `403`, an unavailable user returned
 security events were `PASSWORD_REHASHED`, `AUTHENTICATION_SUCCEEDED`,
 `SESSION_CREATED`, and `SESSION_REVOKED`.
 
-Work Package 4.5 remains partial. Customer User login, browser assignment and
-activation/reset forms, customer-account mutations, customer-session
-revocation, Organization lifecycle confirmations, and bounded security history
-are still missing. Project access and role summaries are read-only until Phase
-5. The browser also has no WebAuthn enrollment or privilege-elevation route, so
-the Internet security gate remains blocked.
+Work Package 4.5 is complete for the loopback local trial, verified on
+2026-10-31. Platform administrators can open exact Organization details,
+assign or replace the administrator, rename, suspend, reactivate, and require
+new sign-in for everyone. Organization administrators can create ordinary
+users and confirm their suspension, reactivation, or permanent deactivation.
+They can inspect and revoke exact tenant-bound sessions and read bounded
+newest-first account, authentication, and session history. Ordinary customer
+users now authenticate under the same generic policy and receive a session
+bound permanently to their Organization. Their landing page exposes only
+their account and current session; no Project access is implied.
+
+Both customer account kinds can activate and consume password reset through
+public forms. Authorized administrators see a newly issued link once, only
+after commit. The token travels in a URL fragment, is moved into the POST form
+by a page-owned script, and is removed from browser history. Anonymous forms
+have an independent secure CSRF cookie. One-time link responses use
+`no-referrer` and `no-store`. Form pages use `same-origin` referrer policy so
+real HTML form POSTs retain the exact Origin required by the browser guard.
+The first real-browser check exposed and corrected the previous
+`no-referrer` policy's `Origin: null` form behavior.
+
+Immutable migration `12` records replacement activation issuance. Pending
+ordinary users can receive replacement activation links under their own
+administrator. The Platform Administrator can replace the assigned
+administrator's activation link or issue their reset link. Reissuance revokes
+the earlier token and advances the applicable optimistic revision atomically.
+Customer reset issuance now also advances the user's optimistic revision.
+The Platform Administrator can create their own reset link from **My account**.
+Public reset requests remain generic; local-trial email delivery is explicitly
+disabled and the authorized administrator supplies the link privately.
+
+The rebuilt image applied schema `12` once and replayed it with no changes.
+The browser rehearsal uses the installed Edge headless browser through the
+loopback TLS proxy, performs the complete account journey with fictional
+values, and checks that zero network request URLs contain a raw token. It
+captures token-free desktop and narrow layouts. The audit review also found
+that JSONB parameter ordering caused unnecessary password rehashes; the policy
+now compares parameter values by key, while preserving rehash for genuinely
+older work parameters.
+
+Project roles and grants remain Phase 5 work. Browser WebAuthn enrollment and
+privilege elevation also remain open, so the Internet security gate remains
+blocked. Completing the local Phase 4 exit gate does not waive that release
+gate or the Phase 2 supported-host qualification.
 
 ### Work package 4.6 - Test authentication and administration
 
@@ -1830,7 +1869,27 @@ the Internet security gate remains blocked.
 - Test that local `create_local_app` exposes no server login or administration
   routes and continues to use its launch session.
 
+Current local-trial status: implemented and verified on 2026-10-31. Portable
+tests cover the domain, service, repository, browser-policy, and route
+contracts. Linux-owned PostgreSQL tests exercise all historical migration
+prefixes, concurrent migrators and first-operator bootstrap, throttling,
+session rotation, and the complete browser lifecycle against a disposable
+test database. The browser suite includes expired and replayed tokens,
+replacement links, administrator replacement, reset session revocation,
+stale mutations, missing confirmations, wrong CSRF, cross-Organization
+requests, and the local composition's route isolation. Dashboard reads open
+zero DuckDB connections; each PostgreSQL operation owns one bounded
+connection and no pool. The Linux workflow installs the test extra for these
+browser contracts. `scripts/rehearse_server_identity.py` supplies a separate
+reproducible real-browser check of the current local image.
+
 ### Phase 4 exit gate
+
+**Local-trial gate: passed on 2026-10-31.** The implemented browser journey
+meets the following conditions after the one-time first-operator bootstrap.
+Link delivery is manual for this local trial. Production email policy,
+privileged WebAuthn, image acceptance, and supported-host qualification retain
+their own release gates.
 
 - A fresh server can bootstrap a Platform Administrator, create an
   Organization, create its administrator and users, activate accounts, log in,

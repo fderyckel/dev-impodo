@@ -248,8 +248,9 @@ class Json2WriteExecutor:
         identifiers = response.get("ids")
         messages = response.get("messages", [])
         if identifiers is False:
-            diagnostic = import_rejection_diagnostic(messages, model=model,
-                fields=field_names, batch_size=len(rows))
+            diagnostic = import_rejection_diagnostic(
+                messages, model=model, fields=field_names, batch_size=len(rows)
+            )
             raise OdooWriteRejected(diagnostic.summary, diagnostic=diagnostic)
         if (
             not isinstance(identifiers, list)

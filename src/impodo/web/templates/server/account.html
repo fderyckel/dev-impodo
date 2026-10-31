@@ -1,0 +1,17 @@
+{% extends "server/base.html" %}
+{% block title %}My account · Impodo{% endblock %}
+{% block content %}
+<h1>My account</h1>
+<p>Role: {{ session.subject.principal_kind.value|replace('_', ' ')|title }}</p>
+{% if session.subject.organization_id %}<p>Organization: {{ session.subject.organization_id }}</p>{% endif %}
+<p>Account administration does not grant access to Projects or migration data.</p>
+<dl><dt>Signed in at</dt><dd>{{ session.created_at.isoformat() }}</dd><dt>Session expires at</dt><dd>{{ session.absolute_expires_at.isoformat() }}</dd></dl>
+{% if session.subject.principal_kind.value == 'PLATFORM_ADMINISTRATOR' %}
+<section><h2>Change my password</h2>
+<form method="post" action="/account/platform-reset-link">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label class="confirmation"><input type="checkbox" name="confirmation" value="{{ session.subject.principal_id }}" required> I confirm creating my password reset link. Using it will sign out my current sessions.</label>
+  <button type="submit">Create my reset link</button>
+</form></section>
+{% else %}<p>To reset your password, ask your Organization Administrator or platform operator for a private recovery link.</p>{% endif %}
+{% endblock %}

@@ -2,6 +2,7 @@
 
 from datetime import UTC, datetime
 from decimal import Decimal
+from uuid import uuid4
 
 from impodo.application.workspace.preparation.job_models import PreparationJobStatus
 from impodo.domain.execution.odoo_readback import ExternalIdBinding, ReadbackRecord
@@ -14,6 +15,7 @@ from impodo.domain.shared.models import (
     OdooWriteIdentity,
     TargetFingerprint,
 )
+from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent
 from impodo.web.composition.preparation_job_manager import PreparationJobManager
 from impodo.web.run_commands import (
     publish_compared_application,
@@ -141,6 +143,18 @@ def complete_application(case, context, application, *, expected_total, write_id
     write = store_target_credential(context.secret_store, owner, TargetCredentialRole.WRITE,
         "fictional-current-write-key", persistent=False)
     write_generation = write.binding_hash
+    # This fixture explicitly intends to create its two new balance records.
+    if context.business_intents.get(workspace_id, actor=actor) is None:
+        inputs = context.business_intents.inputs(workspace_id, actor=actor)
+        context.business_intents.save(
+            workspace_id,
+            intent=BusinessIntent(tuple(BusinessModelIntent(model.model, "create")
+                for model in inputs.scope.models)),
+            expected_version=0,
+            expected_binding_hash=inputs.binding_hash,
+            operation_id=str(uuid4()),
+            actor=actor,
+        )
     summary, evaluation, _ = context.normalization.current_review(workspace_id)
     for group in evaluation.groups:
         if group.requires_decision:

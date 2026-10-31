@@ -17,17 +17,21 @@ slow password hash, bounded bootstrap security event, platform password
 verification, policy rehash, and persistent account and source throttles.
 It also implements digest-only one-time token persistence, opaque reset
 requests, and atomic Platform Administrator password-reset consumption.
-It now implements digest-only opaque Platform and Organization Administrator
-sessions, transaction-bound expiry and revocation, WebAuthn elevation
+It now implements digest-only opaque sessions for platform administrators,
+Organization administrators, and ordinary customer users. It implements
+transaction-bound expiry and revocation, WebAuthn elevation
 rotation, and browser host, Origin, framing, and cache controls. It also implements
 Organization and customer-account lifecycle services, pending-account
 activation, authorized reset, tenant-scoped event queries, and session
 administration. The Platform Administrator can now sign in through the server
-browser, list Organizations, create one Organization, and sign out. An active,
-exactly assigned Organization Administrator can sign in, list and inspect the
-ordinary users in only that Organization, and sign out. Customer User request
-identity, customer-account mutation pages, the shared worker, and the remaining
-browser administration journey are not implemented yet.
+browser, manage an Organization's lifecycle, assign or replace its
+administrator, and issue that administrator's activation or recovery link.
+An active, exactly assigned Organization Administrator can create and manage
+ordinary users, issue their account links, revoke sessions, and inspect bounded
+security history in only that Organization. Ordinary users can activate their
+accounts, reset their passwords, sign in, inspect their current session, and
+sign out. These account actions grant no Project access. The shared worker is
+not implemented yet.
 
 The current local Windows product remains authoritative through its contained
 DuckDB stores, protected artifact stores, Windows Credential Manager bindings,
@@ -36,7 +40,7 @@ local fact. A future local composition may pass an implicit reserved
 Organization identity through portable interfaces, but it does not expose
 Organization administration to the local user.
 
-The local Linux trial uses PostgreSQL control schema version `11`. Its bounded
+The local Linux trial uses PostgreSQL control schema version `12`. Its bounded
 reconciliation read verifies receipt hashes and current pointers without
 opening DuckDB. Its governed rebuild service accepts only a missing projection
 for an already committed data-plane receipt. It never repeats the data-plane
@@ -56,6 +60,12 @@ one transaction. Raw tokens and complete links never enter PostgreSQL or
 security events. Customer-account creation now binds that activation purpose
 to one pending account. Activation stores the initial slow password hash and
 consumes the token in the same transaction.
+An administrator can replace a pending account's expired or lost activation
+link. Replacement revokes the earlier token, advances the applicable
+optimistic revision, and records a bounded event atomically. The Platform
+Administrator may issue links only for an Organization's current administrator;
+the Organization Administrator may issue links only for ordinary users in
+their own Organization.
 The server-session repository stores only independent handle and CSRF digests,
 binds each customer session to its exact Organization membership, checks the
 current account state, assignment, Organization status, and security revision
@@ -79,14 +89,26 @@ user predicate.
 
 The server browser protects low-entropy login and source hints with a
 deployment-keyed, scope-separated HMAC before it calls authentication
-persistence. A successful Platform or Organization Administrator login creates
-a fresh opaque session and an independent CSRF secret. The browser stores only
+persistence. A successful login for any supported principal creates a fresh
+opaque session and an independent CSRF secret. The browser stores only
 the opaque handle in the HTTP-only cookie. Organization and customer-user
 reads and Organization creation run outside the event-loop thread, and the
 repository opens and closes one short PostgreSQL transaction for each service
 operation. These routes do not open DuckDB. A valid session for the wrong
 administrator role receives `403` without being revoked or silently
 redirected into the other authority surface.
+
+Activation and reset links carry the token in a URL fragment. A page-owned
+script moves it into the form and removes the fragment from browser history.
+The token reaches the server only in a POST body, never a request URL.
+Anonymous account forms use a separate secure CSRF cookie. Form pages use
+`Referrer-Policy: same-origin`, which suppresses cross-origin referrers while
+retaining the Origin header needed for strict validation of HTML form posts.
+The one-time link response uses `no-referrer` and `no-store`. Public recovery
+requests return the same response for all account states. Local-trial email
+delivery is disabled; the authorized administrator supplies the link privately.
+Password-only privileged access is accepted only for this loopback trial.
+Internet acceptance still requires the separately accepted WebAuthn policy.
 
 This document refines [ADR-017](../decisions/README.md#adr-017--organization-scoped-postgresql-control-and-duckdb-data-planes)
 and the
@@ -201,7 +223,7 @@ The current reference store generation is
 ## Current Workspace engine inventory
 
 The engine generation is
-`impodo-workspace-engine-2026-08-workspace-owned`, version 23. The families
+`impodo-workspace-engine-2026-08-workspace-owned`, version 25. The families
 below describe current engine evidence. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
 
@@ -217,6 +239,7 @@ says otherwise, the named tables remain DuckDB data-plane authority.
 | Schema governance and supporting lookup: `schema_governance_revision`, `schema_governance_current`, `supporting_lookup_revision`, `supporting_lookup_current`, `recipe_parameter_definitions`, `recipe_quality_seed` | Accepted revision, readiness, and receipt hashes only. Detailed governance, lookup rows, parameters, and quality seed stay in DuckDB. |
 | Reviewed supporting choices: `supporting_data_review`, `supporting_review_projection` | DuckDB owns each complete per-edge decision revision, its input and policy bindings, read scope, operation identity, and Actor provenance. The rebuildable local projection contains bounded counts and evidence hashes. PostgreSQL may project only bounded readiness, revision, and verified receipt hashes. A server browser cannot reopen worker DuckDB to render these decisions. |
 | Business expectations: `business_intent_revision` | Immutable model modes, field and relationship permissions, count expectations, input hashes, and Actor provenance remain DuckDB evidence. PostgreSQL may project only bounded state, revision, and verified worker receipt hashes. This evidence is separate from operational `project_operation_intent`; a server browser cannot reopen worker DuckDB to read the rules. |
+| Business write assessment: `business_write_observation`, `business_intent_assessment`, `business_intent_current`, `business_intent_approval` | Detailed observed model and field effects, deviations, immutable assessments, and run approvals remain DuckDB evidence. PostgreSQL may project only bounded readiness, safe counts, and verified hashes. Workers publish observation and assessment with comparison evidence, and approval with journal creation. The web process does not traverse snapshots or open worker databases to reassess intent. |
 | Preparation: `preparation_session`, `preparation_identity_group`, `preparation_lineage`, `preparation_physical_row`, `preparation_impact_row`, `preparation_normalization_group_seed`, `preparation_normalization_finding`, `preparation_direct_identity`, `preparation_relationship_edge`, `canonical_staging_run`, `canonical_staging_row`, `canonical_staging_row_issue`, `canonical_staging_current`, `canonical_prepared_projection` | Job progress, record counts, terminal status, and receipt hashes only. Prepared and canonical rows, lineage, identities, findings, issues, and relationships stay in DuckDB. |
 | Prepared and derived artifacts: `prepared_snapshot_manifest`, `preparation_session_snapshot`, `prepared_snapshot_current`, `derived_value_artifact_manifest`, `preparation_session_derived_artifact`, `derived_value_artifact_current` | PostgreSQL may project artifact type, owner, storage key, size, content hash, lifecycle, and receipt hash. Parquet and derived payload bytes remain immutable artifacts; detailed manifests remain DuckDB evidence. |
 | Quality and accounting: `quality_ruleset_revision`, `quality_ruleset_current`, `quality_run`, `quality_row_result`, `quality_evidence_projection`, `quality_issue`, `source_accounting_entry`, `source_accounting_link`, `quality_quarantine_entry`, `quality_current`, `readiness_run` | Stage readiness, aggregate counts, and receipt hashes only. Rules, row results, issues, accounting links, quarantine, and readiness evidence remain in DuckDB. |

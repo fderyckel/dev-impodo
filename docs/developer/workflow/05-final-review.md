@@ -28,6 +28,15 @@ Prepared, quality, resolution, and normalization evidence must be complete and
 bound to the current source, schema, mapping, and compiled plan. The reader
 must have the narrow scope derived from the compiled requirements.
 
+The confirmed [operation company](02-odoo-data.md#company-selection-and-protected-ownership)
+is used for target reads and bound to the comparison's access evidence.
+Captured company-dependent relationship checks can produce a specific
+`REFERENCE_COMPANY_MISMATCH` issue. Shared and parent-company compatibility
+comes from Odoo's domain, while unqualified custom constraints remain subject
+to Odoo's final validation. The
+[preflight contract](../contracts/preflight.md#target-evidence) owns that
+qualification boundary and its grouped 500-ID reads.
+
 ## Implementation flow
 
 `summary.py` renders the current local result. `preparation.py` can create the
@@ -311,6 +320,16 @@ defined by the [reviewed deferred record groups contract](../contracts/deferred-
 
 ## Evidence and state
 
+For file-source loads, comparison also publishes a bounded business-write
+observation and immutable intent assessment in its existing transaction.
+[`observe_business_writes` and `assess_business_intent`](../../../src/impodo/domain/workspace/business_intent_assessment.py)
+compare the exact proposed effects with saved expectations. A reduced scope
+receives its own assessment, including minimum-count rules. An explicit intent
+edit can be reassessed against the verified saved snapshot through
+`PreflightService.reassess_business_intent` without another Odoo read. The
+[business intent contract](../contracts/business-intent.md) defines this
+additional load prerequisite and its journal approval boundary.
+
 For file sources, the target snapshot is target-specific and may contain
 protected Odoo IDs. The portable report contains natural identities and the
 existing deterministic classifications. The review workbook may also contain
@@ -405,6 +424,7 @@ contact Odoo while writing them.
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
 - [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
+- [Explicit company context and ordered identity checks](../../../tests/integration/odoo/test_company_context_identity.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
 - [`tests/integration/web/test_recipe_comparison_recovery.py`](../../../tests/integration/web/test_recipe_comparison_recovery.py)

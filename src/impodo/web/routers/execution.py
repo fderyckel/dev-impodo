@@ -59,7 +59,11 @@ from ...application.workspace.execution.service import (
     RecoveryResumePlan,
     validated_create_batch_rows,
 )
-from ..composition.page_reads import run_local_operation, run_page_read
+from ..composition.page_reads import (
+    run_local_operation,
+    run_local_operation_sync,
+    run_page_read,
+)
 from ..constants import DEFAULT_LOAD_ROWS_PER_PAGE, LOAD_ROW_PAGE_SIZES
 from ..context import WebContext
 from ..diagnostics import LocalDiagnosticRecorder
@@ -1137,6 +1141,7 @@ def build_execution_router(
             } if recovering else {
                 "csrf_token",
                 "snapshot_hash",
+                "intent_assessment_hash",
                 "batch_rows",
                 "prior_execution_run_id",
                 "write_api_key",
@@ -1203,6 +1208,13 @@ def build_execution_router(
             if snapshot_hash != preview.snapshot.semantic_hash:
                 raise WorkspaceError("The load preview changed. Review it again.")
             recovery_run_id = _text(form, "execution_run_id") if recovering else ""
+            intent_assessment_hash = _text(form, "intent_assessment_hash") if not recovering else ""
+            await run_local_operation(
+                context.execution.require_business_intent, workspace_id,
+                expected_snapshot_hash=snapshot_hash,
+                expected_assessment_hash=intent_assessment_hash,
+                recovery_run_id=recovery_run_id, actor=actor,
+            )
             prior_run_id = _text(form, "prior_execution_run_id") if not recovering else ""
             prior_run = getattr(preview, "prior_interrupted_run", None)
             if not recovering and (
@@ -1316,6 +1328,12 @@ def build_execution_router(
                     raise MigrationConflictError(
                         "The authorized workspace changed before the load began"
                     )
+                run_local_operation_sync(
+                    context.execution.require_business_intent, workspace_id,
+                    expected_snapshot_hash=snapshot_hash,
+                    expected_assessment_hash=intent_assessment_hash,
+                    recovery_run_id=recovery_run_id, actor=actor,
+                )
                 if recovering or prior_run_id:
                     expected_write_credential = saved_write_credential
                     if expected_write_credential is None:
@@ -1477,6 +1495,7 @@ def build_execution_router(
                         run = context.execution.execute(
                             workspace_id,
                             expected_snapshot_hash=snapshot_hash,
+                            expected_intent_assessment_hash=intent_assessment_hash,
                             executor=executor,
                             actor=actor,
                             batch_rows=batch_rows,
@@ -1553,6 +1572,12 @@ def build_execution_router(
                 )
 
             with _diagnostic_load_stage(diagnostic_recorder, "submission_enqueue"):
+                await run_local_operation(
+                    context.execution.require_business_intent, workspace_id,
+                    expected_snapshot_hash=snapshot_hash,
+                    expected_assessment_hash=intent_assessment_hash,
+                    recovery_run_id=recovery_run_id, actor=actor,
+                )
                 migration_project_name, target_environment = await run_in_threadpool(
                     _load_job_display_context,
                     context,

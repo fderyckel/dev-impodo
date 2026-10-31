@@ -13,7 +13,10 @@ from impodo.domain.execution.odoo_readback import OdooReadbackReader
 from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.domain.shared.models import OdooWriteIdentity
-from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStateError
+from impodo.domain.workspace.workbench import (
+    WorkspaceState,
+    WorkspaceStateError,
+)
 
 
 def _connection_mode(workspace_state: WorkspaceState) -> str:
@@ -32,6 +35,8 @@ def _probe_write_identity(
 
     if not api_key.strip():
         raise WorkspaceStateError("Enter an Odoo API key for this load")
+    if workspace_state.odoo_company is None:
+        raise WorkspaceStateError("Choose the company used for this import in Odoo access before loading")
     connector = Json2WriteIdentityConnector(
         target_record_read_config(
             Json2Config(
@@ -40,12 +45,14 @@ def _probe_write_identity(
                 api_key=api_key,
                 connection_mode=_connection_mode(workspace_state),
                 retries=0,
+                context=workspace_state.odoo_operation_context,
             )
         )
     )
     return connector.probe_write_identity(
         tuple(item.model for item in scope.models),
         tuple(item.model for item in scope.models if item.write_fields),
+        creatable_models=scope.creatable_models,
     )
 
 
@@ -58,6 +65,8 @@ def _write_executor(
 
     if not api_key.strip():
         raise WorkspaceStateError("Enter an Odoo API key for this load")
+    if workspace_state.odoo_company is None:
+        raise WorkspaceStateError("Choose the company used for this import in Odoo access before loading")
     return Json2WriteExecutor(
         Json2Config(
             base_url=workspace_state.odoo_base_url,
@@ -66,6 +75,7 @@ def _write_executor(
             connection_mode=_connection_mode(workspace_state),
             timeout_seconds=120.0,
             retries=2,
+            context=workspace_state.odoo_operation_context,
         ),
         scope,
     )
@@ -88,6 +98,7 @@ def _readback_reader(
                 api_key=api_key,
                 connection_mode=_connection_mode(workspace_state),
                 retries=2,
+                context=workspace_state.odoo_operation_context,
             )
         ),
         scope,

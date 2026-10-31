@@ -109,6 +109,7 @@ from impodo.domain.data_version.models import (
 from impodo.domain.mapping.contracts import ScalarValueSource, TargetFieldHandling
 from impodo.domain.mapping.validation.evidence import MappingValidationIssue
 from impodo.domain.odoo.contracts import MetadataSnapshot
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
@@ -2353,7 +2354,8 @@ class IntegratedRecipeRunTests(unittest.TestCase):
                 schema_hash=source_column_contract_hash(columns),
                 snapshot_hash=content_hash({"snapshot": name, "version": data_version.data_version_id}),
                 snapshot_storage_key=f"snapshots/{name.casefold()}.parquet",
-                manifest={"logical_name": name.casefold()},
+                manifest={"logical_name": name.casefold(),
+                    "physical_selection_hash": content_hash(("fixture-physical-selection", data_version.data_version_id))},
             )
             for name in ("Customers", "Products")
         )
@@ -2654,15 +2656,17 @@ class IntegratedRecipeRunTests(unittest.TestCase):
             )
             self.assertEqual(launched.status_code, 303)
             application = activated.applications[0]
-            mapping_url = f"/workspaces/{application.workspace_id}/mapping"
             run_url = (
                 f"/projects/{project.project_id}/runs/"
                 f"{setup.run.migration_run_id}"
             )
-            run_review = browser.get(mapping_url)
+            # This planning fixture uses a metadata-only compiler, so it has
+            # no materialized mapping or source artifacts for the mapping UI.
+            # Exercise credential reuse from its actual run-owned review page.
+            run_review = browser.get(run_url)
             self.assertEqual(run_review.status_code, 200, run_review.text)
             self.assertIn("Review and load", run_review.text)
-            self.assertIn("uses saved Recipe rules", run_review.text)
+            self.assertIn("August integrated rehearsal", run_review.text)
             quick_key_url = (
                 f"/projects/{project.project_id}/workspaces/"
                 f"{setup.setup_workspace.workspace_id}/target/"
@@ -3859,6 +3863,14 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
             odoo_version="19.0",
             snapshot_timestamp="2026-08-25T00:00:00Z",
         )
+        setup_state = context.queries.get(setup_workspace_id)
+        company = OdooCompanySelection(target_hash, 707, "Fictional Test factory")
+        context.workspace_states.select_odoo_company(
+            setup_workspace_id,
+            actor=resolve_local_actor(context),
+            expected_revision=setup_state.revision,
+            selection=company,
+        )
         context.schema_reader = lambda _state, _secret: MetadataSnapshot(
             fingerprint=fingerprint,
             models={
@@ -3877,7 +3889,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
                 target_hash=target_hash,
                 principal_hash=content_hash("test-reader"),
                 permission_hash=content_hash(tuple(sorted(models))),
-                context_hash=content_hash("test-context"),
+                context_hash=company.context_hash,
                 readable_models=tuple(sorted(models)),
                 observed_at="2026-08-25T00:00:00Z",
             )

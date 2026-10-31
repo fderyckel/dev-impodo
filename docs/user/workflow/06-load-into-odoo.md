@@ -32,8 +32,19 @@ key. Cross-major transfers remain blocked.
 3. Select **Check and save destination**.
 4. Confirm that the page names the correct database and shows **Connection
    complete**.
+5. Select **Choose Odoo company**, choose the destination company and select
+   **Use this company**. The destination key must have access to it. The source
+   keeps its own frozen company context; Impodo does not copy a source company
+   number into the destination.
 
 This check is read-only. It does not create or change an Odoo record.
+
+The [company selection guide](02-odoo-data.md#choose-the-company-used-for-this-import)
+explains shared records, parent-company links and the difference between the
+import company and a record's mapped Company field. Confirm the company
+before checking destination matches. A frozen source captures one current
+company context; it does not prove every company's property values were
+downloaded.
 
 ![A fictional Odoo-to-Odoo project after the destination connection has been checked, with Match destination data as the next action.](../../images/user/19-destination-connection.png)
 
@@ -167,6 +178,13 @@ Use **Assess and resume interrupted transfer** or **Verify what happened in
 Odoo**, whichever the saved outcome page offers.
 
 ## Before you start
+
+For a prepared file-source load, the saved business expectations must agree
+with the proposed creates, updates, fields, and relationships. For example,
+an expectation of zero new Products blocks a comparison that would create
+Products. Confirming individual records or setting aside groups does not
+approve that difference. Correct the owning rules or expectations and review
+the result again before loading.
 
 The current final review must be **Ready**. Confirm the data version purpose,
 target, exact write totals, dependency order, writable fields, and required API

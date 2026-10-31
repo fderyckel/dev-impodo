@@ -1288,6 +1288,26 @@ _MIGRATION_0011_STATEMENTS = (
         (11, "control", "impodo-control-v1", 10),
     ),
 )
+_MIGRATION_0012_STATEMENTS = (
+    PostgreSQLMigrationStatement(
+        "ALTER TABLE impodo_control.identity_administration_event "
+        "DROP CONSTRAINT identity_administration_event_event_kind_check"
+    ),
+    PostgreSQLMigrationStatement(
+        "ALTER TABLE impodo_control.identity_administration_event "
+        "ADD CONSTRAINT identity_administration_event_event_kind_check "
+        "CHECK (event_kind IN ("
+        "'ORGANIZATION_CREATED', 'ORGANIZATION_RENAMED', "
+        "'ORGANIZATION_SUSPENDED', 'ORGANIZATION_REACTIVATED', "
+        "'ORGANIZATION_POLICY_REVISED', 'ORGANIZATION_ADMINISTRATOR_ASSIGNED', "
+        "'ORGANIZATION_ADMINISTRATOR_REPLACED', 'CUSTOMER_USER_CREATED', "
+        "'CUSTOMER_USER_ACTIVATED', 'CUSTOMER_USER_SUSPENDED', "
+        "'CUSTOMER_USER_REACTIVATED', 'CUSTOMER_USER_DEACTIVATED', "
+        "'CUSTOMER_RESET_TOKEN_ISSUED', 'CUSTOMER_PASSWORD_RESET', "
+        "'CUSTOMER_SESSION_REVOKED', 'CUSTOMER_ACTIVATION_TOKEN_REISSUED'))"
+    ),
+    PostgreSQLMigrationStatement(_UPDATE_CONTRACT_QUERY, (12, "control", "impodo-control-v1", 11)),
+)
 
 POSTGRESQL_MIGRATIONS = (
     PostgreSQLMigrationDefinition(
@@ -1355,6 +1375,12 @@ POSTGRESQL_MIGRATIONS = (
         name="bind-customer-sessions-and-server-security-events",
         checksum="5a070c836776133546a1861d67132f85cbd11711b3f7c350aefb56f5468a0fcf",
         statements=_MIGRATION_0011_STATEMENTS,
+    ),
+    PostgreSQLMigrationDefinition(
+        version=12,
+        name="record-activation-link-replacement",
+        checksum="acb7e249aeae754f3c07a9ed23243fb4e55b35cfc89265ee9478394dcbdd3bc8",
+        statements=_MIGRATION_0012_STATEMENTS,
     ),
 )
 

@@ -611,8 +611,21 @@ plane. The [business intent contract](../contracts/business-intent.md) owns
 serialization, limits, concurrency, historical migration, and database lifetime.
 
 This API saves expectations without approving a comparison or changing an
-execution journal. The current load entry conditions and confirmation flow
-remain the execution authority.
+execution journal. Conventional file-source loads require a current matching
+[`BusinessIntentAssessment`](../../../src/impodo/domain/workspace/business_intent_assessment.py).
+The pure `observe_business_writes` and `assess_business_intent` functions retain
+authored relationship effects and count business records once, including
+supporting creates and deferred completion. The
+[`BusinessIntentAssessmentRepository`](../../../src/impodo/adapters/duckdb/business_intent_assessment_repository.py)
+publishes sidecars with the comparison and binds approval to journal start.
+
+Confirmation, enqueue, and worker entry require the same assessment hash.
+`ExecutionService.require_business_intent` rejects a changed expectation before
+writer construction. Journal publication rechecks it in its transaction and
+conflicts with a racing edit. Recovery retains the original approval and still
+requires current read-back evidence. Ordinary review reads fetch bounded state,
+one blocker, and hashes without rebuilding row effects. These ports introduce
+no Linux browser access to worker-owned DuckDB.
 
 ## Completion and navigation
 
@@ -780,6 +793,8 @@ qualify another remote topology.
 
 ## Verification
 
+- [Business effect assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
+- [Business intent execution qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)
 - [Safe write diagnostic tests](../../../tests/domain/execution/test_write_diagnostics.py)
 - [Generated name repair tests](../../../tests/domain/execution/test_generated_name_repair.py)
 - [Original spelling and load outcome browser tests](../../../tests/e2e/test_generated_display_names.py)
@@ -792,6 +807,7 @@ qualify another remote topology.
   reproduces the five authenticated, fictional Odoo-to-Odoo decision screens
   used by the paired user guide.
 - [`tests/application/workspace/execution/test_service.py`](../../../tests/application/workspace/execution/test_service.py)
+- [Application company-context checks](../../../tests/application/workspace/execution/test_company_context.py)
 - [`tests/application/workspace/execution/test_odoo_versions.py`](../../../tests/application/workspace/execution/test_odoo_versions.py)
 - [`tests/application/workspace/execution/test_recomparison.py`](../../../tests/application/workspace/execution/test_recomparison.py)
 - [`tests/integration/web/test_execution.py`](../../../tests/integration/web/test_execution.py)

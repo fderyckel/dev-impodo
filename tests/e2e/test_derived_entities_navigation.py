@@ -75,19 +75,23 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
               <select data-group-addition-key data-dataset-id="parties">
                 <option value="parties|party_recid" selected>RecId</option>
               </select>
-              <input type="search" data-group-field-search>
-              <select data-group-field-filter>
-                <option value="all">All participating fields</option>
-                <option value="recommended">Recommended</option>
-                <option value="decision">Needs decision</option>
-                <option value="empty">Empty</option>
-                <option value="selected">Selected</option>
-              </select>
-              <button type="button" data-group-use-recommended>Use recommended output</button>
-              <button type="button" data-group-select-visible>Select visible fields</button>
-              <button type="button" data-group-clear-visible>Clear visible fields</button>
-              <span data-group-field-count></span>
-              <span data-group-field-limit-error hidden>Too many fields</span>
+              <div class="exact-join-field-tools">
+                <input type="search" data-group-field-search>
+                <select data-group-field-filter>
+                  <option value="all">All participating fields</option>
+                  <option value="recommended">Recommended</option>
+                  <option value="decision">Needs decision</option>
+                  <option value="empty">Empty</option>
+                  <option value="selected">Selected</option>
+                </select>
+                <div class="actions compact exact-join-field-actions" data-group-field-actions>
+                  <button class="button secondary" type="button" data-group-use-recommended>Use recommended output</button>
+                  <button class="button secondary" type="button" data-group-select-visible>Select visible fields</button>
+                  <button class="button secondary" type="button" data-group-clear-visible>Clear visible fields</button>
+                </div>
+                <span data-group-field-count></span>
+                <span data-group-field-limit-error hidden>Too many fields</span>
+              </div>
               <fieldset data-group-projection-dataset="accounts">
                 <div data-group-field-row data-dataset-id="accounts" data-dataset-name="Customer accounts" data-column-key="account" data-source-name="Account" data-candidate-type="string">
                   <input type="checkbox" name="group_projection" data-group-field-checkbox checked>
@@ -263,6 +267,22 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         )
         self.assertEqual(visible_empty.count(), 2)
         self.assertTrue(visible_empty.first.is_enabled())
+        self.assertEqual(self.errors, [])
+
+    def test_grouped_join_field_actions_stay_on_one_horizontal_row(self):
+        self.page.goto(
+            "http://127.0.0.1:12345/derived-entities#combine-source-tables"
+        )
+        actions = self.page.locator("[data-group-field-actions]")
+
+        self.assertEqual(
+            actions.evaluate("element => getComputedStyle(element).flexWrap"),
+            "nowrap",
+        )
+        button_tops = actions.locator("button").evaluate_all(
+            "buttons => buttons.map(button => button.getBoundingClientRect().top)"
+        )
+        self.assertEqual(len(set(button_tops)), 1)
         self.assertEqual(self.errors, [])
 
     def test_grouped_join_limits_primary_keys_to_the_selected_primary_table(self):

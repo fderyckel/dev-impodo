@@ -295,6 +295,7 @@ class SchemaRepository(SupportingReviewRecords):
         expected_content_hash: str,
         expected_read_credential_binding_hash: str,
         actor: Actor,
+        expected_company_context_hash: str | None = None,
     ) -> None:
         """Store default evidence only; preserve governance and mapping pointers."""
 
@@ -340,7 +341,9 @@ class SchemaRepository(SupportingReviewRecords):
                     == current.read_principal_hash
                     and catalog.read_permission_hash
                     == current.read_permission_hash
-                    and catalog.read_context_hash == current.read_context_hash
+                    and (catalog.read_context_hash == current.read_context_hash
+                        or expected_company_context_hash is not None
+                        and catalog.read_context_hash == expected_company_context_hash)
                     and catalog.captured_at == current.captured_at
                     and catalog.captured_by == current.captured_by
                     and current.pending_refresh is None
@@ -354,7 +357,9 @@ class SchemaRepository(SupportingReviewRecords):
                     current.models,
                     catalog.models,
                 )
-                if changed_count < 1:
+                company_changed = (expected_company_context_hash is not None
+                    and current.read_context_hash != catalog.read_context_hash)
+                if changed_count < 1 and not company_changed:
                     raise WorkspaceError(
                         "Odoo did not return new create-default evidence"
                     )
@@ -369,7 +374,7 @@ class SchemaRepository(SupportingReviewRecords):
                 self._insert_workspace_audit(
                     connection,
                     revision=self._workspace_revision(connection),
-                    event_type="ODOO_CREATE_DEFAULTS_REFRESHED",
+                    event_type="ODOO_COMPANY_CONTEXT_REFRESHED" if company_changed else "ODOO_CREATE_DEFAULTS_REFRESHED",
                     detail=(
                         f"{changed_count} required field default"
                         f"{'s' if changed_count != 1 else ''}; "

@@ -155,8 +155,14 @@ def _target_json2_config(
             database=workspace_state.odoo_database,
             api_key=api_key,
             connection_mode=workspace_state.odoo_connection_mode.value,
+            context=workspace_state.odoo_operation_context,
         )
     )
+
+
+def _company_choice_connector(workspace_state: WorkspaceState, api_key: str) -> Json2ReadConnector:
+    """Construct a read-only company-discovery adapter at the established boundary."""
+    return Json2ReadConnector(_target_json2_config(replace(workspace_state, odoo_company=None), api_key))
 
 
 def _test_connection(
@@ -951,6 +957,7 @@ def _read_readiness_snapshots(
         supporting_references,
     )
     records = connector.get_records(record_requests)
+    metadata = connector.check_company_references(metadata, records)
     return metadata, records
 
 

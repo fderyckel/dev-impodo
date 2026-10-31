@@ -20,7 +20,9 @@ _SECURITY_HEADERS = {
     "Pragma": "no-cache",
     "Content-Security-Policy": "default-src 'self'; frame-ancestors 'none'",
     "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
-    "Referrer-Policy": "no-referrer",
+    # HTML navigation POSTs use an opaque Origin under no-referrer. Keep the
+    # same-origin value so exact Origin validation also works in real browsers.
+    "Referrer-Policy": "same-origin",
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
 }
@@ -63,6 +65,8 @@ class ServerBrowserSecurityMiddleware:
             if message["type"] == "http.response.start":
                 response_headers = MutableHeaders(scope=message)
                 for name, value in _SECURITY_HEADERS.items():
+                    if name == "Referrer-Policy" and response_headers.get(name) == "no-referrer":
+                        continue
                     response_headers[name] = value
             await send(message)
 

@@ -69,6 +69,7 @@ class ScenarioExecutionJournal:
         actor: Actor,
         correction_plan_hash: str = "",
         transfer_preflight_hash: str = "",
+        intent_assessment_hash: str = "",
     ) -> None:
         del actor, correction_plan_hash, transfer_preflight_hash
         if run.workspace_id != workspace_id or self.path.exists():
@@ -77,6 +78,8 @@ class ScenarioExecutionJournal:
                 "Assess or retain it before another load."
             )
         payload = _execution_run_payload(run)
+        if intent_assessment_hash:
+            payload["business_intent_assessment_hash"] = intent_assessment_hash
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         try:
             descriptor = os.open(self.path, flags, 0o600)
@@ -192,7 +195,11 @@ class ScenarioExecutionJournal:
             raise WorkspaceError("Scenario execution journal is invalid") from exc
 
     def _replace(self, run: ExecutionRun) -> None:
-        _atomic_write(self.path, canonical_json_bytes(_execution_run_payload(run)))
+        payload = _execution_run_payload(run)
+        previous = json.loads(self.path.read_text("utf-8"))
+        if "business_intent_assessment_hash" in previous:
+            payload["business_intent_assessment_hash"] = previous["business_intent_assessment_hash"]
+        _atomic_write(self.path, canonical_json_bytes(payload))
 
 
 class ScenarioReconciliationResults:
