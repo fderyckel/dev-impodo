@@ -174,8 +174,14 @@ def matching_expectations_view(
     except BusinessIntentError as error:
         result["message"] = str(error)
         return result
+    return expectations_editor_view(packet, saved)
+
+
+def expectations_editor_view(packet, saved):
+    """Share the editor with Final review using already-loaded model metadata."""
+    result = {"packet": packet, "saved": saved, "operation_id": str(uuid4())}
     by_model = {item.model: item for item in saved.intent.models} if saved else {}
-    labels = {model.name: model.label or model.name for model in schema.models}
+    labels = dict(packet.model_labels)
     rows = []
     for index, scope in enumerate(packet.scope.models):
         rule = by_model.get(scope.model)

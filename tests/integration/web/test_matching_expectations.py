@@ -30,7 +30,7 @@ from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 def expectations_form(page):
     """Use the page's actual binding/version tokens, rather than rebuilding them."""
     html = re.search(
-        r'<form method="post" action="[^"]+/mapping/expectations">(.*?)</form>',
+        r'<form method="post" action="[^"]+/mapping/expectations"[^>]*>(.*?)</form>',
         page,
         re.S,
     ).group(1)

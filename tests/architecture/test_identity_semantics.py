@@ -52,7 +52,6 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "application/data_version/source_packages.py::WorkspaceSourceProjection",
         "application/preflight_attempts.py::PreflightComparisonRequest",
         "domain/data_version/models.py::DataVersion",
-        "web/project_listing.py::UnavailableProjectSummary",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
         "domain/cutover/models.py::CutoverPlan",
         "domain/cutover/models.py::CutoverPlanQualification",

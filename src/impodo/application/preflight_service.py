@@ -16,7 +16,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
@@ -105,6 +105,10 @@ from .preflight_attempts import (
     PreflightPublicationCommittedError,
 )
 from .preflight_timing import timed_preflight_publication
+from .workspace.execution.business_review import (
+    BusinessIntentEvidencePage,
+    BusinessIntentReview,
+)
 from .workspace.execution.navigation import (
     ExecutionReviewProjection,
     build_execution_preview_summary,
@@ -311,6 +315,25 @@ class PreflightService:
     def current_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessmentSummary | None:
         """Read bounded current assessment evidence without traversing rows."""
         return self.preflight.get_business_intent_assessment(workspace_id, snapshot_hash)
+
+    def business_intent_review(self, workspace_id: str, snapshot_hash: str, *, actor: Actor, run_id: str = "") -> BusinessIntentReview | None:
+        """Read the committed compact review without reconstructing row effects."""
+        self.authorization.require(actor, Capability.PROJECT_VIEW, workspace_id=workspace_id)
+        return self.preflight.get_business_intent_review(workspace_id, snapshot_hash, run_id=run_id)
+
+    def business_intent_evidence(self, workspace_id: str, snapshot_hash: str, *, actor: Actor,
+        expected_assessment_hash: str, model: str = "", page: int = 1, run_id: str = "",
+    ) -> BusinessIntentEvidencePage:
+        """Authorize first, then read one bounded page of exact expectation detail."""
+        self.authorization.require(actor, Capability.PROJECT_VIEW, workspace_id=workspace_id)
+        if page < 1 or page > 100_000:
+            raise WorkspaceError("Choose a current evidence page")
+        if run_id:
+            run_id = str(UUID(run_id))
+        elif self.current_report(workspace_id) is None:
+            raise WorkspaceError("The comparison changed. Open Final review again.")
+        return self.preflight.get_business_intent_evidence(workspace_id, snapshot_hash,
+            expected_assessment_hash=expected_assessment_hash, model=model, page=page, run_id=run_id)
 
     def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None:
         """Retain original journal approval during read-back-gated recovery."""

@@ -35,6 +35,7 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
+    derived_consumer_links,
     derived_dataset_links,
     derived_mapping_samples,
     preview_derived_entities,
@@ -918,7 +919,7 @@ def _lookup_mapping_materials(
                 source_catalogs,
             ),
         )
-    return lookup_links, lookup_samples
+    return derived_consumer_links(preparation_plan), lookup_samples
 
 
 def _add_mapping_dataset_urls(

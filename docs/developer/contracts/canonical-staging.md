@@ -43,6 +43,14 @@ retain their checks. Lookup output omits empty members and keeps every
 contributing physical row for each nonempty canonical value. Historical
 evaluator-7 and evaluator-8 staging remain readable with their original hashes.
 
+Browser evaluator 10 carries a generated hierarchy reference through any
+input of a saved exact-join chain. It evaluates the original hierarchy levels
+from the combined row's physical lineage, including blank-policy evidence.
+An unmatched optional input emits no reference. Structural reconciliation
+counts each distinct physical input table once across the complete chain.
+Historical evaluator-9 staging also remains readable with its original hash;
+new staging must use the current evaluator.
+
 ## Canonical rows and lineage
 
 Every evaluated input produces a canonical result, including rows with blocking

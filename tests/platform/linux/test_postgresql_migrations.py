@@ -6,6 +6,7 @@ import os
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import PurePosixPath
+from unittest.mock import patch
 
 import psycopg
 from psycopg import sql
@@ -17,19 +18,14 @@ from impodo.adapters.postgresql.control_schema import (
 from impodo.adapters.postgresql.migrations import (
     POSTGRESQL_MIGRATIONS,
     PostgreSQLMigrationDefinition,
+    PostgreSQLMigrationExecutionError,
     PostgreSQLMigrationResult,
+    PostgreSQLMigrationStatement,
     PsycopgPostgreSQLMigrator,
+    calculate_postgresql_migration_checksum,
 )
 
 _DSN_REFERENCE = PurePosixPath("/run/secrets/postgres-migration-dsn")
-_CREATE_LEDGER_QUERY = """
-CREATE TABLE impodo_control.schema_migration (
-    version integer PRIMARY KEY CHECK (version > 0),
-    name text NOT NULL CHECK (name <> ''),
-    checksum text NOT NULL CHECK (checksum ~ '^[0-9a-f]{64}$'),
-    applied_at timestamp with time zone NOT NULL DEFAULT transaction_timestamp()
-)
-"""
 
 
 class PostgreSQLMigrationLiveTests(unittest.TestCase):
@@ -101,26 +97,79 @@ class PostgreSQLMigrationLiveTests(unittest.TestCase):
         )
         self._assert_current_schema()
 
-    def test_every_historical_prefix_upgrades_to_the_current_contract(self) -> None:
-        for applied_count in range(1, len(POSTGRESQL_MIGRATIONS)):
-            with self.subTest(applied_count=applied_count):
-                self._drop_control_schema()
-                self._seed_prefix(POSTGRESQL_MIGRATIONS[:applied_count])
+    def test_future_upgrade_preserves_rows_and_applies_once(self) -> None:
+        self._migrator().migrate(_DSN_REFERENCE)
+        with psycopg.connect(self.dsn) as connection:
+            connection.execute("SET ROLE impodo_migrator")
+            connection.execute(
+                "CREATE TABLE impodo_control.upgrade_probe (value integer)"
+            )
+            connection.execute("INSERT INTO impodo_control.upgrade_probe VALUES (7)")
+        statements = (
+            PostgreSQLMigrationStatement(
+                "ALTER TABLE impodo_control.upgrade_probe ADD COLUMN label text"
+            ),
+            PostgreSQLMigrationStatement(
+                "UPDATE impodo_control.schema_contract SET version = 2 WHERE contract_name = 'control'"
+            ),
+        )
+        migrator = self._future_migrator(statements)
+        with patch(
+            "impodo.adapters.postgresql.migrations.POSTGRESQL_CONTROL_SCHEMA_VERSION", 2
+        ):
+            self.assertEqual(migrator.migrate(_DSN_REFERENCE).applied_versions, (2,))
+            self.assertEqual(migrator.migrate(_DSN_REFERENCE).applied_versions, ())
+        with psycopg.connect(self.dsn) as connection:
+            self.assertEqual(
+                connection.execute(
+                    "SELECT * FROM impodo_control.upgrade_probe"
+                ).fetchall(),
+                [(7, None)],
+            )
+            self.assertEqual(
+                connection.execute(
+                    "SELECT version FROM impodo_control.schema_migration ORDER BY version"
+                ).fetchall(),
+                [(1,), (2,)],
+            )
 
-                result = self._migrator().migrate(_DSN_REFERENCE)
+    def test_failed_future_upgrade_rolls_back_schema_rows_and_ledger(self) -> None:
+        self._migrator().migrate(_DSN_REFERENCE)
+        statements = (
+            PostgreSQLMigrationStatement(
+                "CREATE TABLE impodo_control.upgrade_probe (value integer)"
+            ),
+            PostgreSQLMigrationStatement(
+                "UPDATE impodo_control.schema_contract SET version = 2 WHERE contract_name = 'control'"
+            ),
+            PostgreSQLMigrationStatement("SELECT 1 / 0"),
+        )
+        with patch(
+            "impodo.adapters.postgresql.migrations.POSTGRESQL_CONTROL_SCHEMA_VERSION", 2
+        ):
+            with self.assertRaises(PostgreSQLMigrationExecutionError):
+                self._future_migrator(statements).migrate(_DSN_REFERENCE)
+        self._assert_current_schema()
+        with psycopg.connect(self.dsn) as connection:
+            self.assertIsNone(
+                connection.execute(
+                    "SELECT to_regclass('impodo_control.upgrade_probe')"
+                ).fetchone()[0]
+            )
 
-                self.assertEqual(
-                    result.applied_versions,
-                    tuple(
-                        migration.version
-                        for migration in POSTGRESQL_MIGRATIONS[applied_count:]
-                    ),
-                )
-                self.assertEqual(
-                    self._migrator().migrate(_DSN_REFERENCE).applied_versions,
-                    (),
-                )
-                self._assert_current_schema()
+    @classmethod
+    def _future_migrator(
+        cls, statements: tuple[PostgreSQLMigrationStatement, ...]
+    ) -> PsycopgPostgreSQLMigrator:
+        migration = PostgreSQLMigrationDefinition(
+            version=2,
+            name="future-upgrade-probe",
+            checksum=calculate_postgresql_migration_checksum(statements),
+            statements=statements,
+        )
+        return PsycopgPostgreSQLMigrator(
+            lambda _reference: cls.dsn, migrations=(*POSTGRESQL_MIGRATIONS, migration)
+        )
 
     @classmethod
     def _migrator(cls) -> PsycopgPostgreSQLMigrator:
@@ -129,27 +178,6 @@ class PostgreSQLMigrationLiveTests(unittest.TestCase):
             return cls.dsn
 
         return PsycopgPostgreSQLMigrator(read_dsn)
-
-    @classmethod
-    def _seed_prefix(
-        cls,
-        migrations: tuple[PostgreSQLMigrationDefinition, ...],
-    ) -> None:
-        with psycopg.connect(cls.dsn) as connection:
-            connection.execute("SET ROLE impodo_migrator")
-            connection.execute("CREATE SCHEMA impodo_control")
-            connection.execute(_CREATE_LEDGER_QUERY)
-            for migration in migrations:
-                for statement in migration.statements:
-                    connection.execute(statement.query, statement.parameters)
-                connection.execute(
-                    """
-                    INSERT INTO impodo_control.schema_migration
-                        (version, name, checksum)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (migration.version, migration.name, migration.checksum),
-                )
 
     @classmethod
     def _assert_current_schema(cls) -> None:

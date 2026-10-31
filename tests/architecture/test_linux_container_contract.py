@@ -207,7 +207,7 @@ class LinuxContainerContractTests(unittest.TestCase):
                 for service_name, service in services.items()
                 if "build" in service
             },
-            {"migrate"},
+            {"migrate", "postgres", "proxy"},
         )
         self.assertEqual(
             {
@@ -232,18 +232,20 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertIn("tls internal", proxy_config)
         self.assertIn("reverse_proxy web:8000", proxy_config)
 
-    def test_compose_uses_pinned_images_and_fail_closed_runtime_security(
+    def test_compose_uses_owned_supporting_builds_and_fail_closed_runtime_security(
         self,
     ) -> None:
         services = _compose()["services"]
         assert isinstance(services, dict)
 
+        self.assertEqual(services["postgres"]["image"], "impodo-postgres:18.6-impodo1")
+        self.assertEqual(services["proxy"]["image"], "impodo-caddy:2.11.7-impodo1")
+        self.assertEqual(services["volume-provisioner"]["image"], services["postgres"]["image"])
         for service_name in ("postgres", "volume-provisioner", "proxy"):
             with self.subTest(service=service_name):
-                self.assertRegex(
-                    services[service_name]["image"],
-                    r"^[a-z0-9./:-]+@sha256:[0-9a-f]{64}$",
-                )
+                self.assertEqual(services[service_name]["pull_policy"], "never")
+        self.assertEqual(services["postgres"]["build"], {"context": "./images/postgres"})
+        self.assertEqual(services["proxy"]["build"], {"context": "./images/caddy"})
         self.assertEqual(
             services["postgres"]["healthcheck"]["test"][0],
             "CMD-SHELL",

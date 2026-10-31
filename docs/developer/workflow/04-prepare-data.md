@@ -308,6 +308,20 @@ LEFT join group can feed the same durable session. Several independent groups
 can share physical inputs. Every output must qualify; unsupported producers retain the guarded
 materialized route rather than silently disabling a required check.
 
+Hierarchies built from several fields retain the guarded materialized route.
+For a combined table, the evaluator recovers the hierarchy levels from each
+row's physical source lineage, even when the combined projection omits them.
+Reconciliation counts all distinct physical input tables in a structural
+chain, so its input count covers the complete lineage rather than only the
+final join's immediate inputs. The
+[`combined hierarchy workflow tests`](../../../tests/integration/web/test_combined_hierarchy.py)
+verify those counts and the resulting category references through load and
+reconciliation.
+
+Browser evaluator 10 publishes this combined-hierarchy and physical-input
+accounting behavior. Evaluator-7, evaluator-8, and evaluator-9 staging remains
+readable with its original hashes; newly published staging uses evaluator 10.
+
 `prepare_bounded_grouped_exact_join_session` compiles the mapping once, retains
 evidence hashes outside its row loop, and appends each producer in stable
 dataset-name order. It finalizes one session after all outputs, control totals,

@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from impodo.adapters.duckdb.test_run_repository import TestRunRepository
 from impodo.adapters.duckdb.schema.migration_registry import (
-    _create_test_run_parameter_values, ensure_migration_registry_schema,
+    ensure_migration_registry_schema,
 )
 from impodo.application.recipe_application_service import RecipeApplicationService
 from impodo.application.run.fresh_data_setup import TestRunFreshDataUseCase
@@ -211,15 +211,6 @@ class StoredRunControlTests(TestCase):
         self.assertEqual(repository.replace_run_values(old, expected_revision=None, actor=LOCAL_ACTOR), old)
         self.assertNotIn("controls", old.to_dict())
         with fixture.database.connect(fixture.database.registry_path) as connection:
-            connection.execute("ALTER TABLE test_run_parameter_values RENAME TO run_values_current")
-            _create_test_run_parameter_values(connection)
-            connection.execute("INSERT INTO test_run_parameter_values SELECT * FROM run_values_current")
-            connection.execute("DROP TABLE run_values_current")
-            connection.execute("UPDATE schema_version SET version = 5")
-            connection.execute("DROP TABLE production_run_values")
-            # Reconstruct the v5 shape, including the absence of the v8 columns.
-            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
-            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
             ensure_migration_registry_schema(connection, fixture.database.registry_path)
         self.assertEqual(repository.get_run_values(old.migration_run_id).content_hash, old.content_hash)
         new = replace(old, revision=2, contract_version=2,

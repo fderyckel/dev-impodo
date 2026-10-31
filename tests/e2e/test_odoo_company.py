@@ -44,8 +44,8 @@ class OdooCompanyBrowserTests(unittest.TestCase):
         self.assertFalse(panel.evaluate("element => element.open"))
         panel.locator(":scope > summary").click()
         self.assertTrue(panel.evaluate("element => element.open"))
-        chain = panel.locator("fieldset").filter(has=page.locator('input[value="x.chain"]'))
-        people = panel.locator("fieldset").filter(has=page.locator('input[value="x.person"]'))
+        chain = panel.locator("fieldset.expectation-model").filter(has=page.locator('input[value="x.chain"]'))
+        people = panel.locator("fieldset.expectation-model").filter(has=page.locator('input[value="x.person"]'))
         chain.get_by_label("Allowed changes", exact=True).select_option("none")
         chain.get_by_label("New records · maximum", exact=True).fill("0")
         chain.get_by_label("Changed records · maximum", exact=True).fill("0")
@@ -71,6 +71,13 @@ class OdooCompanyBrowserTests(unittest.TestCase):
         context = fixture.app.state.context
         actor = resolve_local_actor(context)
         state = context.queries.get(workspace_id)
+        context.schema_workspace.discover_models(workspace_id,
+            context.model_catalog_reader(state, "fixture-key"),
+            read_credential_binding_hash=schema.read_credential_binding_hash,
+            read_identity=OdooReadIdentity(target_hash=schema.connection_target_hash,
+                principal_hash=schema.read_principal_hash, permission_hash=schema.read_permission_hash,
+                context_hash=schema.read_context_hash, readable_models=("ir.model",),
+                observed_at="2026-10-01T00:00:00Z"), actor=actor)
         owner = context.target_credential_workspace(workspace_id, workspace_state=state, actor=actor)
         credential = store_target_credential(fixture.secrets, owner, TargetCredentialRole.READ,
             "re-entered-checking-key", persistent=False)
@@ -136,6 +143,10 @@ class OdooCompanyBrowserTests(unittest.TestCase):
             expect(page.get_by_role("button", name="Confirm field matches", exact=True)).to_be_enabled()
             page.reload(wait_until="networkidle")
             expect(panel).to_contain_text("Northwind Factory")
+            catalogue_calls = len(fixture.model_catalog_calls)
+            page.locator("button[data-check-mapping]").click()
+            expect(page.get_by_role("button", name="Confirm field matches", exact=True)).to_be_enabled()
+            self.assertEqual(len(fixture.model_catalog_calls), catalogue_calls)
         context = fixture.app.state.context
         self.assertEqual(context.queries.get_source_selection(workspace_id), source)
         revision = context.mapping_workspace.mappings.get_mapping_revision(workspace_id)
@@ -147,3 +158,6 @@ class OdooCompanyBrowserTests(unittest.TestCase):
         checked = context.queries.get_odoo_schema_catalog(workspace_id)
         self.assertIsNone(checked.pending_refresh)
         self.assertEqual(checked.read_credential_binding_hash, credential.binding_hash)
+        catalogue = context.queries.get_odoo_model_catalog(workspace_id)
+        self.assertEqual(catalogue.read_credential_binding_hash, credential.binding_hash)
+        self.assertEqual(catalogue.read_context_hash, access.choices[1].context_hash)

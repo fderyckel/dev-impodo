@@ -40,7 +40,7 @@ local fact. A future local composition may pass an implicit reserved
 Organization identity through portable interfaces, but it does not expose
 Organization administration to the local user.
 
-The local Linux trial uses PostgreSQL control schema version `12`. Its bounded
+The local Linux trial uses PostgreSQL control schema version `1`. Its bounded
 reconciliation read verifies receipt hashes and current pointers without
 opening DuckDB. Its governed rebuild service accepts only a missing projection
 for an already committed data-plane receipt. It never repeats the data-plane
@@ -165,7 +165,7 @@ schema implements these facts incrementally as each owning phase completes.
 ## Current migration foundation inventory
 
 The following classification is exhaustive for the current migration registry
-generation `impodo-migration-registry-2026-08-project-root`, version 7. A
+generation `impodo-migration-registry-2026-10-31-project-root`, version 1. A
 current table can be mixed because the local registry presently combines
 catalogue control and detailed migration evidence. The target classification
 applies to facts, not table names.
@@ -195,7 +195,7 @@ identity. They remain useful inside current local DuckDB stores.
 ## Current Data version store inventory
 
 The current Project-owned Data version store generation is
-`impodo-data-version-store-2026-08-project-owned`, version 2.
+`impodo-data-version-store-2026-10-31-project-owned`, version 1.
 
 | Current table | Server authority split |
 | --- | --- |
@@ -212,7 +212,7 @@ authority. DuckDB retains their owner-qualified manifest and content hashes.
 ## Current Workspace reference store inventory
 
 The current reference store generation is
-`impodo-migration-workspace-2026-08-reference-only`, version 2.
+`impodo-migration-workspace-2026-10-31-reference-only`, version 1.
 
 | Current table | Server authority split |
 | --- | --- |
@@ -223,7 +223,7 @@ The current reference store generation is
 ## Current Workspace engine inventory
 
 The engine generation is
-`impodo-workspace-engine-2026-08-workspace-owned`, version 25. The families
+`impodo-workspace-engine-2026-10-31-workspace-owned`, version 1. The families
 below describe current engine evidence. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
 

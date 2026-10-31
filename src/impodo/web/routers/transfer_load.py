@@ -429,6 +429,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     source_column_key=item.source_column_key,
                     additional_source_column_keys=item.source_column_keys[1:],
                     destination_handling=item.destination_handling,
+                    row_inclusion=item.row_inclusion,
                 )
                 for item in approved_match.model_matches
             )
@@ -451,6 +452,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 reader=final_reader,
                 recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
+                row_inclusion_confirmation_hash=approved_match.row_inclusion_confirmation_hash,
                 excluded_source_rows={
                     item.dataset_id: item.excluded_source_row_numbers
                     for item in approved_match.model_matches

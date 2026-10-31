@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Business expectations · Impodo{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">{% endblock %}
+{% block page_scripts %}<script src="{{ url_for('static', path='/business-expectations.js') }}" defer></script>{% endblock %}
+{% block content %}
+  <a href="/workspaces/{{ workspace_id }}/summary#expected-versus-found">Back to Final review</a>
+  <header class="page-heading"><div><p class="eyebrow">Final review</p><h1>Business expectations</h1><p>Choose what this load may create or change. Saving checks the choices against the saved comparison.</p></div></header>
+  {% if editor_error %}<div class="notice error" role="alert" tabindex="-1" data-expectation-error><strong>Review your expectations</strong><p>{{ editor_error }}</p><a href="/workspaces/{{ workspace_id }}/summary/expectations">Reload the saved choices</a></div>{% endif %}
+  {% if not can_edit %}<p class="notice">You can review these choices. A workspace editor must save changes.</p>{% endif %}
+  {% if expectations %}{% include "mapping/_expectations.html" %}{% else %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Check the matching rules</a>{% endif %}
+{% endblock %}

@@ -65,34 +65,19 @@ bounded JSON-2 reads, or from the fixed local-shell reader. Neither path
 changes the user's default company.
 
 `MigrationRunTargetSetup` owns the company binding hash and its workspace
-owner. Workspace-engine schema migration 23-to-24 adds the immutable
-`odoo_company_binding` companion table. Registry migration 7-to-8 adds the
-pointer columns. The protected DTO verifies its exact target and content hash
-when projected into `WorkspaceState`. Old projects acquire no implicit
-company confirmation. No numeric company ID enters a Recipe or registry
-business payload.
+owner. The initial workspace-engine schema creates the immutable
+`odoo_company_binding` companion table through
+[`create_odoo_company_bindings`](../../../src/impodo/adapters/duckdb/schema/odoo_company.py).
+The initial registry schema creates the pointer columns. The protected DTO
+verifies its exact target and content hash when projected into `WorkspaceState`.
+A new project requires an explicit company confirmation. No numeric company ID
+enters a Recipe or registry business payload.
 
-Workspace-engine migration 25-to-26 also recognizes the earlier development
-version-24 layout. That layout records
-`workspace-engine-v23-to-v24-odoo-operation-company` and appends
-`odoo_company_id` and `odoo_company_name` to the workspace cache instead of
-creating the companion table. The
-[legacy-company migration](../../../src/impodo/adapters/duckdb/schema/legacy_company.py)
-requires that exact ledger entry, column order and legacy field types. It
-preserves a populated choice as immutable protected evidence, removes the
-obsolete cache columns and retains the original migration ledger entry. It
-does not create a run confirmation, change an approval or contact Odoo.
-Canonical version-25 stores receive only the new migration receipt.
-
-All steps run inside the existing forward-upgrade transaction. Exact final
-validation still rejects unknown tables, columns and mixed layouts; any
-failure rolls back the schema, version and receipts together. The
-[storage regression tests](../../../tests/integration/duckdb/test_legacy_company_upgrade.py)
-cover preservation, retries and rejection. The
-[project reopening test](../../../tests/integration/web/test_legacy_company_upgrade.py)
-keeps the accepted source and matching draft and requires four physical
-connections, one schema check and zero retries for the fixture page. Normal
-current-version reads do not run this migration.
+Exact schema validation rejects unknown tables, columns, and mixed layouts.
+The [company workflow tests](../../../tests/integration/web/test_odoo_company.py)
+cover saved choices, target binding, and invalidation. The
+[storage tests](../../../tests/integration/duckdb/test_forward_upgrades.py)
+cover fresh initialization and rejection of unsupported generations.
 
 Materialization copies the protected immutable company DTO into each isolated
 application workspace. Its current run binding hash remains authoritative.
@@ -233,10 +218,9 @@ mapping check on Odoo 19 and 20. The
 reproduces the saved choice in an isolated fictional workspace.
 
 `supporting_data_review` stores immutable complete revisions in the contained
-workspace engine. Schema version 21 adds this table through a forward-only
-20-to-21 migration; historical stores gain no implicitly approved decisions.
-Schema version 22 adds `supporting_review_projection`, a rebuildable local
-summary containing bounded counts and verified evidence hashes.
+workspace engine. The initial schema creates this table and
+`supporting_review_projection`, a rebuildable local summary containing bounded
+counts and verified evidence hashes. No review is approved implicitly.
 Publication compares the expected review version, reserves the operation UUID,
 checks retry meaning and Actor identity, and writes the revision and audit in
 one transaction. An exact retry returns the original revision. Changed choices

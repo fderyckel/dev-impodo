@@ -16,9 +16,9 @@ from .forward_upgrades import (
 )
 from .structure import read_table_columns
 
-MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-08-project-root"
+MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-10-31-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 8
+MIGRATION_REGISTRY_VERSION = 1
 
 
 EXPECTED_REGISTRY_COLUMNS = {
@@ -479,51 +479,11 @@ def _validate_current_registry_schema(
             raise _compatibility_error(database_path)
 
 
-def _upgrade_migration_registry_v1_to_v2(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    create_schema_migration_ledger(connection)
-
-
-def _create_test_run_setup_binding(connection: duckdb.DuckDBPyConnection) -> None:
-    connection.execute(
-        """
-        CREATE TABLE test_run_setup_binding (
-            test_run_setup_id VARCHAR PRIMARY KEY,
-            project_id VARCHAR NOT NULL REFERENCES
-                migration_project_identity(project_id),
-            migration_run_id VARCHAR NOT NULL UNIQUE REFERENCES
-                migration_run_identity(migration_run_id),
-            data_version_id VARCHAR NOT NULL REFERENCES
-                data_version_identity(data_version_id),
-            setup_workspace_id VARCHAR NOT NULL UNIQUE REFERENCES
-                migration_workspace_identity(workspace_id),
-            selected_revisions_json VARCHAR NOT NULL,
-            dependencies_json VARCHAR NOT NULL,
-            state VARCHAR NOT NULL CHECK (state IN ('SETUP', 'ACTIVE')),
-            target_binding_id VARCHAR REFERENCES target_binding(target_binding_id),
-            content_hash VARCHAR NOT NULL,
-            created_at VARCHAR NOT NULL,
-            activated_at VARCHAR,
-            contract_version INTEGER NOT NULL CHECK (contract_version = 1)
-        )
-        """
-    )
-
-
-def _upgrade_migration_registry_v2_to_v3(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    _create_test_run_setup_binding(connection)
-
-
 def _create_test_run_parameter_values(
     connection: duckdb.DuckDBPyConnection,
-    *,
-    with_controls: bool = False,
 ) -> None:
     connection.execute(
-        f"""
+        """
         CREATE TABLE test_run_parameter_values (
             test_run_setup_id VARCHAR PRIMARY KEY,
             project_id VARCHAR NOT NULL REFERENCES
@@ -537,16 +497,10 @@ def _create_test_run_parameter_values(
             updated_by_subject VARCHAR NOT NULL,
             updated_by_display_name VARCHAR NOT NULL,
             updated_at VARCHAR NOT NULL,
-            contract_version INTEGER NOT NULL CHECK (contract_version IN ({'1, 2' if with_controls else '1'}))
+            contract_version INTEGER NOT NULL CHECK (contract_version IN (1, 2))
         )
         """
     )
-
-
-def _upgrade_migration_registry_v3_to_v4(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    _create_test_run_parameter_values(connection)
 
 
 def _create_correction_run_binding(
@@ -625,23 +579,6 @@ def _create_correction_run_binding(
     )
 
 
-def _upgrade_migration_registry_v4_to_v5(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    _create_correction_run_binding(connection)
-
-
-def _upgrade_migration_registry_v5_to_v6(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    """Preserve old hashed answers while allowing typed control evidence."""
-
-    connection.execute("ALTER TABLE test_run_parameter_values RENAME TO test_run_values_v1")
-    _create_test_run_parameter_values(connection, with_controls=True)
-    connection.execute("INSERT INTO test_run_parameter_values SELECT * FROM test_run_values_v1")
-    connection.execute("DROP TABLE test_run_values_v1")
-
-
 def _create_production_run_values(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("""
         CREATE TABLE production_run_values (
@@ -653,42 +590,7 @@ def _create_production_run_values(connection: duckdb.DuckDBPyConnection) -> None
     """)
 
 
-def _add_run_company_binding(connection: duckdb.DuckDBPyConnection) -> None:
-    """Reference protected company choices without copying Odoo identifiers."""
-    connection.execute("ALTER TABLE migration_run_target_setup ADD COLUMN company_binding_hash VARCHAR DEFAULT ''")
-    connection.execute("ALTER TABLE migration_run_target_setup ADD COLUMN company_workspace_id VARCHAR")
-
-
-MIGRATION_REGISTRY_UPGRADES = {
-    7: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v7-to-v8-operation-company",
-        apply=_add_run_company_binding,
-    ),
-    1: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v1-to-v2-migration-ledger",
-        apply=_upgrade_migration_registry_v1_to_v2,
-    ),
-    2: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v2-to-v3-test-run-setup",
-        apply=_upgrade_migration_registry_v2_to_v3,
-    ),
-    3: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v3-to-v4-test-run-values",
-        apply=_upgrade_migration_registry_v3_to_v4,
-    ),
-    4: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v4-to-v5-correction-binding",
-        apply=_upgrade_migration_registry_v4_to_v5,
-    ),
-    5: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v5-to-v6-run-control-values",
-        apply=_upgrade_migration_registry_v5_to_v6,
-    ),
-    6: ForwardSchemaUpgrade(
-        migration_id="migration-registry-v6-to-v7-production-values",
-        apply=_create_production_run_values,
-    ),
-}
+MIGRATION_REGISTRY_UPGRADES: dict[int, ForwardSchemaUpgrade] = {}
 
 
 def _initialize_migration_registry(
@@ -1251,7 +1153,7 @@ def _initialize_migration_registry(
             );
             """
         )
-        _create_test_run_parameter_values(connection, with_controls=True)
+        _create_test_run_parameter_values(connection)
         _create_production_run_values(connection)
         _create_correction_run_binding(connection)
         create_schema_migration_ledger(connection)
@@ -1268,9 +1170,4 @@ def _tables(connection: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
 
 
 def _compatibility_error(database_path: Path) -> MigrationStorageCompatibilityError:
-    root = database_path.resolve().parent
-    command = (
-        ".\\.venv\\Scripts\\python.exe scripts\\reset-development-storage.py "
-        f'--root "{root}"'
-    )
-    return MigrationStorageCompatibilityError(str(database_path.resolve()), command)
+    return MigrationStorageCompatibilityError(str(database_path.resolve()))

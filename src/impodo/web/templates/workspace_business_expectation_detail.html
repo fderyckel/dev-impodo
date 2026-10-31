@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Expected versus found · Impodo{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">{% endblock %}
+{% block content %}
+  <a href="/workspaces/{{ workspace_id }}/{{ 'load/outcome' if evidence and evidence.run_id else 'summary#expected-versus-found' }}">Back to {{ 'saved load' if evidence and evidence.run_id else 'Final review' }}</a>
+  <header class="page-heading"><div><p class="eyebrow">{{ 'Original approval' if evidence and evidence.run_id else 'Business expectations' }}</p><h1>Expected versus found</h1></div></header>
+  {% if evidence_error %}<div class="notice error" role="alert">{{ evidence_error }}</div>
+  {% elif evidence %}
+    {% from "_business_intent_review.html" import count_expectation %}
+    {% set review_query = 'snapshot=' ~ (evidence.review.snapshot_hash|urlencode) ~ '&assessment=' ~ (evidence.review.assessment_hash|urlencode) ~ ('&run=' ~ (evidence.run_id|urlencode) if evidence.run_id else '') %}
+    {% if evidence.approved_by %}<p>Approved for this saved load by {{ evidence.approved_by }}.</p>{% elif evidence.author %}<p>Expectations saved by {{ evidence.author }}.</p>{% endif %}
+    {% if not evidence.model %}
+      <section class="form-card"><h2>Choose a record type</h2><ul>{% for model in evidence.models %}<li><a href="?{{ review_query }}&amp;model={{ model.model|urlencode }}">{{ model.label }}</a> · {{ model.creates }} new, {{ model.updates }} updates{% if model.deviation_count %} · Needs review{% endif %}</li>{% endfor %}</ul></section>
+    {% else %}
+      <section class="form-card"><h2>{{ evidence.model.label }}</h2>
+        <p>New records: expected {{ count_expectation(evidence.model.create_min, evidence.model.create_max) }}, found {{ evidence.model.creates }}. Updates: expected {{ count_expectation(evidence.model.update_min, evidence.model.update_max) }}, found {{ evidence.model.updates }}.</p>
+        <ul>{% for rule in evidence.specified_rules %}<li>{{ rule }}</li>{% endfor %}</ul>
+        {% if evidence.model.deviation_count %}<p class="notice warning">The proposed changes need review. {% if not evidence.run_id %}<a href="/workspaces/{{ workspace_id }}/summary/expectations#expect-{{ evidence.model.model }}">Edit these expectations</a> or <a href="/workspaces/{{ workspace_id }}/mapping">review the matching rules</a>.{% endif %}</p>{% endif %}
+        <div class="table-scroll" tabindex="0" aria-label="Expected and proposed field changes"><table><thead><tr><th scope="col">Records</th><th scope="col">Field</th><th scope="col">Effect</th><th scope="col">Expected</th><th scope="col">Found</th><th scope="col">Next action</th></tr></thead><tbody>
+          {% for item in evidence.fields %}<tr><td>{{ 'New' if item.phase == 'create' else 'Updated' }}</td><th scope="row">{{ item.field }}</th><td>{{ {'value':'Set value', 'add':'Add links', 'remove':'Remove links', 'replace':'Replace links'}[item.operation] }}</td><td>{{ 'Allowed' if item.allowed else 'Not allowed' }}</td><td>{{ 'Proposed' if item.proposed else 'Not proposed' }}</td><td>{% if item.proposed and not item.allowed and not evidence.run_id %}<a href="/workspaces/{{ workspace_id }}/summary/expectations#expect-{{ evidence.model.model }}">Review field limits</a>{% else %}—{% endif %}</td></tr>{% else %}<tr><td colspan="6">No explicit field changes were proposed or restricted.</td></tr>{% endfor %}
+        </tbody></table></div>
+        <nav aria-label="Field pages"><span>Page {{ evidence.page }} of {{ evidence.page_count }} · {{ evidence.field_count }} field effects</span>{% if evidence.page > 1 %} <a href="?{{ review_query }}&amp;model={{ evidence.model.model|urlencode }}&amp;page={{ evidence.page-1 }}">Previous</a>{% endif %}{% if evidence.page < evidence.page_count %} <a href="?{{ review_query }}&amp;model={{ evidence.model.model|urlencode }}&amp;page={{ evidence.page+1 }}">Next</a>{% endif %}</nav>
+      </section>
+    {% endif %}
+    <details class="technical-details"><summary>Support details</summary><dl><dt>Intent revision</dt><dd>{{ evidence.review.intent_version or 'Not saved' }}</dd><dt>Assessment</dt><dd>{{ evidence.review.assessment_hash }}</dd><dt>Snapshot</dt><dd>{{ evidence.review.snapshot_hash }}</dd></dl></details>
+  {% endif %}
+{% endblock %}

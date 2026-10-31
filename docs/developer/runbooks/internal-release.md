@@ -9,14 +9,15 @@ or enterprise support readiness.
 
 ## Development checkout
 
-Use 64-bit Python 3.12 and a repository-local virtual environment:
+Use the repository-pinned uv runner with 64-bit Python 3.12 from the
+repository root. Synchronize the locked quality, test, and release dependencies:
 
 ```powershell
-py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install --upgrade pip
-.\.venv\Scripts\python.exe -m pip install -e ".[dev]"
-.\.venv\Scripts\python.exe -m pip check
+uv sync --frozen --python 3.12 --group quality --extra test --extra release
 ```
+
+On POSIX, use `.tools/uv/uv` when present. The project interpreter and installed
+tools live in `.venv`; uv runs from outside that environment.
 
 Start the browser application with:
 
@@ -26,6 +27,14 @@ Start the browser application with:
 
 Editable installs are for development only. They neither update dependency
 versions nor prove that the checked-in release lock is valid.
+
+## Version ownership
+
+[`pyproject.toml`](../../../pyproject.toml) owns the application release version.
+Continue the existing `YY.MM.sequence` convention and matching `v` Git tags.
+The release builder combines that version with the Git revision in each bundle
+ID. Storage schema numbers and evidence contracts have separate owners; see
+[Storage and release versioning](../reference/storage-and-release-versioning.md).
 
 ## Dependency lock
 
@@ -47,10 +56,10 @@ unlocked environment as release evidence.
 ## Build an immutable bundle
 
 Promotion requires a clean Git worktree and the exact pinned release tools.
-From an environment installed with the project development dependencies, run:
+From the synchronized checkout environment, run:
 
 ```powershell
-.\.venv\Scripts\python.exe .\scripts\internal_release.py
+uv run --frozen --group quality --extra release python scripts/internal_release.py
 ```
 
 The promotion gate validates the lock, materializes the committed revision,

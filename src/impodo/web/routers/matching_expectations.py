@@ -19,6 +19,20 @@ from impodo.web.request_identity import request_identity
 from impodo.web.security import require_session
 
 
+def save_expectation_form(context, workspace_id, form, actor):
+    """Save and reassess through the same authorized command for both editors."""
+    context.workspace_states.authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
+    packet = context.business_intents.inputs(workspace_id, actor=actor)
+    saved = context.business_intents.save(workspace_id, intent=parse_expectations(form, packet),
+        expected_version=int(_text(form, "expected_version")), expected_binding_hash=_text(form, "binding_hash"),
+        operation_id=_text(form, "operation_id"), actor=actor)
+    try:
+        assessment = context.preflight.reassess_business_intent(workspace_id, actor=actor)
+    except WorkspaceError:
+        assessment = None
+    return saved, assessment
+
+
 def build_matching_expectations_router(context: WebContext) -> APIRouter:
     """Keep metadata reads and publication within one synchronous local command."""
     router = APIRouter()
@@ -30,31 +44,8 @@ def build_matching_expectations_router(context: WebContext) -> APIRouter:
         _secure_form(request, form, expectation_form_fields())
         actor = request_identity(request, context.identity_resolver).actor
 
-        def command():
-            context.workspace_states.authorization.require(
-                actor, Capability.MAPPING_EDIT, workspace_id=workspace_id
-            )
-            packet = context.business_intents.inputs(workspace_id, actor=actor)
-            saved = context.business_intents.save(
-                workspace_id,
-                intent=parse_expectations(form, packet),
-                expected_version=int(_text(form, "expected_version")),
-                expected_binding_hash=_text(form, "binding_hash"),
-                operation_id=_text(form, "operation_id"),
-                actor=actor,
-            )
-            # Reassessment uses only the comparison's bounded aggregate. A
-            # missing/stale comparison requires the normal fresh comparison.
-            try:
-                assessment = context.preflight.reassess_business_intent(
-                    workspace_id, actor=actor
-                )
-            except WorkspaceError:
-                assessment = None
-            return saved, assessment
-
         try:
-            _saved, assessment = await run_local_operation(command)
+            _saved, assessment = await run_local_operation(save_expectation_form, context, workspace_id, form, actor)
         except (BusinessIntentError, ValueError, WorkspaceError) as error:
             return await run_page_read(
                 _render_mapping,

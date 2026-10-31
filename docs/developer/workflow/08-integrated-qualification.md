@@ -102,9 +102,9 @@ artifacts; changed meaning under the same operation ID fails closed.
 ## Odoo compatibility and performance
 
 The exact registry generation is
-`impodo-migration-registry-2026-08-project-root`. Supported older versions in
-that generation upgrade transactionally before use. Other generations remain
-unchanged and fail closed. The
+`impodo-migration-registry-2026-10-31-project-root`. Its initial schema is version 1.
+Future versions can register transactional upgrades within that generation.
+Other generations remain unchanged and fail closed. The
 protected directory is an explicit clean-root member, and its shortened
 content-bound filenames stay within normal Windows path limits.
 

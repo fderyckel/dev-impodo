@@ -385,7 +385,7 @@ stages:
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.check_refresh
       - src/impodo/domain/odoo/company_domains.py::operation_company_domain
-      - src/impodo/adapters/duckdb/schema/legacy_company.py::upgrade_legacy_company_layout
+      - src/impodo/adapters/duckdb/schema/odoo_company.py::create_odoo_company_bindings
       - src/impodo/adapters/odoo/company_checks.py::capture_company_checks
       - src/impodo/domain/preparation/company_references.py::check_company_references
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.confirm_refresh
@@ -417,8 +417,6 @@ stages:
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
       - tests/domain/odoo/test_company_domains.py
-      - tests/integration/duckdb/test_legacy_company_upgrade.py
-      - tests/integration/web/test_legacy_company_upgrade.py
       - tests/integration/odoo/test_company_reference_checks.py
       - tests/integration/odoo/test_company_transport.py
       - tests/integration/web/test_joined_recipe_preparation.py
@@ -469,6 +467,9 @@ stages:
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
+      - src/impodo/domain/workspace/derived_entities.py::hierarchy_consumer_bindings
+      - src/impodo/domain/workspace/derived_entities.py::derived_consumer_links
+      - scripts/capture_combined_hierarchy.py::capture
       - src/impodo/web/matching_expectations.py::matching_expectations_view
       - src/impodo/web/matching_expectations.py::parse_expectations
       - src/impodo/application/business_intent_service.py::checked_business_intent_inputs
@@ -514,9 +515,6 @@ stages:
       - src/impodo/domain/relationship_health.py::RelationshipHealthResult
       - src/impodo/domain/relationship_health.py::classify_relationship_health
       - src/impodo/application/workspace/mapping/health_issues.py::matching_health_issue_counts
-      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v11_to_v12
-      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v12_to_v13
-      - src/impodo/adapters/duckdb/schema/workspace_engine.py::_upgrade_workspace_engine_v19_to_v20
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
@@ -566,6 +564,8 @@ stages:
       - tests/application/workspace/mapping/test_blank_relationship_choices.py
       - tests/e2e/test_many2one_blank_match.py
       - tests/integration/artifacts/test_joined_mapping_values.py
+      - tests/domain/workspace/test_combined_hierarchy.py
+      - tests/integration/web/test_combined_hierarchy.py
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_relationship_health_presenter.py
@@ -687,8 +687,11 @@ stages:
     router_modules:
       - src/impodo/web/routers/summary.py
       - src/impodo/web/routers/preflight.py
+      - src/impodo/web/routers/business_expectations.py
     templates:
       - src/impodo/web/templates/workspace_summary.html
+      - src/impodo/web/templates/workspace_business_expectations.html
+      - src/impodo/web/templates/workspace_business_expectation_detail.html
       - src/impodo/web/templates/workspace_quality_cause.html
       - src/impodo/web/templates/workspace_preflight_progress.html
       - src/impodo/web/templates/workspace_deferred_scope.html

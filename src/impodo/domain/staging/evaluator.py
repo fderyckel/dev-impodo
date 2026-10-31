@@ -46,6 +46,8 @@ from impodo.domain.workspace.derived_entities import (
     _normalized_path,
     derived_dataset_links,
     evaluate_hierarchy_path,
+    hierarchy_consumer_bindings,
+    hierarchy_consumer_values,
 )
 
 from ..compiler.browser_mapping_compiler import compile_browser_mapping
@@ -86,6 +88,7 @@ from ..recipe.value_rules import (
     compile_arithmetic_formula,
 )
 from ..serialization import content_hash
+from ..source_binding import DerivedSourceBinding
 from ..structural import (
     ExactJoinRule,
     GroupAggregateRule,
@@ -184,6 +187,7 @@ class _DerivedReferencePlan:
     required: bool = False
     optional_many2one: bool = False
     source_column_keys: tuple[str, ...] = ()
+    source_presence_key: str | None = None
 
 
 @dataclass(slots=True)
@@ -283,6 +287,11 @@ class CompiledBrowserRowTransformer:
             for stable_key in self.effective_column_keys
         }
         values = dict(source_values)
+        for reference in self.derived_reference_plan:
+            if reference.source_presence_key is not None:
+                values[reference.source_presence_key] = row.values.get(reference.source_presence_key, False)
+                for key in reference.source_column_keys:
+                    values[key] = row.values.get(key)
         rule = self.related_rule
         if rule is not None:
             for key in (
@@ -484,6 +493,22 @@ def evaluate_browser_mapping(
     except StructuralError as error:
         raise ReadinessError(str(error)) from error
     structural_by_id = structural_execution.by_dataset_id()
+    physical_inputs = {dataset_id: frozenset({dataset_id}) for dataset_id in physical_by_id}
+    for output in structural_execution.outputs:
+        source = output.dataset.source
+        if not isinstance(source, DerivedSourceBinding):
+            raise ReadinessError("Prepared table has no source-preparation evidence")
+        physical_inputs[output.dataset.dataset_id] = frozenset(
+            physical_id
+            for input_id in source.input_dataset_ids
+            for physical_id in physical_inputs[input_id]
+        )
+    hierarchy_bindings = hierarchy_consumer_bindings(plan)
+    hierarchy_sources = {binding.rule.source_dataset_id for binding in hierarchy_bindings if binding.carried}
+    physical_rows = {
+        dataset_id: {row.number: row for row in loaded_tables[dataset_id].rows}
+        for dataset_id in hierarchy_sources
+    }
 
     compiled_plan = compile_browser_mapping(
         definition,
@@ -538,14 +563,42 @@ def evaluate_browser_mapping(
         if physical is None:
             raise ReadinessError("Prepared dataset no longer has a source")
         if structural is not None:
+            consumer_bindings = tuple(
+                binding for binding in hierarchy_bindings
+                if binding.carried and binding.link.consumer_dataset_id == effective.dataset_id
+            )
+            table = structural.table
+            if consumer_bindings:
+                projected_rows = []
+                for row in structural.table.rows:
+                    values = dict(row.values)
+                    for binding in consumer_bindings:
+                        source_ids = structural.lineage[row.number].get(binding.rule.source_dataset_id, ())
+                        if len(source_ids) > 1:
+                            raise ReadinessError(
+                                "A combined row has multiple source rows for hierarchy "
+                                f"{binding.rule.output_dataset_name}; choose an unambiguous source combination"
+                            )
+                        origin = physical_by_id[binding.rule.source_dataset_id]
+                        original = physical_rows[origin.dataset_id][source_ids[0]] if source_ids else None
+                        carried_values = hierarchy_consumer_values(binding, {
+                            column.stable_key: original.values.get(column.source_name)
+                            for column in origin.columns
+                        } if original is not None else None)
+                        name = next(column.source_name for column in effective.columns
+                                    if column.stable_key == binding.link.source_column_key)
+                        values[name] = carried_values.pop(binding.link.source_column_key)
+                        values.update(carried_values)
+                    projected_rows.append(SourceRow(row.number, values))
+                table = replace(structural.table, rows=tuple(projected_rows))
             staged, issues, _, decisions = _stage_table(
                 effective,
                 physical,
                 mapping,
-                structural.table,
+                table,
                 None,
                 "source",
-                tuple(lookup_by_dataset_id.values()),
+                (*lookup_by_dataset_id.values(), *((binding.rule, binding.link) for binding in consumer_bindings)),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
             )
@@ -628,7 +681,8 @@ def evaluate_browser_mapping(
                 "group": StagingDatasetRole.GROUP,
             }[role],
             (
-                structural.reconciliation.input_rows
+                sum(len(loaded_tables[input_id].rows)
+                    for input_id in physical_inputs[effective.dataset_id])
                 if structural is not None
                 else len(loaded_tables[physical.dataset_id].rows)
             ),
@@ -1111,7 +1165,8 @@ def compile_browser_row_transformer(
         evaluation_plan=_compile_dataset_evaluation_plan(effective, mapping),
         derived_reference_plan=_compile_derived_reference_plan(
             mapping,
-            lookup_bindings,
+            tuple((rule, link) for rule, link in lookup_bindings
+                  if not link.hierarchical or link.consumer_dataset_id == effective.dataset_id),
         ),
         related_rule=rule,
         role=role,
@@ -1438,16 +1493,17 @@ def _compile_derived_reference_plan(
     lookup_bindings: tuple[tuple[LookupRule, DerivedDatasetLink], ...],
 ) -> tuple[_DerivedReferencePlan, ...]:
     lookup_by_source = {
-        (link.derived_dataset_id, link.source_column_key): rule
+        (link.derived_dataset_id, link.source_column_key): (rule, link)
         for rule, link in lookup_bindings
     }
     flat_lookup_by_dataset = {
-        link.derived_dataset_id: rule for rule, link in lookup_bindings
+        link.derived_dataset_id: (rule, link) for rule, link in lookup_bindings
         if isinstance(rule, DerivedEntityRule) and rule.parent_separator is None
     }
     return tuple(
         _DerivedReferencePlan(
-            rule=rule,
+            rule=(replace(rule, source_level_column_keys=link.source_level_column_keys)
+                  if isinstance(rule, HierarchicalLookupRule) else rule),
             source_column_key=source_column_key,
             prepared_column_key=synthetic_relationship_field(
                 relationship_index,
@@ -1457,9 +1513,12 @@ def _compile_derived_reference_plan(
             blank_source_values=relationship.blank_source_values,
             required=relationship.required,
             optional_many2one=relationship.kind == "many2one",
-            source_column_keys=(rule.source_level_column_keys
+            source_column_keys=(link.source_level_column_keys
                 if isinstance(rule, HierarchicalLookupRule)
                 else relationship.source_column_keys),
+            source_presence_key=(f"{source_column_key}:source_present"
+                if isinstance(rule, HierarchicalLookupRule)
+                and link.source_level_column_keys != rule.source_level_column_keys else None),
         )
         for relationship_index, relationship in enumerate(mapping.relationships)
         if relationship.resolver.origin
@@ -1468,17 +1527,19 @@ def _compile_derived_reference_plan(
         for source_index, source_column_key in enumerate(
             relationship.source_column_keys
         )
-        for rule in (
+        for binding in (
             lookup_by_source.get(
                 (
                     relationship.resolver.dataset_id,
                     source_column_key,
                 ),
-                flat_lookup_by_dataset.get(relationship.resolver.dataset_id)
-                if len(relationship.source_column_keys) == 1 else None,
+                flat_lookup_by_dataset[relationship.resolver.dataset_id]
+                if len(relationship.source_column_keys) == 1
+                and relationship.resolver.dataset_id in flat_lookup_by_dataset else None,
             ),
         )
-        if rule is not None
+        if binding is not None
+        for rule, link in (binding,)
     )
 
 
@@ -1491,6 +1552,9 @@ def _normalize_derived_references(
 ) -> tuple[Issue, ...]:
     issues: list[Issue] = []
     for item in plan:
+        if item.source_presence_key is not None and not values.get(item.source_presence_key):
+            values[item.prepared_column_key] = None
+            continue
         if (item.optional_many2one and not item.required and all(
             _normalized_path(values.get(key), None) is None
             for key in item.source_column_keys or (item.source_column_key,)

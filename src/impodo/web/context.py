@@ -63,7 +63,6 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
     WorkspaceStateService,
 )
-from impodo.web.project_listing import UnavailableProjectSummary
 
 from ..application.browser_queries import BrowserQueryService
 from ..application.correction_workflow import CorrectionWorkflowService
@@ -148,6 +147,10 @@ class SchemaReadSession(Protocol):
 
     def read_models(self, models: tuple[str, ...]) -> MetadataSnapshot:
         """Read metadata for exactly these newly reached models."""
+        ...
+
+    def read_model_catalog(self) -> RecordSnapshot:
+        """Read persistent model choices using this same request-local connector."""
         ...
 
     def verify_identity(
@@ -248,7 +251,6 @@ class WebContext:
     queries: BrowserQueryService
     project_queries: ScopedMigrationProjectQuery
     identity_resolver: RequestIdentityResolver
-    unavailable_projects: tuple[UnavailableProjectSummary, ...]
     workspace_access: WorkspaceAccessService
     workspace_views: WorkspaceOwnerViewService
     navigation: WorkspaceNavigationQueryService

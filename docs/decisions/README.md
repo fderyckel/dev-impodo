@@ -525,6 +525,14 @@ execution.
 **Extends:** ADR-014 for release compatibility. It does not restore storage or
 ownership from ADR-012 or ADR-013.
 
+**First-project baseline, 31 October 2026:** No earlier data projects require
+support. New generations create the complete current DuckDB and PostgreSQL
+schemas at version 1. The development upgrade chains, storage reset, and
+automatic archives have been removed. This decision continues to govern
+upgrades for projects created from that baseline. Application releases keep
+their existing numbering. See
+[Storage and release versioning](../developer/reference/storage-and-release-versioning.md).
+
 **Decision:** A storage generation identifies one ownership and semantic
 contract. A schema version identifies a structural shape within that
 generation. A newer Impodo release must provide every consecutive forward

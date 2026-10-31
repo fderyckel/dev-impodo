@@ -2,6 +2,7 @@
 {% block title %}Load into Odoo &middot; {{ migration_project.display_name }} &middot; Impodo{% endblock %}
 {% block page_styles %}
   <link rel="stylesheet" href="{{ url_for('static', path='/execution.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
@@ -9,6 +10,11 @@
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
   {% set target_environment = 'Production' if migration_context.data_version_purpose == 'PRODUCTION' else 'Test' if migration_context.data_version_purpose == 'TEST' else 'Target' %}
+  {% if workspace_state.source_mode.value == 'FILE' and preview.business_intent %}
+    {% set business_review = preview.business_intent %}
+    {% set business_run_id = preview.current_run_id if preview.current_run_id is defined else preview.current_run.run_id if preview.current_run else '' %}
+    {% include "_business_intent_review.html" %}
+  {% endif %}
   <nav class="load-stepper" aria-label="Load into Odoo progress">
     <ol>
       <li class="load-step {% if load_step == 'review' %}current{% else %}complete{% endif %}">

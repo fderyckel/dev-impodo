@@ -34,6 +34,7 @@ from impodo.application.scenarios import (
     ScenarioReconciliationEvidence,
     ScenarioWorkflowFailure,
 )
+from impodo.application.workspace.execution.business_review import BusinessIntentReview
 from impodo.application.workspace.execution.navigation import ExecutionReviewProjection
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.application.workspace.execution.service import (
@@ -62,7 +63,11 @@ from impodo.domain.scenarios import (
     ScenarioReasonCode,
 )
 from impodo.domain.serialization import content_hash
-from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.domain.shared.access import (
+    LOCAL_ACTOR,
+    Actor,
+    CapabilityAuthorizationPolicy,
+)
 from impodo.domain.shared.models import PreflightResult, TargetRecord
 from impodo.domain.workspace.business_intent_assessment import BusinessIntentAssessment
 from impodo.domain.workspace.errors import WorkspaceError
@@ -150,6 +155,18 @@ class _ScenarioExecutionSnapshots:
         ):
             raise WorkspaceError("Scenario execution snapshot is missing or changed")
         return self.snapshot
+
+    def business_intent_review(
+        self,
+        workspace_id: str,
+        snapshot_hash: str,
+        *,
+        actor: Actor,
+        run_id: str = "",
+    ) -> BusinessIntentReview | None:
+        """Scenarios enforce their declaration without a browser review projection."""
+        del workspace_id, snapshot_hash, actor, run_id
+        return None
 
     def current_execution_review_projection(
         self,

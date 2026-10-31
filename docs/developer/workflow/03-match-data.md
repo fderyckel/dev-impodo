@@ -63,6 +63,15 @@ binding, company context and pending candidate before writing. Verified
 unchanged access continues with the submitted field edits; real changes stop
 for the existing schema review. An exact mutation replay skips this refresh.
 
+When a saved model catalogue exists, that refresh also reads the lightweight
+`ir.model` choices and verifies their read access. The JSON-2 session reuses
+one connector and target fingerprint for catalogue and field reads. Their
+verified principal, target and company context must agree. The publication
+phase checks that the saved catalogue has not changed, then publishes fresh
+model choices before checking the fields in the same bounded local operation.
+This prevents an old catalogue company binding from rejecting freshly checked
+fields. No catalogue read is added when the saved field access is current.
+
 The supporting-value capture groups local source-key collection and lookup
 publication into separate `run_local_operation_sync` callbacks. Checking-key
 ownership is read in another bounded local callback; every owner closes before
@@ -70,7 +79,11 @@ the Odoo calls. The controlled one-table Many2one check fell from 58 physical
 opens and 12 schema checks to 30 and 8, with zero retries. Its regression
 asserts those bounds, one schema refresh, retained edits and exact receipt
 replay. Browser tests use **Check matches** directly, without the separate
-refresh action. These are isolated-fixture results, not a live latency claim.
+refresh action. The company regression includes a saved model catalogue,
+Many2one matching, retained edits and reader/key changes during refresh. The
+browser regression repeats the check after reload and verifies that the
+catalogue is not fetched again. These are isolated-fixture results, not a live
+latency claim.
 
 Changed fields or access keep the existing pending-schema review path.
 
@@ -587,6 +600,37 @@ table)** in the browser so it remains distinguishable from the original source
 table. That wording is presentation only; the saved relationship continues to
 use the generated dataset identifier and complete-path business key.
 
+`hierarchy_consumer_bindings` in
+[`derived_entities.py`](../../../src/impodo/domain/workspace/derived_entities.py)
+discovers consumers through either side of each saved exact join, including
+pairwise chains and grouped joins. `derived_consumer_links` exposes these
+consumers to suggestions and matching-order checks. `derived_dataset_links`
+still returns exactly one link per lookup rule for generated-table evaluation
+and portable Recipe identities. The effective combined dataset receives a
+stable selected-path column even when its projections omit the source levels.
+Generated display names avoid collisions with selected output fields.
+
+The joined value reader scans only requested fields, join keys, and the raw
+levels needed by a requested hierarchy path. It evaluates those levels with
+the shared hierarchy policy inside the existing bounded connection scope.
+Ordinary fields retain their snapshot text representation. Hierarchy choice
+counts preserve the existing overflow sentinel. Materialized preparation
+uses the combined row's physical lineage to recover the same raw levels and
+keeps blank-policy findings. An unmatched optional input yields no reference,
+whereas a matched blank row still applies its saved hierarchy policy. These
+paths do not expand bounded preparation admission or row limits.
+
+[`test_combined_hierarchy.py`](../../../tests/domain/workspace/test_combined_hierarchy.py)
+checks source-independent discovery through pairwise chains and independent
+combinations. The
+[`workflow regression`](../../../tests/integration/web/test_combined_hierarchy.py)
+checks all three input positions, omitted levels, matched blank and unmatched
+rows, full-path identities, complete lineage, Recipe rebinding, comparison,
+loading, reconciliation, and the authenticated page's connection counts.
+[`capture_combined_hierarchy.py`](../../../scripts/capture_combined_hierarchy.py)
+captures the saved combined-table relationship from an isolated current app
+at 1440 by 1024.
+
 For a generated list whose target-name identity still reads `canonical_key`,
 the identity presenter offers **Use original spelling**. The action selects
 the generated display-name column in the editor; it does not silently migrate
@@ -865,7 +909,7 @@ validation result for the malformed formula.
 | Shared Stage 3 issue projection | [`matching_health_issues.py`](../../../src/impodo/web/presenters/matching_health_issues.py) |
 | Matching-order preference contract | [`MatchingOrderPreference`](../../../src/impodo/domain/matching_order.py) |
 | Matching-order preference persistence | [`MatchingOrderRepository`](../../../src/impodo/adapters/duckdb/matching_order_repository.py) |
-| Matching-order check schema and forward migration | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
+| Matching-order check schema | [`workspace_engine.py`](../../../src/impodo/adapters/duckdb/schema/workspace_engine.py) |
 | Protected unresolved-identity page | [`identity_choice_review.html`](../../../src/impodo/web/templates/mapping/identity_choice_review.html) |
 | Protected unresolved-identity browser evidence | [`test_identity_choice_review.py`](../../../tests/integration/web/test_identity_choice_review.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
@@ -948,7 +992,7 @@ JSON and from every preparation, preflight, compiled-plan, and execution hash.
 than mapping meaning. Its current pointer is useful only when the complete
 review identity matches current inputs. `RowInclusionReviewConfirmation`
 approves that snapshot; it does not alter the accepted Data version or permit
-an invalid mapping. Workspace-engine schema version 13 adds the review rows,
+an invalid mapping. The initial workspace-engine schema creates the review rows,
 current pointer, and confirmation tables through a forward-only migration.
 
 ## Completion and navigation

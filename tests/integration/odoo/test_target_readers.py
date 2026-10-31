@@ -93,8 +93,12 @@ class Json2SchemaReadSessionTests(unittest.TestCase):
             if url.endswith("/web/version"):
                 return 200, {"version": "20.0"}
             if url.endswith("/json/2/ir.model/search_read"):
-                model = payload["domain"][0][2][0]
-                return 200, [{"id": model_ids[model], "model": model}]
+                if payload["domain"][0][0] == "model":
+                    model = payload["domain"][0][2][0]
+                    return 200, [{"id": model_ids[model], "model": model}]
+                return 200, [{"id": identifier, "model": model, "name": model,
+                    "abstract": False, "transient": False, "modules": "base", "state": "base"}
+                    for model, identifier in model_ids.items()]
             if url.endswith("/json/2/ir.model.constraint/search_read"):
                 return 200, []
             if url.endswith("/fields_get"):
@@ -144,9 +148,16 @@ class Json2SchemaReadSessionTests(unittest.TestCase):
             first = session.read_models(("x.parent",))
             second = session.read_models(("x.child",))
             identity = session.verify_identity(("x.parent", "x.child"))
+            catalogue = session.read_model_catalog()
+            catalogue_identity = session.verify_identity(("ir.model",))
 
         self.assertEqual(len(connectors), 1)
         self.assertIs(first.fingerprint, second.fingerprint)
+        self.assertIs(first.fingerprint, catalogue.fingerprint)
+        self.assertEqual(catalogue_identity.principal_hash, identity.principal_hash)
+        self.assertEqual(catalogue_identity.context_hash, identity.context_hash)
+        self.assertEqual(catalogue_identity.readable_models, ("ir.model",))
+        self.assertEqual(len(catalogue.records["ir.model"]), 2)
         self.assertEqual(identity.observed_at, first.fingerprint.snapshot_timestamp)
         self.assertEqual(
             [url for url, _payload in calls if url.endswith("/web/version")],
@@ -168,7 +179,7 @@ class Json2SchemaReadSessionTests(unittest.TestCase):
                     if url.endswith("/json/2/res.users/context_get")
                 ]
             ),
-            1,
+            2,
         )
         self.assertEqual(
             identity.readable_models,

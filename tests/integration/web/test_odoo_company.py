@@ -26,6 +26,18 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
     def test_check_matches_refreshes_stale_key_and_company_before_many2one_reads(self):
         self._check_matches_refresh()
 
+    def test_check_matches_refreshes_saved_model_catalogue_with_company_access(self):
+        self._check_matches_refresh(saved_model_catalog=True, use_session=True)
+
+    def test_catalogue_refresh_keeps_permission_changes_in_review(self):
+        self._check_matches_refresh(saved_model_catalog=True, changed_permissions=True)
+
+    def test_catalogue_refresh_rejects_key_change_before_publication(self):
+        self._check_matches_refresh(saved_model_catalog=True, rotate_during_read=True)
+
+    def test_catalogue_refresh_rejects_reader_change_between_remote_reads(self):
+        self._check_matches_refresh(saved_model_catalog=True, changed_catalog_reader=True)
+
     def test_check_matches_requires_review_if_verified_permissions_changed(self):
         self._check_matches_refresh(changed_permissions=True)
 
@@ -33,7 +45,8 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         self._check_matches_refresh(rotate_during_read=True)
 
     def _check_matches_refresh(
-        self, *, changed_permissions=False, rotate_during_read=False
+        self, *, changed_permissions=False, rotate_during_read=False,
+        saved_model_catalog=False, changed_catalog_reader=False, use_session=False,
     ):
         from unittest.mock import Mock
         from impodo.adapters.duckdb.unit_of_work import _read_databases
@@ -100,6 +113,21 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
                 context_hash=original.read_context_hash, readable_models=tuple(sorted(model.name for model in original.models)),
                 observed_at="2026-10-31T00:00:00Z"), actor=actor)
         context.schema_workspace.govern(workspace_id, business_keys=keys, actor=actor)
+        model_snapshot = RecordSnapshot(metadata_for_schema(original).fingerprint,
+            {"ir.model": tuple(TargetRecord("ir.model", index + 1,
+                {"model": model.name, "name": model.label,
+                 "abstract": False, "transient": False, "modules": "base", "state": "base"})
+                for index, model in enumerate(original.models))},
+            {"ir.model": ("model", "name", "abstract", "transient", "modules", "state")})
+        if saved_model_catalog:
+            context.schema_workspace.discover_models(
+                workspace_id,
+                model_snapshot,
+                read_credential_binding_hash=original.read_credential_binding_hash,
+                read_identity=OdooReadIdentity(target_hash=original.connection_target_hash,
+                    principal_hash=original.read_principal_hash, permission_hash=original.read_permission_hash,
+                    context_hash=original.read_context_hash, readable_models=("ir.model",),
+                    observed_at="2026-10-31T00:00:00Z"), actor=actor)
         dataset = context.queries.get_mapping_source_selection(workspace_id).datasets[0]
         business_key = next(
             key
@@ -146,7 +174,9 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             self.assertFalse(hasattr(_read_databases, "connections"))
             return OdooReadIdentity(
                 target_hash=original.connection_target_hash,
-                principal_hash=original.read_principal_hash,
+                principal_hash="sha256:" + "8" * 64
+                if changed_catalog_reader and models == ("ir.model",)
+                else original.read_principal_hash,
                 permission_hash="sha256:" + "9" * 64
                 if changed_permissions
                 else original.read_permission_hash,
@@ -159,6 +189,25 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         context.schema_read_session_factory = None
         context.schema_reader = Mock(side_effect=read_schema)
         context.read_identity_probe = identity
+
+        def read_model_catalog(_state, _key):
+            self.assertFalse(hasattr(_read_databases, "connections"))
+            return model_snapshot
+
+        context.model_catalog_reader = Mock(side_effect=read_model_catalog)
+
+        if use_session:
+            class ReadSession:
+                def read_models(reader, _models):
+                    return context.schema_reader(selected, credential.secret)
+
+                def verify_identity(reader, models):
+                    return identity(selected, credential.secret, models)
+
+                def read_model_catalog(reader):
+                    return context.model_catalog_reader(selected, credential.secret)
+
+            context.schema_read_session_factory = Mock(return_value=ReadSession())
 
         class SupportingReader:
             def get_model_metadata(reader, _requests):
@@ -231,7 +280,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
                     headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
                 )
         refreshed = context.queries.get_odoo_schema_catalog(workspace_id)
-        if changed_permissions or rotate_during_read:
+        if changed_permissions or rotate_during_read or changed_catalog_reader:
             self.assertEqual(checked.status_code, 422, checked.text)
             self.assertEqual(
                 refreshed.read_credential_binding_hash,
@@ -240,6 +289,10 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             self.assertEqual(refreshed.pending_refresh is not None, changed_permissions)
             self.assertIsNone(context.queries.get_mapping_revision(workspace_id))
             supporting.assert_not_called()
+            if saved_model_catalog:
+                catalogue = context.queries.get_odoo_model_catalog(workspace_id)
+                expected_context = selected.odoo_company.context_hash if changed_permissions else original.read_context_hash
+                self.assertEqual(catalogue.read_context_hash, expected_context)
             return
         self.assertEqual(checked.status_code, 200, checked.text)
         self.assertEqual(checked.json()["status"], "committed")
@@ -265,6 +318,15 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             "INVALID",
         )
         context.schema_reader.assert_called_once()
+        if saved_model_catalog:
+            context.model_catalog_reader.assert_called_once()
+            catalogue = context.queries.get_odoo_model_catalog(workspace_id)
+            self.assertEqual(catalogue.read_context_hash, selected.odoo_company.context_hash)
+            self.assertEqual(catalogue.read_credential_binding_hash, credential.binding_hash)
+            if use_session:
+                context.schema_read_session_factory.assert_called_once()
+        else:
+            context.model_catalog_reader.assert_not_called()
         # The request's local phases reuse the registry, linkage, Data version
         # and engine owners. RPCs run after every retained owner has closed.
         self.assertLessEqual(timings.connection_count, 30)

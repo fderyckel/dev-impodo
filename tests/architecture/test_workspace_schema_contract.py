@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 26)
+            self.assertEqual(SCHEMA_VERSION, 1)
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }

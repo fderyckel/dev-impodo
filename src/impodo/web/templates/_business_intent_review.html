@@ -1,0 +1,31 @@
+{% macro count_expectation(minimum, maximum) -%}
+  {% if minimum is none and maximum is none %}No count expectation{% elif minimum == maximum %}{{ minimum }}{% elif minimum is none %}At most {{ maximum }}{% elif maximum is none %}At least {{ minimum }}{% else %}{{ minimum }}–{{ maximum }}{% endif %}
+{%- endmacro %}
+{% set change_modes = {'none':'Reuse only', 'create':'Create missing', 'update':'Update matches', 'upsert':'Create and update'} %}
+<section id="expected-versus-found" class="form-card business-review" aria-labelledby="expectation-review-title" data-business-review>
+  <div class="page-heading compact">
+    <div><p class="eyebrow">{{ 'Approved for this saved load' if business_run_id else 'Business expectations' }}</p><h2 id="expectation-review-title">Expected versus found</h2></div>
+    {% if business_review %}<span class="status {{ 'ready' if business_review.ready else 'review' }}">{{ 'Within expectations' if business_review.ready else 'Needs review' }}</span>{% endif %}
+  </div>
+  {% if business_review %}
+    <p>{{ business_review.message }}</p>
+    {% if business_run_id %}<p class="muted">This saved load keeps the expectations approved when it started.</p>{% endif %}
+    {% if business_review.state != 'STALE' %}
+    <div class="table-scroll" tabindex="0" aria-label="Expected and proposed changes by record type">
+      <table><thead><tr><th scope="col">Record type</th><th scope="col">Allowed changes</th><th scope="col">Expected new</th><th scope="col">Found new</th><th scope="col">Expected updates</th><th scope="col">Found updates</th><th scope="col">Result and next action</th></tr></thead>
+      <tbody>{% for model in business_review.models %}<tr>
+        <th scope="row">{{ model.label }}</th>
+        <td>{{ change_modes[model.mode] if business_review.intent_version else 'No saved choice' }}</td>
+        <td>{{ count_expectation(model.create_min, model.create_max) }}</td><td>{{ model.creates }}</td>
+        <td>{{ count_expectation(model.update_min, model.update_max) }}</td><td>{{ model.updates }}</td>
+        <td>{% if model.deviation_count or business_review.state == 'MISSING' %}<strong class="text-warning">Needs review</strong><br><a href="/workspaces/{{ workspace_id }}/summary/expectations#expect-{{ model.model }}">Review {{ model.label }} expectations</a>{% else %}Within limits{% endif %}
+          <br><a href="/workspaces/{{ workspace_id }}/summary/expectations/review?snapshot={{ business_review.snapshot_hash|urlencode }}&amp;assessment={{ business_review.assessment_hash|urlencode }}&amp;model={{ model.model|urlencode }}{% if business_run_id %}&amp;run={{ business_run_id|urlencode }}{% endif %}">{{ model.value_field_count }} value fields, {{ model.relationship_field_count }} linked fields</a>
+        </td></tr>{% endfor %}</tbody></table>
+    </div>
+    <a href="/workspaces/{{ workspace_id }}/summary/expectations/review?snapshot={{ business_review.snapshot_hash|urlencode }}&amp;assessment={{ business_review.assessment_hash|urlencode }}{% if business_run_id %}&amp;run={{ business_run_id|urlencode }}{% endif %}">Review all {{ business_review.model_count }} record types and field limits</a>
+    {% endif %}
+  {% else %}
+    <p>{{ 'The original expectation detail is available from this load’s saved evidence.' if business_run_id else 'Choose what this load may create or change, then compare the prepared data with Odoo.' }}</p>
+  {% endif %}
+  {% if not business_run_id %}<p><a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/expectations">{{ 'Edit business expectations' if business_review else 'Set business expectations' }}</a></p>{% endif %}
+</section>

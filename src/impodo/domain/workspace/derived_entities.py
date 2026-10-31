@@ -1462,11 +1462,7 @@ def mapping_source_selection(
         if item.dataset_id not in physical_dataset_ids
         or dataset_uses[item.dataset_id].is_map_eligible
     ]
-    hierarchy_links = tuple(
-        _derived_dataset_link(rule, plan)
-        for rule in (plan.rules if plan else ())
-        if isinstance(rule, HierarchicalLookupRule)
-    )
+    hierarchy_links = tuple(binding.link for binding in hierarchy_consumer_bindings(plan))
     hierarchy_names = {
         _derived_dataset_link(rule, plan).source_column_key: rule.output_dataset_name
         for rule in (plan.rules if plan else ())
@@ -1485,20 +1481,23 @@ def mapping_source_selection(
                 continue
             columns = list(dataset.columns)
             known_keys = {item.stable_key for item in columns}
+            known_names = {item.source_name for item in columns}
             for link in links:
                 if link.source_column_key in known_keys:
                     continue
+                name = f"Selected {hierarchy_names[link.source_column_key]} path"
+                while name in known_names:
+                    name += " (generated)"
                 columns.append(
                     SourceDatasetColumn(
                         ordinal=len(columns) + 1,
-                        source_name=(
-                            f"Selected {hierarchy_names[link.source_column_key]} path"
-                        ),
+                        source_name=name,
                         stable_key=link.source_column_key,
                         candidate_type="string",
                     )
                 )
                 known_keys.add(link.source_column_key)
+                known_names.add(name)
             augmented.append(replace(dataset, columns=tuple(columns)))
         effective = augmented
 
@@ -1570,6 +1569,103 @@ def derived_dataset_links(
         for rule in (plan.rules if plan else ())
         if isinstance(rule, (DerivedEntityRule, HierarchicalLookupRule))
     )
+
+
+@dataclass(frozen=True, slots=True)
+class HierarchyConsumerBinding:
+    """Carry one physical hierarchy through a saved exact join's row lineage."""
+
+    rule: HierarchicalLookupRule
+    link: DerivedDatasetLink
+    carried: bool = False
+
+    @property
+    def presence_key(self) -> str:
+        return f"{self.link.source_column_key}:source_present"
+
+    @property
+    def source_name(self) -> str:
+        return f"Selected {self.rule.output_dataset_name} path"
+
+
+def hierarchy_consumer_bindings(
+    plan: DerivedEntityPlan | None,
+) -> tuple[HierarchyConsumerBinding, ...]:
+    """Discover hierarchy consumers through any input of a dependency-ordered join."""
+
+    joins = {
+        structural_dataset_id(rule): rule
+        for rule in (plan.rules if plan else ())
+        if isinstance(rule, ExactJoinRule)
+    }
+    ancestors: dict[str, frozenset[str]] = {}
+
+    def inputs(dataset_id: str, visiting: frozenset[str] = frozenset()) -> frozenset[str]:
+        if dataset_id in ancestors:
+            return ancestors[dataset_id]
+        if dataset_id in visiting:
+            raise WorkspaceError("Source-preparation joins contain a dependency cycle")
+        join = joins.get(dataset_id)
+        if join is None:
+            return frozenset({dataset_id})
+        trail = visiting | {dataset_id}
+        result = inputs(join.left_dataset_id, trail) | inputs(join.right_dataset_id, trail)
+        ancestors[dataset_id] = result
+        return result
+
+    result: list[HierarchyConsumerBinding] = []
+    for rule in plan.rules if plan else ():
+        if not isinstance(rule, HierarchicalLookupRule):
+            continue
+        link = _derived_dataset_link(rule, plan)
+        result.append(HierarchyConsumerBinding(rule, link))
+        level_keys = tuple(
+            f"{link.source_column_key}:level:{index}"
+            for index in range(len(rule.source_level_column_keys))
+        )
+        for dataset_id, join in sorted(joins.items()):
+            if join.map_output and rule.source_dataset_id in inputs(dataset_id):
+                result.append(HierarchyConsumerBinding(
+                    rule,
+                    replace(link, consumer_dataset_id=dataset_id, source_level_column_keys=level_keys),
+                    carried=True,
+                ))
+    return tuple(result)
+
+
+def derived_consumer_links(plan: DerivedEntityPlan | None) -> tuple[DerivedDatasetLink, ...]:
+    """Expose original lookup links and hierarchy links carried into combined outputs."""
+
+    return (*derived_dataset_links(plan), *(
+        binding.link for binding in hierarchy_consumer_bindings(plan) if binding.carried
+    ))
+
+
+def hierarchy_consumer_values(
+    binding: HierarchyConsumerBinding,
+    source_values: Mapping[str, object] | None,
+) -> dict[str, object]:
+    """Project a canonical path and private raw levels without losing blank-policy evidence."""
+
+    evaluation = (
+        evaluate_hierarchy_path(binding.rule, source_values)
+        if source_values is not None else None
+    )
+    return {
+        binding.link.source_column_key: (
+            " / ".join(evaluation.canonical_parts)
+            if evaluation is not None and evaluation.has_path else None
+        ),
+        binding.presence_key: source_values is not None,
+        **{
+            carried_key: source_values.get(source_key) if source_values is not None else None
+            for source_key, carried_key in zip(
+                binding.rule.source_level_column_keys,
+                binding.link.source_level_column_keys,
+                strict=True,
+            )
+        },
+    }
 
 
 def derived_mapping_samples(

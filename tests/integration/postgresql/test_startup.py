@@ -266,7 +266,7 @@ class PostgreSQLStartupInspectorTests(unittest.TestCase):
         cases: tuple[tuple[tuple[object, ...], ...] | Exception, ...] = (
             PostgreSQLStatementError("relation name"),
             (),
-            (("impodo-control-v1", 0),),
+            ((POSTGRESQL_CONTROL_SCHEMA_GENERATION, 0),),
             (("future-generation", 99),),
         )
         for response in cases:

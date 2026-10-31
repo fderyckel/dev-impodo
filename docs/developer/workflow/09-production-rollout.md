@@ -146,10 +146,10 @@ can establish what happened before retry.
 ## Odoo compatibility and performance
 
 The exact registry generation is
-`impodo-migration-registry-2026-08-project-root`. Supported older versions in
-that generation upgrade transactionally before use. Version 7 adds the separate
-`production_run_values` table. The upgrade preserves Test answer JSON and hashes. Other generations remain
-unchanged and fail closed.
+`impodo-migration-registry-2026-10-31-project-root`. The initial schema at version 1
+creates the separate `production_run_values` table. Test answer JSON and hashes
+remain separate from Production values. Other generations remain unchanged and
+fail closed.
 
 Project overview loads Production bindings with one registry query and setup
 completion with one additional query that excludes intent payloads. Credential

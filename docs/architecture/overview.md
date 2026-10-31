@@ -203,18 +203,18 @@ facts; the historical filename is not a Project aggregate identity. Every
 workspace-store or engine open verifies the complete Project, workspace,
 DataVersion, run, and optional application linkage first.
 
-Impodo recognizes the current registry, DataVersion, workspace-store, and
-`impodo-workspace-engine-2026-08-workspace-owned` engine generations. When one
-of those databases has a supported older version, Impodo applies its complete
-forward-only migration path in one transaction, records the applied steps,
-and validates the exact current shape before normal repository access. An
-interruption rolls back that database; the next open can safely retry it.
+The first-project baseline dated 31 October 2026 creates the registry,
+DataVersion, workspace reference store, and workspace engine directly at
+schema version 1 under distinct generations. Future structural changes can
+register consecutive forward upgrades. Each database's complete path runs
+in one transaction and validates the exact final shape before repository
+access. An interruption rolls back that database so its next open can retry.
 
 A different generation, a version below the supported baseline, a newer
 version, a missing migration step, or a malformed shape is rejected without
-mutation. Retired mixed-owner and Recipe-first generations still require the
-reviewed development reset. Runtime adoption, semantic backfill, identity
-aliases, dual reads, and dual writes remain absent.
+mutation. Development resets and automatic archives of superseded layouts
+have been removed. See [Storage and release versioning](../developer/reference/storage-and-release-versioning.md)
+for the separate version owners and maintenance rules.
 
 ## Odoo and performance boundaries
 

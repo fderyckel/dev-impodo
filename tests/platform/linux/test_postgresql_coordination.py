@@ -237,9 +237,6 @@ class PostgreSQLCoordinationLiveTests(unittest.TestCase):
                 replace(projection, data_plane_receipt_hash=HASH_A)
             )
         with psycopg.connect(self.dsn) as connection:
-            connection.execute("TRUNCATE impodo_control.projection_current")
-            backfill = POSTGRESQL_MIGRATIONS[3].statements[1]
-            connection.execute(backfill.query, backfill.parameters)
             state, data_count, projection_count, current_count, runtime_can_delete = (
                 connection.execute(
                     """

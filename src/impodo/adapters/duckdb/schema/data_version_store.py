@@ -17,9 +17,9 @@ from .forward_upgrades import (
 )
 from .structure import read_table_columns
 
-DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-08-project-owned"
+DATA_VERSION_STORE_GENERATION = "impodo-data-version-store-2026-10-31-project-owned"
 DATA_VERSION_STORE_BASELINE_VERSION = 1
-DATA_VERSION_STORE_VERSION = 2
+DATA_VERSION_STORE_VERSION = 1
 EXPECTED_DATA_VERSION_STORE_COLUMNS = {
     "schema_version": ("singleton_id", "generation", "version"),
     "schema_migration": SCHEMA_MIGRATION_COLUMNS,
@@ -236,18 +236,7 @@ def _validate_current_schema(
             raise _compatibility_error(database_path)
 
 
-def _upgrade_data_version_store_v1_to_v2(
-    connection: duckdb.DuckDBPyConnection,
-) -> None:
-    create_schema_migration_ledger(connection)
-
-
-DATA_VERSION_STORE_UPGRADES = {
-    1: ForwardSchemaUpgrade(
-        migration_id="data-version-store-v1-to-v2-migration-ledger",
-        apply=_upgrade_data_version_store_v1_to_v2,
-    ),
-}
+DATA_VERSION_STORE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {}
 
 
 def _tables(connection: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
@@ -255,9 +244,4 @@ def _tables(connection: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
 
 
 def _compatibility_error(database_path: Path) -> MigrationStorageCompatibilityError:
-    root = database_path.resolve().parents[4]
-    command = (
-        ".\\.venv\\Scripts\\python.exe scripts\\reset-development-storage.py "
-        f'--root "{root}"'
-    )
-    return MigrationStorageCompatibilityError(str(database_path.resolve()), command)
+    return MigrationStorageCompatibilityError(str(database_path.resolve()))

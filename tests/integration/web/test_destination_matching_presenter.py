@@ -20,6 +20,7 @@ from impodo.domain.odoo_relationship_scope import (
     OdooRelationshipScopeDecision,
 )
 from impodo.domain.odoo_source_scope import RelatedDataHandling
+from impodo.web.presenters.user_help import DECISION_HELP_BY_ID
 from impodo.web.routers.destination_matching import _matching_rows
 from tests.application.workspace.test_destination_matching import (
     _binding,
@@ -48,6 +49,7 @@ class DestinationMatchingPresenterTests(unittest.TestCase):
         )
         self.templates.globals.update(
             app_icon=lambda _name: "",
+            decision_help_by_id=DECISION_HELP_BY_ID,
             url_for=lambda *_args, **_kwargs: "",
         )
 

@@ -130,10 +130,9 @@ with the fresh source selection and does not replace them after the Test
 DataVersion is frozen. An older frozen delivery may add its missing answers
 once. A legacy record may add missing controls once while preserving its
 accepted parameters. Both service validation and the repository transaction
-enforce that exception through the same domain rule. Registry schema version
-6 permits contract versions 1 and 2 and preserves the exact existing JSON and
-content hashes during upgrade. New records use version 2; old records remain
-readable without being reinterpreted.
+enforce that exception through the same domain rule. The initial registry
+schema permits run-value contract versions 1 and 2. New records use version 2;
+the portable contract version remains independent of the store schema number.
 
 Activation reads this evidence once, adds
 the standard export-as-of date where declared, validates every exact Recipe
@@ -307,11 +306,10 @@ evaluation. A cached ruleset that an older build published without those rules
 is repaired before any row is evaluated. Run-local rule editing retains the
 Recipe rules; changing their meaning requires a new Recipe version.
 
-Workspace engine schema version 10 adds the saved mapping baseline through a
-structural forward upgrade. Older seeds keep their checks for the exact
-original mapping. An older application without a baseline cannot accept new
-mapping choices; create a new application of the pinned Recipe in that case.
-The upgrade does not infer a baseline from an edited draft.
+The initial workspace-engine schema stores the saved mapping baseline.
+An application without a baseline cannot accept new mapping choices; create a
+new application of the pinned Recipe in that case. Impodo does not infer a
+baseline from an edited draft.
 
 When the current application has no blocker, the same service checks and
 submits the freshly rebound mapping through `MappingWorkspaceService`. It does
@@ -459,12 +457,12 @@ describes the selected destination as a supported Odoo target so its labels do
 not need to change for each newly supported major version.
 
 The exact registry generation is
-`impodo-migration-registry-2026-08-project-root`. The DataVersion generation is
-`impodo-data-version-store-2026-08-project-owned`; the MigrationWorkspace
+`impodo-migration-registry-2026-10-31-project-root`. The DataVersion generation is
+`impodo-data-version-store-2026-10-31-project-owned`; the MigrationWorkspace
 reference-store generation is
-`impodo-migration-workspace-2026-08-reference-only`. Supported older versions
-within those generations upgrade transactionally before use. Other
-generations remain unchanged and fail closed.
+`impodo-migration-workspace-2026-10-31-reference-only`. Each store starts at version 1.
+Future versions can register transactional upgrades within those generations.
+Other generations remain unchanged and fail closed.
 
 Provisioning reads one Project outside the application loop and indexes
 workspaces by ID. Integrated progress, exact Recipe names, and batch issues use

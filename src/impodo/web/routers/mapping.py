@@ -64,7 +64,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.derived_entities import (
-    derived_dataset_links,
+    derived_consumer_links,
     related_dataset_links,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -597,7 +597,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 schema,
                 draft.definition if draft is not None else None,
                 related_links=related_dataset_links(preparation_plan),
-                derived_links=derived_dataset_links(preparation_plan),
+                derived_links=derived_consumer_links(preparation_plan),
                 tie_break_order=tie_break_order,
             )
             prepared = await run_in_threadpool(
@@ -1738,7 +1738,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema,
                     governance,
                     fixed_controls=fixed_controls,
-                    derived_links=derived_dataset_links(preparation_plan),
+                    derived_links=derived_consumer_links(preparation_plan),
                 )
                 _require_selected_company_scopes(
                     context,
@@ -1820,7 +1820,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         schema,
                         working_draft.definition,
                         related_links=related_dataset_links(preparation_plan),
-                        derived_links=derived_dataset_links(preparation_plan),
+                        derived_links=derived_consumer_links(preparation_plan),
                         tie_break_order=preference_tie_break,
                     )
                     work_order = context.matching_order.effective_preference_order(

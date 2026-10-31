@@ -1194,7 +1194,7 @@ def _dataset_mapping_from_dict(
         dataset_id=str(payload["dataset_id"]),
         target_model=str(payload.get("target_model", "")),
         row_inclusion=(
-            _row_inclusion_policy_from_dict(payload["row_inclusion"])
+            row_inclusion_policy_from_dict(payload["row_inclusion"])
             if contract_version >= 16
             else RowInclusionPolicy()
         ),
@@ -1274,9 +1274,11 @@ def _dataset_mapping_to_dict(
     return payload
 
 
-def _row_inclusion_policy_from_dict(
+def row_inclusion_policy_from_dict(
     payload: Mapping[str, Any],
 ) -> RowInclusionPolicy:
+    """Decode the shared closed row rule for mappings and Odoo transfers."""
+
     _require_contract_fields(
         payload,
         _contract_fields(RowInclusionPolicy),

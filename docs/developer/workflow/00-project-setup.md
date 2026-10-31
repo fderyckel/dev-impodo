@@ -29,9 +29,11 @@ ever publishing reusable rules.
 The operator has an authenticated local session and can create Projects. The
 new storage root must match the exact Project-root registry, Project-owned
 DataVersion store, reference-only MigrationWorkspace store, and workspace-owned
-engine generations. Supported older versions within those generations upgrade
-transactionally before use. Retired generations require the reviewed
-development reset.
+engine generations. The first-project baseline dated 31 October 2026 creates
+all four stores directly at schema version 1. Unsupported generations and
+versions are rejected without changing their files. Future releases can add
+transactional upgrades within these generations; see
+[Storage and release versioning](../reference/storage-and-release-versioning.md).
 
 ## Implementation flow
 

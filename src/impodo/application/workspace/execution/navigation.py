@@ -15,6 +15,8 @@ from dataclasses import asdict, dataclass, replace
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.preflight.reports import ReadinessReport
 
+from .business_review import BusinessIntentReview
+
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 MAX_VISIBLE_LOAD_GROUPS = 5
 MAX_VISIBLE_GROUP_DATASETS = 3
@@ -44,6 +46,8 @@ class ExecutionPreviewSummary:
     read_context_hash: str
     execution_shape_ready: bool
     contract_version: int = 1
+    business_intent_state: str = ""
+    business_intent_assessment_hash: str = ""
 
     def __post_init__(self) -> None:
         counts = (
@@ -83,6 +87,7 @@ class ExecutionPreviewSummary:
             or self.ambiguous_count
             or self.relationship_blocker_count
             or not self.execution_shape_ready
+            or self.business_intent_state in {"MISSING", "STALE", "DEVIATION"}
         )
 
 
@@ -238,10 +243,11 @@ class ExecutionReviewProjection:
     scope_error_code: str = ""
     credential_refresh_required: bool = False
     contract_version: int = 1
+    business_intent: BusinessIntentReview | None = None
 
     def __post_init__(self) -> None:
         if (
-            self.contract_version != 1
+            self.contract_version not in {1, 2}
             or self.snapshot.preflight_run_id != self.summary.preflight_run_id
             or self.snapshot.semantic_hash != self.summary.snapshot_hash
             or self.snapshot.root_hash != self.summary.snapshot_root_hash
@@ -251,6 +257,18 @@ class ExecutionReviewProjection:
             or len(self.blocker_summary.groups) > MAX_VISIBLE_BLOCKER_GROUPS
         ):
             raise ValueError("Execution review projection is invalid")
+        if self.business_intent is not None and (
+            self.business_intent.snapshot_hash != self.summary.snapshot_hash
+            or self.business_intent.state != self.summary.business_intent_state
+            or self.business_intent.assessment_hash != self.summary.business_intent_assessment_hash
+        ):
+            raise ValueError("Business review differs from the execution projection")
+
+    def with_business_intent(self, review: BusinessIntentReview) -> ExecutionReviewProjection:
+        """Attach committed expectations without changing snapshot identities."""
+        return replace(self, business_intent=review, contract_version=2,
+            summary=replace(self.summary, business_intent_state=review.state,
+                business_intent_assessment_hash=review.assessment_hash))
 
     @property
     def current_run(self) -> str | None:
@@ -356,6 +374,7 @@ class ExecutionReviewProjection:
                 payload.get("credential_refresh_required", False)
             ),
             contract_version=int(payload["contract_version"]),
+            business_intent=BusinessIntentReview.from_dict(payload["business_intent"]) if payload.get("business_intent") else None,
         )
 
 

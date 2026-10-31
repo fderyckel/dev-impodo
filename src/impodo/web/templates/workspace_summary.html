@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/review.js') }}" defer></script>
 {% endblock %}
@@ -233,6 +234,7 @@
     </section>
 
   {% elif readiness %}
+    {% if not odoo_source %}{% include "_business_intent_review.html" %}{% endif %}
     {% if not (load_preview and (load_preview.can_load or load_preview.current_run)) %}
     <section class="next-action-card {% if readiness.blocked_count %}blocked{% elif readiness.needs_review_count %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
       <div>

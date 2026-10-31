@@ -63,6 +63,11 @@ class TransferPreflightService:
 
         global_blockers: set[str] = set()
         if (
+            fresh_match.row_inclusion_scope_hash != approved_match.row_inclusion_scope_hash
+            or not fresh_match.row_inclusion_confirmed
+        ):
+            global_blockers.add("ROW_INCLUSION_SCOPE_DRIFT")
+        if (
             fresh_match.destination_read_permission_hash
             != approved_match.destination_read_permission_hash
         ):

@@ -704,6 +704,7 @@ class ExecutionServiceTests(unittest.TestCase):
             SimpleNamespace(
                 current_execution_snapshot=lambda _project_id: snapshot,
                 current_business_intent_assessment=lambda _id, _hash: assessment_for(snapshot),
+                business_intent_review=lambda *_args, **_kwargs: None,
                 require_business_intent_approval=lambda _id, _run: None,
             ),
             journal,

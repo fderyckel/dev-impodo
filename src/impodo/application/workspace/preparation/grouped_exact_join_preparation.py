@@ -78,7 +78,9 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
     HierarchicalLookupRule,
+    HierarchyConsumerBinding,
     derived_dataset_links,
+    hierarchy_consumer_bindings,
 )
 from impodo.domain.workspace.workbench import WorkspaceState
 
@@ -99,6 +101,7 @@ class BoundedExactJoinGroup:
     primary_dataset_id: str
     participant_dataset_ids: tuple[str, ...]
     output_dataset_id: str
+    hierarchies: tuple[HierarchyConsumerBinding, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -273,6 +276,8 @@ def bounded_exact_join_group(
         primary_dataset_id=primary_id,
         participant_dataset_ids=participant_ids,
         output_dataset_id=final_id,
+        hierarchies=tuple(binding for binding in hierarchy_consumer_bindings(plan)
+                          if binding.carried and binding.link.consumer_dataset_id == final_id),
     )
 
 

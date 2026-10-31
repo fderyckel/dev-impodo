@@ -58,4 +58,4 @@ def seed_journal_assessment(connection, run, *, actor):
             sum(row.operation == "CREATE" and row.target_model == model for row in run.rows),
             sum(row.operation == "UPDATE" and row.target_model == model for row in run.rows),
             (), (), (), ()) for model in models), ())
-    return publish_business_observation(connection, observation).content_hash
+    return publish_business_observation(connection, observation, publish_review=False).content_hash

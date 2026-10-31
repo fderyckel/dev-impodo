@@ -16,6 +16,7 @@ from impodo.domain.workspace.business_intent import (
     BusinessIntentRevision,
 )
 
+from .business_intent_assessment_repository import invalidate_business_review
 from .repository import DuckDbRepository
 
 
@@ -126,6 +127,7 @@ class BusinessIntentRepository(DuckDbRepository):
                 # a racing edit cannot commit alongside a stale approval.
                 try:
                     connection.execute("UPDATE business_intent_current SET assessment_hash = '' WHERE singleton_id = 1")
+                    invalidate_business_review(connection)
                 except duckdb.TransactionException as error:
                     raise BusinessIntentError("A load or business expectations changed; retry the exact operation or review the current revision") from error
             except Exception:

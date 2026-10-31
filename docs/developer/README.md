@@ -84,6 +84,7 @@ uv run --frozen --group quality python scripts/check_python_quality.py
 - [Python code map](../architecture/python-code-map.md)
 - [Architecture decisions](../decisions/README.md)
 - [Platform support and testing](reference/platform-support-and-testing.md)
+- [Storage and release versioning](reference/storage-and-release-versioning.md)
 - [Examples and edge cases](reference/examples-and-edge-cases.md)
 - [Documentation style guide](../style-guide.md)
 

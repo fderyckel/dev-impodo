@@ -18,6 +18,10 @@ from impodo.application.destination_matching_service import (
     destination_match_key_candidates,
 )
 from impodo.application.shared.secrets import SecretStoreError
+from impodo.domain.mapping.contracts import (
+    MAX_ROW_INCLUSION_CONDITIONS,
+    RowInclusionPolicy,
+)
 from impodo.domain.mapping.create_field_policy import CREATE_FIXED_VALUE_TYPES
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
@@ -34,6 +38,7 @@ from impodo.domain.workspace.destination_matching import (
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
+    confirm_destination_row_inclusion,
     set_destination_field_exclusion,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -43,10 +48,12 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
+from ..presenters.mapping_forms import _row_inclusion_from_form
+from ..presenters.mapping_view import _row_inclusion_slots
 from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
@@ -68,6 +75,26 @@ def _choice_value(dataset_id: str, source_column_key: str) -> str:
     return f"{dataset_id}::{source_column_key}"
 
 
+def _confirm_row_rules(context: WebContext, workspace_id: str, form, actor: Actor):
+    """Confirm exact checked rows in one bounded local command."""
+
+    workspace = context.queries.get(workspace_id)
+    selection, schema = _matching_evidence(context, workspace_id)
+    plan = workspace.destination_match_plan
+    if plan is None or not workspace.destination_match_current(
+        source_selection_hash=selection.content_hash, source_schema_hash=schema.content_hash
+    ):
+        raise WorkspaceError("Check the current destination rows before confirming.")
+    if form.get("confirmation") != "confirm":
+        raise WorkspaceError("Confirm the checked rows to use before continuing.")
+    confirmed = confirm_destination_row_inclusion(
+        plan, expected_plan_hash=str(form.get("match_plan_hash", ""))
+    )
+    return context.workspace_states.save_destination_match_plan(
+        workspace_id, actor=actor, expected_revision=_revision(form), plan=confirmed
+    )
+
+
 def _uses_odoo_default(item: dict[str, object]) -> bool:
     decision = item.get("decision")
     return (
@@ -76,8 +103,29 @@ def _uses_odoo_default(item: dict[str, object]) -> bool:
     )
 
 
-def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
+def _row_rule_fields(selection) -> set[str]:
+    """Allow only the shared eight-condition builder for each frozen table."""
+
+    fields: set[str] = set()
+    for index, _dataset in enumerate(selection.datasets):
+        fields.update({f"row_inclusion_mode_{index}", f"row_inclusion_join_{index}"})
+        fields.update(
+            f"row_inclusion_{name}_{index}_{slot}"
+            for slot in range(MAX_ROW_INCLUSION_CONDITIONS)
+            for name in ("condition_id", "source", "operator", "value", "type")
+        )
+    return fields
+
+
+def _parse_choices(form, selection) -> tuple[DestinationMatchKeyChoice, ...]:
     choices: list[DestinationMatchKeyChoice] = []
+    policies = {
+        dataset.dataset_id: _row_inclusion_from_form(
+            form, dataset_index=index,
+            source_columns={column.stable_key for column in dataset.columns},
+        )
+        for index, dataset in enumerate(selection.datasets)
+    }
     extras: dict[str, list[str]] = {}
     handlings: dict[str, str] = {}
     for raw in form.getlist("destination_handling"):
@@ -114,6 +162,7 @@ def _parse_choices(form) -> tuple[DestinationMatchKeyChoice, ...]:
                 source_column_key=source_column_key,
                 additional_source_column_keys=tuple(extras.pop(dataset_id, ())),
                 destination_handling=destination_handling,
+                row_inclusion=policies.get(dataset_id, RowInclusionPolicy()),
             )
         )
     if extras or handlings:
@@ -243,6 +292,20 @@ def _matching_rows(
                     for index in range(optional_slots)
                 ),
                 "result": result_by_dataset.get(dataset.dataset_id),
+                "row_inclusion_view": {
+                    "source": dataset,
+                    "active": True,
+                    "mapping": None,
+                    "row_inclusion_policy": (
+                        result_by_dataset[dataset.dataset_id].row_inclusion
+                        if dataset.dataset_id in result_by_dataset else RowInclusionPolicy()
+                    ),
+                    "row_inclusion_slots": _row_inclusion_slots(
+                        dataset.dataset_id,
+                        result_by_dataset[dataset.dataset_id].row_inclusion
+                        if dataset.dataset_id in result_by_dataset else RowInclusionPolicy(),
+                    ),
+                },
                 "identity_issue_rows": (),
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
@@ -432,6 +495,27 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     router = APIRouter()
     service = DestinationMatchingService(context.categorical_coverage)
 
+    @router.post("/workspaces/{workspace_id}/destination-matching/rows-to-use/confirm")
+    async def confirm_rows_to_use(request: Request, workspace_id: str):
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "revision", "match_plan_hash", "confirmation"})
+        actor = request_identity(request, context.identity_resolver).actor
+        try:
+            await run_local_operation(_confirm_row_rules, context, workspace_id, form, actor)
+        except (PermissionError, WorkspaceError, WorkspaceStateError, ValueError) as error:
+            error_message = str(error)
+
+            def render_error():
+                workspace = context.queries.get(workspace_id)
+                selection, schema = _matching_evidence(context, workspace_id)
+                return _render_matching(
+                    request, context, workspace, selection, schema,
+                    actor=actor, error=error_message, status_code=422,
+                )
+            return await run_page_read(render_error)
+        _flash(request, "Rows to use confirmed for this exact source and rule.")
+        return RedirectResponse(f"/workspaces/{workspace_id}/destination-matching#matching-results", status_code=303)
+
     @router.get(
         "/workspaces/{workspace_id}/destination-matching",
         response_class=HTMLResponse,
@@ -479,6 +563,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/destination-matching")
     async def check_destination_matching(request: Request, workspace_id: str):
         form = await request.form()
+        selection, schema = await run_page_read(_matching_evidence, context, workspace_id)
         _secure_form(
             request,
             form,
@@ -488,7 +573,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "match_key",
                 "match_key_extra",
                 "destination_handling",
-            },
+            } | _row_rule_fields(selection),
         )
         actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
@@ -514,7 +599,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError(
                     "The workspace changed in another request; reload before continuing"
                 )
-            choices = _parse_choices(form)
+            choices = _parse_choices(form, selection)
             previous = workspace_state.destination_match_plan
             choice_keys = {item.dataset_id: item.source_column_keys for item in choices}
             exclusions = {
@@ -572,6 +657,9 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
+                row_inclusion_confirmation_hash=(
+                    previous.row_inclusion_confirmation_hash if previous else None
+                ),
                 relationship_scope=(
                     context.queries.get_current_odoo_relationship_scope(workspace_id)
                 ),
@@ -618,6 +706,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             PermissionError,
             WorkspaceError,
             WorkspaceStateError,
+            ValueError,
         ) as error:
             return _render_matching(
                 request,
@@ -1045,6 +1134,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                     source_column_key=item.source_column_key,
                     additional_source_column_keys=item.source_column_keys[1:],
                     destination_handling=item.destination_handling,
+                    row_inclusion=item.row_inclusion,
                 )
                 for item in previous.model_matches
             )
@@ -1091,6 +1181,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 excluded_source_rows=exclusions,
+                row_inclusion_confirmation_hash=previous.row_inclusion_confirmation_hash,
             )
             access = None
             previous_evidence = None

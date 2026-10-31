@@ -70,9 +70,9 @@ revisions with the same version. A reused operation identity must retain the
 same request and stable Actor identity. Failed publication rolls back both
 revision and audit event.
 
-Workspace-engine schema version 23 adds an empty table. Upgrading a historical
-workspace creates no intent or approval and preserves existing evidence. Its
-first intent requires an explicit authorized save at expected revision zero.
+The initial workspace-engine schema creates an empty intent table. A new
+workspace has no implicit intent or approval. Its first intent requires an
+explicit authorized save at expected revision zero.
 
 Detailed rules remain data-plane evidence, separate from the operational
 `project_operation_intent` idempotency store. The deployment-neutral service

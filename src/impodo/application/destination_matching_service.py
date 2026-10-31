@@ -5,13 +5,15 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
 from math import isfinite
 from typing import Protocol, TypeGuard
 from uuid import uuid4
 
+from impodo.application.transfer_row_inclusion import evaluate_transfer_row_inclusion
 from impodo.domain.execution.planner import MAX_KEYS_PER_RECORD_REQUEST
-from impodo.domain.mapping.contracts import ResolverOrigin
+from impodo.domain.mapping.contracts import ResolverOrigin, RowInclusionPolicy
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     VerifiedCreateDefaultAction,
@@ -146,6 +148,7 @@ class DestinationMatchKeyChoice:
     source_column_key: str
     additional_source_column_keys: tuple[str, ...] = ()
     destination_handling: str = "transfer"
+    row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
 
     def __post_init__(self) -> None:
         if self.destination_handling not in DESTINATION_HANDLINGS:
@@ -203,6 +206,9 @@ class _PreparedModel:
     excluded_source_row_numbers: tuple[int, ...] = ()
     unreferenced_source_row_numbers: tuple[int, ...] = ()
     destination_handling: str = "transfer"
+    row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
+    rule_excluded_source_row_numbers: tuple[int, ...] = ()
+    rule_blocked_source_row_numbers: tuple[int, ...] = ()
 
     @property
     def included_source_row_count(self) -> int:
@@ -212,7 +218,10 @@ class _PreparedModel:
     def omitted_source_row_numbers(self) -> tuple[int, ...]:
         return tuple(
             sorted(
-                self.excluded_source_row_numbers + self.unreferenced_source_row_numbers
+                set(self.excluded_source_row_numbers)
+                | set(self.unreferenced_source_row_numbers)
+                | set(self.rule_excluded_source_row_numbers)
+                | set(self.rule_blocked_source_row_numbers)
             )
         )
 
@@ -373,6 +382,7 @@ class DestinationMatchingService:
         source_origins: Mapping[str, tuple[OdooOriginBatch, ...]] | None = None,
         excluded_source_rows: Mapping[str, Sequence[int]] | None = None,
         relationship_scope: OdooRelationshipScope | None = None,
+        row_inclusion_confirmation_hash: str | None = None,
     ) -> DestinationMatchPlan:
         """Return a current plan from one bounded metadata/record read."""
 
@@ -382,6 +392,7 @@ class DestinationMatchingService:
         destination_handlings = {
             item.dataset_id: item.destination_handling for item in choices
         }
+        row_policies = {item.dataset_id: item.row_inclusion for item in choices}
         if len(selected) != len(choices):
             raise WorkspaceError("Choose one matching field for each source table")
         if set(selected) != {item.dataset_id for item in selection.datasets}:
@@ -495,7 +506,12 @@ class DestinationMatchingService:
                     f"Choose current source records for {dataset.name}"
                 )
             exclusions = tuple(sorted(set(raw_exclusions)))
-            if exclusions:
+            policy = row_policies[dataset.dataset_id]
+            rule_excluded, rule_blocked = evaluate_transfer_row_inclusion(
+                self._source_values, workspace.workspace_id, dataset, policy
+            )
+            rule_omissions = set(rule_excluded) | set(rule_blocked)
+            if exclusions or rule_omissions:
                 rows = self._source_values.source_key_tuples(
                     workspace.workspace_id,
                     dataset.dataset_id,
@@ -519,7 +535,7 @@ class DestinationMatchingService:
                         f"Only current identity issues can be put aside for {dataset.name}"
                     )
                 for index, row in enumerate(rows, start=1):
-                    if index in exclusions:
+                    if index in exclusions or index in rule_omissions:
                         continue
                     value = full_keys[index - 1]
                     if value:
@@ -644,6 +660,9 @@ class DestinationMatchingService:
                     ),
                     excluded_source_row_numbers=exclusions,
                     destination_handling=destination_handlings[dataset.dataset_id],
+                    row_inclusion=policy,
+                    rule_excluded_source_row_numbers=rule_excluded,
+                    rule_blocked_source_row_numbers=rule_blocked,
                 )
             )
 
@@ -779,6 +798,11 @@ class DestinationMatchingService:
             ),
             create_field_evidence=create_field_evidence,
         )
+        if (
+            row_inclusion_confirmation_hash == plan.row_inclusion_scope_hash
+            and plan.row_inclusion_confirmable
+        ):
+            plan = replace(plan, row_inclusion_confirmation_hash=row_inclusion_confirmation_hash)
         try:
             compile_odoo_relationship_datasets(
                 plan,
@@ -817,7 +841,7 @@ class DestinationMatchingService:
                 set()
                 if item.dataset_id in reference_dataset_ids
                 else set(range(1, item.source_row_count + 1))
-                - set(item.excluded_source_row_numbers)
+                - set(item.omitted_source_row_numbers)
             )
             for item in prepared
         }
@@ -857,7 +881,7 @@ class DestinationMatchingService:
                     continue
                 owner_rows = active_rows[relationship.owner.dataset_id]
                 explicit_exclusions = set(
-                    relationship.related.excluded_source_row_numbers
+                    relationship.related.omitted_source_row_numbers
                 )
                 for owner_row_number in tuple(sorted(owner_rows)):
                     if owner_row_number > len(columns):
@@ -892,7 +916,7 @@ class DestinationMatchingService:
                     f"The frozen matching rows for {item.dataset_name} are inconsistent"
                 )
             referenced_rows = active_rows[item.dataset_id]
-            explicit_exclusions = set(item.excluded_source_row_numbers)
+            explicit_exclusions = set(item.omitted_source_row_numbers)
             unreferenced_rows = tuple(
                 row_number
                 for row_number in range(1, item.source_row_count + 1)
@@ -1074,6 +1098,9 @@ class DestinationMatchingService:
             excluded_source_row_numbers=item.excluded_source_row_numbers,
             unreferenced_source_row_numbers=(item.unreferenced_source_row_numbers),
             destination_handling=item.destination_handling,
+            row_inclusion=item.row_inclusion,
+            rule_excluded_source_row_numbers=item.rule_excluded_source_row_numbers,
+            rule_blocked_source_row_numbers=item.rule_blocked_source_row_numbers,
             minimum_create_fields=minimum_create_fields,
             minimum_create_relationship_fields=tuple(
                 sorted(minimum_create_relationship_fields)

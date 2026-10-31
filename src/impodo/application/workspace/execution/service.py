@@ -77,6 +77,7 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from .business_review import BusinessIntentReview
 from .identity_lookups import NestedIdentityLookup
 
 DEFAULT_CREATE_BATCH_ROWS = 10
@@ -214,6 +215,7 @@ class ExecutionWorkspaceRepository(Protocol):
 
 
 class ExecutionSnapshotRepository(Protocol):
+    def business_intent_review(self, workspace_id: str, snapshot_hash: str, *, actor: Actor, run_id: str = "") -> BusinessIntentReview | None: ...
     def current_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessment | BusinessIntentAssessmentSummary | None: ...
 
     def require_business_intent_approval(self, workspace_id: str, run: ExecutionRun) -> None: ...
@@ -386,6 +388,7 @@ class ExecutionPreview:
     )
     prior_interrupted_run: ExecutionRun | None = None
     business_intent_assessment_hash: str = ""
+    business_intent: BusinessIntentReview | None = None
 
     @property
     def can_load(self) -> bool:
@@ -578,6 +581,8 @@ class ExecutionService:
             blocker_summary=_execution_blocker_summary(snapshot),
             prior_interrupted_run=prior,
             business_intent_assessment_hash=assessment_hash,
+            business_intent=self.preflight.business_intent_review(workspace_id, snapshot.semantic_hash, actor=actor, run_id=current.run_id if current else "")
+                if workspace_state.source_mode is SourceMode.FILE else None,
         )
 
     def current_review(
@@ -604,9 +609,13 @@ class ExecutionService:
         )
         scope_error = validated.scope_error
         if workspace_state.source_mode is SourceMode.FILE and not projection.current_run_id:
-            assessment = self.preflight.current_business_intent_assessment(workspace_id, projection.summary.snapshot_hash)
-            if assessment is None or not assessment.ready:
-                scope_error = _business_intent_error(assessment)
+            if projection.business_intent is not None:
+                if not projection.business_intent.ready:
+                    scope_error = projection.business_intent.message
+            else:
+                assessment = self.preflight.current_business_intent_assessment(workspace_id, projection.summary.snapshot_hash)
+                if assessment is None or not assessment.ready:
+                    scope_error = _business_intent_error(assessment)
         return projection.with_scope_error(
             scope_error,
             code=_execution_scope_error_code(scope_error),
@@ -669,6 +678,8 @@ class ExecutionService:
             ):
                 scope_error = "The Odoo read key changed; compare again"
                 credential_refresh_required = True
+        if workspace_state.source_mode is SourceMode.FILE and not state.execution_run_id and summary.business_intent_state in {"MISSING", "DEVIATION", "STALE"}:
+            scope_error = scope_error or "Review business expectations against the proposed changes"
         return ExecutionNavigationPreview(
             state=state,
             scope_error=scope_error,

@@ -84,7 +84,6 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             "impodo.application.preflight_jobs",
             "impodo.application.run.recipe_run_jobs",
             "impodo.application.workspace.execution.load_jobs",
-            "impodo.web.composition.incompatible_project_storage",
             "impodo.web.composition.local_app",
             "impodo.web.composition.local_identity",
             "impodo.web.composition.preparation_job_manager",
@@ -352,7 +351,6 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             request=WebRequestDependencies(
                 project_queries=_fake("project_queries"),
                 identity_resolver=_fake("identity_resolver"),
-                unavailable_projects=(),
             ),
             jobs=job_runtimes,
             infrastructure=WebInfrastructureDependencies(

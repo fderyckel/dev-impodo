@@ -7,6 +7,7 @@ bounded pages.  Connections are request-scoped and are never cached.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -32,6 +33,8 @@ from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     DerivedEntityRule,
+    HierarchyConsumerBinding,
+    hierarchy_consumer_values,
 )
 
 from .database import DuckDbWorkspaceDatabase
@@ -71,6 +74,7 @@ class _ExecutionShape:
     keys_by_dataset: Mapping[str, tuple[str, ...]]
     key_value_types: tuple[str, ...]
     projections: tuple[_JoinProjection, ...]
+    hierarchies: tuple[HierarchyConsumerBinding, ...] = ()
 
 
 class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
@@ -117,15 +121,7 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
             raise SourceLoadError("Choose current logical source columns")
         if maximum_values is not None and (len(keys) != 1 or maximum_values < 1):
             raise ValueError("Choice aggregation requires one column and a positive limit")
-        shape = _execution_shape(group, physical_selection, effective_dataset)
-        by_name = {projection.output_name: projection for projection in shape.projections}
-        shape = _ExecutionShape(
-            shape.primary_dataset_id,
-            shape.participant_ids,
-            shape.keys_by_dataset,
-            shape.key_value_types,
-            tuple(by_name[columns[key].source_name] for key in keys),
-        )
+        shape = _execution_shape(group, physical_selection, effective_dataset, keys)
         needed = _needed_columns(shape)
         with self._connection_factory.connect(
             Path(":memory:"),
@@ -148,6 +144,34 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
                         key_value_types=shape.key_value_types,
                     )
                     tables[dataset_id] = table
+                if shape.hierarchies:
+                    cursor = connection.execute(_joined_query(shape, snapshots, tables))
+                    projected: list[tuple[object, ...]] = []
+                    counts: Counter[str] = Counter()
+                    ordinary = {item.output_name: index for index, item in enumerate(shape.projections)}
+                    total_rows = 0
+                    virtual = {binding.link.source_column_key for binding in shape.hierarchies}
+                    while batch := cursor.fetchmany(1_000):
+                        for raw in batch:
+                            total_rows += 1
+                            source_rows = raw[:len(shape.participant_ids)]
+                            raw_values = raw[len(shape.participant_ids):]
+                            values = _decode_values(raw_values, shape.projections)
+                            values.update(_hierarchy_values(shape, values, source_rows))
+                            row = tuple(
+                                values[key] if key in virtual
+                                else raw_values[ordinary[columns[key].source_name] * 2]
+                                for key in keys
+                            )
+                            if maximum_values is None:
+                                projected.append(row)
+                            elif row[0] is not None and (value := str(row[0]).strip()):
+                                counts[value] += 1
+                    if total_rows != effective_dataset.row_count:
+                        raise SourceLoadError("The reviewed joined row count changed")
+                    if maximum_values is not None:
+                        return pl.DataFrame(sorted(counts.items())[:maximum_values + 1], schema=["value", "count"], orient="row")
+                    return pl.DataFrame(projected, schema=list(keys), orient="row")
                 query = _joined_query(
                     shape, snapshots, tables,
                     value_keys=keys,
@@ -237,6 +261,12 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
                             raw[len(shape.participant_ids) :],
                             shape.projections,
                         )
+                        carried_values = _hierarchy_values(shape, values, source_rows)
+                        for binding in shape.hierarchies:
+                            name = next(column.source_name for column in effective_dataset.columns
+                                        if column.stable_key == binding.link.source_column_key)
+                            values[name] = carried_values.pop(binding.link.source_column_key)
+                        values.update(carried_values)
                         rows.append(SourceRow(output_number, values))
                         lineages.append(
                             {
@@ -260,6 +290,7 @@ def _execution_shape(
     group: BoundedExactJoinGroup,
     physical_selection: SourceSelection,
     effective_dataset: SourceDataset,
+    column_keys: tuple[str, ...] | None = None,
 ) -> _ExecutionShape:
     physical = {dataset.dataset_id: dataset for dataset in physical_selection.datasets}
     origins: dict[str, dict[str, _PhysicalOrigin]] = {
@@ -305,10 +336,24 @@ def _execution_shape(
     final_origins = origins.get(group.output_dataset_id)
     if final_origins is None:
         raise SourceLoadError("Grouped exact-join output changed")
+    requested = set(column_keys) if column_keys is not None else {
+        column.stable_key for column in effective_dataset.columns
+    }
+    virtual = {binding.link.source_column_key for binding in group.hierarchies}
+    hierarchies = tuple(binding for binding in group.hierarchies
+                        if binding.link.source_column_key in requested)
     try:
+        by_key = {column.stable_key: column for column in effective_dataset.columns}
         projections = tuple(
-            _JoinProjection(column.source_name, final_origins[column.stable_key])
-            for column in effective_dataset.columns
+            _JoinProjection(by_key[key].source_name, final_origins[key])
+            for key in (column_keys if column_keys is not None else tuple(by_key))
+            if key not in virtual
+        ) + tuple(
+            _JoinProjection(carried_key, _PhysicalOrigin(binding.rule.source_dataset_id, physical_key))
+            for binding in hierarchies
+            for physical_key, carried_key in zip(
+                binding.rule.source_level_column_keys, binding.link.source_level_column_keys, strict=True
+            )
         )
     except KeyError as error:
         raise SourceLoadError("Grouped exact-join output fields changed") from error
@@ -320,7 +365,24 @@ def _execution_shape(
         keys_by_dataset=keys_by_dataset,
         key_value_types=key_value_types,
         projections=projections,
+        hierarchies=hierarchies,
     )
+
+
+def _hierarchy_values(
+    shape: _ExecutionShape, values: Mapping[str, object], source_rows: Sequence[object],
+) -> dict[str, object]:
+    """Keep actual blank inputs distinct from an unmatched optional enrichment."""
+    result: dict[str, object] = {}
+    for binding in shape.hierarchies:
+        present = source_rows[shape.participant_ids.index(binding.rule.source_dataset_id)] is not None
+        source = {
+            physical_key: values[carried_key]
+            for physical_key, carried_key in zip(binding.rule.source_level_column_keys,
+                                                binding.link.source_level_column_keys, strict=True)
+        } if present else None
+        result.update(hierarchy_consumer_values(binding, source))
+    return result
 
 
 def _needed_columns(shape: _ExecutionShape) -> dict[str, tuple[str, ...]]:

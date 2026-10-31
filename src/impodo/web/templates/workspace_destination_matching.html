@@ -3,9 +3,11 @@
 {% block body_class %}destination-matching-page{% endblock %}
 {% block page_styles %}
   <link rel="stylesheet" href="{{ url_for('static', path='/destination-matching.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/destination-matching.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/mapping-row-inclusion.js') }}" defer></script>
 {% endblock %}
 {% block content %}
   <div class="page-heading matching-page-heading">
@@ -30,7 +32,7 @@
   <div class="matching-safety-note">
     {{ app_icon("shield-check") }}
     <div><strong>Safe, read-only destination check</strong><span>Nothing will be created or changed in Odoo.</span></div>
-    <details><summary>What is retained?</summary><p>Raw matching values and destination numeric record IDs are not saved in this plan. Only technical field names, counts, and evidence hashes are retained.</p></details>
+    <details><summary>What is retained?</summary><p>The plan retains your row-selection rules, technical field names, counts, and evidence hashes. Raw matching results and destination numeric record IDs stay in protected evidence.</p></details>
   </div>
 
   {% if match_plan_stale %}
@@ -55,6 +57,10 @@
               <div class="matching-model-title"><span class="matching-model-icon">{{ app_icon("collection") }}</span><div><h3>{{ row.model_label }}</h3><p>{{ "{:,}".format(row.dataset.row_count) }} source record{% if row.dataset.row_count != 1 %}s{% endif %}</p></div></div>
               <span class="status {% if row_ready %}ready{% elif row.result %}blocked{% else %}current{% endif %}">{% if row_ready %}Checked{% elif row.result %}Needs review{% else %}Ready to check{% endif %}</span>
             </header>
+
+            {% with view=row.row_inclusion_view, dataset_index=loop.index0 %}
+              {% include "mapping/_row_inclusion.html" %}
+            {% endwith %}
 
             <div class="identity-field destination-handling-field">
               {% if row.destination_handling_locked %}
@@ -167,6 +173,16 @@
             {% set row_ready = row.result.ready and not row.result.write_blocking_reasons %}
             <article class="matching-result-card{% if row_ready %} is-ready{% else %} needs-review{% endif %}">
               <header><div><h3>{{ row.result.model_label }}</h3><p>Match by <strong>{{ row.result.key_fields|join(' + ') }}</strong></p></div><span class="status {% if row_ready %}ready{% else %}blocked{% endif %}">{% if row_ready %}Ready{% else %}Needs review{% endif %}</span></header>
+              {% if row.result.row_inclusion.mode.value == 'matching_rows' %}
+                <dl class="matching-result-metrics" aria-label="Rows to use counts">
+                  <div><dt>Rows checked</dt><dd>{{ row.result.frozen_source_row_count }}</dd></div>
+                  <div><dt>Included</dt><dd>{{ row.result.frozen_source_row_count - row.result.rule_excluded_source_row_numbers|length - row.result.rule_blocked_source_row_numbers|length }}</dd></div>
+                  <div><dt>Excluded by rule</dt><dd>{{ row.result.rule_excluded_source_row_numbers|length }}</dd></div>
+                  <div><dt>Could not be checked</dt><dd>{{ row.result.rule_blocked_source_row_numbers|length }}</dd></div>
+                </dl>
+                {% if row.result.rule_blocked_source_row_numbers %}<p class="notice warning">Correct the comparison type or source values, then check again. Values that could not be checked block this transfer.</p>{% elif 'ROW_INCLUSION_ZERO_INCLUDED' in row.result.blocking_reasons %}<p class="notice warning">This rule includes no rows. Change it and check again before continuing.</p>{% endif %}
+                {% if row.result.rule_excluded_source_row_numbers %}<details class="matching-technical-details"><summary>Review excluded source rows</summary><p>Original source row numbers: {{ row.result.rule_excluded_source_row_numbers|join(', ') }}.</p></details>{% endif %}
+              {% endif %}
               <dl class="matching-result-metrics">
                 <div><dt>Source</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd><small>{% if row.result.unreferenced_source_row_numbers %}referenced records checked; {{ row.result.unreferenced_source_row_numbers|length }} unrelated record(s) ignored{% elif row.result.excluded_source_row_numbers %}records included; {{ row.result.excluded_source_row_numbers|length }} put aside{% else %}records checked{% endif %}</small></div>
                 <div class="reuse"><dt>Reuse</dt><dd>{{ "{:,}".format(row.result.destination_existing_key_count) }}</dd><small>destination keys</small></div>
@@ -231,6 +247,17 @@
           {% endif %}
         {% endfor %}
       </div>
+
+      {% if match_plan_current and not match_plan.row_inclusion_confirmed %}
+        <div class="notice warning" id="rows-to-use-review">
+          <strong>Review and confirm the rows to use.</strong>
+          <p>The excluded records remain in your accepted Data version. This transfer will not write them or silently remove related records.</p>
+          <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/rows-to-use/confirm" data-single-submit>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="confirmation" value="confirm">
+            <button class="button primary" type="submit" {% if not match_plan.row_inclusion_confirmable %}disabled{% endif %}>Confirm {{ match_plan.model_matches|sum(attribute='source_row_count') }} rows to use</button>
+          </form>
+        </div>
+      {% endif %}
 
       {% if create_field_rows %}
         <div class="decision-section-heading"><div><p class="eyebrow">Create-only values</p><h2>Complete values for new records</h2><p>These choices apply only when Impodo creates a record. They do not overwrite records that already exist.</p></div><span class="status {% if match_plan.create_field_defaults_complete %}ready{% else %}review{% endif %}">{% if match_plan.create_field_defaults_complete %}Complete{% else %}Needs decision{% endif %}</span></div>

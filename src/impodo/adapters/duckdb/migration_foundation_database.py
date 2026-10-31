@@ -53,7 +53,7 @@ class MigrationFoundationDatabase:
 
     def _assert_root_layout_before_open(self) -> None:
         registry_exists = self.registry_path.is_file()
-        allowed = {".impodo-development-reset"}
+        allowed: set[str] = set()
         if registry_exists:
             allowed.update(
                 {
@@ -77,7 +77,6 @@ class MigrationFoundationDatabase:
                     in {
                         ".project-evidence-protected",
                         ".recipes-protected",
-                        ".impodo-development-reset",
                         "artifacts",
                         "projects",
                     }
@@ -90,12 +89,7 @@ class MigrationFoundationDatabase:
             )
         ]
         if unexpected or invalid_allowed:
-            command = (
-                ".\\.venv\\Scripts\\python.exe "
-                "scripts\\reset-development-storage.py "
-                f'--root "{self.root}"'
-            )
-            raise MigrationStorageCompatibilityError(str(self.root), command)
+            raise MigrationStorageCompatibilityError(str(self.root))
 
     @contextmanager
     def connect(self, path: Path) -> Iterator[duckdb.DuckDBPyConnection]:

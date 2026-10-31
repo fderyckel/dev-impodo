@@ -157,7 +157,7 @@ class PreflightRepository(BusinessIntentAssessmentRepository):
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
-                SELECT projection.review_json,
+                SELECT COALESCE(json_extract_string(approval.approval_json, '$.review_json'), projection.review_json),
                        execution.run_id, execution.status,
                        reconciliation.status
                   FROM preflight_current AS current
@@ -174,6 +174,7 @@ class PreflightRepository(BusinessIntentAssessmentRepository):
                     ON reconciliation.reconciliation_id =
                        reconciliation_pointer.reconciliation_id
                    AND reconciliation.execution_run_id = execution.run_id
+                  LEFT JOIN business_intent_approval AS approval ON approval.run_id = execution.run_id
                  WHERE current.singleton_id = 1
                    AND projection.run_id = ?
                 """,

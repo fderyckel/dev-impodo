@@ -325,7 +325,7 @@ Odoo serializes an unset many-to-one value as `false`. Exact-key read-back
 treats that value as equal to the reviewed empty value while retaining strict
 comparison for booleans, numeric values, text, and populated relationships.
 
-Workspace schema version 14 permits multiple immutable reconciliation rows for
+The initial workspace schema permits multiple immutable reconciliation rows for
 one execution run. The execution's current-result pointer moves only after a
 new result is published; earlier attempts remain queryable history. An
 authorized manual re-verification performs the same exact-ID, exact-field read

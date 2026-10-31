@@ -82,7 +82,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 ```
 
 The topology initializes PostgreSQL, creates the fixed runtime and migration
-roles, applies the current migration suffix through schema version `12`, starts
+roles, applies the initial schema at version `1`, starts
 the authenticated Platform and Organization administration web process, and then starts the
 loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
@@ -105,7 +105,7 @@ The two responses contain only generic status. The service list must show no
 published web, worker, or PostgreSQL port.
 
 Run the migration command twice after the initial start. Both runs must report
-schema version `12` and apply no new migration:
+schema version `1` and apply no new migration:
 
 ```sh
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml run --rm migrate
@@ -222,7 +222,7 @@ docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.
 docker compose --env-file deploy/examples/local-rehearsal.env -f deploy/compose.yaml exec web test -r /var/lib/impodo/artifacts/.local-rehearsal-marker
 ```
 
-The final migration result must still report schema version `12` with no newly
+The final migration result must still report schema version `1` with no newly
 applied migration, and the final marker check must pass. Together these prove
 that the PostgreSQL and artifact volumes survived container recreation. No
 customer file belongs in this rehearsal.

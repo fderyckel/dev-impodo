@@ -51,9 +51,6 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStateError,
 )
-from impodo.web.composition.incompatible_project_storage import (
-    prepare_incompatible_project_storage,
-)
 from impodo.web.composition.preparation_job_manager import (
     PreparationJobManager,
 )
@@ -296,7 +293,6 @@ def create_local_app(
             )
         )
 
-    unavailable_projects = prepare_incompatible_project_storage(project_root)
     foundation = build_foundation_capability(
         project_root,
         artifact_store=artifact_store,
@@ -702,7 +698,6 @@ def create_local_app(
                 organization_id=LOCAL_ORGANIZATION_ID,
             ),
             identity_resolver=resolved_identity_resolver,
-            unavailable_projects=unavailable_projects,
         ),
         jobs=job_runtimes,
         infrastructure=WebInfrastructureDependencies(

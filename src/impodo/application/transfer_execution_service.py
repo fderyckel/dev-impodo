@@ -31,6 +31,7 @@ from impodo.domain.execution_snapshot import (
     plan_execution_rows,
     resequence_execution_rows,
 )
+from impodo.domain.mapping.contracts import RowInclusionMode
 from impodo.domain.odoo.contracts import RecordSnapshot, record_snapshot_payload
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.preparation.source import SourceRow
@@ -63,6 +64,7 @@ from impodo.domain.workspace.transfer_review import TransferReviewPackage
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 
 from .preflight_service import EXECUTION_SNAPSHOT_NAME
+from .transfer_row_inclusion import verify_transfer_row_inclusion
 from .workspace.execution.service import ExecutionService
 
 _MODEL_TOKEN = re.compile(r"[^a-z0-9_]+")
@@ -396,6 +398,8 @@ def compile_transfer_execution_snapshot(
     making that snapshot the browser's current no-write preview.
     """
 
+    if not fresh_match.row_inclusion_confirmed or not fresh_match.row_inclusion_confirmable:
+        raise WorkspaceError("Check and confirm the current rows to use before loading.")
     selected_by_id = {item.dataset_id: item for item in selection.datasets}
     reviewed_by_id = {item.dataset_id: item for item in package.datasets}
     match_by_id = {item.dataset_id: item for item in fresh_match.model_matches}
@@ -456,6 +460,8 @@ def compile_transfer_execution_snapshot(
         all_rows = source_rows[dataset_id]
         if tuple(row.number for row in all_rows) != tuple(range(1, len(all_rows) + 1)):
             raise WorkspaceError(f"Frozen row order changed for {reviewed.model_label}")
+        if match.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS:
+            verify_transfer_row_inclusion(selected_by_id[dataset_id], match, all_rows)
         excluded_rows = set(match.omitted_source_row_numbers)
         if (
             len(all_rows) != match.frozen_source_row_count

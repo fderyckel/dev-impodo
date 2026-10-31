@@ -11,6 +11,13 @@ from dataclasses import asdict
 
 import duckdb
 
+from impodo.application.workspace.execution.business_review import (
+    BusinessIntentEvidencePage,
+    BusinessIntentReview,
+    build_business_intent_review,
+    business_intent_evidence_page,
+)
+from impodo.application.workspace.execution.navigation import ExecutionReviewProjection
 from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor
@@ -38,9 +45,11 @@ def _latest_intent(
 def publish_business_observation(
     connection: duckdb.DuckDBPyConnection,
     observation: BusinessWriteObservation,
+    *, publish_review: bool = True,
 ) -> BusinessIntentAssessment:
     """Publish aggregate evidence and assessment in the comparison transaction."""
-    assessment = assess_business_intent(observation, _latest_intent(connection))
+    revision = _latest_intent(connection)
+    assessment = assess_business_intent(observation, revision)
     connection.execute(
         "INSERT INTO business_write_observation VALUES (?, ?, ?) ON CONFLICT DO NOTHING",
         [observation.content_hash, observation.snapshot_hash, observation.to_json()],
@@ -62,7 +71,46 @@ def publish_business_observation(
     """,
         [observation.snapshot_hash, observation.content_hash, assessment.content_hash],
     )
+    if publish_review:
+        row = connection.execute("SELECT review_json FROM preflight_execution_projection WHERE snapshot_hash = ?", [observation.snapshot_hash]).fetchone()
+        if row:
+            projection = ExecutionReviewProjection.from_json(str(row[0]))
+            labels = {item.target_model: item.dataset for item in projection.datasets}
+            review = build_business_intent_review(observation, revision, assessment, labels=labels)
+            projection = projection.with_business_intent(review)
+            connection.execute("UPDATE preflight_execution_projection SET review_json = ? WHERE run_id = ? AND snapshot_hash = ?",
+                [projection.to_json(), observation.preflight_run_id, observation.snapshot_hash])
     return assessment
+
+
+def invalidate_business_review(connection: duckdb.DuckDBPyConnection) -> None:
+    """Retire only the future review candidate; approved journals keep their view."""
+    row = connection.execute("""
+        SELECT projection.run_id, projection.review_json FROM preflight_execution_projection AS projection
+        JOIN preflight_current AS current ON current.run_id = projection.run_id
+        WHERE current.singleton_id = 1
+    """).fetchone()
+    if row and str(row[1] or ""):
+        projection = ExecutionReviewProjection.from_json(str(row[1]))
+        if projection.business_intent:
+            projection = projection.with_business_intent(projection.business_intent.stale())
+            connection.execute("UPDATE preflight_execution_projection SET review_json = ? WHERE run_id = ?", [projection.to_json(), row[0]])
+
+
+def _business_projection(connection: duckdb.DuckDBPyConnection, snapshot_hash: str, run_id: str) -> ExecutionReviewProjection | None:
+    if run_id:
+        row = connection.execute("""
+            SELECT json_extract_string(approval.approval_json, '$.review_json')
+            FROM business_intent_approval AS approval JOIN execution_run AS run USING (run_id)
+            WHERE run_id = ? AND run.snapshot_hash = ?
+        """, [run_id, snapshot_hash]).fetchone()
+    else:
+        row = connection.execute("""
+            SELECT projection.review_json FROM preflight_execution_projection AS projection
+            JOIN preflight_current AS current ON current.run_id = projection.run_id
+            WHERE current.singleton_id = 1 AND projection.snapshot_hash = ?
+        """, [snapshot_hash]).fetchone()
+    return ExecutionReviewProjection.from_json(str(row[0])) if row and row[0] else None
 
 
 def current_business_assessment(
@@ -125,7 +173,7 @@ def record_business_intent_approval(
             "Review current business expectations before starting this load"
         )
     counts = connection.execute(
-        "SELECT create_count + update_count FROM preflight_execution_projection WHERE run_id = ? AND snapshot_hash = ?",
+        "SELECT create_count + update_count, review_json FROM preflight_execution_projection WHERE run_id = ? AND snapshot_hash = ?",
         [run.preflight_run_id, run.snapshot_hash],
     ).fetchone()
     if counts is None or int(counts[0]) != len(run.rows):
@@ -147,6 +195,12 @@ def record_business_intent_approval(
         "actor": asdict(actor.identity),
         "approved_at": run.started_at.isoformat(),
     }
+    raw_review = json.loads(str(counts[1]))
+    if raw_review.get("business_intent"):
+        projection = ExecutionReviewProjection.from_json(str(counts[1]))
+        if projection.summary.business_intent_assessment_hash != assessment.content_hash or not projection.business_intent or not projection.business_intent.ready:
+            raise WorkspaceError("The business expectations review changed before approval")
+        approval["review_json"] = projection.to_json()
     connection.execute(
         "INSERT INTO business_intent_approval VALUES (?, ?, ?)",
         [
@@ -159,6 +213,57 @@ def record_business_intent_approval(
 
 class BusinessIntentAssessmentRepository(DuckDbRepository):
     """Supply bounded sidecar queries and explicit local reassessment."""
+
+    def get_business_intent_review(self, workspace_id: str, snapshot_hash: str, *, run_id: str = "") -> BusinessIntentReview | None:
+        """Read the committed compact view, including an original journal approval."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            projection = _business_projection(connection, snapshot_hash, run_id)
+        return projection.business_intent if projection else None
+
+    def get_business_intent_evidence(
+        self, workspace_id: str, snapshot_hash: str, *, expected_assessment_hash: str,
+        model: str, page: int, run_id: str = "",
+    ) -> BusinessIntentEvidencePage:
+        """Read exact aggregate metadata once, returning only one bounded field page."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            projection = _business_projection(connection, snapshot_hash, run_id)
+            approved_by = ""
+            if run_id:
+                row = connection.execute("""
+                    SELECT assessment.assessment_json, approval.approval_json,
+                           run.preflight_run_id, run.target_hash
+                    FROM business_intent_approval AS approval
+                    JOIN execution_run AS run USING (run_id)
+                    JOIN business_intent_assessment AS assessment ON assessment.content_hash = approval.assessment_hash
+                    WHERE run_id = ? AND run.snapshot_hash = ?
+                """, [run_id, snapshot_hash]).fetchone()
+                if row is None:
+                    raise WorkspaceError("This saved load has no detailed business expectation receipt")
+                assessment = BusinessIntentAssessment.from_json(str(row[0]))
+                approval = json.loads(str(row[1]))
+                expected_hash = approval.pop("content_hash", None)
+                if content_hash(approval) != expected_hash or approval.get("assessment_hash") != assessment.content_hash or approval.get("snapshot_hash") != snapshot_hash or approval.get("run_id") != run_id or approval.get("intent_hash") != assessment.intent_hash or not assessment.ready or str(row[2]) != assessment.preflight_run_id or str(row[3]) != assessment.target_hash:
+                    raise WorkspaceError("The original approval receipt is invalid")
+                approved_by = str(approval["actor"]["display_name"])
+            else:
+                assessment = current_business_assessment(connection, workspace_id, snapshot_hash)
+            if assessment is None or assessment.content_hash != expected_assessment_hash:
+                raise WorkspaceError("The expectations review changed. Open Final review again.")
+            observed_row = connection.execute("SELECT observation_json FROM business_write_observation WHERE content_hash = ?", [assessment.observation_hash]).fetchone()
+            intent_row = connection.execute("SELECT revision_json FROM business_intent_revision WHERE content_hash = ?", [assessment.intent_hash]).fetchone() if assessment.intent_hash else None
+        if observed_row is None:
+            raise WorkspaceError("The recorded business effects are missing")
+        observation = BusinessWriteObservation.from_json(str(observed_row[0]))
+        revision = BusinessIntentRevision.from_json(str(intent_row[0])) if intent_row else None
+        if observation.workspace_id != workspace_id or assessment.workspace_id != workspace_id or observation.snapshot_hash != snapshot_hash or observation.content_hash != assessment.observation_hash or (revision is not None and (revision.content_hash != assessment.intent_hash or revision.workspace_id != workspace_id)):
+            raise WorkspaceError("The business expectation evidence belongs to another comparison")
+        labels = {item.target_model: item.dataset for item in projection.datasets} if projection else {}
+        return business_intent_evidence_page(observation, revision, assessment, model=model, page=page,
+            labels=labels, approved_by=approved_by, run_id=run_id)
 
     def get_business_intent_assessment(
         self, workspace_id: str, snapshot_hash: str

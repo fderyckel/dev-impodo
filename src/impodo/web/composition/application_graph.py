@@ -99,7 +99,6 @@ from impodo.web.context import (
 from impodo.web.remote_connection import RemoteConnectionStatusService
 from impodo.web.request_identity import RequestIdentityResolver
 
-from ..project_listing import UnavailableProjectSummary
 from .odoo_source_graph import OdooSourceServiceGraph
 from .service_graph import (
     AuthoringServiceGraph,
@@ -183,7 +182,6 @@ class WebRequestDependencies:
 
     project_queries: ScopedMigrationProjectQuery
     identity_resolver: RequestIdentityResolver
-    unavailable_projects: tuple[UnavailableProjectSummary, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -355,7 +353,6 @@ def build_web_context(
         queries=support.queries,
         project_queries=request.project_queries,
         identity_resolver=request.identity_resolver,
-        unavailable_projects=request.unavailable_projects,
         workspace_access=foundation.workspace_access,
         workspace_views=support.workspace_views,
         navigation=support.navigation,

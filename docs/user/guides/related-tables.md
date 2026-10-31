@@ -233,6 +233,13 @@ not the final label, owns their identity.
 Select **Create this hierarchy table** only when the preview represents the
 intended business records.
 
+If this source also feeds a combined table, Impodo adds **Selected categories
+path** to that combined table when your hierarchy is named `categories`. The
+hierarchy can come from any input, and you can leave its original level fields
+out of the combined table. In **Match data**, use this path for the combined
+table's linked field and choose the generated hierarchy as its incoming table.
+An optional input with no matching row leaves the link blank.
+
 After creating the hierarchy, **Match data** suggests its generated name field,
 its self-parent relationship when the selected Odoo model exposes exactly one
 compatible self-referential many2one, and the consumer's relationship when its

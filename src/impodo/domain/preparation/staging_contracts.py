@@ -30,7 +30,7 @@ from impodo.domain.shared.models import (
 )
 
 STAGING_CONTRACT_VERSION = 6
-BROWSER_EVALUATOR_VERSION = 9
+BROWSER_EVALUATOR_VERSION = 10
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
@@ -668,7 +668,7 @@ class CanonicalStagingRun:
         _require_hash(self.compiled_plan_hash, "compiled_plan_hash")
         if self.contract_version != STAGING_CONTRACT_VERSION:
             raise ValueError("Staging contract version is unsupported")
-        if self.evaluator_version not in {7, 8, BROWSER_EVALUATOR_VERSION}:
+        if self.evaluator_version not in {7, 8, 9, BROWSER_EVALUATOR_VERSION}:
             raise ValueError("Browser evaluator version is unsupported")
         if not self.workspace_id or not self.mapping_id:
             raise ValueError("Staging run must identify its project and mapping")

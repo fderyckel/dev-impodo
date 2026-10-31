@@ -41,7 +41,7 @@ closed. A legacy accepted setup without an answer record may confirm its
 answers once before activation. Readiness displays accepted answers without
 an editing control; activation cannot override them.
 
-Registry version 7 adds this answer table without rewriting existing Test
+The initial registry schema creates this answer table separately from Test
 records. Source acceptance remains a cross-store operation; answer revision
 checks do not make the entire acceptance action one database transaction.
 

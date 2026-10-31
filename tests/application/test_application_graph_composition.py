@@ -301,7 +301,6 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
         request = WebRequestDependencies(
             project_queries=Mock(),
             identity_resolver=Mock(),
-            unavailable_projects=(),
         )
         jobs = WebJobRuntimes(
             recipe_runs=Mock(),

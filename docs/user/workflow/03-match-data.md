@@ -25,8 +25,9 @@ At the top of **Match data**, open **Company for this load** and select
 **Choose Odoo company**. Impodo shows the checking user, that user's default
 company and their available companies. Choose **Odoo company**, then select
 **Use this company**, even when only one choice is available. **Check matches**
-automatically refreshes the saved Odoo field check when the checking-key setup
-or selected company has changed. It keeps the edits submitted with that check.
+automatically refreshes the saved Odoo record-type and field checks when the
+checking-key setup or selected company has changed. It keeps the edits
+submitted with that check.
 You can also save progress and select **Check company-specific values** to
 refresh earlier, before reviewing individual defaults or linked values.
 The connection and record types have already been checked in Odoo data.
@@ -522,10 +523,10 @@ again.
 
 ![Use original spelling replaces a normalized matching key with the generated Name column for the Odoo field.](../../images/user/03d-generated-original-spelling.png)
 
-### Match a generated hierarchy and its original table
+### Match a generated hierarchy and the table that uses it
 
 When Stage 1 creates a hierarchy from separate source fields, match the
-generated table before the original table that uses it.
+generated table before the original or combined table that uses it.
 
 For the generated table, use its complete-path **matching key** as **Unique row
 identifier** and choose the scoped Odoo matching rule, such as **Name within
@@ -541,6 +542,15 @@ For the original table's compatible linked field, select **A value from the
 source**, choose the generated complete-path column, choose **Only another
 incoming table**, and select the generated hierarchy table. Use the same
 scoped related-record matching rule.
+
+For a combined table, choose **Selected categories path** when the generated
+hierarchy is named `categories`. Impodo carries this column from whichever
+input supplies the hierarchy: the primary table, a second table, or any later
+table. You do not need to include its original level fields in the combined
+table. The saved joins determine which hierarchy path belongs to each row.
+If an optional input has no matching row, its hierarchy link stays blank.
+
+![The combined Product table uses Selected categories path to link to a hierarchy built from its third input.](../../images/user/12b-combined-hierarchy-link.png)
 
 ![A fictional Product table resolves its Product Category through the generated hierarchy table.](../../images/user/12a-hierarchy-product-link.png)
 

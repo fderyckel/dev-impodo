@@ -29,7 +29,6 @@ ADAPTER_CONSTRUCTION_MODULES = frozenset(
         "impodo.web.capability_builders",
         "impodo.web.composition.cli",
         "impodo.web.composition.preparation_worker",
-        "impodo.web.composition.incompatible_project_storage",
         "impodo.web.composition.target_readers",
         "impodo.web.composition.target_writers",
     }

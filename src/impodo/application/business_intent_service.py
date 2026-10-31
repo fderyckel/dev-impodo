@@ -100,6 +100,7 @@ class BusinessIntentInputs:
     workspace_id: str
     scope: SupportedBusinessScope
     binding: BusinessIntentBinding
+    model_labels: tuple[tuple[str, str], ...] = ()
 
     @property
     def binding_hash(self) -> str:
@@ -280,4 +281,5 @@ def checked_business_intent_inputs(
             validation.validation_hash,
             scope.content_hash,
         ),
+        tuple((item.name, item.label or item.name) for item in schema.models),
     )

@@ -2,8 +2,10 @@
 {% block title %}Match data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block page_styles %}
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">
 {% endblock %}
 {% block page_scripts %}
+  <script src="{{ url_for('static', path='/business-expectations.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-save-recovery.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-order.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-source-columns.js') }}" defer></script>

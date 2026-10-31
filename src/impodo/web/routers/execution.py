@@ -752,11 +752,7 @@ def build_execution_router(
             )
         return await run_page_read(render_review, request, workspace_id)
 
-    @router.get(
-        "/workspaces/{workspace_id}/load/confirm",
-        response_class=HTMLResponse,
-    )
-    async def confirm_load(request: Request, workspace_id: str):
+    def confirmation_page(request: Request, workspace_id: str):
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
@@ -765,11 +761,7 @@ def build_execution_router(
                 _load_progress_url(workspace_id, active_job.job_id),
                 status_code=303,
             )
-        preview = await run_in_threadpool(
-            context.execution.current_preview,
-            workspace_id,
-            actor=actor,
-        )
+        preview = context.execution.current_preview(workspace_id, actor=actor)
         if preview is None:
             return RedirectResponse(
                 f"/workspaces/{workspace_id}/summary",
@@ -804,13 +796,11 @@ def build_execution_router(
                 f"/workspaces/{workspace_id}/load/review",
                 status_code=303,
             )
-        return await run_in_threadpool(
-            render,
-            request,
-            workspace_id,
-            step="confirm",
-            preview=preview,
-        )
+        return render(request, workspace_id, step="confirm", preview=preview)
+
+    @router.get("/workspaces/{workspace_id}/load/confirm", response_class=HTMLResponse)
+    async def confirm_load(request: Request, workspace_id: str):
+        return await run_page_read(confirmation_page, request, workspace_id)
 
     @router.get(
         "/workspaces/{workspace_id}/load/outcome",

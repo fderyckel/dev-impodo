@@ -616,6 +616,12 @@ def _render_summary(
     summary_readiness_ms = (perf_counter() - readiness_started) * 1000
     execution_started = perf_counter()
     load_preview = navigation_snapshot.facts.execution_preview
+    business_review = (
+        context.preflight.business_intent_review(workspace_id, load_preview.state.summary.snapshot_hash,
+            actor=actor, run_id=load_preview.current_run_id)
+        if workspace_state.source_mode is SourceMode.FILE and report is not None and load_preview is not None
+        else None
+    )
     deferred_scope_available = bool(
         deferred_scope_available
         or (
@@ -798,6 +804,8 @@ def _render_summary(
         missing_parent_views=tuple(missing_parent_views),
         missing_parent_evidence_error=missing_parent_evidence_error,
         load_preview=load_preview,
+        business_review=business_review,
+        business_run_id=load_preview.current_run_id if load_preview else "",
         readiness_rows=rows,
         readiness_row_total=row_total,
         readiness_row_start=(row_start_index + 1 if row_total else 0),

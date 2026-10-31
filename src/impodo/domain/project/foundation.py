@@ -42,15 +42,14 @@ class MigrationIdentifierConfusionError(MigrationFoundationError):
 class MigrationStorageCompatibilityError(MigrationFoundationError):
     """Reject an unsupported saved-data schema without mutating it."""
 
-    def __init__(self, database_path: str, reset_command: str) -> None:
+    def __init__(self, database_path: str) -> None:
         super().__init__(
             "Impodo found saved data whose generation or version this build "
             f"cannot safely open at {database_path}. It was not changed. "
-            "Update Impodo if a newer release created it. Otherwise review "
-            f"the preservation and reset plan with `{reset_command}`."
+            "Use a release that supports this storage contract, or select "
+            "an empty storage directory for a new project."
         )
         self.database_path = database_path
-        self.reset_command = reset_command
 
 
 class MigrationOperationKind(StrEnum):

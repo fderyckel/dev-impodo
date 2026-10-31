@@ -13,7 +13,7 @@ from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import Actor, Capability
-from impodo.domain.workspace.contracts import OdooSchemaCatalog
+from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 from impodo.web.composition.page_reads import run_local_operation, run_page_read
@@ -42,6 +42,7 @@ class PreparedMatchingAccess:
     profile: LocalStackProfile | None
     needs_refresh: bool
     force: bool
+    model_catalog: OdooModelCatalog | None = None
 
 
 def prepare_matching_access(
@@ -106,7 +107,15 @@ def prepare_matching_access(
         and state.odoo_company.context_hash != catalog.read_context_hash
     )
     return PreparedMatchingAccess(
-        state, catalog, credential, profile, force or stale, force
+        state,
+        catalog,
+        credential,
+        profile,
+        force or stale,
+        force,
+        context.queries.get_odoo_model_catalog(workspace_id)
+        if force or stale
+        else None,
     )
 
 
@@ -138,30 +147,64 @@ async def check_matching_access(
     models = tuple(sorted(model.name for model in prepared.schema.models))
 
     def read():
+        session = None
         if profile is not None and credential is None:
-            return (
-                context.local_odoo_reader.get_model_metadata(state, profile, models),
-                None,
-                local_read_credential_binding_hash(state),
+            snapshot = context.local_odoo_reader.get_model_metadata(
+                state, profile, models
             )
-        if credential is None:
-            raise SecretStoreError(
-                "Enter the checking key before checking company-specific values"
-            )
-        if context.schema_read_session_factory is not None:
-            session = context.schema_read_session_factory(state, credential.secret)
-            return (
-                session.read_models(models),
-                session.verify_identity(models),
-                credential.binding_hash,
-            )
-        snapshot = context.schema_reader(
-            replace(state, intended_models=models), credential.secret
-        )
-        identity = context.read_identity_probe(state, credential.secret, models)
-        return snapshot, identity, credential.binding_hash
+            identity = None
+            binding = local_read_credential_binding_hash(state)
+        else:
+            if credential is None:
+                raise SecretStoreError(
+                    "Enter the checking key before checking company-specific values"
+                )
+            binding = credential.binding_hash
+            if context.schema_read_session_factory is not None:
+                session = context.schema_read_session_factory(state, credential.secret)
+                snapshot = session.read_models(models)
+                identity = session.verify_identity(models)
+            else:
+                snapshot = context.schema_reader(
+                    replace(state, intended_models=models), credential.secret
+                )
+                identity = context.read_identity_probe(state, credential.secret, models)
+        model_snapshot = None
+        model_identity = None
+        if prepared.model_catalog is not None:
+            if profile is not None and credential is None:
+                model_snapshot = context.local_odoo_reader.get_model_catalog(
+                    state, profile
+                )
+            elif session is not None:
+                model_snapshot = session.read_model_catalog()
+                model_identity = session.verify_identity(("ir.model",))
+            elif credential is not None:
+                model_snapshot = context.model_catalog_reader(state, credential.secret)
+                model_identity = context.read_identity_probe(
+                    state, credential.secret, ("ir.model",)
+                )
+            if (identity is None) != (model_identity is None) or (
+                identity is not None
+                and model_identity is not None
+                and (
+                    identity.target_hash != model_identity.target_hash
+                    or identity.principal_hash != model_identity.principal_hash
+                    or identity.context_hash != model_identity.context_hash
+                )
+            ):
+                raise WorkspaceError(
+                    "The Odoo reader or company access changed while checking model choices and fields. Check matches again."
+                )
+        return snapshot, identity, binding, model_snapshot, model_identity
 
-    snapshot, identity, binding = await run_in_threadpool(read)
+    (
+        snapshot,
+        identity,
+        binding,
+        model_snapshot,
+        model_identity,
+    ) = await run_in_threadpool(read)
 
     def publish():
         current = prepare_matching_access(
@@ -173,12 +216,21 @@ async def check_matching_access(
         )
         if (
             _access_binding(current.schema) != _access_binding(prepared.schema)
+            or current.model_catalog != prepared.model_catalog
             or current.profile != profile
             or (current.credential.binding_hash if current.credential else None)
             != (credential.binding_hash if credential else None)
         ):
             raise WorkspaceError(
                 "Odoo access or matching inputs changed; check matches again"
+            )
+        if model_snapshot is not None:
+            context.schema_workspace.discover_models(
+                state.workspace_id,
+                model_snapshot,
+                read_credential_binding_hash=binding,
+                read_identity=model_identity,
+                actor=actor,
             )
         return context.schema_workspace.check_refresh(
             state.workspace_id,

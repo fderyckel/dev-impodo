@@ -374,7 +374,6 @@ def install_http_application(
             request,
             "project_list.html",
             projects=projects,
-            unavailable_projects=context.unavailable_projects,
             error=str(error),
             status_code=409,
         )

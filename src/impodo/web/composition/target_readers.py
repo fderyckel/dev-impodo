@@ -233,6 +233,10 @@ class _Json2SchemaReadSession:
 
         return self._connector.probe_read_identity(models)
 
+    def read_model_catalog(self) -> RecordSnapshot:
+        """Refresh lightweight model choices without opening another connector."""
+        return self._connector.get_records(_model_catalog_requests())
+
 
 def _open_schema_read_session(
     workspace_state: WorkspaceState,
@@ -325,24 +329,27 @@ def _read_model_catalog(
     if workspace_state.odoo_connection_mode is None:
         raise WorkspaceStateError("Configure the Odoo target before model discovery")
     connector = Json2ReadConnector(_target_json2_config(workspace_state, api_key))
-    return connector.get_records(
-        (
-            RecordRequest(
-                model="ir.model",
-                fields=(
-                    "name",
-                    "model",
-                    "abstract",
-                    "transient",
-                    "modules",
-                    "state",
-                ),
-                domain=(
-                    ("abstract", "=", False),
-                    ("transient", "=", False),
-                ),
+    return connector.get_records(_model_catalog_requests())
+
+
+def _model_catalog_requests() -> tuple[RecordRequest, ...]:
+    """Use one bounded persistent-model projection for discovery and refresh."""
+    return (
+        RecordRequest(
+            model="ir.model",
+            fields=(
+                "name",
+                "model",
+                "abstract",
+                "transient",
+                "modules",
+                "state",
             ),
-        )
+            domain=(
+                ("abstract", "=", False),
+                ("transient", "=", False),
+            ),
+        ),
     )
 
 

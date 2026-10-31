@@ -178,21 +178,6 @@ class BusinessIntentEnforcementTests(HierarchyWorkflowFixture):
             self.execute(original.content_hash)
         self.assertEqual(tuple(self.target.writes), before)
 
-    def test_upgrade_preserves_existing_journal_without_approving_an_unstarted_load(self):
-        completed = self.execute(self.assessment().content_hash)
-        journal = self.context.execution.journal
-        path = journal.workspace_directory(self.workspace_id) / "workspace-engine.duckdb"
-        with journal._connect(path) as connection:
-            for table in ("business_write_observation", "business_intent_assessment", "business_intent_current", "business_intent_approval"):
-                connection.execute(f"DROP TABLE {table}")
-            connection.execute("UPDATE schema_version SET version = 24")
-        self.repository.require_business_intent_approval(self.workspace_id, completed)
-        self.assertIsNone(self.assessment())
-        self.assertEqual(self.context.execution.current_preview(self.workspace_id, actor=self.actor).current_run, completed)
-        with self.assertRaises(WorkspaceError):
-            self.context.execution.require_business_intent(self.workspace_id,
-                expected_snapshot_hash=self.snapshot.semantic_hash,
-                expected_assessment_hash="", actor=self.actor)
 
     def test_damaged_original_approval_is_rejected(self):
         import json

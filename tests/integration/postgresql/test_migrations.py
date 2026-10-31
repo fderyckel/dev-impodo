@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import unittest
 from pathlib import PurePosixPath
 from typing import LiteralString
@@ -91,6 +92,17 @@ def _ledger_rows() -> tuple[tuple[object, ...], ...]:
     return tuple(
         (migration.version, migration.name, migration.checksum)
         for migration in POSTGRESQL_MIGRATIONS
+    )
+
+
+def _schema_for(*tables: str) -> str:
+    """Inspect current DDL and grants for the named responsibilities."""
+    return "\n".join(
+        statement.query
+        for migration in POSTGRESQL_MIGRATIONS
+        for statement in migration.statements
+        if (match := re.search(r"impodo_control\.(\w+)", statement.query))
+        and match.group(1) in tables
     )
 
 
@@ -276,6 +288,14 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertTrue(session.committed)
 
     def test_checked_in_checksum_matches_the_immutable_migration(self) -> None:
+        self.assertEqual(len(POSTGRESQL_MIGRATIONS), 1)
+        self.assertEqual(POSTGRESQL_MIGRATIONS[0].version, 1)
+        self.assertFalse(
+            any(
+                statement.query.startswith(("UPDATE ", "REVOKE "))
+                for statement in POSTGRESQL_MIGRATIONS[0].statements
+            )
+        )
         for migration in POSTGRESQL_MIGRATIONS:
             with self.subTest(migration=migration.name):
                 self.assertEqual(
@@ -284,8 +304,7 @@ class PostgreSQLMigrationTests(unittest.TestCase):
                 )
 
     def test_catalogue_schema_is_organization_scoped_and_bounded(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[1]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for("organization", "project_catalogue")
 
         self.assertIn("impodo_control.organization", schema)
         self.assertIn("impodo_control.project_catalogue", schema)
@@ -306,15 +325,18 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             "target_value",
         ):
             self.assertNotIn(forbidden_value, schema)
-        for statement in migration.statements:
-            if statement.query.startswith("CREATE INDEX"):
-                self.assertIn("(organization_id,", statement.query)
+        for query in schema.split("CREATE INDEX")[1:]:
+            self.assertIn("(organization_id,", query)
 
     def test_coordination_schema_is_tenant_scoped_fenced_and_append_only(
         self,
     ) -> None:
-        migration = POSTGRESQL_MIGRATIONS[2]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "operation_request",
+            "data_plane_receipt",
+            "projection_receipt",
+            "workspace_lease",
+        )
 
         for table in (
             "operation_request",
@@ -342,13 +364,11 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             "target_value",
         ):
             self.assertNotIn(forbidden_value, schema)
-        for statement in migration.statements:
-            if statement.query.startswith("CREATE INDEX"):
-                self.assertIn("(organization_id,", statement.query)
+        for query in schema.split("CREATE INDEX")[1:]:
+            self.assertIn("(organization_id,", query)
 
-    def test_current_projection_pointer_rejects_stale_replacement(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[3]
-        schema = "\n".join(statement.query for statement in migration.statements)
+    def test_current_projection_pointer_is_tenant_scoped(self) -> None:
+        schema = _schema_for("projection_current")
 
         self.assertIn("impodo_control.projection_current", schema)
         self.assertIn(
@@ -356,13 +376,14 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             schema,
         )
         self.assertIn("source_committed_at", schema)
-        self.assertIn("DISTINCT ON", schema)
-        self.assertIn("d.committed_at DESC, o.operation_id DESC", schema)
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
 
     def test_platform_bootstrap_schema_separates_secret_and_event_data(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[4]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "platform_administrator",
+            "platform_administrator_password_identity",
+            "platform_security_event",
+        )
 
         for table in (
             "platform_administrator",
@@ -381,16 +402,25 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("activation_link", schema)
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
         self.assertNotIn("GRANT SELECT, INSERT, DELETE", schema)
-        self.assertNotIn("GRANT UPDATE", schema)
+        self.assertNotIn(
+            "GRANT UPDATE ON impodo_control.platform_security_event", schema
+        )
 
     def test_platform_authentication_schema_bounds_identity_and_throttles(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[5]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "login_identity",
+            "authentication_throttle",
+            "platform_administrator_password_identity",
+            "platform_security_event",
+        )
 
         self.assertIn("impodo_control.login_identity", schema)
         self.assertIn("normalized_login_email varchar(320) PRIMARY KEY", schema)
         self.assertIn("impodo_control.authentication_throttle", schema)
-        self.assertIn("scope_kind IN ('ACCOUNT', 'SOURCE')", schema)
+        self.assertIn(
+            "scope_kind IN ('ACCOUNT', 'SOURCE', 'RESET_ACCOUNT', 'RESET_SOURCE')",
+            schema,
+        )
         self.assertIn("password_revision bigint NOT NULL", schema)
         self.assertIn("AUTHENTICATION_REJECTED", schema)
         self.assertIn("principal_hint_digest", schema)
@@ -400,8 +430,12 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("GRANT SELECT, INSERT, UPDATE, DELETE", schema)
 
     def test_account_recovery_schema_is_digest_only_one_use_and_no_delete(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[6]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "account_recovery_token",
+            "authentication_throttle",
+            "platform_security_event",
+            "login_identity",
+        )
 
         self.assertIn("impodo_control.account_recovery_token", schema)
         self.assertIn("token_digest bytea NOT NULL UNIQUE", schema)
@@ -420,8 +454,7 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("GRANT DELETE", schema)
 
     def test_server_session_schema_is_digest_only_bounded_and_no_delete(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[7]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for("server_session", "platform_security_event")
 
         self.assertIn("impodo_control.server_session", schema)
         self.assertIn("handle_digest bytea NOT NULL UNIQUE", schema)
@@ -443,8 +476,15 @@ class PostgreSQLMigrationTests(unittest.TestCase):
     def test_customer_administration_schema_is_tenant_scoped_and_no_delete(
         self,
     ) -> None:
-        migration = POSTGRESQL_MIGRATIONS[8]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "customer_user",
+            "customer_user_password_identity",
+            "organization_administrator_assignment",
+            "identity_administration_event",
+            "login_identity",
+            "account_recovery_token",
+            "organization",
+        )
 
         for table in (
             "customer_user",
@@ -459,14 +499,15 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertIn("CUSTOMER_USER", schema)
         self.assertIn("login_identity_exact_subject_check", schema)
         self.assertIn(
-            "REFERENCES impodo_control.login_identity "
-            "(principal_kind, principal_id)",
+            "REFERENCES impodo_control.login_identity (principal_kind, principal_id)",
             schema,
         )
         self.assertIn("identity_administration_event_organization_time_idx", schema)
         self.assertIn("issued_by_principal_kind", schema)
         self.assertIn("issued_by_principal_id", schema)
-        self.assertIn("REVOKE UPDATE ON impodo_control.organization", schema)
+        self.assertNotIn(
+            "GRANT SELECT, INSERT, UPDATE ON impodo_control.organization ", schema
+        )
         self.assertIn("UPDATE (display_name, status, policy_revision", schema)
         self.assertNotIn("raw_token", schema)
         self.assertNotIn("activation_link", schema)
@@ -475,8 +516,9 @@ class PostgreSQLMigrationTests(unittest.TestCase):
     def test_customer_administrator_assignment_is_bound_to_tenant_and_kind(
         self,
     ) -> None:
-        migration = POSTGRESQL_MIGRATIONS[9]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "customer_user", "login_identity", "organization_administrator_assignment"
+        )
 
         self.assertIn(
             "UNIQUE (organization_id, user_id, principal_kind)",
@@ -489,9 +531,8 @@ class PostgreSQLMigrationTests(unittest.TestCase):
             "CHECK (principal_kind = 'ORGANIZATION_ADMINISTRATOR')",
             schema,
         )
-        self.assertIn(
-            "REVOKE UPDATE ON "
-            "impodo_control.organization_administrator_assignment",
+        self.assertNotIn(
+            "GRANT SELECT, INSERT, UPDATE ON impodo_control.organization_administrator_assignment",
             schema,
         )
         self.assertIn(
@@ -502,8 +543,12 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertNotIn("GRANT DELETE", schema)
 
     def test_customer_sessions_and_events_are_bound_to_one_tenant(self) -> None:
-        migration = POSTGRESQL_MIGRATIONS[10]
-        schema = "\n".join(statement.query for statement in migration.statements)
+        schema = _schema_for(
+            "customer_user",
+            "server_session",
+            "identity_administration_event",
+            "server_security_event",
+        )
 
         self.assertIn("server_session_exact_subject_check", schema)
         self.assertIn("server_session_customer_tenant_kind_fk", schema)
@@ -518,7 +563,9 @@ class PostgreSQLMigrationTests(unittest.TestCase):
         self.assertIn("source_digest", schema)
         self.assertIn("server_security_event_organization_time_idx", schema)
         self.assertNotIn("GRANT DELETE", schema)
-        self.assertNotIn("GRANT UPDATE", schema)
+        self.assertNotIn(
+            "GRANT UPDATE ON impodo_control.platform_security_event", schema
+        )
 
     def test_default_psycopg_session_is_bounded_and_transactional(self) -> None:
         connection = Mock()

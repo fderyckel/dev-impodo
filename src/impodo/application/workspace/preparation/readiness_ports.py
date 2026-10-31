@@ -14,6 +14,10 @@ from pathlib import Path
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.application.workspace.execution.business_review import (
+    BusinessIntentEvidencePage,
+    BusinessIntentReview,
+)
 from impodo.application.workspace.execution.navigation import (
     ExecutionPreviewSummary,
     ExecutionReviewProjection,
@@ -631,6 +635,10 @@ class PreflightRepository(Protocol):
     """
 
     def get_business_intent_assessment(self, workspace_id: str, snapshot_hash: str) -> BusinessIntentAssessmentSummary | None: ...
+
+    def get_business_intent_review(self, workspace_id: str, snapshot_hash: str, *, run_id: str = "") -> BusinessIntentReview | None: ...
+
+    def get_business_intent_evidence(self, workspace_id: str, snapshot_hash: str, *, expected_assessment_hash: str, model: str, page: int, run_id: str = "") -> BusinessIntentEvidencePage: ...
 
     def get_business_write_observation(self, workspace_id: str, snapshot_hash: str) -> BusinessWriteObservation: ...
 

@@ -104,9 +104,11 @@ data unchanged.
 
 A different generation, a version below the supported baseline, a version
 newer than the application, a missing migration step, or a malformed shape is
-rejected without mutation. Storage from the superseded Recipe-first generation
-still requires the reviewed development reset. Repositories contain no dual
-read, dual-write, alias, or downgrade path.
+rejected without mutation. The first-project baseline dated 31 October 2026
+creates each store directly at version 1 under a new generation. Its upgrade
+registries are empty. There is no development reset, automatic archive, dual
+read, dual-write, alias, or downgrade path. Future migrations begin from this
+baseline and must preserve projects created with it.
 
 Storage-schema migration does not rewrite hash-bound source packages, Recipe
 revisions, snapshots, approvals, or execution evidence. A future semantic

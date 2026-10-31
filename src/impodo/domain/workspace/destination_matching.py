@@ -16,12 +16,17 @@ from math import isfinite
 from typing import Any
 from uuid import UUID, uuid4
 
-from impodo.domain.mapping.contracts import ResolverOrigin
+from impodo.domain.mapping.contracts import (
+    ResolverOrigin,
+    RowInclusionMode,
+    RowInclusionPolicy,
+    row_inclusion_policy_from_dict,
+)
 from impodo.domain.serialization import canonical_json, content_hash
 
-DESTINATION_MATCH_CONTRACT_VERSION = 15
+DESTINATION_MATCH_CONTRACT_VERSION = 16
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 )
 DESTINATION_HANDLINGS = frozenset(
     {"transfer", "reuse_or_create", "reuse_only", "reference_only"}
@@ -549,6 +554,9 @@ class DestinationModelMatch:
     destination_handling: str = "transfer"
     minimum_create_fields: tuple[str, ...] = ()
     minimum_create_relationship_fields: tuple[str, ...] = ()
+    row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
+    rule_excluded_source_row_numbers: tuple[int, ...] = ()
+    rule_blocked_source_row_numbers: tuple[int, ...] = ()
 
     def __post_init__(self) -> None:
         text_values = (
@@ -609,11 +617,22 @@ class DestinationModelMatch:
             for rows in (
                 self.excluded_source_row_numbers,
                 self.unreferenced_source_row_numbers,
+                self.rule_excluded_source_row_numbers,
+                self.rule_blocked_source_row_numbers,
             )
-        ) or set(self.excluded_source_row_numbers) & set(
-            self.unreferenced_source_row_numbers
+        ) or (
+            set(self.rule_excluded_source_row_numbers) & set(self.rule_blocked_source_row_numbers)
+            or set(self.unreferenced_source_row_numbers) & (
+                set(self.excluded_source_row_numbers)
+                | set(self.rule_excluded_source_row_numbers)
+                | set(self.rule_blocked_source_row_numbers)
+            )
         ):
             raise ValueError("Destination excluded source rows are invalid")
+        if self.row_inclusion.mode is RowInclusionMode.ALL_ROWS and (
+            self.rule_excluded_source_row_numbers or self.rule_blocked_source_row_numbers
+        ):
+            raise ValueError("Use every row cannot contain rule exclusions")
         omitted_rows = self.omitted_source_row_numbers
         if (
             any(number < 1 for number in omitted_rows)
@@ -693,8 +712,10 @@ class DestinationModelMatch:
 
         return tuple(
             sorted(
-                self.excluded_source_row_numbers
-                + self.unreferenced_source_row_numbers
+                set(self.excluded_source_row_numbers)
+                | set(self.unreferenced_source_row_numbers)
+                | set(self.rule_excluded_source_row_numbers)
+                | set(self.rule_blocked_source_row_numbers)
             )
         )
 
@@ -703,6 +724,13 @@ class DestinationModelMatch:
         """Return deterministic reasons this model cannot advance."""
 
         reasons: list[str] = []
+        if self.rule_blocked_source_row_numbers:
+            reasons.append("ROW_INCLUSION_CANNOT_EVALUATE")
+        if self.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS and (
+            self.frozen_source_row_count
+            == len(self.rule_excluded_source_row_numbers) + len(self.rule_blocked_source_row_numbers)
+        ):
+            reasons.append("ROW_INCLUSION_ZERO_INCLUDED")
         if self.source_blank_row_count:
             reasons.append("SOURCE_KEY_BLANK")
         if self.source_duplicate_key_count:
@@ -901,6 +929,7 @@ class DestinationMatchPlan:
     create_field_evidence_hash: str | None = None
     protected_create_field_artifact_hash: str | None = None
     contract_version: int = DESTINATION_MATCH_CONTRACT_VERSION
+    row_inclusion_confirmation_hash: str | None = None
     create_field_evidence: DestinationCreateFieldEvidence | None = dataclass_field(
         default=None,
         compare=False,
@@ -910,6 +939,16 @@ class DestinationMatchPlan:
     def __post_init__(self) -> None:
         if self.contract_version not in _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS:
             raise ValueError("Destination matching contract version is unsupported")
+        if self.contract_version < 16 and (
+            self.row_inclusion_confirmation_hash is not None
+            or any(item.row_inclusion != RowInclusionPolicy() for item in self.model_matches)
+        ):
+            raise ValueError("Legacy destination matching cannot contain row rules")
+        if self.row_inclusion_confirmation_hash is not None and (
+            self.row_inclusion_confirmation_hash != self.row_inclusion_scope_hash
+            or not self.row_inclusion_confirmable
+        ):
+            raise ValueError("Destination row confirmation does not match checked rows")
         if self.contract_version < 15 and any(
             item.minimum_create_fields
             or item.minimum_create_relationship_fields
@@ -1052,6 +1091,47 @@ class DestinationMatchPlan:
             and bool(self.model_matches)
             and all(item.ready for item in self.model_matches)
             and all(item.ready for item in self.relationship_matches)
+            and self.row_inclusion_confirmed
+        )
+
+    @property
+    def row_inclusion_scope_hash(self) -> str:
+        """Bind confirmation to rule meaning and every original row decision."""
+
+        return content_hash({
+            "source_selection_hash": self.source_selection_hash,
+            "source_schema_hash": self.source_schema_hash,
+            "datasets": [
+                {
+                    "dataset_id": item.dataset_id,
+                    "row_inclusion": asdict(item.row_inclusion),
+                    "source_rows": item.frozen_source_row_count,
+                    "included_rows": item.source_row_count,
+                    "rule_excluded": item.rule_excluded_source_row_numbers,
+                    "cannot_evaluate": item.rule_blocked_source_row_numbers,
+                    "put_aside": item.excluded_source_row_numbers,
+                    "unreferenced": item.unreferenced_source_row_numbers,
+                }
+                for item in self.model_matches
+                if item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            ],
+        })
+
+    @property
+    def row_inclusion_confirmable(self) -> bool:
+        """Reject unknown typed values and rules that include no source rows."""
+
+        return not any(
+            code in {"ROW_INCLUSION_CANNOT_EVALUATE", "ROW_INCLUSION_ZERO_INCLUDED"}
+            for item in self.model_matches for code in item.blocking_reasons
+        )
+
+    @property
+    def row_inclusion_confirmed(self) -> bool:
+        """Require explicit confirmation whenever a rule excludes source rows."""
+
+        return not any(item.rule_excluded_source_row_numbers for item in self.model_matches) or (
+            self.row_inclusion_confirmation_hash == self.row_inclusion_scope_hash
         )
 
     @property
@@ -1143,6 +1223,13 @@ class DestinationMatchPlan:
                             "minimum_create_relationship_fields",
                         }
                     )
+                    and (
+                        self.contract_version >= 16
+                        or name not in {
+                            "row_inclusion", "rule_excluded_source_row_numbers",
+                            "rule_blocked_source_row_numbers",
+                        }
+                    )
                 }
                 for item in self.model_matches
             ],
@@ -1166,6 +1253,8 @@ class DestinationMatchPlan:
             payload["protected_create_field_artifact_hash"] = (
                 self.protected_create_field_artifact_hash
             )
+        if self.contract_version >= 16:
+            payload["row_inclusion_confirmation_hash"] = self.row_inclusion_confirmation_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -1279,6 +1368,15 @@ class DestinationMatchPlan:
                         minimum_create_relationship_fields=tuple(
                             item.get("minimum_create_relationship_fields", ())
                         ),
+                        row_inclusion=row_inclusion_policy_from_dict(
+                            item.get("row_inclusion", asdict(RowInclusionPolicy()))
+                        ),
+                        rule_excluded_source_row_numbers=tuple(
+                            item.get("rule_excluded_source_row_numbers", ())
+                        ),
+                        rule_blocked_source_row_numbers=tuple(
+                            item.get("rule_blocked_source_row_numbers", ())
+                        ),
                     )
                     for item in payload["model_matches"]
                 ),
@@ -1384,12 +1482,27 @@ class DestinationMatchPlan:
                     else None
                 ),
                 contract_version=contract_version,
+                row_inclusion_confirmation_hash=payload.get("row_inclusion_confirmation_hash"),
             )
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError("Stored destination matching plan is invalid") from error
         if payload.get("content_hash") != result.content_hash:
             raise ValueError("Stored destination matching plan hash is invalid")
         return result
+
+
+def confirm_destination_row_inclusion(
+    plan: DestinationMatchPlan,
+    *,
+    expected_plan_hash: str,
+) -> DestinationMatchPlan:
+    """Confirm the exact checked transfer population before later approval."""
+
+    if plan.content_hash != expected_plan_hash:
+        raise ValueError("The checked rows changed. Review them again before confirming.")
+    if plan.contract_version != DESTINATION_MATCH_CONTRACT_VERSION or not plan.row_inclusion_confirmable:
+        raise ValueError("Correct the rows-to-use rule and check again before confirming.")
+    return replace(plan, row_inclusion_confirmation_hash=plan.row_inclusion_scope_hash)
 
 
 def set_destination_field_exclusion(

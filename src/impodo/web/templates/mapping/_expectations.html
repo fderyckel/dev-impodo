@@ -1,29 +1,31 @@
-<details id="business-expectations" class="form-card business-expectations">
+<details id="business-expectations" class="form-card business-expectations" {% if expectations_open %}open{% endif %}>
   <summary><h2 id="business-expectations-title">What may this load change?</h2></summary>
   {% if expectations.packet %}
     <p class="muted">{% if expectations.saved %}Saved expectations v{{ expectations.saved.version }}.{% else %}No expectations saved yet. Make an explicit choice for each record type.{% endif %} Blank counts mean no limit; 0 means none.</p>
-    <form method="post" action="/workspaces/{{ workspace_id }}/mapping/expectations">
+    <form method="post" action="{{ expectations_action or '/workspaces/' ~ workspace_id ~ '/mapping/expectations' }}" data-business-expectations-form>
+      <fieldset {% if can_edit is defined and not can_edit %}disabled{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <input type="hidden" name="expected_version" value="{{ expectations.saved.version if expectations.saved else 0 }}">
-      <input type="hidden" name="binding_hash" value="{{ expectations.packet.binding_hash }}">
-      <input type="hidden" name="operation_id" value="{{ expectations.operation_id }}">
-      <input type="hidden" name="model_count" value="{{ expectations.rows|length }}">
+      <input type="hidden" name="expected_version" value="{{ submitted.get('expected_version', '') if submitted else expectations.saved.version if expectations.saved else 0 }}">
+      <input type="hidden" name="binding_hash" value="{{ submitted.get('binding_hash', '') if submitted else expectations.packet.binding_hash }}">
+      <input type="hidden" name="operation_id" value="{{ submitted.get('operation_id', '') if submitted else expectations.operation_id }}">
+      <input type="hidden" name="model_count" value="{{ submitted.get('model_count', '') if submitted else expectations.rows|length }}">
       {% for row in expectations.rows %}
-        <fieldset>
+        <fieldset id="expect-{{ row.scope.model }}" tabindex="-1" class="expectation-model">
           <legend>{{ row.label }}</legend>
           <input type="hidden" name="model_{{ row.index }}" value="{{ row.scope.model }}">
           <label for="expect-mode-{{ row.index }}">Allowed changes</label>
-          <select id="expect-mode-{{ row.index }}" name="mode_{{ row.index }}" required>
+          <select id="expect-mode-{{ row.index }}" name="mode_{{ row.index }}" required data-expectation-mode>
             <option value="">Choose allowed changes</option>
-            {% for value,label in row.modes %}<option value="{{ value }}" {% if row.rule and row.rule.mode.value == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            {% set selected_mode = submitted.get('mode_' ~ row.index) if submitted else row.rule.mode.value if row.rule else '' %}
+            {% for value,label in row.modes %}<option value="{{ value }}" {% if selected_mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
           <div class="expectation-counts">
             {% for phase,label,count in [('create','New records',row.rule.creates if row.rule else none),('update','Changed records',row.rule.updates if row.rule else none)] %}
               <label>{{ label }} · minimum
-                <input type="number" min="0" step="1" name="{{ phase }}_min_{{ row.index }}" value="{{ count.minimum if count and count.minimum is not none else '' }}" placeholder="No minimum">
+                <input type="number" min="0" step="1" name="{{ phase }}_min_{{ row.index }}" value="{{ submitted.get(phase ~ '_min_' ~ row.index, '') if submitted else count.minimum if count and count.minimum is not none else '' }}" placeholder="No minimum">
               </label>
               <label>{{ label }} · maximum
-                <input type="number" min="0" step="1" name="{{ phase }}_max_{{ row.index }}" value="{{ count.maximum if count and count.maximum is not none else '' }}" placeholder="No maximum">
+                <input type="number" min="0" step="1" name="{{ phase }}_max_{{ row.index }}" value="{{ submitted.get(phase ~ '_max_' ~ row.index, '') if submitted else count.maximum if count and count.maximum is not none else '' }}" placeholder="No maximum">
               </label>
             {% endfor %}
           </div>
@@ -31,8 +33,9 @@
             <summary>Limit which matched fields may change</summary>
             <p>These limits can narrow the saved matching rules. They cannot add fields or relationship operations.</p>
             {% for phase,label in [('create','New records'),('update','Changed records')] %}
-              {% set fields = row.rule[phase ~ '_fields'] if row.rule else none %}
-              {% set relations = row.rule[phase ~ '_relationships'] if row.rule else none %}
+              {% set fields = submitted.getlist(phase ~ '_fields_' ~ row.index) if submitted and submitted.get('limit_' ~ phase ~ '_fields_' ~ row.index) else none if submitted else row.rule[phase ~ '_fields'] if row.rule else none %}
+              {% set relations = submitted.getlist(phase ~ '_relations_' ~ row.index) if submitted and submitted.get('limit_' ~ phase ~ '_relations_' ~ row.index) else none if submitted else row.rule[phase ~ '_relationships'] if row.rule else none %}
+              <div data-expectation-phase="{{ phase }}">
               <label><input type="checkbox" name="limit_{{ phase }}_fields_{{ row.index }}" value="1" {% if fields is not none %}checked{% endif %}> Limit value fields for {{ label|lower }}</label>
               <label>Allowed value fields
                 <select multiple name="{{ phase }}_fields_{{ row.index }}">
@@ -43,15 +46,17 @@
               <label>Allowed linked-field changes
                 <select multiple name="{{ phase }}_relations_{{ row.index }}">
                   {% for relation in row.scope[phase ~ '_relationships'] %}{% for operation in relation.operations %}
-                    <option value="{{ relation.field }}:{{ operation.value }}" {% if relation.field ~ ':' ~ operation.value in row.selected_relations[phase] %}selected{% endif %}>{{ relation.field }} · {{ operation.value }}</option>
+                    <option value="{{ relation.field }}:{{ operation.value }}" {% if relation.field ~ ':' ~ operation.value in (relations if submitted and relations else row.selected_relations[phase]) %}selected{% endif %}>{{ relation.field }} · {{ operation.value }}</option>
                   {% endfor %}{% endfor %}
                 </select>
               </label>
+              </div>
             {% endfor %}
           </details>
         </fieldset>
       {% endfor %}
-      <button class="button secondary" type="submit">Save business expectations</button>
+      <button class="button secondary" type="submit" data-busy-label="Saving expectations...">Save business expectations</button>
+      </fieldset>
     </form>
   {% else %}
     <p class="muted">{{ expectations.message }}</p>

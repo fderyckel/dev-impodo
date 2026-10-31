@@ -48,6 +48,7 @@ from impodo.adapters.duckdb.schema.workspace_engine import (
     WorkspaceEngineSchemaMixin,
 )
 from impodo.domain.data_version.models import DataVersion
+from impodo.domain.project.foundation import MigrationStorageCompatibilityError
 from impodo.domain.workspace.models import MigrationWorkspace
 from impodo.domain.workspace.workbench import WorkspaceStateCompatibilityError
 
@@ -90,108 +91,18 @@ def _workspace() -> MigrationWorkspace:
     )
 
 
-def _restore_v1_shape(connection: duckdb.DuckDBPyConnection) -> None:
-    for table in ("business_write_observation", "business_intent_assessment", "business_intent_current", "business_intent_approval"):
-        connection.execute(f"DROP TABLE IF EXISTS {table}")
-    connection.execute("DROP TABLE IF EXISTS odoo_company_binding")
-    connection.execute("DROP TABLE IF EXISTS business_intent_revision")
-    connection.execute("DROP TABLE IF EXISTS supporting_review_projection")
-    connection.execute("DROP TABLE IF EXISTS supporting_data_review")
-    connection.execute("DROP TABLE IF EXISTS production_run_values")
-    connection.execute("DROP TABLE IF EXISTS correction_run_binding")
-    connection.execute("DROP TABLE IF EXISTS mapping_mutation_receipt")
-    connection.execute("DROP TABLE IF EXISTS matching_order_preference")
-    connection.execute("DROP TABLE IF EXISTS matching_order_check_active")
-    connection.execute("DROP TABLE IF EXISTS matching_order_check_current")
-    connection.execute(
-        "DROP TABLE IF EXISTS matching_order_protected_identity_choice"
-    )
-    connection.execute("DROP TABLE IF EXISTS matching_order_protected_snapshot")
-    connection.execute("DROP TABLE IF EXISTS matching_order_check_attempt")
-    connection.execute("DROP TABLE IF EXISTS matching_order_check")
-    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_confirmation")
-    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_current")
-    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review_row")
-    connection.execute("DROP TABLE IF EXISTS mapping_row_inclusion_review")
-    connection.execute("DROP TABLE IF EXISTS preflight_execution_projection")
-    connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_current")
-    connection.execute("DROP TABLE IF EXISTS odoo_relationship_scope_revision")
-    connection.execute("DROP TABLE IF EXISTS cross_store_data_receipt")
-    connection.execute("DROP TABLE IF EXISTS workspace_fence")
-    connection.execute("DROP TABLE IF EXISTS quality_cause_member")
-    connection.execute("DROP TABLE IF EXISTS test_run_parameter_values")
-    connection.execute("DROP TABLE IF EXISTS test_run_setup_binding")
-    connection.execute("DROP TABLE schema_migration")
-    tables = {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()}
-    if "migration_run_target_setup" in tables:
-        connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
-        connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
-    if "normalization_run" in tables:
-        connection.execute(
-            "ALTER TABLE normalization_run DROP COLUMN reviewed_group_count"
-        )
-    if "workspace_projection_cache" in tables:
-        connection.execute("ALTER TABLE recipe_quality_seed DROP COLUMN mapping_definition_json")
-        for column in (
-            "destination_odoo_connection_mode",
-            "destination_odoo_base_url",
-            "destination_odoo_database",
-            "destination_verified_target_hash",
-            "destination_verified_credential_binding_hash",
-            "destination_verified_read_principal_hash",
-            "destination_verified_odoo_version",
-            "destination_verified_at",
-            "destination_match_plan_json",
-            "transfer_order_plan_json",
-            "transfer_review_package_json",
-            "transfer_review_approval_json",
-            "transfer_preflight_report_json",
-        ):
-            connection.execute(
-                f"ALTER TABLE workspace_projection_cache DROP COLUMN {column}"
-            )
-    connection.execute("UPDATE schema_version SET version = 1")
-
-
 def _schema_fingerprint(connection: duckdb.DuckDBPyConnection) -> str:
     shape = []
     for row in connection.execute("SHOW TABLES").fetchall():
         table = str(row[0])
         columns = tuple(
             str(column[1])
-            for column in connection.execute(
-                f"PRAGMA table_info('{table}')"
-            ).fetchall()
+            for column in connection.execute(f"PRAGMA table_info('{table}')").fetchall()
         )
         shape.append((table, columns))
     shape.sort()
     encoded = json.dumps(shape, separators=(",", ":")).encode("utf-8")
     return sha256(encoded).hexdigest()
-
-
-def _assert_upgrade_record(
-    test: unittest.TestCase,
-    connection: duckdb.DuckDBPyConnection,
-    *,
-    generation: str,
-    version: int,
-    migration_id: str,
-) -> None:
-    test.assertEqual(
-        connection.execute(
-            "SELECT generation, version FROM schema_version"
-        ).fetchone(),
-        (generation, version),
-    )
-    test.assertEqual(
-        connection.execute(
-            """
-            SELECT from_version, to_version, migration_id
-              FROM schema_migration
-            """
-        ).fetchall(),
-        [(1, 2, migration_id)],
-    )
 
 
 class ForwardUpgradeCompatibilityTests(unittest.TestCase):
@@ -225,288 +136,93 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     tuple(range(baseline, current)),
                 )
 
-    def test_registry_v1_upgrades_once_and_keeps_its_exact_baseline(self) -> None:
-        connection = duckdb.connect(":memory:")
-        try:
-            path = Path("C:/impodo/registry.duckdb")
-            ensure_migration_registry_schema(connection, path)
-            connection.execute(
-                "INSERT INTO migration_project_identity VALUES (?)",
-                [PROJECT_ID],
-            )
-            connection.execute(
-                """
-                INSERT INTO migration_project VALUES (
-                    ?, 'Legacy ERP rollout', 'Move customers to Odoo 19',
-                    'Legacy ERP', 'BUSINESS', 365, 'ACTIVE', 4, ?, ?, NULL, NULL
-                )
-                """,
-                [PROJECT_ID, CREATED_AT.isoformat(), CREATED_AT.isoformat()],
-            )
-            _restore_v1_shape(connection)
-            self.assertEqual(
-                _schema_fingerprint(connection),
-                "c0c35e7134c511ccd3aa3102d90e4f0184d871e8f1761ca2df5cca338263e590",
-            )
-
-            ensure_migration_registry_schema(connection, path)
-            ensure_migration_registry_schema(connection, path)
-
-            self.assertEqual(
-                connection.execute(
-                    "SELECT generation, version FROM schema_version"
-                ).fetchone(),
-                (MIGRATION_REGISTRY_GENERATION, MIGRATION_REGISTRY_VERSION),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT from_version, to_version, migration_id "
-                    "FROM schema_migration ORDER BY from_version"
-                ).fetchall(),
-                [
-                    (1, 2, "migration-registry-v1-to-v2-migration-ledger"),
-                    (2, 3, "migration-registry-v2-to-v3-test-run-setup"),
-                    (3, 4, "migration-registry-v3-to-v4-test-run-values"),
-                    (4, 5, "migration-registry-v4-to-v5-correction-binding"),
-                    (5, 6, "migration-registry-v5-to-v6-run-control-values"),
-                    (6, 7, "migration-registry-v6-to-v7-production-values"),
-                    (7, 8, "migration-registry-v7-to-v8-operation-company"),
-                ],
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT display_name, status FROM migration_project"
-                ).fetchone(),
-                ("Legacy ERP rollout", "ACTIVE"),
-            )
-        finally:
-            connection.close()
-
-    def test_registry_v6_adds_production_values_without_rewriting_test_answers(self):
-        with duckdb.connect(":memory:") as connection:
-            path = Path("C:/impodo/registry.duckdb")
-            ensure_migration_registry_schema(connection, path)
-            connection.execute("INSERT INTO migration_project_identity VALUES (?)", [PROJECT_ID])
-            connection.execute("INSERT INTO migration_run_identity VALUES (?)", [RUN_ID])
-            connection.execute("INSERT INTO test_run_parameter_values VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?, 2)",
-                [WORKSPACE_ID, PROJECT_ID, RUN_ID, '{"values":[],"controls":[]}', "sha256:" + "1" * 64,
-                 "local", "operator", "Data manager", CREATED_AT.isoformat()])
-            original = connection.execute("SELECT * FROM test_run_parameter_values").fetchall()
-            connection.execute("DROP TABLE production_run_values")
-            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_binding_hash")
-            connection.execute("ALTER TABLE migration_run_target_setup DROP COLUMN company_workspace_id")
-            connection.execute("UPDATE schema_version SET version = 6")
-            ensure_migration_registry_schema(connection, path)
-            ensure_migration_registry_schema(connection, path)
-            self.assertEqual(connection.execute("SELECT * FROM test_run_parameter_values").fetchall(), original)
-            self.assertEqual(connection.execute("SELECT * FROM production_run_values").fetchall(), [])
-            self.assertEqual(connection.execute("SELECT from_version, to_version FROM schema_migration ORDER BY from_version").fetchall(), [(6, 7), (7, 8)])
-
-    def test_data_version_v1_upgrades_without_rewriting_package_data(self) -> None:
-        connection = duckdb.connect(":memory:")
-        try:
-            data_version = _data_version()
-            path = Path(
-                "C:/impodo/projects/project/data-versions/version/data-version.duckdb"
-            )
-            initialize_data_version_store(connection, data_version)
-            _restore_v1_shape(connection)
-            self.assertEqual(
-                _schema_fingerprint(connection),
-                "0d7258a38c15d151cba868144570851d06155bc502779f0014a0efc36a8b61f9",
-            )
-
-            ensure_data_version_store(connection, path, data_version)
-
-            _assert_upgrade_record(
-                self,
-                connection,
-                generation=DATA_VERSION_STORE_GENERATION,
-                version=DATA_VERSION_STORE_VERSION,
-                migration_id="data-version-store-v1-to-v2-migration-ledger",
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT data_version_id FROM data_version_identity"
-                ).fetchone(),
-                (DATA_VERSION_ID,),
-            )
-        finally:
-            connection.close()
-
-    def test_workspace_reference_v1_upgrades_without_copying_source_data(self) -> None:
-        connection = duckdb.connect(":memory:")
-        try:
-            workspace = _workspace()
-            path = Path(
-                "C:/impodo/projects/project/workspaces/workspace/workspace.duckdb"
-            )
-            initialize_migration_workspace_store(connection, workspace)
-            _restore_v1_shape(connection)
-            self.assertEqual(
-                _schema_fingerprint(connection),
-                "d59e093e308676b8407a421b411270eb451bce8b0481a3e88f0ecda6e216c310",
-            )
-
-            ensure_migration_workspace_store(connection, path, workspace)
-
-            _assert_upgrade_record(
-                self,
-                connection,
-                generation=MIGRATION_WORKSPACE_GENERATION,
-                version=MIGRATION_WORKSPACE_VERSION,
-                migration_id="migration-workspace-v1-to-v2-migration-ledger",
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT workspace_id, data_version_id FROM workspace_linkage"
-                ).fetchone(),
-                (WORKSPACE_ID, DATA_VERSION_ID),
-            )
-        finally:
-            connection.close()
-
-    def test_workspace_engine_v1_upgrades_once_without_row_processing(self) -> None:
+    def test_fresh_stores_start_current_with_empty_upgrade_ledgers(self) -> None:
+        data_version = _data_version()
+        workspace = _workspace()
         schema = WorkspaceEngineSchemaMixin()
-        connection = duckdb.connect(":memory:")
-        try:
-            schema._initialize_workspace_database(connection)
-            _restore_v1_shape(connection)
-            self.assertEqual(
-                _schema_fingerprint(connection),
-                "bb35c9e0b9f0abba5a9ae24b8259070ece1d0f20e652e5ad21f8b309a7e7229b",
-            )
-
-            schema._ensure_workspace_database_schema(connection)
-            schema._ensure_workspace_database_schema(connection)
-
-            self.assertEqual(
-                connection.execute(
-                    "SELECT generation, version FROM schema_version"
-                ).fetchone(),
-                (SCHEMA_GENERATION, SCHEMA_VERSION),
-            )
-            self.assertEqual(
-                connection.execute(
-                    "SELECT from_version, to_version, migration_id "
-                    "FROM schema_migration ORDER BY from_version"
-                ).fetchall(),
-                [
-                    (1, 2, "workspace-engine-v1-to-v2-migration-ledger"),
-                    (
-                        2,
-                        3,
-                        "workspace-engine-v2-to-v3-mapping-mutation-receipts",
-                    ),
-                    (
-                        3,
-                        4,
-                        "workspace-engine-v3-to-v4-odoo-capture-sets",
-                    ),
-                    (
-                        4,
-                        5,
-                        "workspace-engine-v4-to-v5-transfer-destination",
-                    ),
-                    (
-                        5,
-                        6,
-                        "workspace-engine-v5-to-v6-destination-matching",
-                    ),
-                    (
-                        6,
-                        7,
-                        "workspace-engine-v6-to-v7-transfer-order",
-                    ),
-                    (
-                        7,
-                        8,
-                        "workspace-engine-v7-to-v8-transfer-review",
-                    ),
-                    (
-                        8,
-                        9,
-                        "workspace-engine-v8-to-v9-transfer-preflight",
-                    ),
-                    (9, 10, "workspace-engine-v9-to-v10-recipe-mapping-baseline"),
-                    (
-                        10,
-                        11,
-                        "workspace-engine-v10-to-v11-matching-order-preference",
-                    ),
-                    (
-                        11,
-                        12,
-                        "workspace-engine-v11-to-v12-matching-order-checks",
-                    ),
-                    (
-                        12,
-                        13,
-                        "workspace-engine-v12-to-v13-row-inclusion-review",
-                    ),
-                    (
-                        13,
-                        14,
-                        "workspace-engine-v13-to-v14-reconciliation-history",
-                    ),
-                    (
-                        14,
-                        15,
-                        "workspace-engine-v14-to-v15-navigation-projection",
-                    ),
-                    (
-                        15,
-                        16,
-                        "workspace-engine-v15-to-v16-odoo-relationship-scope",
-                    ),
-                    (
-                        16,
-                        17,
-                        "workspace-engine-v16-to-v17-cross-store-coordination",
-                    ),
-                    (
-                        17,
-                        18,
-                        "workspace-engine-v17-to-v18-quality-cause-members",
-                    ),
-                    (
-                        18,
-                        19,
-                        "workspace-engine-v18-to-v19-preflight-review-projection",
-                    ),
-                    (
-                        19,
-                        20,
-                        "workspace-engine-v19-to-v20-matching-identity-choice-review",
-                    ),
-                    (20, 21, "workspace-engine-v20-to-v21-supporting-data-review"),
-                    (21, 22, "workspace-engine-v21-to-v22-supporting-review-projection"),
-                    (22, 23, "workspace-engine-v22-to-v23-business-intent"),
-                    (23, 24, "workspace-engine-v23-to-v24-operation-company"),
-                    (24, 25, "workspace-engine-v24-to-v25-business-intent-assessment"),
-                    (25, 26, "workspace-engine-v25-to-v26-legacy-company-layout"),
-                ],
-            )
-            self.assertEqual(
-                tuple(
-                    row[1]
-                    for row in connection.execute(
-                        "PRAGMA table_info('odoo_capture_selection_current')"
-                    ).fetchall()
+        stores = (
+            (
+                lambda c: ensure_migration_registry_schema(c, Path("registry.duckdb")),
+                lambda c: ensure_migration_registry_schema(c, Path("registry.duckdb")),
+                MIGRATION_REGISTRY_GENERATION,
+                MIGRATION_REGISTRY_VERSION,
+                "e546d0a428ea0eb285bfbcb830f1dc02a44fa2ac15989b56fdd4e37c754d2bac",
+            ),
+            (
+                lambda c: initialize_data_version_store(c, data_version),
+                lambda c: ensure_data_version_store(
+                    c, Path("data-version.duckdb"), data_version
                 ),
-                ("model", "selection_id", "version"),
-            )
-            self.assertEqual(
-                tuple(
-                    row[1]
-                    for row in connection.execute(
-                        "PRAGMA table_info('odoo_capture_manifest_current')"
-                    ).fetchall()
+                DATA_VERSION_STORE_GENERATION,
+                DATA_VERSION_STORE_VERSION,
+                "ffa11ff6724b012deda8d389d179cbe0c28541f5f60d42bc6975c49dad8dab01",
+            ),
+            (
+                lambda c: initialize_migration_workspace_store(c, workspace),
+                lambda c: ensure_migration_workspace_store(
+                    c, Path("workspace.duckdb"), workspace
                 ),
-                ("dataset_id", "manifest_id"),
-            )
-        finally:
-            connection.close()
+                MIGRATION_WORKSPACE_GENERATION,
+                MIGRATION_WORKSPACE_VERSION,
+                "20fcb20795a4a27fe668002bc3b9ad8b8547a0cfd4fc9c680b04ca1df0f092f1",
+            ),
+            (
+                schema._initialize_workspace_database,
+                schema._ensure_workspace_database_schema,
+                SCHEMA_GENERATION,
+                SCHEMA_VERSION,
+                "102696ef8dc8a045ee05bfac70dc05d730f69603bfaefd90c361bdfce4c4ca9e",
+            ),
+        )
+        for initialize, ensure, generation, version, fingerprint in stores:
+            with (
+                self.subTest(generation=generation),
+                duckdb.connect(":memory:") as connection,
+            ):
+                initialize(connection)
+                ensure(connection)
+                ensure(connection)
+                self.assertEqual(version, 1)
+                self.assertEqual(
+                    connection.execute(
+                        "SELECT generation, version FROM schema_version"
+                    ).fetchone(),
+                    (generation, version),
+                )
+                self.assertEqual(_schema_fingerprint(connection), fingerprint)
+                self.assertEqual(
+                    connection.execute("SELECT * FROM schema_migration").fetchall(), []
+                )
+                for bad_generation, bad_version in (
+                    (generation, 0),
+                    (generation, version + 1),
+                    ("unsupported-generation", version),
+                ):
+                    with self.subTest(stored=(bad_generation, bad_version)):
+                        connection.execute(
+                            "UPDATE schema_version SET generation = ?, version = ?",
+                            [bad_generation, bad_version],
+                        )
+                        with self.assertRaises(
+                            (
+                                MigrationStorageCompatibilityError,
+                                WorkspaceStateCompatibilityError,
+                            )
+                        ):
+                            ensure(connection)
+                        self.assertEqual(
+                            connection.execute(
+                                "SELECT generation, version FROM schema_version"
+                            ).fetchone(),
+                            (bad_generation, bad_version),
+                        )
+                        self.assertEqual(_schema_fingerprint(connection), fingerprint)
+                        self.assertEqual(
+                            connection.execute(
+                                "SELECT * FROM schema_migration"
+                            ).fetchall(),
+                            [],
+                        )
 
     def test_failed_upgrade_rolls_back_ddl_version_and_ledger(self) -> None:
         connection = duckdb.connect(":memory:")
@@ -553,9 +269,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                         ),
                     },
                     validate_current=lambda: None,
-                    compatibility_error=lambda: RuntimeError(
-                        "incompatible test store"
-                    ),
+                    compatibility_error=lambda: RuntimeError("incompatible test store"),
                 )
 
             self.assertEqual(

@@ -190,7 +190,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
                 )
         scan.assert_not_called()
 
-    def test_version_21_review_upgrades_without_rewriting_decision_evidence(self):
+    def test_rebuild_summary_preserves_saved_decision_evidence(self):
         _page, form = self.page_and_form()
         self.assertEqual(self.save(form).status_code, 303)
         service = self.context.schema_workspace.supporting
@@ -199,14 +199,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         path = repository.workspace_directory(self.workspace_id) / "workspace-engine.duckdb"
         with repository._connect(path) as connection:
             original = connection.execute("SELECT review_json FROM supporting_data_review").fetchone()[0]
-            connection.execute("DROP TABLE business_intent_approval")
-            connection.execute("DROP TABLE business_intent_current")
-            connection.execute("DROP TABLE business_intent_assessment")
-            connection.execute("DROP TABLE business_write_observation")
-            connection.execute("DROP TABLE odoo_company_binding")
-            connection.execute("DROP TABLE business_intent_revision")
-            connection.execute("DROP TABLE supporting_review_projection")
-            connection.execute("UPDATE schema_version SET version = 21")
+            connection.execute("DELETE FROM supporting_review_projection")
         self.assertEqual(service.current(self.workspace_id, actor=self.actor), review)
         self.assertIsNone(service.summary(self.workspace_id, actor=self.actor))
         self.assertEqual(service.rebuild_summary(self.workspace_id, actor=self.actor).evidence_hash, review.content_hash)

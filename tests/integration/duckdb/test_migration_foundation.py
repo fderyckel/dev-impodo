@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
 from pathlib import Path
-import shutil
+import tempfile
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -41,10 +39,6 @@ from impodo.adapters.duckdb.schema.migration_workspace_store import (
     MIGRATION_WORKSPACE_GENERATION,
 )
 from impodo.application.data_version.service import DataVersionService
-from impodo.web.composition.development_reset import (
-    execute_development_reset,
-    plan_development_reset,
-)
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
@@ -56,9 +50,6 @@ from impodo.domain.project.foundation import (
 from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
-
-
-ROOT = REPOSITORY_ROOT
 
 
 class SimulatedCrash(RuntimeError):
@@ -75,9 +66,9 @@ def _crash_at(expected_stage: str):
 
 class MigrationFoundationTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"migration-foundation-{uuid4()}"
-        self.root.mkdir()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
         self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
         authorization = CapabilityAuthorizationPolicy()
@@ -88,9 +79,6 @@ class MigrationFoundationTests(unittest.TestCase):
             self.repository,
             authorization,
         )
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
 
     def _project(self, *, operation_id: str | None = None):
         return self.projects.create(
@@ -621,14 +609,13 @@ class MigrationFoundationTests(unittest.TestCase):
             )
 
 
-class MigrationFoundationResetTests(unittest.TestCase):
+class MigrationFoundationCompatibilityTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"migration-foundation-reset-{uuid4()}"
-        self.root.mkdir()
+        self.temporary = tempfile.TemporaryDirectory()
+        self.root = Path(self.temporary.name)
 
     def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
+        self.temporary.cleanup()
 
     def test_retired_recipe_owned_registry_is_rejected_without_mutation(self) -> None:
         registry = self.root / "registry.duckdb"
@@ -640,7 +627,6 @@ class MigrationFoundationResetTests(unittest.TestCase):
         with self.assertRaises(MigrationStorageCompatibilityError) as rejected:
             MigrationFoundationDatabase(self.root)
         self.assertEqual(rejected.exception.database_path, str(registry.resolve()))
-        self.assertIn("reset-development-storage.py", rejected.exception.reset_command)
         with duckdb.connect(str(registry), read_only=True) as connection:
             self.assertEqual(
                 connection.execute("SELECT * FROM recipe").fetchall(),
@@ -663,67 +649,7 @@ class MigrationFoundationResetTests(unittest.TestCase):
         self.assertFalse((standalone_root / "registry.duckdb").exists())
         self.assertTrue((obsolete_workspace / "workspace-engine.duckdb").is_file())
 
-    def test_reset_requires_review_confirmation_and_development_mode(self) -> None:
-        registry = self.root / "registry.duckdb"
-        with duckdb.connect(str(registry)) as connection:
-            connection.execute("CREATE TABLE recipe (recipe_id VARCHAR)")
-        obsolete_workspace = self.root / str(uuid4())
-        obsolete_workspace.mkdir()
-        (obsolete_workspace / "workspace-engine.duckdb").write_bytes(b"fixture")
 
-        plan = plan_development_reset(self.root)
-        self.assertTrue(plan.can_execute)
-        self.assertEqual(
-            {item.name for item in plan.targets},
-            {"registry.duckdb", obsolete_workspace.name},
-        )
-        with self.assertRaises(MigrationFoundationError):
-            execute_development_reset(
-                plan,
-                confirmation_token=plan.confirmation_token,
-                development_mode=False,
-            )
-        with self.assertRaises(MigrationFoundationError):
-            execute_development_reset(
-                plan,
-                confirmation_token="RESET",
-                development_mode=True,
-            )
-        self.assertTrue(registry.is_file())
-
-        quarantine = execute_development_reset(
-            plan,
-            confirmation_token=plan.confirmation_token,
-            development_mode=True,
-        )
-        self.assertFalse(registry.exists())
-        self.assertTrue((quarantine / "registry.duckdb").is_file())
-        self.assertTrue((quarantine / obsolete_workspace.name).is_dir())
-        clean = MigrationFoundationDatabase(self.root)
-        with clean.connect(clean.registry_path) as connection:
-            self.assertEqual(
-                connection.execute(
-                    "SELECT generation FROM schema_version"
-                ).fetchone(),
-                (MIGRATION_REGISTRY_GENERATION,),
-            )
-
-    def test_unknown_reset_entry_blocks_every_move(self) -> None:
-        registry = self.root / "registry.duckdb"
-        registry.write_bytes(b"retired-storage")
-        unknown = self.root / "operator-notes.txt"
-        unknown.write_text("Keep me", encoding="utf-8")
-        plan = plan_development_reset(self.root)
-        self.assertFalse(plan.can_execute)
-        self.assertEqual(plan.unknown_entries, (unknown.resolve(),))
-        with self.assertRaises(MigrationFoundationError):
-            execute_development_reset(
-                plan,
-                confirmation_token=plan.confirmation_token,
-                development_mode=True,
-            )
-        self.assertTrue(registry.is_file())
-        self.assertEqual(unknown.read_text(encoding="utf-8"), "Keep me")
 
 
 if __name__ == "__main__":
