@@ -168,6 +168,7 @@ from .matching_company_refresh import (
 )
 from .matching_expectations import build_matching_expectations_router
 from .relationship_choice_review import build_relationship_choice_review_router
+from .required_values import build_required_values_router
 
 _ROW_REVIEW_FAILURE_CODE = "MAPPING_ROW_REVIEW_FAILED"
 _IDENTITY_CHOICE_CAUSE_LABELS = {
@@ -237,6 +238,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     router = APIRouter()
     router.include_router(build_matching_expectations_router(context))
     router.include_router(build_relationship_choice_review_router(context))
+    router.include_router(build_required_values_router(context))
     router.include_router(build_matching_company_refresh_router(context))
     catalog_projection_cache = MappingCatalogProjectionCache(maximum_entries=64)
     catalog_searches = MappingCatalogSearchCoordinator(maximum_editors=256)

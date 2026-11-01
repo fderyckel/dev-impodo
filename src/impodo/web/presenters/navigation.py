@@ -218,6 +218,7 @@ _TEMPLATE_LOCATION = {
     "project_recipe_target_matches.html": ("odoo", "Review target values"),
     "mapping/page.html": ("match", "Match fields"),
     "mapping/relationship_choice_review.html": ("match", "Review unresolved choices"),
+    "mapping/required_values.html": ("match", "Required values"),
     "workspace_transformation_impact.html": (
         "match",
         "Review rule effects",

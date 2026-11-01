@@ -746,7 +746,10 @@ def _validate_read_evidence(snapshot: ExecutionSnapshot) -> None:
     )
     if any(value and not _SHA256.fullmatch(value) for value in hashes):
         raise ValueError("Execution snapshot read-identity evidence is invalid")
-    if any(hashes[1:]) and not all(hashes):
+    # LOCAL schema capture binds the selected company context and local reader
+    # without inventing API principal or permission probes. If either API probe
+    # hash is present, the complete API binding remains mandatory.
+    if (any(hashes[1:3]) and not all(hashes)) or (hashes[3] and not hashes[0]):
         raise ValueError("Execution snapshot read-identity evidence is incomplete")
     if len(set(snapshot.readable_models)) != len(snapshot.readable_models):
         raise ValueError("Execution snapshot readable-model evidence is invalid")

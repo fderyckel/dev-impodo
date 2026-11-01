@@ -35,6 +35,9 @@
     </div>
   {% endif %}
   {% if selection and schema and (governance or odoo_pinned) %}
+    <section class="form-card" id="required-values-summary" aria-labelledby="required-values-title">
+      <div class="page-heading compact"><div><p class="eyebrow">Mapping coverage</p><h2 id="required-values-title">Required values</h2><p>Review required-field decisions across {{ dataset_views|length }} table{{ 's' if dataset_views|length != 1 else '' }}, alongside identity and required-parent proof.</p></div><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/required-values">Review required values</a></div>
+    </section>
     {% include "_workflow_issue_summary.html" %}
     {% include "mapping/_identity_health.html" %}
     {% include "mapping/_relationship_health.html" %}

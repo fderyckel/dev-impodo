@@ -103,6 +103,47 @@ against the new expectations locally; otherwise compare again in Final review.
 These expectations govern prepared file imports. Odoo-to-Odoo transfers keep
 their destination-owned matching and approval controls.
 
+### Review required values across tables
+
+Select **Review required values** near the top of **Match data** to see how
+required fields get their values. Opening the checklist uses saved evidence;
+it does not contact Odoo, capture defaults, or evaluate source rows.
+
+![The Required values entry opens one checklist across the workspace's tables.](../../images/user/11n-mapping-required-values-entry.png)
+
+**Coverage across tables** separates identity proof, required-parent proof,
+the match check, and required-field decisions. A chosen identity or parent is
+not yet proof that every current record resolves. A checked field rule does
+not establish how many records will be created. Prepare data and Final review
+still own those checks.
+
+The **Required-field checklist** shows each field's provider: **Source value
+or rule**, **Fixed value**, **Checked Odoo default**, **Odoo-managed**, or
+**Missing**. An unverified default is labelled explicitly. **Chosen · not
+checked** identifies saved decisions; **Checked** identifies current evidence.
+**Missing decision**, **Needs attention**, and **Needs refresh** identify work
+that remains. Reference-only tables and pinned updates do not inherit
+create-only requirements.
+
+For example, the fictional checklist below has a source value for Field 0000,
+a fixed value for Field 0001, an available default awaiting confirmation for
+Field 0002, and a missing decision for Field 0003. Odoo manages the linked
+field. The checklist shows provider types without copying private fixed
+values or Odoo record IDs.
+
+![The required-field checklist shows six fictional decisions, their providers, current status, and correction links.](../../images/user/11o-required-values-checklist.png)
+
+Filter by **Table** or **Status**. Pages show up to 100 fields. **Review field
+decision** opens the exact identity, value, or relationship control, including
+when fields share the same label. **Review Odoo requirements** returns an
+unavailable field to Odoo data. A conflicting read-only write leads to the
+existing match-check recovery.
+
+When captured defaults need confirmation, select **Review checked defaults**.
+Match data shows the existing grouped acceptance action and checks the complete
+mapping once after acceptance. It then shows only the remaining blockers.
+Save and check other corrections before relying on the updated checklist.
+
 ### Check identity health before matching fields
 
 At the top of **Match data**, **Identity health** separates three facts that

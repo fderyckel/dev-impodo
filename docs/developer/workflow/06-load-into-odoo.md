@@ -534,6 +534,38 @@ interrupted records. Resume then rechecks their required ancestors before
 releasing children. These tests qualify adapter and evidence behaviour; they
 do not establish live Odoo defaults, create hooks, or target access rules.
 
+The opt-in [hierarchy qualification runner](../../../scripts/qualify_hierarchy_workflow.py)
+drives this journey against an explicitly allocated disposable database. Its
+[target boundary](../../../scripts/hierarchy_qualification_target.py) validates
+the final runtime major, fixture modules, exact protected credentials, access,
+and empty fixture scope before seeding five categories. Its
+[application journey](../../../scripts/hierarchy_qualification_journey.py)
+captures actual schema and defaults, publishes and replays a Recipe, verifies
+18 mapped records and 6 generated variants per load, and checks a repeat
+comparison with no further changes. The [runner instructions](../../../scripts/README.md)
+define the descriptor, command, output, and fault modes.
+
+LOCAL comparisons use the selected local reader; REMOTE comparisons use the
+normal JSON-2 reader. LOCAL authoring captures schema through the local shell.
+Recipe activation requires verified API-reader evidence, so the runner uses
+the protected READ credential for that schema capture in either mode. It never
+invents principal hashes. Execution snapshots retain a local reader's company
+context without requiring API principal hashes; partial API probe evidence
+remains invalid. The existing [snapshot tests](../../../tests/domain/execution/test_snapshot.py)
+cover both contracts.
+
+Comparison collects local schema, supporting evidence, and credential ownership
+inside one bounded operation before target I/O. Controlled REMOTE runner tests
+reduced the comparison from 29 to 12 physical connections, with 5 schema checks
+and no lock retries. The [focused runner suite](../../../tests/integration/odoo/test_hierarchy_qualification.py)
+enforces those ceilings and rejects a retained DuckDB scope at every simulated
+HTTP or native-reader call. This is fixture evidence, not a live latency claim.
+The runner starts no Odoo or PostgreSQL service and performs no Linux server
+administration. Cleanup requires exact receipted IDs, complete business-path
+read-back, and absence of foreign dependents. Failures retain a sanitized
+receipt and private recovery evidence. Offline tests do not fill live
+acceptance cells.
+
 `ExecutionService` consumes the frozen topological component layers through
 pages of at most 500 rows. A page never mixes components. It groups only
 dependency-independent rows by dataset and compatible create shape, journals

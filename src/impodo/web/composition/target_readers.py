@@ -805,19 +805,34 @@ def _read_readiness_snapshots(
             verified_read_identity=verified_read_identity,
         )
 
-    local_profile = _selected_local_profile(context, workspace_state)
-    schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
-    if schema is None:
-        raise OdooReadWorkflowError(
-            OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING,
-            "Capture the current Odoo fields before checking data",
+    def collect_local_inputs():
+        local_profile = _selected_local_profile(context, workspace_state)
+        schema = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
+        if schema is None:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING,
+                "Capture the current Odoo fields before checking data",
+            )
+        supporting_references = _current_preflight_supporting_references(
+            context,
+            workspace_state,
+            schema,
+            requirements,
+            actor=actor,
         )
-    supporting_references = _current_preflight_supporting_references(
-        context,
-        workspace_state,
-        schema,
-        requirements,
-        actor=actor,
+        credential_workspace = (
+            context.target_credential_workspace(
+                workspace_state.workspace_id, actor=actor,
+            )
+            if workspace_state.odoo_connection_mode is not OdooConnectionMode.LOCAL
+            else workspace_state
+        )
+        return local_profile, schema, supporting_references, credential_workspace
+
+    # Collect one bounded local projection, then release every database owner
+    # before reading the vault, probing Odoo, or calling either target reader.
+    local_profile, schema, supporting_references, credential_workspace = (
+        run_local_operation_sync(collect_local_inputs)
     )
     supplemental_models = _authorized_supplemental_models(
         schema,
@@ -873,10 +888,7 @@ def _read_readiness_snapshots(
         return metadata, records
     credential = get_target_credential(
         context.secret_store,
-        context.target_credential_workspace(
-            workspace_state.workspace_id,
-            actor=actor,
-        ),
+        credential_workspace,
         TargetCredentialRole.READ,
     )
     if credential is None:

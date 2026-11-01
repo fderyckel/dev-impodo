@@ -233,6 +233,37 @@ class ExecutionSnapshotTests(unittest.TestCase):
             ("product.template", "res.partner"),
         )
 
+    def test_local_company_context_round_trips_without_api_principal_evidence(self) -> None:
+        frozen, result = _execution_fixture()
+        frozen.captured_schema = SimpleNamespace(
+            read_credential_binding_hash="sha256:" + "7" * 64,
+            read_principal_hash="",
+            read_permission_hash="",
+            read_context_hash="sha256:" + "a" * 64,
+            models=(SimpleNamespace(name="product.template"),),
+        )
+        snapshot = build_execution_snapshot(
+            preflight_run_id=str(uuid4()), frozen=frozen, result=result,
+        )
+        restored = ExecutionSnapshot.from_json(snapshot.to_json())
+        self.assertEqual(restored.read_context_hash, frozen.captured_schema.read_context_hash)
+        self.assertEqual(restored.read_credential_binding_hash, frozen.captured_schema.read_credential_binding_hash)
+        self.assertEqual((restored.read_principal_hash, restored.read_permission_hash), ("", ""))
+
+    def test_partial_api_probe_or_unbound_context_still_cannot_build_a_snapshot(self) -> None:
+        for principal, permission, credential in (("", "", ""), ("sha256:" + "8" * 64, "", "sha256:" + "7" * 64), ("", "sha256:" + "9" * 64, "sha256:" + "7" * 64)):
+            with self.subTest(principal=bool(principal), permission=bool(permission)):
+                frozen, result = _execution_fixture()
+                frozen.captured_schema = SimpleNamespace(
+                    read_credential_binding_hash=credential,
+                    read_principal_hash=principal,
+                    read_permission_hash=permission,
+                    read_context_hash="sha256:" + "a" * 64,
+                    models=(SimpleNamespace(name="product.template"),),
+                )
+                with self.assertRaisesRegex(ValueError, "read-identity evidence is incomplete"):
+                    build_execution_snapshot(preflight_run_id=str(uuid4()), frozen=frozen, result=result)
+
     def test_snapshot_carries_used_odoo_field_types_for_readback(self) -> None:
         frozen, result = _execution_fixture()
         actionable = next(

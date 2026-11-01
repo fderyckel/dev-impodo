@@ -2,7 +2,9 @@
 
 ## Status and authority
 
-**Status:** Active roadmap, reconciled against the checkout on 2026-10-28.
+**Status:** Active roadmap. Plan 13 completion and the next delivery were
+reconciled against the checkout on 2026-10-31. The product-value order below
+remains authoritative.
 
 This is the broad forward-looking roadmap. Detailed plans remain beside it
 while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
@@ -39,9 +41,13 @@ does not override this list.
 1. **Finish the [six-stage Authoring support](01-six-stage-workflow-user-support.md).**
    This remains the most important change because every data manager benefits
    when Impodo explains a blocker, names the affected business records, opens
-   the owning correction, and states which evidence remains safe. Finish the
-   root-cause correction routes first. Add migration intent and the load
-   cockpit after the safe technical scope is known.
+   the owning correction, and states which evidence remains safe. The next
+   delivery is **Slice 20: field-specific rule-effect links**. Slice 19's
+   Required values checklist and cross-table coverage are implemented, with
+   exact correction links and the existing grouped-default owner. Reuse the
+   current transformation-impact evidence for the next links. Follow with Slice
+   21's complete workflow qualification. Reuse the implemented correction,
+   default, business-intent, and load-recovery owners.
 2. **Complete [hierarchy-root and grouped-cause qualification](04-hierarchy-root-null-scope-and-load-order.md).**
    This remains important for categories, bills of materials, and other parent
    structures. It lets the data manager correct one missing or ambiguous
@@ -86,11 +92,7 @@ does not override this list.
     The implemented ordering is useful, but the remaining work is primarily
     documentation, visual acceptance, and measurement. Do not redesign the
     algorithm without evidence of a data-manager problem.
-11. **Close [row-inclusion visual qualification](13-source-row-inclusion-rules.md).**
-    Guided inclusion is already available and useful. Finish the authenticated
-    examples and documentation. Native execution remains conditional unless
-    the bounded fallback becomes a measured release blocker.
-12. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
+11. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
     alongside the product work it protects.** This remains important because
     unclear ownership makes safe changes slower and riskier. It is supporting
     work rather than a standalone data-manager feature, so extract the focused
@@ -100,6 +102,17 @@ does not override this list.
 Each plan retains its safety gates. This order does not authorize an external
 write, live customer-data exercise, deferred Production operation, or remote
 deployment.
+
+The next delivery must preserve the
+[bounded local database operation scopes](../architecture/code-organization.md#local-browser-database-operation-scopes)
+and [server fact ownership](../architecture/server-fact-ownership.md).
+Read field, default, and coverage evidence in bulk within one bounded page or
+command operation. Add no database connection per field or row and no
+cross-request connection cache. Shared application services use injected ports.
+The local adapter owns local DuckDB access; a remote/Linux browser consumes
+bounded verified worker projections without opening worker DuckDB. Detailed
+values and decisions stay in the data plane. PostgreSQL retains only its
+approved control facts, bounded counts, pointers, and receipt hashes.
 
 ## Files that are not separate implementation items
 
@@ -130,7 +143,16 @@ qualification belongs on an approved external host or continuous-integration
 runner. Record it as omitted when that environment is unavailable; do not ask
 the local user to weaken or change laptop security settings.
 
-## Completed plans removed in this review
+## Completed plans and retained evidence
+
+[Plan 13: Source-row inclusion](13-source-row-inclusion-rules.md) is complete
+for its requested scope as of 2026-10-31. The delivery includes Recipe reuse
+on remote Odoo 20, missing-column and ambiguous-column browser checks, and
+normal and interrupted Contact transfers in both directions between local and
+remote Odoo 20. Recovery preserved the original journal and execution snapshot,
+excluded rows stayed out of writes, and cleanup was verified. The detailed
+plan retains the qualification scope and evidence. Native row-inclusion
+execution remains deferred under track 8 below and is outside this completion.
 
 The 2026-10-28 review removed the completed source-table composition plan and
 the completed three-page Production journey plan. Current source composition
@@ -565,10 +587,11 @@ surface is permitted.
 
 ### 8. Native row-inclusion execution
 
-**Status:** Deferred unless measurement makes the Python fallback a release
-blocker. The implemented evaluator remains bounded and authoritative. A native
-route must prove exact parity before it can change capability selection or row
-limits.
+**Status:** Deferred. Completing Plan 13 does not activate this track. Revisit
+it only after measurement establishes that the Python fallback is a release
+blocker and product ownership explicitly activates the work. The implemented
+evaluator remains bounded and authoritative. A native route must prove exact
+parity before it can change capability selection or row limits.
 
 The former “conditional hosted composition” track is no longer deferred. The
 shared-server architecture is approved and retains bounded local trial work as

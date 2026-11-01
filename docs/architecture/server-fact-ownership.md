@@ -223,7 +223,8 @@ The current reference store generation is
 ## Current Workspace engine inventory
 
 The engine generation is
-`impodo-workspace-engine-2026-10-31-workspace-owned`, version 1. The families
+`impodo-workspace-engine-2026-10-31-workspace-owned`, with baseline version 1
+and current version 3. The families
 below describe current engine evidence. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
 
@@ -250,6 +251,16 @@ says otherwise, the named tables remain DuckDB data-plane authority.
 | `audit_event` | Detailed migration decision and evidence events remain in DuckDB. Authentication, authorization, support access, account administration, lease, scheduling, and repair events are separate PostgreSQL audit facts. Stable actor identity and operation ID correlate them without copying customer detail. |
 
 ## Artifact and secret payloads
+
+Required-value coverage is a derived query over saved mapping and captured
+requirements, not another decision store. The worker/application owner computes
+`RequiredValuesProjection` using current evidence and returns provider kinds,
+field states, and safe counts. A server composition injects a verified reader
+through `RequiredValuesQuery`; its browser does not acquire full drafts,
+captured default values, or raw validation messages and does not open worker
+DuckDB. PostgreSQL may retain allowed bounded status and receipt hashes only.
+The local coordinator's bulk input reads remain local. Local route and fake-port
+checks do not qualify a Linux deployment.
 
 | Durable payload | Authority | Server rule |
 | --- | --- | --- |

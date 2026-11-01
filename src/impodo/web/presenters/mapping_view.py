@@ -381,6 +381,8 @@ def _render_mapping(
             relation_query=relation_query,
             field_query=field_query,
             mapped_only=mapped_only,
+            scalar_target=request.query_params.get("scalar_target", "")[:200],
+            relation_target=request.query_params.get("relation_target", "")[:200],
         )
         if selection and schema
         else ()
@@ -803,6 +805,8 @@ def _render_mapping_field_catalog(
         ),
         field_query=request.query_params.get("field_query", "").strip()[:128],
         mapped_only=request.query_params.get("mapped_only") == "1",
+        scalar_target=request.query_params.get("scalar_target", "")[:200],
+        relation_target=request.query_params.get("relation_target", "")[:200],
         catalog_projection_cache=projection_cache,
         catalog_projection_identity=projection_identity,
         only_active_dataset=True,
@@ -933,6 +937,8 @@ def _add_mapping_dataset_urls(
             request,
             workspace_id,
             mapping_dataset=view["index"],
+            scalar_target=None,
+            relation_target=None,
             scalar_page=1,
             relation_page=1,
             save_error=None,
@@ -2112,6 +2118,8 @@ def _mapping_dataset_views(
     relation_query="",
     field_query="",
     mapped_only=False,
+    scalar_target="",
+    relation_target="",
     catalog_projection_cache=None,
     catalog_projection_identity=(),
     only_active_dataset=False,
@@ -2424,6 +2432,7 @@ def _mapping_dataset_views(
             item
             for item in scalar_candidates
             if (
+                item.field.name == scalar_target if scalar_target else
                 not normalized_query
                 or normalized_query in item.search_text
             )
@@ -2533,6 +2542,7 @@ def _mapping_dataset_views(
             item
             for item in catalog_projection.relation_candidates
             if (
+                item.field.name == relation_target if relation_target else
                 not normalized_relation_query
                 or normalized_relation_query in item.search_text
             )

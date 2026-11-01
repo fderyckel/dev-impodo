@@ -3,7 +3,7 @@
 ## Status and decision
 
 **Status:** Ranked first in the cross-plan implementation order and reassessed
-against the current checkout on 2026-10-31. Proposals 1, 3, 4, 5, 6, 7, 8,
+against the current checkout on 2026-11-01. Proposals 1, 3, 4, 5, 6, 7, 8,
 and 10 have useful implemented foundations. Proposals 2 and 9 are complete for
 their current scope.
 The shared root-cause correction journey from Proposals 1 and 8 now covers
@@ -30,20 +30,22 @@ zero-write completion. Proposal 10 is complete for the conventional file-source
 path; transfers and corrections retain their separate approval contracts.
 Slice 17 adds protected, paged review of repeated source identities and
 observed target ambiguity. Slice 18 completes protected relationship-choice
-review for current supported shapes. The next delivery is Slice 19's required
-values and mapping coverage checklist.
+review for current supported shapes. Slice 19 completes the required-values
+checklist and cross-table mapping coverage. The next delivery is Slice 20's
+field-specific rule-effect links.
 Do not build parallel
 replacements for the implemented default, mapping-impact, comparison, or
 load-recovery flows.
 
 The remaining work is specified in **Remaining implementation slices** below.
-Slices 11 through 18 are implemented. Slice 16 completes the visible
+Slices 11 through 19 are implemented. Slice 16 completes the visible
 business-intent decision journey for its current file-source scope, and Slice
 17 completes protected duplicate-group review. Slice 18 completes protected
-relationship-field review. Slices 19 through 21 cover the remaining interface and acceptance
+relationship-field review. Slice 19 unifies required-value and mapping coverage.
+Slices 20 and 21 cover the remaining interface and acceptance
 commitments.
 Conditional extensions have explicit entry conditions and are not silently
-counted as delivered. Slices 19 through 21 remain proposed.
+counted as delivered. Slices 20 and 21 remain proposed.
 
 The current supported product remains the local application. The shared-server
 track has completed its contract and composition phases and has started a
@@ -415,7 +417,7 @@ delivery summary recorded:
 | **1. Issue register** | Stage 2, current Stage 3 identity and relationship findings, complete-run Stage 4 preparation causes, and both preparation and comparison blockers in Stage 5 use the shared `WorkflowIssueProjection`. Stage 3 current counts persist in workspace navigation through a bounded freshness-checked read. | If evidence shows the need for one all-stage drawer, aggregate the already-persisted stage counts without moving detailed worker evidence into PostgreSQL or creating a second issue authority. |
 | **2. Supporting data** | Stage 2 saves reviewed file-source choices and explicitly captures grouped supporting reads. The source-aware plan, portable Recipe meaning, mapping checks and preparation now share those constraints through injected ports. Exact Recipe revisions and relationship reasons survive bulk extraction. Bounded summaries publish with committed evidence and rebuild without capture. Odoo-source decisions retain their existing owner. | Complete for the current local product. Qualify future server adapters through the existing worker receipt and bounded projection contracts. |
 | **3. Identity proof** | Direct scalar identities and recursively nested governed Many2one key or scope components are checked against included source rows and current target evidence. Current unresolved relational choices and duplicate-group members have authorized, freshness-checked protected paging. | The duplicate-review action is complete for bounded observed evidence. Keep target-wide blank inventory and early update-versus-unchanged forecasts conditional on their extra evidence requirements. |
-| **4. Required values** | Authoring can identify required-field blockers, check bounded Odoo defaults, review one or several defaults, save the chosen disposition, and run one complete mapping check. | Consolidate these decisions into one clear checklist. Do not create a second default-capture workflow. |
+| **4. Required values** | The Required values checklist combines captured requirements, saved providers, current validation, and checked defaults. It links exact field decisions, unavailable-field correction, and grouped default acceptance with one complete validation. | Complete for current captured and mapping requirements. Final review remains the authority for affected-create counts. |
 | **5. Mapping starter** | Stage 2 matching-rule suggestions, generated-table relationship suggestions, recommended authoring order, scalar catalogue tools, and checked coverage evidence provide several safe starting points. | Add only evidence-backed suggestions that remove a demonstrated operator burden. A broad automatic field mapper is no longer a prerequisite for this plan. |
 | **6. Relationship simulator** | Direct scalar Many2one and Many2many keys, recursively nested source-backed Many2one keys, three resolver origins, constant references, parent counts, case-only protection, inverse One2many guidance, and recursive dataset identity components are current. Protected unresolved-choice paging covers both relational identity components and saved relationship fields. | Complete for currently supported shapes. Keep nested Many2many or constant-provider keys conditional on a portable authoring contract justified by operator evidence. |
 | **7. Rule effects** | The optional **Review rule effects** page and matching review workbook already show changed, fallback, blank, invalid, supplied, and unchanged outcomes for the checked revision. | Prefer field-specific links and compact context over duplicating the complete preview inside every field card. |
@@ -900,12 +902,12 @@ the target can change after authoring.
 
 ## Proposal 4: Add a required-values and Odoo-default assistant
 
-**Delivery status:** The bounded Authoring default-recovery path is
-implemented. It finds checked required-field blockers, captures eligible
-defaults for the exact target and company context, lets the data manager
-review one or several values, saves the `odoo_default` disposition, and runs
-one complete mapping check. A unified required-values checklist and equally
-direct source-value or constant correction actions remain proposed.
+**Delivery status:** The bounded Authoring default-recovery path and unified
+Required values checklist are implemented. The checklist separates saved,
+checked, missing, and stale providers and links exact field corrections.
+Grouped acceptance retains the existing default owner and one complete mapping
+validation. Identity and parent proof remain separate. Affected-create counts
+are deferred until a current comparison establishes them.
 
 **Owning stages:** Odoo data and Match data.  
 **User impact:** **8.5/10**.
@@ -961,9 +963,10 @@ recover them after a validation blocker.
 **Delivery status:** Implemented foundations include Stage 2 matching-rule
 suggestions, source-derived relationship suggestions, recommended table order,
 scalar catalogue tools, mapping validation, and current-data coverage checks.
-A single cross-table coverage score and a reviewed bulk starter are not
-implemented. Add them only where the existing focused suggestions leave a
-measured repeated task.
+Slice 19 adds cross-table counts and explicit current, chosen, missing, and
+stale states, alongside identity and required-parent proof. A single percentage
+does not replace those facts. A reviewed bulk starter remains conditional on a
+measured repeated task left by the existing focused suggestions.
 
 **Owning stage:** Match data.  
 **User impact:** **8/10**.
@@ -1466,16 +1469,16 @@ again.
 
 ## Remaining implementation slices
 
-This is the delivery order as of 2026-10-31. The slice numbers
-continue the delivered increments above. Slices 11 through 18 are implemented.
-The next implementation should start with Slice 19. Each slice must leave its affected behavior and the full
+This is the delivery order as of 2026-11-01. The slice numbers
+continue the delivered increments above. Slices 11 through 19 are implemented.
+The next implementation should start with Slice 20. Each slice must leave its affected behavior and the full
 repository gate green before the next slice begins.
 
 ### What is actually left
 
 | Remaining outcome | Slices | Completion evidence |
 | --- | --- | --- |
-| The data manager can see required-value coverage and open the effect of an edited rule directly. | 19–20 | Compact current summaries reuse existing evidence and lead to the exact correction or review page. |
+| The data manager can open the effect of an edited rule directly. | 20 | Compact current summaries reuse existing evidence and lead to the exact review page. |
 | The whole workflow has a verified completion boundary. | 21 | One end-to-end scenario proves the new decisions, interruption behavior, freshness, and performance structure. Conditional scope has an explicit disposition. |
 
 ### Slice 11: Build the source-aware supporting-data plan
@@ -1861,6 +1864,41 @@ Odoo calls, and a database-connection ceiling based on the page's owners.
 protected review page. Conditional key shapes remain explicitly not checkable.
 
 ### Slice 19: Unify required values and mapping coverage
+
+**Delivery:** Implemented on 2026-11-01. The Required values checklist combines
+captured requirements and create-hook policy with saved source, fixed-value,
+default, and Odoo-managed decisions. Mapping-required optional fields preserve
+their default meaning. Create-only flags do not become requirements on
+reference-only or pinned-update tables. Chosen, checked, missing, attention,
+and stale states remain distinct; current validation is bound to source,
+schema/governance, mapping, and reference policy.
+
+Cross-table coverage keeps identity and required-parent proof separate from
+field coverage. Field corrections select exact technical fields even when
+labels repeat beyond the first catalog page. Unavailable fields lead to Odoo
+requirements. Default review returns to the existing grouped action and one
+complete validation, leaving unresolved blockers visible.
+
+The injected `RequiredValuesQuery` exposes only value-free field metadata and
+safe correction text. Local/worker input reads are bulk and authorized before
+access. Server composition must inject a verified worker-projection reader;
+the server browser does not acquire complete drafts, defaults, or validation
+messages and does not open worker DuckDB. No new decision store, schema
+version, source evaluation, default capture, or Odoo request is introduced.
+The main editor gains a link and no extra database work. The checklist renders
+at most 100 fields and makes no forecast of affected creates.
+
+Qualification covers current, chosen, missing, managed, unavailable, and stale
+decisions; reference and pinned-update modes; workspace ownership and policy
+bindings; private values embedded in validation messages; duplicate-label
+correction destinations; one grouped validation; and 1,006 required fields.
+An injected-port test forbids raw source, draft, and schema reads in the route.
+Controlled fixtures preserve the editor's eight connections and two schema
+checks; the checklist uses six connections, one schema check, and zero retries
+independently of field count. Authenticated keyboard, search, filters, default
+recovery, and 390-pixel browser checks pass. Two current fictional screenshots
+are reproducible. Live Odoo/Linux acceptance is not claimed. Native row-inclusion
+execution remains deferred under its separate owner.
 
 - Project a **Required values** checklist from captured requirements, current
   field dispositions, mapping validation, and checked-default evidence. Show

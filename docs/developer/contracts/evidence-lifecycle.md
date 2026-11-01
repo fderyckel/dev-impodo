@@ -333,6 +333,23 @@ value as covered or not covered by its Recipe-based rules. This is a fresh
 coverage evaluation over the application's accepted source snapshot, not
 historical evidence about the source data used to publish the Recipe.
 
+The Required values checklist is an advisory view of existing captured
+requirements, providers, validation, and matching-check facts. It creates no
+new approval or evidence revision. Chosen, checked, missing, stale, and invalid
+states remain distinct. Create-only requirements do not apply to reference-only
+or pinned-update tables; unconditional required rules retain their meaning.
+Identity and parent proof stay separate from field coverage. The view cannot
+forecast affected creates before a current comparison establishes them.
+
+The application query authorizes before input reads, checks workspace ownership,
+and accepts validation only for current source, schema/governance, mapping, and
+reference-policy bindings. Projection output contains no literal values,
+captured default values, protected identifiers, or raw validation messages.
+An unavailable field leads to captured-requirement correction rather than an
+absent editor control. Default acceptance retains the existing command and one
+complete mapping validation. A server web process receives a verified value-free
+worker projection, not the local coordinator's detailed inputs.
+
 The transformation-impact snapshot records two hash-bound facts for each
 conditional Selection rule. The match fact counts rows that matched before
 priority and rows that the rule selected after first-match priority. The

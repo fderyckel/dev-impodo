@@ -188,6 +188,67 @@ providers, conversions, identities, relationships, write scope, and coverage.
 `TransformationImpactService` evaluates the checked rules against frozen source
 values without changing source evidence.
 
+`GET /workspaces/{workspace_id}/mapping/required-values` consolidates required
+field decisions and cross-table coverage. The main editor adds only a link; it
+does not compute the checklist or perform additional database reads.
+[`RequiredValuesQuery`](../../../src/impodo/application/workspace/mapping/required_values_query.py)
+is the injected, value-free query boundary. Local composition uses
+`RequiredValuesQueryService` to authorize the Actor before loading source
+selection, schema, governance, draft, revision, validation, and the optional
+matching check in bulk. `MappingWorkspaceService.required_values` verifies
+workspace ownership and recomputes live-check freshness.
+
+[`project_required_values`](../../../src/impodo/application/workspace/mapping/required_values.py)
+reuses `evaluate_create_field` and qualified create-hook inputs. It combines
+captured requirements with unconditional mapping requirements and create-only
+rules only when the table can create records. A confirmed omission retains its
+default provider even when the captured field itself is optional. Source,
+schema, governance, definition, and reference-policy bindings determine whether
+saved validation is current. Field rules, identity proof, and required-parent
+proof remain separate; no percentage or forecast create count can conceal a
+missing identity or parent.
+
+The projection contains field metadata, provider kinds, states, and generic
+correction text. It omits literal values, default values, protected identifiers,
+and raw validation messages, which can themselves contain private values.
+[`required_values_view`](../../../src/impodo/web/presenters/required_values.py)
+filters this metadata and builds correction links for at most 100 visible rows.
+Exact `scalar_target` and `relation_target` filters make the destination contain
+the field even when labels repeat beyond the first catalog page. A new search
+clears exact focus. Unavailable fields lead to Odoo requirements; conflicting
+read-only writes lead to existing grouped recovery.
+
+The [route](../../../src/impodo/web/routers/required_values.py) performs its
+projection query and render inside one `run_page_read` callback and sets
+`Cache-Control: no-store`. It starts no validation, default capture, source scan,
+or Odoo request. **Review checked defaults** links to the existing grouped
+command; acceptance still runs one complete validation. No storage or portable
+evidence version changes in this slice.
+
+A Linux server composition must inject a verified worker-projection reader
+through `build_web_context(required_values=...)`. The worker computes this
+value-free projection. The server browser must not invoke the local raw-input
+coordinator, open worker DuckDB, or acquire complete drafts, schema defaults,
+or validation payloads. PostgreSQL receives only allowed bounded status,
+counts, and receipt hashes. The injected-port route test forbids raw source,
+draft, and schema reads. This is contract evidence, not a qualified Linux
+deployment.
+
+Controlled small and 1,000-field fixtures keep Match data at eight physical
+connections and two schema checks before and after the change. The checklist
+uses six connections, one schema check, and zero retries, independent of field
+count. Its rendered page is limited to 100 fields. No connection is retained
+across requests. Separate controlled runs measured the small/1,000-field editor
+at 378/320 ms before and 249/240 ms after. Checklist requests measured 94/170 ms,
+including 41/44 ms connecting and 4.5/4.4 ms checking schema. Host and cache
+variation limit these fixture timings; they do not establish live latency gains.
+Browser qualification covers keyboard navigation, exact field
+links, clearing focus on a new search, filters, grouped-default recovery, and
+a 390-pixel viewport. Run
+[`tests.e2e.test_required_values`](../../../tests/e2e/test_required_values.py)
+with Playwright and `IMPODO_REQUIRED_VALUES_SCREENSHOT_DIRECTORY=docs/images/user`
+to reproduce the two fictional 1440 by 1024 screenshots.
+
 `mapping_forms.py` strictly allowlists eight row-inclusion condition slots per
 dataset. It constructs only the closed `RowInclusionPolicy` shape introduced
 in mapping contract version 16;
@@ -1005,6 +1066,8 @@ validation result for the malformed formula.
 | Protected unresolved-identity browser evidence | [`test_identity_choice_review.py`](../../../tests/integration/web/test_identity_choice_review.py) |
 | Protected duplicate publication and paging | [`identity_group_review.py`](../../../src/impodo/application/workspace/mapping/identity_group_review.py), [`test_identity_group_publication.py`](../../../tests/integration/duckdb/test_identity_group_publication.py), and [`test_identity_group_review.py`](../../../tests/integration/web/test_identity_group_review.py) |
 | Protected relationship-choice contract, publication, and paging | [`relationship_review.py`](../../../src/impodo/domain/relationship_review.py), [`relationship_choice_review.py`](../../../src/impodo/application/workspace/mapping/relationship_choice_review.py), the [DuckDB index](../../../src/impodo/adapters/duckdb/relationship_choice_review.py), and the [review template](../../../src/impodo/web/templates/mapping/relationship_choice_review.html) |
+| Required values, cross-table coverage, and exact correction links | [`required_values.py`](../../../src/impodo/application/workspace/mapping/required_values.py), [`required_values_query.py`](../../../src/impodo/application/workspace/mapping/required_values_query.py), [`required_values_view`](../../../src/impodo/web/presenters/required_values.py), and the [checklist template](../../../src/impodo/web/templates/mapping/required_values.html) |
+| Required-value behavior, query boundaries, defaults, and browser evidence | [`test_required_values.py`](../../../tests/application/workspace/mapping/test_required_values.py), [route tests](../../../tests/integration/web/test_required_values.py), and [browser qualification](../../../tests/e2e/test_required_values.py) |
 | Mapping contracts | [`contracts.py`](../../../src/impodo/domain/mapping/contracts.py) |
 | Constant relationship validation | [`relationships.py`](../../../src/impodo/domain/mapping/validation/relationships.py) |
 | Mapping mutation receipts and conflicts | [`mutations.py`](../../../src/impodo/domain/mapping/mutations.py) |

@@ -118,6 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const catalogSearchUrl = (requestedUrl = null) => {
       const url = new URL(requestedUrl || window.location.href);
       if (requestedUrl === null) {
+        url.searchParams.delete("scalar_target");
         const searchValue = search?.value.trim() || "";
         if (searchValue) {
           url.searchParams.set("field_query", searchValue);
@@ -323,6 +324,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const relationCatalogUrl = (requestedUrl = null) => {
       const url = new URL(requestedUrl || window.location.href);
       if (requestedUrl === null) {
+        url.searchParams.delete("relation_target");
         const searchValue = search?.value.trim() || "";
         if (searchValue) {
           url.searchParams.set("relation_query", searchValue);

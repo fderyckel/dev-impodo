@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Required values · Impodo{% endblock %}
+{% block content %}
+  <header class="page-heading"><div><p class="eyebrow">Stage 3 of 6 · Mapping coverage</p><h1>Required values</h1><p>See how each required Odoo field gets its value, then open the decision that needs attention.</p></div></header>
+  <p>Chosen means a provider is saved. Checked means the saved rule has current evidence. Prepare data still checks complete source rows; Final review establishes which records will be created or updated.</p>
+  {% if not projection.inputs_current %}<div class="notice warning" role="status">Save matching choices against the current source and Odoo data before relying on this checklist.</div>{% endif %}
+  <section class="form-card" aria-labelledby="coverage-title">
+    <h2 id="coverage-title">Coverage across tables</h2>
+    <p>Review identity and required-parent proof separately, even when every required field has a provider.</p>
+    <div class="table-scroll" role="region" tabindex="0" aria-label="Table coverage rows"><table class="data-table"><thead><tr><th scope="col">Table</th><th scope="col">Identity proof</th><th scope="col">Required parents</th><th scope="col">Match check</th><th scope="col">Required field decisions</th></tr></thead><tbody>
+      {% for row in tables %}<tr><th scope="row"><a href="{{ row.filter_url }}">{{ row.coverage.dataset_name }}</a><div class="muted">{{ row.coverage.model_label }}</div></th><td><a href="{{ row.edit_url }}">{{ state_labels[row.coverage.identity_state] }}</a></td><td>{{ state_labels[row.coverage.parent_state] }}</td><td>{{ state_labels[row.coverage.check_state] }}</td><td>{% for label,count in row.states %}<div>{{ count }} {{ label|lower }}</div>{% else %}No required values captured{% endfor %}{% if not row.coverage.create_requirements %}<div class="muted">This table does not create records; create requirements do not apply.</div>{% endif %}</td></tr>{% endfor %}
+    </tbody></table></div>
+  </section>
+  <section class="form-card" aria-labelledby="required-checklist-title">
+    <h2 id="required-checklist-title">Required-field checklist</h2>
+    <form class="impact-tools" method="get">
+      <label>Table<select name="dataset"><option value="">All tables</option>{% for row in tables %}<option value="{{ row.coverage.dataset_id }}" {% if dataset_filter == row.coverage.dataset_id %}selected{% endif %}>{{ row.coverage.dataset_name }}</option>{% endfor %}</select></label>
+      <label>Status<select name="state"><option value="">All states</option>{% for value,label in state_options %}<option value="{{ value }}" {% if state_filter == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <div class="actions"><button class="button primary" type="submit">Apply filters</button><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/required-values">Clear</a></div>
+    </form>
+    {% if review_defaults %}<p><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping#next-step-blockers">Review checked defaults</a> Review and accept available defaults together in Match data.</p>{% endif %}
+    <p role="status">{% if matching_count %}Showing {{ start }}–{{ end }} of {{ matching_count }} required fields.{% else %}No required fields match these filters.{% endif %}</p>
+    {% if rows %}<div class="table-scroll" role="region" tabindex="0" aria-label="Required field rows"><table class="data-table"><thead><tr><th scope="col">Table and field</th><th scope="col">Value provider</th><th scope="col">Status</th><th scope="col">What to check</th><th scope="col">Next action</th></tr></thead><tbody>
+      {% for row in rows %}<tr data-required-field="{{ row.value.target_field }}"><th scope="row">{{ row.table }} → {{ row.value.label }}</th><td>{{ row.provider }}</td><td>{{ row.status }}</td><td>{{ row.value.reason }}</td><td><a href="{{ row.edit_url }}">{{ row.action_label }}</a></td></tr>{% endfor %}
+    </tbody></table></div>{% endif %}
+    {% if previous_url or next_url %}<nav class="impact-pagination" aria-label="Required-field pages">{% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}<span>Up to 100 fields per page</span>{% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}</nav>{% endif %}
+  </section>
+  <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Return to Match data</a></p>
+{% endblock %}

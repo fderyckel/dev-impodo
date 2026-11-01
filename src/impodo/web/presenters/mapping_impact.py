@@ -251,6 +251,8 @@ def _mapping_return_url(
         "relation_query",
         "field_query",
         "mapped_only",
+        "scalar_target",
+        "relation_target",
     }
     params = {
         name: value

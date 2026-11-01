@@ -39,6 +39,9 @@ from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
+from impodo.application.workspace.mapping.required_values_query import (
+    RequiredValuesQuery,
+)
 from impodo.application.workspace.navigation import WorkspaceNavigationQueryService
 from impodo.application.workspace.views import WorkspaceOwnerViewService
 from impodo.domain.execution.odoo_readback import OdooReadbackReader
@@ -278,6 +281,7 @@ class WebContext:
     mapping_workspace: MappingWorkspaceService
     business_intents: BusinessIntentService
     matching_order: MatchingOrderService
+    required_values: RequiredValuesQuery
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService
     recipe_run_jobs: RecipeRunJobRuntime | None

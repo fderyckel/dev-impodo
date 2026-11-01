@@ -12,13 +12,75 @@ The environment and dependency groups are defined in `pyproject.toml`.
 | Documentation and fictional fixtures | `capture_*.py`, including `capture_matching_rule_screenshots.py`; `generate_current_bpmn.py`; `generate_product_bom_fixture.py` |
 | Local performance qualification | `benchmark_*.py`, `qualify_transformation_scale.py` |
 | Representative migration acceptance | `qualify_representative_migration.py` |
-| Disposable Odoo qualification | `qualify_odoo*.py`, `qualify_row_inclusion_*.py`, `qualify_completed_load_correction.py`, `prepare_odoo_compatibility_lab.py`, `odoo20_read_qualification_support.py` |
+| Disposable Odoo qualification | `qualify_odoo*.py`, `qualify_hierarchy_workflow.py`, `qualify_row_inclusion_*.py`, `qualify_completed_load_correction.py`, `prepare_odoo_compatibility_lab.py`, `odoo20_read_qualification_support.py` |
 | Disposable server identity rehearsal | `rehearse_server_identity.py` |
 
 These scripts exercise current behavior or reproduce maintained evidence.
 Read each runner's arguments and docstring before running it: qualification
 runners that write to Odoo require a disposable target and their documented
 write authorization. Screenshot runners create isolated fictional projects.
+
+For the hierarchy journey, run `python -m scripts.qualify_hierarchy_workflow
+--help` from a checkout with the `test` extra installed. The runner accepts an
+already running, explicitly allocated disposable Odoo 19 or final Odoo 20
+database. Provisioning, Linux server administration, and service start or stop
+remain with their existing owners. `REMOTE` selects the Odoo JSON-2 transport;
+the runner itself uses an isolated local Impodo application.
+
+Supply a private JSON descriptor with these fields:
+
+```json
+{
+  "contract_version": 1,
+  "disposable": true,
+  "purpose": "hierarchy_qualification",
+  "base_url": "https://fictional.example",
+  "database": "impodo_hierarchy_example",
+  "credential_owner_id": "00000000-0000-4000-8000-000000000001"
+}
+```
+
+The UUID identifies existing READ and WRITE credential envelopes for this exact
+target in `CredentialVault`. Save both through the established protected
+credential mechanism (`store_target_credential`); the descriptor and command
+line contain no keys. LOCAL additionally requires absolute `local_config`,
+`python`, and `odoo_bin` file paths. Its loopback URL and database must match
+the selected configuration. When using the compatibility lab, include
+`lab_target` (`baseline` or `odoo20`) and its exact `source_commit` from
+[`lab-targets.json`](../fixtures/odoo-compatibility/lab-targets.json). The preview
+pin is rejected. A LOCAL source pin is checked against the installation's Git
+HEAD. For REMOTE, the source pin is an operator attestation; the runtime version
+is independently checked in both modes.
+
+For example, run the following with a fresh output directory:
+
+```sh
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --extra test --group quality \
+  python -m scripts.qualify_hierarchy_workflow \
+  --target-descriptor /private/target.json --source-shape generated \
+  --mode REMOTE --expected-major 20 \
+  --output-directory /private/hierarchy-result --allow-write
+```
+
+The target must have `base`, `contacts`, `product`, and `mrp` installed, with
+read, create, write, and cleanup permissions. The runner refuses collisions
+with its fixed category names or six Product references, including archived
+records, before seeding five
+categories. It verifies 13 creates, 5 unchanged records, all 18 business paths,
+and 6 generated variants. It then requires 18 unchanged records on repeat
+comparison, removes only its verified fixture, and repeats the load through a
+published Recipe with reordered fresh files.
+
+`--fault before-dispatch`, `after-commit`, or `after-receipt` interrupts the
+authoring load once, reads actual target state, reopens private application
+storage, and recovers the existing journal. `known-rejection` and
+`unknown-outcome` are diagnostic failure cases: they return a failed result and
+retain target state. Writes with an uncertain outcome are never blindly
+replayed. Every run writes a sanitized `result.json`; exact IDs, workspace
+evidence, and the ledger of newly created vault entries stay under `private/`.
+Successful cleanup retains protected-evidence encryption keys so that evidence
+remains readable. Failure or uncertain cleanup retains fixture state and keys
+for diagnosis. Inspect that evidence before arranging any later cleanup.
 
 For the Odoo 20 row-rule Recipe canary, use `python -m
 scripts.qualify_row_inclusion_recipe --help`. It requires an HTTPS target, a

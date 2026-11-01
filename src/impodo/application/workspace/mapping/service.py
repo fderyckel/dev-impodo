@@ -53,6 +53,7 @@ from impodo.domain.mapping.validation.evidence import (
     mapping_issue_fingerprint,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
+from impodo.domain.matching_order import MatchingOrderCheck
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
@@ -70,6 +71,8 @@ from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 
 from .categorical_coverage import CategoricalCoverageService
 from .numeric_precision_coverage import NumericPrecisionCoverageService
+from .order_service import MatchingOrderService
+from .required_values import RequiredValuesProjection, project_required_values
 from .supporting_values import (
     MappingSupportingLookupReader,
     load_current_mapping_supporting_references,
@@ -323,6 +326,41 @@ class MappingWorkspaceService:
         self.row_inclusion_confirmations = row_inclusion_confirmations
         self.supporting_decisions = supporting_decisions
         self.validator = MappingSemanticValidator()
+
+    def required_values(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        schema: OdooSchemaCatalog,
+        governance: SchemaGovernance | None,
+        revision: MappingRevision | None,
+        working_draft: MappingWorkingDraft | None,
+        validation: MappingValidationResult | None,
+        *,
+        actor: Actor,
+        live_check: MatchingOrderCheck | None = None,
+    ) -> RequiredValuesProjection:
+        """Authorize a value-free projection over already loaded bulk evidence."""
+        self.authorization.require(
+            actor, Capability.MAPPING_EDIT, workspace_id=workspace_id
+        )
+        if (
+            schema.workspace_id != workspace_id
+            or governance and governance.workspace_id != workspace_id
+            or working_draft and working_draft.workspace_id != workspace_id
+            or live_check and live_check.workspace_id != workspace_id
+        ):
+            raise WorkspaceError("Required-value evidence belongs to another workspace")
+        return project_required_values(
+            selection, schema, governance, revision, working_draft, validation,
+            live_check=live_check,
+            live_check_current=bool(
+                live_check
+                and MatchingOrderService.check_is_current(
+                    live_check, selection, schema, governance, working_draft
+                )
+            ),
+        )
 
     def begin_mutation(
         self,

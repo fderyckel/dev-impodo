@@ -4,8 +4,9 @@
 
 **Status:** Core implementation and initial automated qualification were
 recorded on 2026-10-30. Steps 1 and 2 were implemented on 2026-10-31; their
-verification is recorded below. Steps 3 through 7 and live disposable-target
-qualification remain open. This work is
+verification is recorded below. Step 3 was implemented on 2026-11-01;
+its offline verification is recorded below. Steps 4 through 7 and live
+disposable-target qualification remain open. This work is
 second in the cross-plan order owned by
 [the roadmap](00-remaining-work.md). The original plan records product-owner
 approval of the fictional scenarios and initial implementation sequence.
@@ -274,7 +275,7 @@ owner change is separately justified by evidence.
 
 ### 3. Add a repeatable live hierarchy qualification runner
 
-Add a proposed `scripts/qualify_hierarchy_workflow.py` with focused tests under
+Implemented by `scripts/qualify_hierarchy_workflow.py` with focused tests under
 `tests/integration/odoo/`. Keep its portable scenario logic separate from
 host-specific service setup. Host-executing tests belong under
 `tests/platform/<platform>/`; use operating-system temporary directories.
@@ -710,3 +711,81 @@ UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --group quality python -m unitt
   tests.domain.mapping.test_relationship_blank_values \
   tests.application.workspace.execution.test_identity_lookups -v
 ```
+
+### Step 3 implementation on 2026-11-01
+
+The [live runner](../../scripts/qualify_hierarchy_workflow.py) accepts a strict
+allocated-target descriptor, expected final Odoo major, source shape, connection
+mode, fresh output directory, explicit write flag, and optional fault. The
+[runner instructions](../../scripts/README.md) define the descriptor and protected
+credential requirements. No live target was allocated for this implementation;
+step 4 remains open.
+
+The runner creates an isolated local application and leaves provisioning and
+Linux server administration with existing owners. It starts and stops no Odoo
+or PostgreSQL service. The [target helper](../../scripts/hierarchy_qualification_target.py)
+checks the runtime, compatibility-lab pin when supplied, modules, permissions,
+and fixture collisions before seeding exactly five category paths. It uses
+exact target-bound READ and WRITE vault envelopes and tracks only newly created
+fixture entries. Exact Odoo IDs remain private.
+
+The [journey helper](../../scripts/hierarchy_qualification_journey.py) uses normal
+source acceptance, mapping, preparation, schema/default capture, comparison,
+execution, and reconciliation. LOCAL comparisons retain the native reader;
+REMOTE uses JSON-2. Integrated Recipe activation requires API-reader evidence,
+so Recipe schema capture obtains that evidence through normal composition even
+for a LOCAL target. No fictional schema or comparison is installed by the
+runner. Both loads verify all 18 mapped records and six generated variants;
+a repeat comparison requires 18 unchanged records before Recipe replay.
+
+A successful interruption case reads target state before recovery, reopens the
+same private application storage, and resumes the durable journal. Known
+rejection and uncertain-outcome modes produce failed retained results. Cleanup
+checks ownership and foreign dependents, removes exact fixture IDs in dependency
+order, and verifies category, Product, variant, and External ID absence.
+Uncertain state is retained. Portable receipts contain only fixed scenario
+metadata, counts, static failure codes, and timings. Private protected evidence
+and its encryption keys remain available for diagnosis.
+
+The offline [runner suite](../../tests/integration/odoo/test_hierarchy_qualification.py)
+exercises the real JSON-2 adapters at an independent HTTP boundary and replaces
+host execution only in its LOCAL test. It covers authoring, Recipe replay,
+reopened recovery, rejected versions and allocations, target and role binding,
+permissions, archived or active collisions, fault timing, sanitized terminal receipts, partial
+seed retention, and exact cleanup ownership. These tests exposed a local
+company-context snapshot rejection; the bounded correction retains that context
+without fabricating API principals and keeps partial API evidence invalid.
+The [snapshot suite](../../tests/domain/execution/test_snapshot.py) covers the
+round trip and rejection cases.
+
+Grouping local comparison inputs reduced the controlled REMOTE journey from
+29 to 12 physical DuckDB opens, while retaining five schema checks and zero lock
+retries. The runner suite enforces those ceilings across initial comparison,
+repeat comparison, and Recipe comparison. Every simulated HTTP or native-reader
+call also asserts that no retained DuckDB scope is active. This is controlled
+fixture evidence; no live latency or acceptance result is claimed.
+
+Verification used operating-system temporary storage and stable source snapshots
+while other checkout work continued. The 22 runner methods, 17 snapshot methods,
+three execution company-context methods, 76 execution service and adapter
+methods, and 45 adjacent reader/default/company and DuckDB lifecycle methods
+passed across focused runs. Direct Ruff, direct Basedpyright for the new
+scripts, compilation, CLI help, the Python quality command, documentation
+checks and five documentation tests, and the complete repository gate passed.
+The complete gate included 88 architecture tests. No browser screenshot,
+live Odoo, Windows host, or Linux host execution was performed for step 3.
+Earlier draft runs found runner setup and assertion errors; the recorded
+passing runs followed their corrections.
+
+Reproduce the new runner and snapshot checks from the repository root:
+
+```sh
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --extra test --group quality \
+  python -m unittest tests.integration.odoo.test_hierarchy_qualification \
+  tests.domain.execution.test_snapshot \
+  tests.application.workspace.execution.test_company_context -v
+```
+
+Run the Python and complete repository quality commands from `AGENTS.md` after
+those focused checks. The maintained runner instructions describe live use;
+passing the offline command above does not change any step 4 acceptance cell.
