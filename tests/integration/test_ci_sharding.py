@@ -1,12 +1,16 @@
 """Verify the real pytest plugin keeps complete, disjoint portable CI coverage."""
 
 import os
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+
+import yaml
 
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -85,3 +89,44 @@ class PortableShardingTests(unittest.TestCase):
                 )
                 self.assertEqual(result.returncode, 4, result.stdout + result.stderr)
                 self.assertIn("Require --shard-count", result.stderr)
+
+    def test_workflow_entrypoint_imports_plugin_without_pythonpath(self):
+        workflow = yaml.safe_load(
+            (REPOSITORY_ROOT / ".github/workflows/python-quality.yml").read_text(
+                encoding="utf-8"
+            )
+        )
+        step = next(
+            step
+            for step in workflow["jobs"]["behavior"]["steps"]
+            if step.get("name") == "Run portable behavioral contracts"
+        )
+        arguments = shlex.split(step["run"].replace("${{ matrix.shard }}", "1"))
+        start = next(
+            index
+            for index, value in enumerate(arguments)
+            if value in {"python", "pytest"}
+        )
+        command = arguments[start:]
+        if command[0] == "python":
+            command[0] = sys.executable
+        else:
+            executable = shutil.which("pytest", path=str(Path(sys.executable).parent))
+            self.assertIsNotNone(executable)
+            command[0] = executable
+        command = [str(self.root) if value == "tests" else value for value in command]
+        environment = dict(os.environ)
+        environment.pop("PYTHONPATH", None)
+        environment["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] = "1"
+        environment["PYTEST_ADDOPTS"] = ""
+        result = subprocess.run(
+            [*command, "--collect-only", "--rootdir", str(self.root)],
+            cwd=REPOSITORY_ROOT,
+            env=environment,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("::test_example[", result.stdout)

@@ -89,7 +89,7 @@ Run the complete portable gate from the repository root:
 
 ```powershell
 uv run --frozen --group quality python scripts/check_repository_quality.py
-uv run --frozen --group quality --extra test pytest -q tests --ignore=tests/platform --ignore=tests/performance --tb=short
+uv run --frozen --group quality --extra test python -m pytest -q tests --ignore=tests/platform --ignore=tests/performance --tb=short
 uv run --frozen --group quality --extra test pytest -q tests/performance
 ```
 

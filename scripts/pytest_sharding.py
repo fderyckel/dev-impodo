@@ -1,6 +1,6 @@
 """Partition portable CI tests by stable module paths without extra dependencies.
 
-Load explicitly with ``pytest -p scripts.pytest_sharding --shard-count 4
+Load explicitly with ``python -m pytest -p scripts.pytest_sharding --shard-count 4
 --shard-index 1``. Every test module belongs to exactly one shard, including
 all parameterized cases and unittest subtests. Ordinary pytest runs stay whole.
 """

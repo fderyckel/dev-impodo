@@ -71,7 +71,7 @@ jobs:
         run: uv python install 3.12
       - name: Run portable behavioral contracts
         run: >-
-          uv run --frozen --group quality --extra test pytest -q tests
+          uv run --frozen --group quality --extra test python -m pytest -q tests
           --ignore=tests/platform --ignore=tests/performance --tb=short
           -p scripts.pytest_sharding --shard-count 4 --shard-index ${{ matrix.shard }}
       - name: Run default performance contracts
