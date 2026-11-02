@@ -11,7 +11,20 @@ import duckdb
 from fastapi.testclient import TestClient
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.schema.data_version_store import (
+    DATA_VERSION_STORE_GENERATION,
+    DATA_VERSION_STORE_VERSION,
+)
+from impodo.adapters.duckdb.schema.migration_registry import (
+    MIGRATION_REGISTRY_GENERATION,
+    MIGRATION_REGISTRY_VERSION,
+)
+from impodo.adapters.duckdb.schema.migration_workspace_store import (
+    MIGRATION_WORKSPACE_GENERATION,
+    MIGRATION_WORKSPACE_VERSION,
+)
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
+from impodo.domain.shared.schema import WORKSPACE_SCHEMA_GENERATION, WORKSPACE_SCHEMA_VERSION
 from impodo.web.app import create_local_app
 from tests.support.browser_scenarios import POST_HEADERS, _csrf
 from tests.support.identity import resolve_local_actor
@@ -71,14 +84,14 @@ class SavedProjectStartupTests(unittest.TestCase):
                 )
                 self.assertEqual(uploaded.status_code, 303)
             before = _saved_rows(root)
-            generations = {
-                "registry.duckdb": "impodo-migration-registry-2026-10-31-project-root",
-                "data-version.duckdb": "impodo-data-version-store-2026-10-31-project-owned",
-                "workspace.duckdb": "impodo-migration-workspace-2026-10-31-reference-only",
-                "workspace-engine.duckdb": "impodo-workspace-engine-2026-10-31-workspace-owned",
+            schemas = {
+                "registry.duckdb": (MIGRATION_REGISTRY_GENERATION, MIGRATION_REGISTRY_VERSION),
+                "data-version.duckdb": (DATA_VERSION_STORE_GENERATION, DATA_VERSION_STORE_VERSION),
+                "workspace.duckdb": (MIGRATION_WORKSPACE_GENERATION, MIGRATION_WORKSPACE_VERSION),
+                "workspace-engine.duckdb": (WORKSPACE_SCHEMA_GENERATION, WORKSPACE_SCHEMA_VERSION),
             }
             self.assertEqual(
-                {path.name for path in root.rglob("*.duckdb")}, set(generations)
+                {path.name for path in root.rglob("*.duckdb")}, set(schemas)
             )
             for restart in range(2):
                 with self.subTest(restart=restart):
@@ -106,7 +119,7 @@ class SavedProjectStartupTests(unittest.TestCase):
                                 connection.execute(
                                     "SELECT generation, version FROM schema_version"
                                 ).fetchone(),
-                                (generations[path.name], 1),
+                                schemas[path.name],
                             )
                             self.assertEqual(
                                 connection.execute(

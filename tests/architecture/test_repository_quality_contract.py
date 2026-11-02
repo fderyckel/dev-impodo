@@ -50,6 +50,9 @@ class RepositoryQualityContractTests(unittest.TestCase):
         self.assertIn("needs: [portable, behavior]", workflow)
         self.assertIn("--ignore=tests/platform --ignore=tests/performance", workflow)
         self.assertIn("pytest -q tests/performance", workflow)
+        self.assertIn("shard: [1, 2, 3, 4]", workflow)
+        self.assertIn("-p scripts.pytest_sharding --shard-count 4 --shard-index ${{ matrix.shard }}", workflow)
+        self.assertIn("if: runner.os == 'Linux' && matrix.shard == 1", workflow)
         for runner in ("ubuntu-latest", "macos-latest", "windows-latest"):
             self.assertIn(f"          - {runner}", workflow)
         self.assertNotIn(

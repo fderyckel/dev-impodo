@@ -46,13 +46,14 @@ jobs:
           IMPODO_CI_BEFORE: ${{ github.event.before }}
 
   behavior:
-    name: Behavior (${{ matrix.os }})
+    name: Behavior (${{ matrix.os }}, shard ${{ matrix.shard }}/4)
     runs-on: ${{ matrix.os }}
-    # The complete portable suite takes about an hour on Linux and longer on other hosts.
+    # Whole-module shards keep slow host runs bounded without dropping tests.
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        shard: [1, 2, 3, 4]
         os:
           - ubuntu-latest
           - macos-latest
@@ -72,8 +73,9 @@ jobs:
         run: >-
           uv run --frozen --group quality --extra test pytest -q tests
           --ignore=tests/platform --ignore=tests/performance --tb=short
+          -p scripts.pytest_sharding --shard-count 4 --shard-index ${{ matrix.shard }}
       - name: Run default performance contracts
-        if: runner.os == 'Linux'
+        if: runner.os == 'Linux' && matrix.shard == 1
         run: uv run --frozen --group quality --extra test pytest -q tests/performance
 
   quality:

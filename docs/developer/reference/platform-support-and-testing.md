@@ -40,9 +40,12 @@ itself host-specific.
 
 `.github/workflows/python-quality.yml` runs the complete repository gate and a
 separate portable behavioral matrix on `ubuntu-latest`, `macos-latest`, and
-`windows-latest`. The behavioral command discovers every test except the
-platform and performance suites. The Linux behavioral job also runs the
-default performance contracts. Larger scale cases keep their explicit opt-in
+`windows-latest`. Each host runs four behavioral shards. The behavioral command
+discovers every test except the platform and performance suites, then assigns
+each complete module to one shard using a stable hash of its repository path.
+All parameterized cases and subtests stay with their module; every selected
+test runs exactly once per host. Linux shard 1 also runs the default performance
+contracts once. Larger scale cases keep their explicit opt-in
 requirements. Its final `quality` job preserves the required
 `Python quality / quality` check name and passes only when both matrices pass.
 
@@ -89,6 +92,12 @@ uv run --frozen --group quality python scripts/check_repository_quality.py
 uv run --frozen --group quality --extra test pytest -q tests --ignore=tests/platform --ignore=tests/performance --tb=short
 uv run --frozen --group quality --extra test pytest -q tests/performance
 ```
+
+To reproduce one CI shard, append `-p scripts.pytest_sharding --shard-count 4
+--shard-index 1` to the portable behavioral command, changing the index from 1
+through 4 as needed. Without the plugin, the command runs the complete suite.
+Invalid shard allocations fail before collection. The final `quality` check
+requires every host and shard to pass.
 
 On the owning host, also run the affected platform suite with `unittest`
 discovery rooted at its `tests/platform/<platform>/` directory.

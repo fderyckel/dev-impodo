@@ -7,7 +7,7 @@ The environment and dependency groups are defined in `pyproject.toml`.
 | Purpose | Retained tools |
 | --- | --- |
 | Required quality checks | `check_python_quality.py`, `check_repository_quality.py`, `architecture_inventory.py`, `documentation_quality.py`, `code_documentation_inventory.py` |
-| Reproducible test execution | `run_seeded_unittest.py` |
+| Reproducible test execution | `run_seeded_unittest.py`; `pytest_sharding.py`, loaded explicitly with `pytest -p scripts.pytest_sharding --shard-count 4 --shard-index 1` for one CI shard |
 | Release packaging and installation | `internal_release.py`, `install-internal-release.ps1`, `update-internal-lock.ps1` |
 | Documentation and fictional fixtures | `capture_*.py`, including `capture_matching_rule_screenshots.py`; `generate_current_bpmn.py`; `generate_product_bom_fixture.py` |
 | Local performance qualification | `benchmark_*.py`, `qualify_transformation_scale.py` |

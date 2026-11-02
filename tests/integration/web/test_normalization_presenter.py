@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from fastapi import Request
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
+from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.preparation.quality import (
     QualityCauseCount,
     QualityCollisionGroup,
@@ -273,7 +274,7 @@ class NormalizationSetAsideTests(unittest.TestCase):
             ),)
         )
         self.context.queries.get_mapping_revision.return_value = SimpleNamespace(
-            definition=SimpleNamespace(datasets=(SimpleNamespace(
+            definition=SimpleNamespace(datasets=(DatasetMapping(
                 dataset_id="dataset-1",
                 target_model="res.partner",
                 source_identity_column_keys=("recid-column",),
