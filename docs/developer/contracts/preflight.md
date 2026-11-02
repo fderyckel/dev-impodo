@@ -41,6 +41,12 @@ Requests contain exact models, fields, and service-generated bounded domains.
 Metadata and record requirements are merged by model and paged deterministically.
 No connector call may occur inside a source-row loop.
 
+A reviewed name-within-company value match must reach comparison as one name
+key and a separate company scope. The portable choice encoding is never the
+literal Odoo name for a scoped resolver. Fiscal Position and Payment Terms
+lookups therefore distinguish equal names belonging to different companies.
+An absent pair remains missing, and duplicate pairs remain ambiguous.
+
 Requirement-plan contract version 4 binds the governed-reference policy hash,
 dependency edges, and an ordered `ReferenceReadRequirement` for every
 supporting relationship read. Each requirement preserves the captured parent

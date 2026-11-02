@@ -1047,7 +1047,10 @@ def _identity_layout(
                     alias=(
                         f"__impodo_{role}_{component_index:04d}_"
                         f"{source_index:04d}_target_value"
-                        if source_index == 0
+                        if source_index == 0 or (
+                            role == "relationship" and value_count > 1
+                            and len({source.stable_key for source in component.source_columns}) == 1
+                        )
                         else values[source_index].alias
                     ),
                     value_type=component.value_type,

@@ -43,6 +43,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.mapping.incoming_dependencies import (
     repair_unambiguous_incoming_dependencies,
 )
+from impodo.domain.mapping.contracts import ReferenceKeyMapping, ResolverOrigin
 from impodo.domain.matching_order import (
     MatchingIdentityChoiceCause,
     MatchingIdentityChoiceFilter,
@@ -50,6 +51,7 @@ from impodo.domain.matching_order import (
     MatchingOrderCheckStatus,
     MatchingOrderVersionConflict,
 )
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -68,6 +70,7 @@ from impodo.domain.workspace.derived_entities import (
     related_dataset_links,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.web.composition.target_readers import (
     _capture_mapping_supporting_values,
@@ -75,6 +78,10 @@ from impodo.web.composition.target_readers import (
     _refresh_mapping_odoo_defaults,
     _relationship_value_choices,
     _source_value_choices,
+)
+from impodo.web.selection_choices import (
+    load_selection_refresh,
+    refresh_selection_choices,
 )
 
 from ...application.odoo_read_failures import classify_odoo_read_failure
@@ -193,14 +200,73 @@ def _require_selected_company_scopes(
     schema,
     *,
     actor: Actor,
-) -> None:
-    """Accept scoped constant choices only from current Odoo lookup evidence."""
+    constant_fields: set[tuple[str, str]] | None = None,
+) -> tuple:
+    """Check constants and recover legacy matches from exact saved evidence.
 
+    Older forms discarded the scope rule while retaining the encoded selected
+    record. Recover it only when the current name/company lookup proves every
+    choice and the unscoped lookup does not identify the text as a real name.
+    The normal save command publishes the repaired mapping as a new revision.
+    Already scoped source matches remain editable when lookup evidence expires;
+    Check matches refreshes supporting evidence before semantic validation, and
+    final comparison still proves that the exact name/company pair exists.
+    """
+
+    snapshots = {}
+
+    def lookup(model, scope_fields):
+        version = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
+        major = version.version.major
+        policy_hash = reference_policy_hash(major) if version.allowed and major is not None else None
+        if policy_hash is None:
+            return None
+        identity = (model, scope_fields)
+        if identity not in snapshots:
+            snapshots[identity] = context.supporting_lookups.current(
+                workspace_id,
+                relation_model=model,
+                key_fields=("name",),
+                scope_fields=scope_fields,
+                display_field="name",
+                target_hash=schema.connection_target_hash,
+                read_credential_binding_hash=schema.read_credential_binding_hash,
+                read_principal_hash=schema.read_principal_hash,
+                read_context_hash=schema.read_context_hash,
+                actor=actor,
+                reference_policy_hash=policy_hash,
+            )
+        return snapshots[identity]
+
+    repaired = []
     for dataset in datasets:
+        relationships = []
         for relation in dataset.relationships:
+            resolver = relation.resolver
+            if (
+                relation.value_source is RelationshipValueSource.SOURCE
+                and resolver.origin is ResolverOrigin.TARGET_CATALOG
+                and len(relation.source_column_keys) == 1
+                and tuple(item.target_field for item in resolver.key_mappings) == ("name",)
+                and resolver.value_mappings
+                and not resolver.scope_mappings
+            ):
+                selected = {item.target_value for item in resolver.value_mappings}
+                scoped = lookup(resolver.model, ("company_id",))
+                available = {item.value for item in scoped.choices} if scoped else set()
+                if selected <= available:
+                    unscoped = lookup(resolver.model, ())
+                    literal_names = {item.value for item in unscoped.choices} if unscoped else set()
+                    if not selected.intersection(literal_names):
+                        relation = replace(relation, resolver=replace(
+                            resolver,
+                            scope_mappings=(ReferenceKeyMapping(relation.source_column_keys[0], "company_id"),),
+                        ))
+            relationships.append(relation)
             reference = relation.constant_reference
             if (
                 relation.value_source is not RelationshipValueSource.CONSTANT_EXISTING
+                or (constant_fields is not None and (dataset.dataset_id, relation.target_field) not in constant_fields)
                 or reference is None
                 or tuple(item.target_field for item in reference.key_values)
                 != ("name",)
@@ -208,18 +274,7 @@ def _require_selected_company_scopes(
                 != ("company_id",)
             ):
                 continue
-            snapshot = context.supporting_lookups.current(
-                workspace_id,
-                relation_model=relation.resolver.model,
-                key_fields=("name",),
-                scope_fields=("company_id",),
-                display_field="name",
-                target_hash=schema.connection_target_hash,
-                read_credential_binding_hash=schema.read_credential_binding_hash,
-                read_principal_hash=schema.read_principal_hash,
-                read_context_hash=schema.read_context_hash,
-                actor=actor,
-            )
+            snapshot = lookup(relation.resolver.model, ("company_id",))
             chosen = portable_supporting_value(
                 (reference.key_values[0].value, reference.scope_values[0].value)
             )
@@ -230,6 +285,11 @@ def _require_selected_company_scopes(
                     f"Choose an existing {relation.target_field} record with its "
                     "company after checking the available Odoo choices."
                 )
+        repaired.append(
+            dataset if tuple(relationships) == dataset.relationships
+            else replace(dataset, relationships=tuple(relationships))
+        )
+    return tuple(repaired)
 
 
 def build_mapping_router(context: WebContext) -> APIRouter:
@@ -791,6 +851,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "target_field",
                 "business_key_id",
                 "refresh",
+                "selection_refreshes",
             },
         )
         try:
@@ -846,14 +907,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             ambiguous_values: tuple[str, ...] = ()
             target_checked_at: str | None = None
             target_choices_reused = False
+            selection_payload = {}
             if kind == "scalar":
                 if field.type != "selection":
                     raise WorkspaceError("This Odoo field is not a choice field")
-                if not field.selection:
-                    raise WorkspaceError(
-                        "This Odoo field currently has no available choices; "
-                        "refresh the Odoo fields before matching values"
-                    )
                 target_choices = tuple(
                     {
                         "value": str(value),
@@ -861,6 +918,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     }
                     for value, label in field.selection
                 )
+                target_checked_at = (schema.last_checked_at or schema.captured_at).isoformat()
+                target_choices_reused = True
+                if _text(form, "refresh") == "1":
+                    selection_payload = await refresh_selection_choices(
+                        context, workspace_id, target_model, target_field, actor=actor,
+                    )
+                elif _text(form, "selection_refreshes"):
+                    staged = await run_local_operation(load_selection_refresh,
+                        context, workspace_id, _text(form, "selection_refreshes"), actor=actor)
+                    if staged:
+                        staged_field = next(item for model in staged.schema.models if model.name == target_model
+                            for item in model.fields if item.name == target_field)
+                        target_choices = tuple({"value": code, "label": label} for code, label in staged_field.selection)
             else:
                 if governance is None:
                     raise WorkspaceError(
@@ -909,6 +979,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "ambiguous_values": ambiguous_values,
                     "target_checked_at": target_checked_at,
                     "target_choices_reused": target_choices_reused,
+                    **selection_payload,
                     "allow_blank": kind == "relationship" and not field.required,
                 }
             )
@@ -1718,12 +1789,19 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     schema,
                     governance,
                 )
+                selection_refresh = load_selection_refresh(
+                    context, workspace_id, _text(form, "selection_refreshes"), actor=actor,
+                )
+                if selection_refresh and action not in {"save_progress", "draft"}:
+                    raise WorkspaceError("Check the refreshed choices before confirming matches.")
+                effective_schema = selection_refresh.schema if selection_refresh else schema
+                effective_governance = selection_refresh.governance if selection_refresh else governance
                 if action == "confirm_rows":
                     if active_definition is None:
                         raise WorkspaceError(
                             "Check the current mapping before confirming rows"
                         )
-                    return active_definition, active_definition.datasets, ()
+                    return active_definition, active_definition.datasets, (), None
                 access = context.workspace_access.require(
                     actor,
                     Capability.PROJECT_VIEW,
@@ -1744,24 +1822,26 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 datasets = _mapping_datasets_from_form(
                     form,
                     selection,
-                    schema,
-                    governance,
+                    effective_schema,
+                    effective_governance,
                     fixed_controls=fixed_controls,
                     derived_links=derived_consumer_links(preparation_plan),
                 )
-                _require_selected_company_scopes(
-                    context,
-                    workspace_id,
-                    datasets,
-                    schema,
-                    actor=actor,
-                )
+                constant_fields = {
+                    (dataset.dataset_id, relation.target_field)
+                    for dataset in datasets for relation in dataset.relationships
+                    if relation.value_source is RelationshipValueSource.CONSTANT_EXISTING
+                }
                 datasets = _merge_partial_mapping_datasets(
                     datasets,
                     active_definition,
                     form,
                     selection,
                     schema,
+                )
+                datasets = _require_selected_company_scopes(
+                    context, workspace_id, datasets, schema, actor=actor,
+                    constant_fields=constant_fields,
                 )
                 dependency_repair = repair_unambiguous_incoming_dependencies(
                     datasets,
@@ -1773,12 +1853,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     active_definition,
                     dependency_repair.datasets,
                     dependency_repair.repairs,
+                    selection_refresh,
                 )
 
             (
                 _active_definition,
                 datasets,
                 dependency_repairs,
+                selection_refresh,
             ) = await run_page_read(prepare_mapping_datasets)
             if action == "confirm_rows":
                 await run_local_operation(
@@ -1804,6 +1886,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         expected_version=expected_working_version,
                         actor=actor,
                         operation_id=operation_id,
+                        schema_refresh=selection_refresh,
                     )
                     formula_issues = mapping_formula_authoring_issues(
                         working_draft.definition.datasets,
@@ -1962,6 +2045,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         expected_parent_version=expected_parent,
                         expected_working_draft_version=(expected_working_version),
                         actor=actor,
+                        schema_refresh=selection_refresh,
                     )
                     row_review = None
                     if validation.status.value != "INVALID" and any(

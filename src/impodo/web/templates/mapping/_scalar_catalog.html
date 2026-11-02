@@ -261,10 +261,9 @@
                             data-target-field="{{ row.metadata.name }}"
                             data-target-label="{{ row.metadata.label }}"
                             {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}
-                            {% if not row.selection_choice_count %}disabled{% endif %}
                           >Match source values</button>
                           <small data-value-match-summary>
-                            {% if not row.selection_choice_count %}Refresh the Odoo fields to load the available choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
+                            {% if not row.selection_choice_count %}Open Match source values to refresh the Odoo choices{% elif row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Exact Odoo codes pass; match every other populated source choice{% endif %}
                           </small>
                         </div>
                         <label>

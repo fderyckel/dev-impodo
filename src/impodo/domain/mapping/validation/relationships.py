@@ -20,6 +20,7 @@ from ..contracts import (
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
+    matched_reference_components,
     relationship_target_fields,
 )
 from .common import (
@@ -562,7 +563,13 @@ def _validate_resolver(
         item.source_column_key
         for item in (*resolver.key_mappings, *resolver.scope_mappings)
     )
-    if validate_source_mappings and mapped_sources != source_columns:
+    scoped_value_match = bool(
+        resolver.value_mappings and resolver.scope_mappings
+        and resolver.origin is ResolverOrigin.TARGET_CATALOG
+        and len(source_columns) == 1 and len(resolver.key_mappings) == 1
+        and mapped_sources == source_columns * len(mapped_sources)
+    )
+    if validate_source_mappings and mapped_sources != source_columns and not scoped_value_match:
         issues.append(
             _issue(
                 "MAPPING_REFERENCE_KEY_INVALID",
@@ -578,7 +585,7 @@ def _validate_resolver(
     if resolver.value_mappings and (
         len(source_columns) != 1
         or len(resolver.key_mappings) != 1
-        or bool(resolver.scope_mappings)
+        or (bool(resolver.scope_mappings) and not scoped_value_match)
     ):
         issues.append(
             _issue(
@@ -593,6 +600,16 @@ def _validate_resolver(
             )
         )
     elif resolver.value_mappings:
+        for value in resolver.value_mappings:
+            try:
+                matched_reference_components(value.target_value, len(mapped_sources))
+            except ValueError as error:
+                issues.append(_issue(
+                    "MAPPING_VALUE_MATCH_INVALID", path, str(error),
+                    "Check the linked Odoo values and select the record with its company again.",
+                    dataset=dataset,
+                ))
+                break
         key_field = resolver.key_mappings[0].target_field
         key_metadata = context.fields_by_model.get(
             resolver.model,

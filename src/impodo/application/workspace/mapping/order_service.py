@@ -33,6 +33,8 @@ from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
+    matched_reference_components,
+    relationship_input_columns,
     relationship_target_fields,
 )
 from impodo.domain.matching_order import (
@@ -1605,7 +1607,7 @@ class MatchingOrderService:
         try:
             skeleton = self._identity_relational_skeleton(
                 IdentityComponentMapping(
-                    source_column_keys=relationship.source_column_keys,
+                    source_column_keys=relationship_input_columns(relationship),
                     target_fields=(relationship.target_field,),
                     resolver=resolver,
                 ),
@@ -2631,6 +2633,18 @@ def _relationship_source_key_counts(
                 blank_rows += 1
                 continue
             add(tuple((translations.get(value, value),) for value in choices))
+            continue
+        if relationship.resolver.scope_mappings and translations and len(row) == 1:
+            matched = translations.get(str(row[0]).strip())
+            try:
+                components = matched_reference_components(matched, len(target_fields)) if matched is not None else ()
+            except ValueError:
+                components = ()
+            if not components:
+                incomplete_rows += 1
+                incomplete(row)
+            else:
+                add((components,))
             continue
         if len(row) != (expected_width or len(target_fields)) or any(
             value is None or not str(value).strip() for value in row

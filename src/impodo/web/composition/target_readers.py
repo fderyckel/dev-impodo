@@ -1053,6 +1053,13 @@ def _read_pinned_odoo_snapshots(
     )
 
 
+def _read_selection_metadata(
+    state: WorkspaceState, api_key: str, requests: tuple[MetadataRequest, ...],
+) -> MetadataSnapshot:
+    """Read effective field choices through the qualified target connector."""
+    return Json2ReadConnector(_target_json2_config(state, api_key)).get_model_metadata(requests)
+
+
 def _source_value_choices(
     context: WebContext,
     workspace_id: str,

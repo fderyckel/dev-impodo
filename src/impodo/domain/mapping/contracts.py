@@ -427,6 +427,8 @@ class RelationshipResolver:
     Target-then-dataset resolvers retain both shapes: one exact Odoo match wins,
     otherwise the same source key may resolve through the incoming dataset.
     Optional value mappings are exact reviewed translations for the Odoo key.
+    A scoped target-catalog value match binds key and scope mappings to the
+    same source choice and encodes the ordered selected components together.
     """
 
     origin: ResolverOrigin
@@ -803,6 +805,40 @@ def relationship_target_fields(
         tuple(item.target_field for item in relationship.resolver.key_mappings),
         tuple(item.target_field for item in relationship.resolver.scope_mappings),
     )
+
+
+def relationship_input_columns(relationship: RelationshipMapping) -> tuple[str, ...]:
+    """Expand one reviewed source choice into its ordered target key and scope.
+
+    Scoped value matches bind every target component to the same source
+    choice. Ordinary relationships retain their authored source columns.
+    """
+
+    resolver = relationship.resolver
+    if resolver.value_mappings and resolver.scope_mappings:
+        return tuple(
+            item.source_column_key
+            for item in (*resolver.key_mappings, *resolver.scope_mappings)
+        )
+    return relationship.source_column_keys
+
+
+def matched_reference_components(value: str, field_count: int) -> tuple[str, ...]:
+    """Decode a reviewed scoped choice only when its rule declares a scope."""
+
+    if field_count == 1:
+        return (value,)
+    try:
+        components = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise ValueError("The matched Odoo record must include its scope") from error
+    if (
+        not isinstance(components, list)
+        or len(components) != field_count
+        or any(not isinstance(item, str) or not item.strip() for item in components)
+    ):
+        raise ValueError("The matched Odoo record must include every key and scope value")
+    return tuple(components)
 
 
 @dataclass(frozen=True, slots=True)

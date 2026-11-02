@@ -67,6 +67,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
 )
+from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 
 from .categorical_coverage import CategoricalCoverageService
@@ -175,6 +176,7 @@ class MappingWorkspaceRepository(Protocol):
         expected_version: int | None,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Replace editor state only at the expected optimistic draft version."""
         ...
@@ -221,6 +223,7 @@ class MappingWorkspaceRepository(Protocol):
         checked_draft: MappingWorkingDraft,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Promote one expected draft state to a checked revision."""
         ...
@@ -233,6 +236,7 @@ class MappingWorkspaceRepository(Protocol):
         *,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Append deterministic revalidation for one exact stored revision."""
         ...
@@ -471,6 +475,7 @@ class MappingWorkspaceService:
         expected_version: int | None,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> MappingWorkingDraft:
         """Persist incomplete browser work without semantic validation."""
 
@@ -484,6 +489,10 @@ class MappingWorkspaceService:
         governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        if schema_refresh:
+            if schema != schema_refresh.previous_schema or governance != schema_refresh.previous_governance:
+                raise WorkspaceError("The Odoo choices changed. Refresh them again.")
+            schema, governance = schema_refresh.schema, schema_refresh.governance
         current = self.mappings.get_mapping_revision(workspace_id)
         existing = self.mappings.get_mapping_working_draft(workspace_id)
         actual_version = existing.version if existing else None
@@ -518,7 +527,7 @@ class MappingWorkspaceService:
             mapping_id=mapping_id,
             version=(actual_version or 0) + 1,
             workspace_id=workspace_id,
-            base_mapping_version=current.version if current else None,
+            base_mapping_version=current.version if current and not (schema_refresh and schema_refresh.changed) else None,
             definition=definition,
             updated_at=datetime.now(UTC),
             updated_by=actor.identity.display_name,
@@ -535,6 +544,7 @@ class MappingWorkspaceService:
             expected_version=expected_version,
             actor=actor,
             operation_id=operation_id,
+            schema_refresh=schema_refresh,
         )
         return draft
 
@@ -901,6 +911,7 @@ class MappingWorkspaceService:
         expected_working_draft_version: int | None,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> tuple[MappingRevision, MappingValidationResult]:
         """Check one editor state and persist only new semantic content."""
 
@@ -914,6 +925,10 @@ class MappingWorkspaceService:
         governance = self.schemas.get_schema_governance(workspace_id)
         if selection is None or schema is None:
             raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        if schema_refresh:
+            if schema != schema_refresh.previous_schema or governance != schema_refresh.previous_governance:
+                raise WorkspaceError("The Odoo choices changed. Refresh them again.")
+            schema, governance = schema_refresh.schema, schema_refresh.governance
         current = self.mappings.get_mapping_revision(workspace_id)
         actual_parent = current.version if current else None
         if expected_parent_version != actual_parent:
@@ -942,7 +957,7 @@ class MappingWorkspaceService:
             working_draft
             if working_draft is not None
             and working_draft.definition.source_selection_hash == selection.content_hash
-            and working_draft.definition.schema_hash == expected_schema_hash
+            and (working_draft.definition.schema_hash == expected_schema_hash or schema_refresh is not None)
             else None
         )
         mapping_id = (
@@ -972,6 +987,7 @@ class MappingWorkspaceService:
         if (
             current is not None
             and current.definition.content_hash == definition.content_hash
+            and (schema_refresh is None or not schema_refresh.changed)
         ):
             if (
                 working_draft is not None
@@ -982,13 +998,16 @@ class MappingWorkspaceService:
                     datasets=definition.datasets,
                     expected_version=working_draft.version,
                     actor=actor,
+                    schema_refresh=schema_refresh,
                 )
+                schema_refresh = None
             self.mappings.save_mapping_validation(
                 workspace_id,
                 current.version,
                 validation,
                 actor=actor,
                 operation_id=operation_id,
+                schema_refresh=schema_refresh,
             )
             return current, validation
         historical_versions = self.mappings.list_mapping_revisions(workspace_id)
@@ -1020,6 +1039,7 @@ class MappingWorkspaceService:
             checked_draft=checked_draft,
             actor=actor,
             operation_id=operation_id,
+            schema_refresh=schema_refresh,
         )
         return revision, validation
 

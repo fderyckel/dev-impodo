@@ -147,6 +147,24 @@ one exact schema revision. Mapping evidence then binds the exact source
 selection, schema, governance, providers, transformations, relationships,
 validation result, reviewed warnings, and actor submission.
 
+An explicit selection-choice refresh is a narrow exception to full schema
+replacement. The read verifies the exact target, reader generation, principal,
+permissions, context and unchanged field behavior. It stores a protected,
+hash-verified candidate bound to the source, draft and workspace revision.
+Opening or cancelling that review cannot publish changed codes. A mapping
+save or check accepts only that exact candidate and atomically publishes the
+updated schema, rebound governance and mapping. The command revalidates the
+unchanged key fields and preserves editable rules. Changed codes retire the
+affected checked mapping and prepared evidence; historical evidence and frozen
+source rows remain intact. An unchanged code set retains semantic schema and
+governance identities and the current checked mapping revision.
+
+Recipe applications publish this selection projection inside their own
+workspace. The run's frozen target capture and pinned Recipe remain immutable.
+The mapping adaptation guard compares Recipe rules and accepted totals while
+allowing this independently verified schema binding and target-specific value
+decisions to change.
+
 A mapping mutation receipt is separate operational recovery evidence. Its UUID
 binds one actor and exact submitted command meaning. The committed receipt is
 written in the same workspace-engine transaction as the authoritative mapping
@@ -393,6 +411,7 @@ portable source or relationship identities.
 | Check target schema and find no semantic change | No invalidation; update freshness and access provenance only |
 | Detect a target-schema change | No invalidation; preserve current evidence, mark Odoo data **Needs attention**, and block a new Odoo source freeze |
 | Confirm a detected target-schema change | Schema governance, Odoo capture selection and snapshot pointers, mapping, and downstream evidence |
+| Accept reviewed selection-only code changes with a mapping command | Rebind unchanged governed keys and editable rules; retire affected current mapping checks and prepared evidence |
 | Change target identity or model scope | Target schema, governance, mapping, comparison, and execution evidence |
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Change reviewed supporting decision meaning or its input binding | Mapping current pointer and dependent preparation evidence; accepted source and governed key meaning remain intact |

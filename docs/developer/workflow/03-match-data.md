@@ -182,6 +182,37 @@ principal, company-context, and model-access mismatches before reading records.
 These checks require the operator to check Odoo data again; they do not refresh
 schema evidence or change mappings automatically.
 
+Source-value matching also preserves a selected record's company. One source
+choice can supply the ordered name and company components through an explicit
+target-catalog value match. The resolver binds both fields to that source
+column, while `source_column_keys` still names the one authored choice.
+Preparation expands the reviewed portable choice into separate key and scope
+values in both the Python evaluator and native Polars execution. Supporting
+reads use the selected component tuples, and DuckDB projections and correction
+intents retain the separate company column.
+
+The normal mapping save repairs the earlier form's missing company rule only
+when every saved selection belongs to the current target-bound name/company
+lookup. A current unscoped choice that treats the encoded text as a literal
+name prevents that repair. The save creates new mapping evidence and retires
+downstream results through the existing mutation path; historical hashes and
+reports retain their original meaning. The browser regression bounds database
+connections and schema checks for the complete save command.
+Lookup keys use the reference policy for the captured Odoo major version;
+the Odoo 19 compatibility alias cannot identify Odoo 20 choices.
+
+An already scoped source-value match remains editable when its cached lookup
+expires or no longer includes a selected pair. **Save progress** preserves the
+authored choice without treating it as proof of a current Odoo record.
+**Check matches** reads fresh supporting values before semantic validation;
+final comparison still rejects a missing or ambiguous name/company pair.
+The save must not require the lookup that the check is about to refresh.
+Constant existing-record providers retain their separate checked-choice rule.
+
+Focused regressions are
+[`test_scoped_relationship_matches.py`](../../../tests/integration/web/test_scoped_relationship_matches.py)
+and [`test_scoped_value_matches.py`](../../../tests/integration/columnar/test_scoped_value_matches.py).
+
 `MappingWorkspaceService` separates a mutable working draft from immutable
 revision, validation, and submission evidence. Domain validation checks scalar
 providers, conversions, identities, relationships, write scope, and coverage.
@@ -843,6 +874,48 @@ metadata. The field must use a supported scalar type and must be stored,
 writable, non-computed, non-related, non-translated, and
 non-company-dependent. The mapping content hash binds the approvals. Numeric
 Odoo IDs never enter the portable mapping or canonical rows.
+
+### Refresh selection choices
+
+The scalar value dialog exposes **Refresh languages from Odoo** for the
+selection field named `lang`, and **Refresh Odoo choices** for other selection
+fields. Empty captured lists no longer disable the matching entry point.
+[`selection_choices.py`](../../../src/impodo/web/selection_choices.py) separates
+bounded local preparation, one live field read and protected candidate storage.
+Connector construction stays in `composition/target_readers.py`. Both local
+and remote paths read the field's effective Odoo choices rather than a global
+language catalogue. Field behavior and read identity must remain unchanged.
+
+Each candidate is a bounded workspace report, referenced by its UUID and
+SHA-256 digest. It binds schema, governance, source, draft version, workspace
+revision and verified access. The domain
+[`selection_choices.py`](../../../src/impodo/domain/workspace/selection_choices.py)
+validates candidates and rebinds unchanged business keys. Mapping save and
+check commands publish schema, governance and mapping through the same DuckDB
+transaction, using
+[`selection_choices.py`](../../../src/impodo/adapters/duckdb/selection_choices.py).
+A failed write rolls all three back. Changed codes retire affected current
+checks; an unchanged refresh retains semantic identities and the checked
+revision. Candidates do not satisfy validation or execution by themselves.
+
+`mapping-selection-choices.js` owns inline freshness and unavailable-choice
+annotations. The editor preserves available selections and retains a removed
+scalar choice as review context rather than substituting another code.
+Accepting the dialog stages candidate references; **Save progress** or **Check
+matches** publishes them with the submitted edits. No extra confirmation
+dialog or automatic Odoo write is added.
+
+Focused evidence lives in
+[`test_selection_choice_refresh.py`](../../../tests/integration/web/test_selection_choice_refresh.py),
+[`test_recipe_selection_refresh.py`](../../../tests/integration/web/test_recipe_selection_refresh.py)
+and the authenticated
+[`browser checks`](../../../tests/e2e/test_selection_choice_refresh.py).
+The browser fixture can reproduce the 1440 by 1024 screenshot with
+`IMPODO_LANGUAGE_REFRESH_SCREENSHOT=docs/images/user/11p-language-choice-refresh.png`.
+It starts an authenticated isolated application with fictional data.
+No running customer workspace is accessed.
+
+### Match linked records
 
 Many2one and many2many relationships use one of three closed origins.
 `dataset` resolves through one incoming dataset, `target_catalog` resolves

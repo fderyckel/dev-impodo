@@ -64,6 +64,8 @@ from ..mapping.contracts import (
     RowInclusionPolicy,
     ScalarFieldMapping,
     ScalarValueSource,
+    matched_reference_components,
+    relationship_input_columns,
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..mapping.row_inclusion import row_is_included
@@ -148,6 +150,7 @@ class _RelationshipValuePlan:
     source_label: str
     rules: str
     apply_to_prepared: bool
+    component_index: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -1017,11 +1020,11 @@ def _compile_dataset_evaluation_plan(
     )
     relationship_fields = tuple(
         _RelationshipFieldPlan(
-            source_column_keys=relationship.source_column_keys,
+            source_column_keys=relationship_input_columns(relationship),
             prepared_column_keys=tuple(
                 synthetic_relationship_field(index, source_index)
                 for source_index, _source_column_key in enumerate(
-                    relationship.source_column_keys
+                    relationship_input_columns(relationship)
                 )
             ),
         )
@@ -1030,12 +1033,14 @@ def _compile_dataset_evaluation_plan(
     relationship_values = tuple(
         _RelationshipValuePlan(
             source_column_key=relationship.source_column_keys[0],
-            prepared_column_key=synthetic_relationship_field(index, 0),
+            prepared_column_key=synthetic_relationship_field(index, component_index),
             target_field=relationship.target_field,
             target_by_source={
                 **dict.fromkeys(relationship.blank_source_values),
                 **{
-                    item.source_value: item.target_value
+                    item.source_value: matched_reference_components(
+                        item.target_value, len(relationship_input_columns(relationship))
+                    )[component_index]
                     for item in relationship.resolver.value_mappings
                 },
             },
@@ -1050,10 +1055,12 @@ def _compile_dataset_evaluation_plan(
             apply_to_prepared=(
                 relationship.resolver.origin is not ResolverOrigin.TARGET_THEN_DATASET
             ),
+            component_index=component_index,
         )
         for index, relationship in enumerate(mapping.relationships)
         if (relationship.resolver.value_mappings or relationship.blank_source_values)
         and len(relationship.source_column_keys) == 1
+        for component_index in range(len(relationship_input_columns(relationship)))
     )
     scalar_fields = tuple(
         _ScalarFieldPlan(
@@ -1134,7 +1141,7 @@ def _prepared_headers(
             synthetic_relationship_field(relationship_index, source_index)
             for relationship_index, relationship in enumerate(mapping.relationships)
             for source_index, _source_column_key in enumerate(
-                relationship.source_column_keys
+                relationship_input_columns(relationship)
             )
         ),
     )
@@ -1942,7 +1949,7 @@ def _apply_relationship_value_mappings(
         if source_value in relationship.target_by_source:
             if relationship.apply_to_prepared or target_value is None:
                 values[relationship.prepared_column_key] = target_value
-            if impact_collector is not None:
+            if impact_collector is not None and relationship.component_index == 0:
                 impact_collector.record(
                     dataset=plan.dataset_name,
                     source_row=source_row,

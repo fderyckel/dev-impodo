@@ -48,6 +48,8 @@
       <input type="hidden" name="expected_working_draft_version" value="{{ review.working_draft_version }}">
       <input type="hidden" name="expected_definition_hash" value="{{ review.definition_hash }}">
       <input type="hidden" name="expected_evidence_hash" value="{{ review.evidence_hash }}">
+      <input type="hidden" name="selection_refreshes" value='{{ selection_references|tojson }}'>
+      <p class="muted" data-selection-refresh-status role="status" aria-live="polite" hidden></p>
 
       {% for reason in review.blocking_reasons %}
         <div class="notice warning" role="alert"><p>{{ reason }}</p></div>
@@ -69,6 +71,14 @@
               <span class="status ready">Matched</span>
             {% endif %}
           </div>
+
+          {% if field.mapping_kind == 'scalar' %}
+            <button class="button secondary compact" type="button" data-refresh-selection
+              data-target-model="{{ field.target_model }}" data-target-field="{{ field.target_field }}"
+              data-refresh-url="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/applications/{{ application.application_id }}/target-matches/refresh">
+              {% if field.target_field == 'lang' %}Refresh languages from Odoo{% else %}Refresh Odoo choices{% endif %}
+            </button>
+          {% endif %}
 
           {% if field.blocking_reason %}
             <div class="notice warning">
@@ -96,6 +106,7 @@
                         <option value="{{ choice.value }}"{% if choice.value == row.selected_target_value %} selected{% endif %}>{{ choice.label }}{% if choice.label != choice.value %} ({{ choice.value }}){% endif %}</option>
                       {% endfor %}
                     </select>
+                    {% if row.unavailable %}<small class="muted">Previously {{ row.current_target_label }} · unavailable in this Odoo.</small>{% endif %}
                   </label>
                 </div>
               {% endfor %}
@@ -148,4 +159,7 @@
       </div>
     </section>
   {% endif %}
+{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/recipe-target-matching.js') }}" defer></script>
 {% endblock %}

@@ -220,6 +220,13 @@ contacts, products, transactions, and other Recipe models. If another mapping
 problem remains after these values are saved, Impodo directs you to the full
 field review instead of treating the target-value decision as complete.
 
+If Odoo's available languages have changed, select **Refresh languages from
+Odoo** beside Language on this review. Other choice fields use **Refresh Odoo
+choices**. Impodo keeps available matches and unsaved selections, and marks
+removed choices for review. Choose their replacements, then select **Save
+matches and continue**. The refreshed list and target-specific matches belong
+to this application; the Recipe version and other runs remain unchanged.
+
 **Review and load** is the visible home from preparation through verification.
 It shows the saved Recipe order, one current action, background progress, and
 the verified count. A clean Recipe card stays compact. Open its detailed

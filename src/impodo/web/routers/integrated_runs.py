@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -22,7 +23,10 @@ from impodo.application.run.recipe_run_jobs import (
 )
 from impodo.application.run.target_defaults import mapped_target_defaults
 from impodo.application.run.target_matches import TargetMatchReviewChanged
+from impodo.application.shared.artifacts import ArtifactStoreError
+from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.create_field_policy import VerifiedCreateDefaultAction
+from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.run.contracts import (
     MigrationRunPlanningError,
@@ -31,9 +35,11 @@ from impodo.domain.run.contracts import (
 )
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 
 from ...domain.recipe.models import RecipeError
 from ...domain.run.models import MigrationRunPurpose
+from ..composition.page_reads import run_local_operation
 from ..context import WebContext
 from ..forms import _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -43,6 +49,7 @@ from ..request_identity import request_identity
 from ..run_commands import recover_run_preparation, start_next_preparation
 from ..run_review import build_integrated_run_review
 from ..security import require_session
+from ..selection_choices import load_selection_refresh, refresh_selection_choices
 
 
 def build_integrated_runs_router(context: WebContext) -> APIRouter:
@@ -424,6 +431,51 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
 
     @router.post(
         "/projects/{project_id}/runs/{migration_run_id}/applications/"
+        "{application_id}/target-matches/refresh"
+    )
+    async def refresh_application_selection_choices(request: Request, project_id: str, migration_run_id: str, application_id: str):
+        """Stage current target choices without changing the pinned Recipe or run."""
+        require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "target_model", "target_field", "selection_refreshes",
+            "expected_definition_hash", "expected_working_draft_version", "expected_evidence_hash"}
+            | {str(key) for key in form if str(key).startswith("match_")})
+        application = _run_application(context, project_id, migration_run_id, application_id)
+        if application.status not in {RecipeApplicationStatus.BLOCKED, RecipeApplicationStatus.DRAFT_READINESS, RecipeApplicationStatus.READY}:
+            return JSONResponse({"detail": "Return to the run before changing these choices."}, status_code=409)
+        try:
+            references = json.loads(_text(form, "selection_refreshes") or "{}")
+            if not isinstance(references, dict) or len(references) > 100:
+                raise ValueError("The refreshed choices are invalid")
+            model, field = _text(form, "target_model"), _text(form, "target_field")
+            decisions = {str(key): str(value) for key, value in form.items() if str(key).startswith("match_")}
+            def verify_review():
+                staged = load_selection_refresh(context, application.workspace_id, json.dumps(list(references.values())), actor=actor)
+                review = context.recipe_target_matches.build_review(application, actor=actor, schema_refresh=staged)
+                if (str(review.working_draft_version) != _text(form, "expected_working_draft_version")
+                    or review.definition_hash != _text(form, "expected_definition_hash")
+                    or review.evidence_hash != _text(form, "expected_evidence_hash")
+                    or not any(item.mapping_kind == "scalar" and (item.target_model, item.target_field) == (model, field) for item in review.fields)):
+                    raise TargetMatchReviewChanged("The source matches or Odoo evidence changed. Reload and review the current values.")
+                allowed = {row.input_name for item in review.fields if item.editable for row in item.rows}
+                if set(decisions).difference(allowed):
+                    raise WorkspaceError("Only the choices shown for this run may be changed.")
+            await run_local_operation(verify_review)
+            payload = await refresh_selection_choices(context, application.workspace_id, model, field, actor=actor)
+            references[f"{model}.{field}"] = payload["selection_refresh"]
+
+            def render():
+                staged = load_selection_refresh(context, application.workspace_id, json.dumps(list(references.values())), actor=actor)
+                return _render_application_target_matches(request, context, project_id, migration_run_id, application_id,
+                    actor=actor, schema_refresh=staged, selection_references=references, submitted=decisions)
+
+            return await run_local_operation(render)
+        except (WorkspaceError, ValueError, ArtifactStoreError, SecretStoreError, ConnectorError) as error:
+            return JSONResponse({"detail": str(error)}, status_code=422)
+
+    @router.post(
+        "/projects/{project_id}/runs/{migration_run_id}/applications/"
         "{application_id}/target-matches"
     )
     async def confirm_application_target_matches(
@@ -444,16 +496,24 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
         )
         form = await request.form()
         submitted = {str(key): str(value) for key, value in form.items()}
+        staged = None
+        references = {}
         try:
             allowed = {
                 "csrf_token",
                 "expected_definition_hash",
                 "expected_working_draft_version",
                 "expected_evidence_hash",
+                "selection_refreshes",
             } | {key for key in submitted if key.startswith("match_")}
             _secure_form(request, form, allowed)
-            confirmed = await run_in_threadpool(
-                context.recipe_target_matches.confirm,
+            def confirm():
+                nonlocal staged, references
+                references = json.loads(_text(form, "selection_refreshes") or "{}")
+                if not isinstance(references, dict):
+                    raise WorkspaceError("The refreshed choices are invalid")
+                staged = load_selection_refresh(context, application.workspace_id, json.dumps(list(references.values())), actor=actor)
+                return context.recipe_target_matches.confirm(
                 application,
                 decisions={
                     key: value
@@ -466,9 +526,13 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 expected_definition_hash=_text(form, "expected_definition_hash"),
                 expected_evidence_hash=_text(form, "expected_evidence_hash"),
                 actor=actor,
-            )
-        except (MigrationRunPlanningError, WorkspaceError, ValueError) as error:
-            return await run_in_threadpool(
+                schema_refresh=staged,
+                )
+            confirmed = await run_local_operation(confirm)
+        except (MigrationRunPlanningError, WorkspaceError, ValueError, ArtifactStoreError, SecretStoreError) as error:
+            current_schema = await run_local_operation(context.queries.get_odoo_schema_catalog, application.workspace_id)
+            retain_refresh = staged if staged and current_schema == staged.previous_schema and not isinstance(error, TargetMatchReviewChanged) else None
+            return await run_local_operation(
                 _render_application_target_matches,
                 request,
                 context,
@@ -481,6 +545,8 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
                 submitted=None
                 if isinstance(error, TargetMatchReviewChanged)
                 else submitted,
+                schema_refresh=retain_refresh,
+                selection_references=references if retain_refresh else {},
             )
         _flash(request, "Target-specific values confirmed for this Recipe run.")
         if (
@@ -831,6 +897,8 @@ def _render_application_target_matches(
     error: str | None = None,
     status_code: int = 200,
     submitted: dict[str, str] | None = None,
+    schema_refresh: SelectionSchemaRefresh | None = None,
+    selection_references: dict[str, str] | None = None,
 ):
     """Render the compact, target-bound Recipe value review."""
 
@@ -842,11 +910,12 @@ def _render_application_target_matches(
     )
     review = prepared_review
     try:
-        if review is None or submitted is not None:
+        if review is None or submitted is not None or schema_refresh:
             review = context.recipe_target_matches.build_review(
                 application,
                 actor=actor,
                 submitted=submitted,
+                schema_refresh=schema_refresh,
             )
     except WorkspaceError as review_error:
         error = error or str(review_error)
@@ -863,6 +932,7 @@ def _render_application_target_matches(
         workspace_state=workspace_state,
         error=error,
         status_code=status_code,
+        selection_references=selection_references or {},
     )
 
 

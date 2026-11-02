@@ -30,7 +30,7 @@ from impodo.domain.shared.models import (
 )
 
 STAGING_CONTRACT_VERSION = 6
-BROWSER_EVALUATOR_VERSION = 10
+BROWSER_EVALUATOR_VERSION = 11
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 

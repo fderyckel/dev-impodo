@@ -117,6 +117,14 @@ Recipe identities because an existing run keeps its pinned revision.
 
 ## Current application boundary
 
+An application may refresh effective Odoo selection choices and rematch source
+values against them. The candidate is bound to that application's verified
+target and current source and draft. Acceptance publishes the selection
+projection and mapping together in the application workspace. It does not
+replace the run's frozen target capture, modify the immutable Recipe revision,
+or affect another application. Providers, transformations, identities, write
+ownership and accepted totals remain subject to the Recipe adaptation guard.
+
 The run confirms its target operation company before activation. The company
 ID, protected binding and authoring endpoint are excluded from the Recipe.
 Each application workspace projects the run's new company, while portable

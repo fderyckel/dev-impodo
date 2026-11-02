@@ -60,6 +60,7 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
           };
         </script>"""
         for name in (
+            "mapping-source-columns.js",
             "mapping-save-recovery.js",
             "mapping-editor.js",
             "mapping-relation-row.js",
@@ -198,7 +199,10 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
         )
         values = self.row.locator("[data-constant-component-value]")
         self.assertEqual(values.nth(0).input_value(), "Standard 40 hours/week")
-        self.assertEqual(values.nth(1).input_value(), "United Caps Wiltz")
+        self.assertEqual(
+            self.row.locator("[data-constant-scope-choice]:not([disabled])").input_value(),
+            "United Caps Wiltz",
+        )
         self.assertEqual(self.errors, [])
 
     def test_constant_value_survives_catalogue_row_replacement(self):

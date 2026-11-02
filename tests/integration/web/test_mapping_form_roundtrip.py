@@ -130,6 +130,7 @@ class MappingFormRoundTripTests(unittest.TestCase):
         )
         datasets = (SimpleNamespace(relationships=(relation,)),)
         schema = SimpleNamespace(
+            odoo_version="19.0",
             connection_target_hash="target",
             read_credential_binding_hash="credential",
             read_principal_hash="principal",

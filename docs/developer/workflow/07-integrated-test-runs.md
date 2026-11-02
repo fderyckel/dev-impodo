@@ -396,6 +396,22 @@ Activation and focused target-value GET rendering run outside the async request
 thread. This avoids blocking that thread during local compilation or coverage
 reads; it is not a claim of faster source processing.
 
+The focused value review also exposes explicit selection refresh, including
+**Refresh languages from Odoo** for `lang`. The shared operation reads current
+field choices without changing the run's frozen target capture. Its protected
+candidate binds the application schema, source, draft and access. The browser
+keeps unsaved target decisions and shows a removed selection as unavailable.
+**Save matches and continue** atomically accepts the selection projection and
+checked application mapping. The Recipe adaptation guard still fixes providers,
+transforms, identities, write ownership and accepted totals. An unchanged list
+retains the checked revision. The
+[Match data workflow](03-match-data.md#refresh-selection-choices) owns candidate
+verification and the
+[focused Recipe regression](../../../tests/integration/web/test_recipe_selection_refresh.py)
+covers additions, removals, rematching and immutable Recipe reuse.
+The authenticated [browser regression](../../../tests/e2e/test_selection_choice_refresh.py)
+also verifies that refresh and retry retain unsaved decisions.
+
 A preparation success opens the normal prepared-data review. The existing
 preflight and execution routes still own **Check changes**, **Confirm and
 load**, and **Verify result**. Comparison records the coarse `COMPARED`

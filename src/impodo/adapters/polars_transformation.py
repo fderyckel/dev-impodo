@@ -26,6 +26,7 @@ from impodo.application.data_version.source_snapshots import (
     validate_source_snapshot_path,
 )
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
+from impodo.domain.mapping.contracts import matched_reference_components
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.models import (
     Issue,
@@ -1410,7 +1411,18 @@ def _compile_identity_group(
             if value_alias != normalized_alias:
                 value_expressions.append(value.alias(value_alias))
             target_value_alias = None
-            if source_index == 0 and component_mappings:
+            scoped_value_match = bool(
+                role == "relationship" and len(component.source_columns) > 1
+                and len({source.stable_key for source in component.source_columns}) == 1
+                and component_mappings
+            )
+            if component_mappings and (source_index == 0 or scoped_value_match):
+                mappings = (
+                    tuple(
+                        (before, matched_reference_components(after, len(inputs))[source_index])
+                        for before, after in component_mappings
+                    ) if scoped_value_match else component_mappings
+                )
                 target_value_alias = (
                     f"__impodo_{role}_{component_index:04d}_"
                     f"{source_index:04d}_target_value"
@@ -1419,11 +1431,11 @@ def _compile_identity_group(
                     # The domain applies reviewed identity aliases after
                     # normalizing the incoming key. Preserve the alias bytes.
                     target_value = _mapped_value_before_normalization(
-                        pl.col(normalized_alias), component_mappings,
+                        pl.col(normalized_alias), mappings,
                     )
                 else:
                     mapped_raw = _mapped_value_before_normalization(
-                        raw, component_mappings,
+                        raw, mappings,
                     )
                     target_normalized, _ = _text_expression(mapped_raw, text_steps)
                     parsed_target, _ = _conversion_expression(

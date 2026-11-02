@@ -36,6 +36,7 @@ from impodo.domain.workspace.reference_keys import (
     reference_policy_hash,
     standard_reference_key,
 )
+from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupSnapshot,
     portable_supporting_value,
@@ -68,6 +69,7 @@ class TargetValueRow:
     input_name: str
     selected_target_value: str
     source_label: str = ""
+    unavailable: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -151,6 +153,7 @@ class RecipeTargetMatchService:
         *,
         actor: Actor,
         submitted: Mapping[str, str] | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> TargetMatchReview:
         """Read one bounded source domain and each distinct captured lookup once."""
 
@@ -160,7 +163,7 @@ class RecipeTargetMatchService:
             workspace_id=application.workspace_id,
         )
         return _build_target_match_review(
-            self, application, actor=actor, submitted=submitted
+            self, application, actor=actor, submitted=submitted, schema_refresh=schema_refresh,
         )
 
     def prepare_review(
@@ -200,6 +203,7 @@ class RecipeTargetMatchService:
         expected_definition_hash: str,
         expected_evidence_hash: str,
         actor: Actor,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> RunRecipeApplication:
         """Reject stale evidence before saving, checking, and submitting choices."""
 
@@ -215,8 +219,9 @@ class RecipeTargetMatchService:
                 "This application has already moved beyond target-value review. Return to the run."
             )
         review = self.prepared_review(application.application_id)
-        if review is None or review.evidence_hash != expected_evidence_hash:
-            review = self.build_review(application, actor=actor)
+        if schema_refresh or review is None or review.evidence_hash != expected_evidence_hash:
+            review = self.build_review(application, actor=actor, schema_refresh=schema_refresh,
+                submitted=decisions if schema_refresh else None)
         if (
             review.working_draft_version != expected_working_draft_version
             or review.definition_hash != expected_definition_hash
@@ -242,7 +247,7 @@ class RecipeTargetMatchService:
                 application.workspace_id,
                 replace(working.definition, datasets=datasets),
             )
-        if datasets != working.definition.datasets:
+        if datasets != working.definition.datasets and schema_refresh is None:
             working = self.mapping_workspace.save_working_draft(
                 application.workspace_id,
                 datasets=datasets,
@@ -251,10 +256,11 @@ class RecipeTargetMatchService:
             )
         revision, validation = self.mapping_workspace.check_definition(
             application.workspace_id,
-            datasets=working.definition.datasets,
+            datasets=datasets,
             expected_parent_version=review.parent_mapping_version,
             expected_working_draft_version=working.version,
             actor=actor,
+            schema_refresh=schema_refresh,
         )
         if validation.status.value != "VALID":
             first = next(
@@ -291,6 +297,7 @@ def _build_target_match_review(
     *,
     actor: Actor,
     submitted: Mapping[str, str] | None = None,
+    schema_refresh: SelectionSchemaRefresh | None = None,
 ) -> TargetMatchReview:
     """Recompute current source coverage and reuse captured Odoo choices."""
 
@@ -301,6 +308,10 @@ def _build_target_match_review(
     schema = mapping.schemas.get_odoo_schema_catalog(workspace_id)
     if working is None or selection is None or schema is None:
         raise WorkspaceError("Recheck Odoo before reviewing target-specific values")
+    if schema_refresh:
+        if schema != schema_refresh.previous_schema:
+            raise TargetMatchReviewChanged("The Odoo choices changed. Refresh them again.")
+        schema = schema_refresh.schema
     bundle = service.run_planning.repository.get_bundle(application.migration_run_id)
     setup_workspace = next(
         (item for item in bundle.workspaces if item.recipe_application_id is None),
@@ -673,16 +684,18 @@ def _target_value_rows(
             exact_values.get(source_value, ""),
         )
         intentional_blank = source_value in blank_source_values
-        needs_review = not intentional_blank and (
-            item.values in uncovered or current_target not in choice_values
-        )
         input_name = f"match_{dataset_index}_{mapping_kind}_{mapping_index}_{row_index}"
+        submitted_value = str(submitted[input_name]) if submitted is not None and input_name in submitted else None
+        needs_review = not intentional_blank and (
+            item.values in uncovered or current_target not in choice_values or submitted_value is not None
+        )
         selected = (
-            str(submitted.get(input_name, ""))
-            if submitted is not None and needs_review
+            submitted_value if submitted_value in choice_values else ""
+            if submitted_value is not None
             else (
                 current_target
                 if current_target in choice_values
+                else "" if source_value in explicit_values
                 else suggestions.get(source_value.strip().casefold(), "")
             )
         )
@@ -694,13 +707,15 @@ def _target_value_rows(
                 row_count=item.count,
                 current_target_value=current_target,
                 current_target_label=choice_labels.get(
-                    current_target,
-                    current_target,
+                    submitted_value if submitted_value is not None else current_target,
+                    submitted_value if submitted_value is not None else current_target,
                 ) if not intentional_blank else "Leave blank (no linked record)",
                 needs_review=needs_review,
                 input_name=input_name,
                 selected_target_value=selected,
                 source_label=" · ".join(item.values),
+                unavailable=bool((submitted_value if submitted_value is not None else current_target)
+                    and (submitted_value if submitted_value is not None else current_target) not in choice_values and not intentional_blank),
             )
         )
     return tuple(rows)

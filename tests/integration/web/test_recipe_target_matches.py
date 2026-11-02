@@ -18,6 +18,7 @@ from impodo.domain.workspace.contracts import (
     SchemaModel,
     SchemaOrigin,
 )
+from impodo.domain.workspace.reference_keys import reference_policy_hash
 from tests.integration.web import test_fresh_data_controls as fixtures
 from tests.support.identity import resolve_local_actor
 
@@ -31,10 +32,13 @@ class RecipeTargetMatchBrowserTests(TestCase):
         self.app = self.fixture.fixture.app
         self.context.preparation_jobs = None
 
-    def review_ready_delivery(self):
+    def review_ready_delivery(self, *, odoo_version="19.0"):
         """Create a fictional delivery with one valid and one unmatched language."""
 
         def configure_recipe(definition):
+            major = int(odoo_version.split(".", 1)[0])
+            definition["odoo_target_contract"]["odoo_major_version"] = major
+            definition["odoo_target_contract"]["reference_policy_hash"] = reference_policy_hash(major)
             definition["source_shape"]["datasets"][0]["columns"].append({
                 "logical_column_id": "column:balances.language", "source_name": "Language",
                 "candidate_type": "TEXT", "required_by": ["mapping"],
@@ -68,7 +72,7 @@ class RecipeTargetMatchBrowserTests(TestCase):
         )
         schema = OdooSchemaCatalog(
             workspace_id=state.workspace_id, policy_hash=content_hash("schema policy"), captured_at=datetime.now(UTC),
-            captured_by="Data manager", connection_mode="REMOTE", database="fictional_test", odoo_version="19.0",
+            captured_by="Data manager", connection_mode="REMOTE", database="fictional_test", odoo_version=odoo_version,
             models=(SchemaModel(name="res.partner", label="Customers", fields=tuple(
                 SchemaField(name=name, label=label, type=kind, required=False, readonly=False, relation=None,
                             relation_field=None, selection=choices)

@@ -147,6 +147,7 @@ document.addEventListener("DOMContentLoaded", () => {
     for (const control of controls) {
       const state = {
         name: control.name,
+        tagName: control.tagName,
         values:
           control instanceof HTMLSelectElement && control.multiple
             ? Array.from(control.selectedOptions, (option) => option.value)
@@ -191,10 +192,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const stateByName = new Map(
-      saved.states.map((state) => [state.name, state])
+      saved.states.map((state) => [`${state.tagName}\u0000${state.name}`, state])
     );
     for (const control of row.querySelectorAll('[name^="relation_"]')) {
-      const state = stateByName.get(control.name);
+      const state = stateByName.get(`${control.tagName}\u0000${control.name}`);
       if (!state) {
         continue;
       }
@@ -600,6 +601,16 @@ document.addEventListener("DOMContentLoaded", () => {
     let activeValueMatch = null;
     let valueMatchRequest = null;
     let readCredentialRetry = null;
+    const stagedSelectionChoices = new Map();
+    const selectionRefreshStorage = document.createElement("input");
+    selectionRefreshStorage.type = "hidden";
+    selectionRefreshStorage.name = "selection_refreshes";
+    selectionRefreshStorage.value = "[]";
+    mappingForm.append(selectionRefreshStorage);
+    const isLanguageMatch = () => activeValueMatch?.kind === "scalar" &&
+      activeValueMatch.trigger.dataset.targetField === "lang";
+    const refreshLabel = () => isLanguageMatch() ? "Refresh languages from Odoo" :
+      activeValueMatch?.kind === "scalar" ? "Refresh Odoo choices" : "Refresh Odoo values";
 
     const parseValueMatches = (storage) => {
       try {
@@ -627,13 +638,13 @@ document.addEventListener("DOMContentLoaded", () => {
       if (valueMatchStatus) {
         valueMatchStatus.textContent = "";
       }
-      if (valueMatchTableWrap) {
+      if (valueMatchTableWrap && !valueMatchRows?.children.length) {
         valueMatchTableWrap.hidden = true;
       }
-      if (useValueMatches) {
+      if (useValueMatches && !valueMatchRows?.children.length) {
         useValueMatches.disabled = true;
       }
-      if (activeValueMatch?.kind === "relationship" && valueMatchFreshness) {
+      if (activeValueMatch && valueMatchFreshness) {
         valueMatchFreshness.hidden = false;
         if (valueMatchFreshnessText) {
           valueMatchFreshnessText.textContent =
@@ -689,6 +700,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const existing =
         activeValueMatch.pendingMatches ||
         parseValueMatches(activeValueMatch.storage);
+      activeValueMatch.lastPayload = payload;
+      activeValueMatch.selectionRefresh = payload.selection_refresh || activeValueMatch.selectionRefresh;
       const required = activeValueMatch.trigger.closest("[data-relation-mapping-row]")
         ?.querySelector('[name^="relation_required_"]:checked, [name^="relation_required_create_"]:checked');
       const allowBlank = payload.allow_blank === true && !required;
@@ -705,9 +718,13 @@ document.addEventListener("DOMContentLoaded", () => {
       };
 
       const updateValueMatchProgress = () => {
-        const matched = Array.from(
+        const selects = Array.from(
           valueMatchRows.querySelectorAll("select[data-source-value]")
-        ).filter((select) => select.value).length;
+        );
+        const matched = selects.filter((select) => select.value).length;
+        const unavailableCount = selects.filter(
+          (select) => select.selectedOptions[0]?.dataset.needsReview === "true"
+        ).length;
         const remaining = Math.max(0, sourceChoices.length - matched);
         if (valueMatchStatus) {
           const progress = remaining
@@ -716,6 +733,11 @@ document.addEventListener("DOMContentLoaded", () => {
           const details = [
             `${suggested} exact code match(es) suggested.`,
           ];
+          if (unavailableCount) {
+            details.push(
+              `${unavailableCount} saved choice(s) are absent from this Odoo list. Refresh Odoo values and check matches before continuing.`
+            );
+          }
           if (ambiguousCount) {
             details.push(
               `${ambiguousCount} duplicate Odoo key value(s) were left out.`
@@ -731,6 +753,10 @@ document.addEventListener("DOMContentLoaded", () => {
               : remaining
                 ? `Use ${matched} partial match(es)`
                 : "Use complete matches";
+          if (activeValueMatch.selectionRefresh) {
+            useValueMatches.textContent = isLanguageMatch()
+              ? "Use refreshed languages and matches" : "Use refreshed choices and matches";
+          }
         }
       };
 
@@ -789,9 +815,15 @@ document.addEventListener("DOMContentLoaded", () => {
         const selectedTarget =
           existing.has(sourceValue) && savedTarget === null && allowBlank
             ? blankChoice
-            : savedTarget && targetValues.has(savedTarget)
+            : savedTarget && (activeValueMatch.kind !== "scalar" || targetValues.has(savedTarget))
             ? savedTarget
-            : suggestedTarget;
+            : existing.has(sourceValue) ? "" : suggestedTarget;
+        const unavailable = savedTarget && !targetValues.has(savedTarget);
+        if (unavailable) {
+          window.impodoSelectionChoices?.annotateUnavailable(
+            select, targetCell, savedTarget, payload, targetChoices, blankChoice
+          );
+        }
         if (selectedTarget === blankChoice) {
           select.value = blankChoice;
         } else if (selectedTarget) {
@@ -802,7 +834,8 @@ document.addEventListener("DOMContentLoaded", () => {
           selectedOption.value = selectedTarget;
           selectedOption.textContent = choice
             ? targetChoiceLabel(choice)
-            : selectedTarget;
+            : `${selectedTarget} (saved choice; needs review)`;
+          if (!choice) selectedOption.dataset.needsReview = "true";
           selectedOption.selected = true;
           select.append(selectedOption);
           if (!savedTarget && suggestedTarget) {
@@ -839,7 +872,6 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       activeValueMatch.sourceCount = sourceChoices.length;
       if (
-        activeValueMatch.kind === "relationship" &&
         payload.target_checked_at &&
         valueMatchFreshness
       ) {
@@ -855,31 +887,36 @@ document.addEventListener("DOMContentLoaded", () => {
           valueMatchFreshnessText.textContent = payload.target_choices_reused
             ? `Using saved Odoo values checked ${checkedLabel}.`
             : `Odoo values checked and saved ${checkedLabel}.`;
+          if (activeValueMatch.kind === "scalar") {
+            valueMatchFreshnessText.textContent = window.impodoSelectionChoices?.freshnessText(
+              isLanguageMatch(), payload, checkedLabel, !targetChoices.length
+            ) || `Odoo choices checked ${checkedLabel}.`;
+          }
         }
         if (refreshValueMatch) {
-          refreshValueMatch.textContent = "Refresh Odoo values";
+          refreshValueMatch.textContent = refreshLabel();
         }
       }
       updateValueMatchProgress();
     };
 
-    const openValueMatch = async (trigger, { refresh = false } = {}) => {
+    const openValueMatch = async (trigger, { refresh = false, retainedMatches = null } = {}) => {
       if (!valueMatchDialog) {
         return;
       }
-      const pendingMatches =
+      const previousPayload = refresh ? activeValueMatch?.lastPayload : null;
+      const pendingMatches = retainedMatches || (
         refresh && activeValueMatch && valueMatchRows
           ? new Map(
               Array.from(
                 valueMatchRows.querySelectorAll("select[data-source-value]")
               )
-                .filter((select) => select.value)
                 .map((select) => [
                   select.dataset.sourceValue || "",
                   select.value === activeValueMatch.blankChoice ? null : select.value,
                 ])
             )
-          : null;
+          : null);
       resetValueMatchDialog();
       valueMatchRequest?.abort();
       const kind = trigger.dataset.valueMatchKind || "";
@@ -898,7 +935,7 @@ document.addEventListener("DOMContentLoaded", () => {
           trigger.dataset.targetLabel || "Odoo"
         }`;
       }
-      valueMatchDialog.showModal();
+      if (!valueMatchDialog.open) valueMatchDialog.showModal();
 
       let sourceColumnKey = "";
       let businessKeyId = "";
@@ -947,7 +984,12 @@ document.addEventListener("DOMContentLoaded", () => {
         sourceCount: 0,
         kind,
         pendingMatches,
+        selectionRefresh: stagedSelectionChoices.get(`${trigger.dataset.targetModel}.${trigger.dataset.targetField}`),
       };
+      if (refreshValueMatch) {
+        refreshValueMatch.textContent = refresh ? (isLanguageMatch() ? "Refreshing languages…" : "Refreshing choices…") : refreshLabel();
+        refreshValueMatch.disabled = true;
+      }
       const csrfToken =
         mappingForm.querySelector('input[name="csrf_token"]')?.value || "";
       const body = new FormData();
@@ -959,6 +1001,7 @@ document.addEventListener("DOMContentLoaded", () => {
       body.set("target_field", trigger.dataset.targetField || "");
       body.set("business_key_id", businessKeyId);
       body.set("refresh", refresh ? "1" : "0");
+      body.set("selection_refreshes", selectionRefreshStorage.value);
       const activeRequest = new AbortController();
       valueMatchRequest = activeRequest;
       try {
@@ -982,7 +1025,7 @@ document.addEventListener("DOMContentLoaded", () => {
             payload.read_credential_required === true &&
             typeof window.impodoOpenReadCredentialDialog === "function"
           ) {
-            readCredentialRetry = { trigger, refresh };
+            readCredentialRetry = { trigger, refresh, retainedMatches: pendingMatches };
             valueMatchDialog.close();
             window.impodoOpenReadCredentialDialog({
               message:
@@ -998,11 +1041,14 @@ document.addEventListener("DOMContentLoaded", () => {
               "The Odoo choices could not be loaded. Check the connection and try again."
           );
         }
+        if (valueMatchRequest !== activeRequest || !valueMatchDialog.open) return;
         renderValueMatchRows(payload);
       } catch (error) {
         if (error?.name === "AbortError") {
           return;
         }
+        if (valueMatchRequest !== activeRequest || !valueMatchDialog.open) return;
+        if (previousPayload) renderValueMatchRows(previousPayload);
         showValueMatchError(
           error instanceof Error
             ? error.message
@@ -1011,6 +1057,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } finally {
         if (valueMatchRequest === activeRequest) {
           valueMatchRequest = null;
+          if (refreshValueMatch) refreshValueMatch.disabled = false;
         }
       }
     };
@@ -1023,7 +1070,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const retry = readCredentialRetry;
       readCredentialRetry = null;
       window.requestAnimationFrame(() => {
-        void openValueMatch(retry.trigger, { refresh: retry.refresh });
+        void openValueMatch(retry.trigger, retry);
       });
     });
 
@@ -1055,6 +1102,11 @@ document.addEventListener("DOMContentLoaded", () => {
           ? { source_value: select.dataset.sourceValue || "", action: "leave_blank" }
           : { source_value: select.dataset.sourceValue || "", target_value: select.value });
       activeValueMatch.storage.value = JSON.stringify(mappings);
+      if (activeValueMatch.selectionRefresh) {
+        stagedSelectionChoices.set(`${activeValueMatch.trigger.dataset.targetModel}.${activeValueMatch.trigger.dataset.targetField}`,
+          activeValueMatch.selectionRefresh);
+        selectionRefreshStorage.value = JSON.stringify([...stagedSelectionChoices.values()]);
+      }
       const policy = activeValueMatch.storage
         .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")
         ?.querySelector("[data-categorical-policy]");

@@ -18,6 +18,7 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
     RowInclusionPolicy,
     ValueMapping,
+    matched_reference_components,
     relationship_target_fields,
 )
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
@@ -132,15 +133,21 @@ def plan_mapping_supporting_values(
             )
         )
         if source_column_keys:
-            sources.setdefault(identity, set()).add(
-                MappingSupportingSource(
-                    dataset_id=dataset.dataset_id,
-                    source_column_keys=source_column_keys,
-                    row_inclusion=dataset.row_inclusion,
-                    value_mappings=resolver.value_mappings,
-                    blank_source_values=blank_source_values,
+            if resolver.value_mappings and scope_fields:
+                constants.setdefault(identity, set()).update(
+                    matched_reference_components(item.target_value, len((*key_fields, *scope_fields)))
+                    for item in resolver.value_mappings
                 )
-            )
+            else:
+                sources.setdefault(identity, set()).add(
+                    MappingSupportingSource(
+                        dataset_id=dataset.dataset_id,
+                        source_column_keys=source_column_keys,
+                        row_inclusion=dataset.row_inclusion,
+                        value_mappings=resolver.value_mappings,
+                        blank_source_values=blank_source_values,
+                    )
+                )
         if constant_values is not None:
             constants.setdefault(identity, set()).add(constant_values)
 

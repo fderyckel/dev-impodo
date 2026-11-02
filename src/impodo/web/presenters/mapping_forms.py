@@ -60,6 +60,7 @@ from ...domain.mapping.contracts import (
     SelectionRuleSet,
     TargetFieldDisposition,
     TargetFieldHandling,
+    ValueMapping,
 )
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
@@ -252,6 +253,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
         "expected_parent_version",
         "expected_working_draft_version",
         "warning_acknowledgement",
+        "selection_refreshes",
     }
     model_names = {item.name for item in schema.models}
     models = {item.name: item for item in schema.models}
@@ -987,6 +989,7 @@ def _mapping_datasets_from_form(
                             )
                         ),
                         selected_sources,
+                        value_mappings=value_mappings,
                     ),
                     origin=origin,
                     dataset_id=resolver_dataset_id,
@@ -1006,6 +1009,7 @@ def _mapping_datasets_from_form(
                             )
                         ),
                         selected_sources,
+                        value_mappings=value_mappings,
                     ),
                     value_mappings=value_mappings,
                 )
@@ -1721,8 +1725,12 @@ def _target_catalog_resolver(
     related_model: str | None,
     business_key,
     selected_sources: tuple[str, ...],
+    *,
+    value_mappings: tuple[ValueMapping, ...] = (),
 ) -> RelationshipResolver:
     key_count = len(business_key.key_fields) if business_key else 0
+    if value_mappings and business_key and business_key.scope_fields and len(selected_sources) == 1:
+        selected_sources *= key_count + len(business_key.scope_fields)
     return RelationshipResolver(
         origin=ResolverOrigin.TARGET_CATALOG,
         model=related_model,

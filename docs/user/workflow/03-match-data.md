@@ -21,6 +21,12 @@ record identity automatically.
 
 ### Choose the company for this load
 
+Uploading files does not assign their records to a company. Choose the company
+whose Odoo settings you want to use when checking and loading them. For example,
+Odoo can keep different fiscal positions and payment terms for Northwind Factory
+and Northwind Trading. The selected load company tells Odoo which company's
+settings apply. You do not need to add a Company column just to upload a file.
+
 At the top of **Match data**, open **Company for this load** and select
 **Choose Odoo company**. Impodo shows the checking user, that user's default
 company and their available companies. Choose **Odoo company**, then select
@@ -519,6 +525,25 @@ added table that did not match a primary row do not add choices or increase
 their counts. **Check matches** uses the same combined values and reports any
 populated choice that still needs a match.
 
+For a Fiscal Position or Payment Terms identified by **Name within Company
+(if available)**, choose the Odoo record with the intended company in
+**Match values**. For example, `Domestic (Northwind Factory)` links the row
+to the Domestic fiscal position for Northwind Factory. Impodo keeps the name
+and company together when you save, prepare, and compare the rows.
+
+If an earlier comparison displayed a value such as
+`["Domestic","Northwind Factory"]` under **Missing parent values**, return to
+**Match data** and select **Check matches**. Impodo restores the company rule
+when its current checked Odoo choices confirm the saved selections. Then
+confirm the field matches, prepare the data again, and compare with Odoo.
+If Impodo asks you to check the choices again, use **Refresh Odoo values** in
+**Match values** before selecting the records.
+
+If a saved list of linked records is out of date, **Save progress** still keeps
+your selected names and companies. **Check matches** reads Odoo again. You only
+need to change a selection when the fresh comparison shows that the exact
+record is missing, ambiguous, or unavailable for this load.
+
 Other tables and preparation rules can remain in the workspace while you match
 values from a combined table. Impodo checks the selected combination's review
 and reads its own output choices independently.
@@ -807,6 +832,30 @@ complete frozen source domain; a row that matches no rule and has no otherwise
 choice blocks confirmation. Impodo never invents a Company Type rule from a
 VAT number, company name, or another source column. The data manager owns that
 classification decision.
+
+### Refresh available languages
+
+In **Match source choices to Language**, select **Refresh languages from
+Odoo** when languages have been enabled or removed since the last check.
+The same control works with local and remote Odoo. Other choice fields use
+**Refresh Odoo choices**. The control remains available when the saved list
+is empty or all source choices already have matches.
+
+Impodo keeps selections whose codes are still available. A removed language
+shows its previous choice beside an unresolved selector. Choose a current
+language for that source value. Refresh also keeps changes you made in the
+open dialog. If the connection fails, your selections remain available to retry.
+
+Select **Use refreshed languages and matches**, then **Save progress** or
+**Check matches**. Changing the available codes requires the affected matches
+to be checked again before preparation. Refresh reads Odoo; it does not enable
+languages or change Odoo records.
+
+![The Language matcher retains French while flagging the removed German choice and offering a refresh action.](../../images/user/11p-language-choice-refresh.png)
+
+Recipe runs offer the same button on **Review values for this Odoo**. Select
+**Save matches and continue** after reviewing the refreshed choices. These
+decisions belong to this run and leave the saved Recipe version unchanged.
 
 ### When reusable rules are ready
 

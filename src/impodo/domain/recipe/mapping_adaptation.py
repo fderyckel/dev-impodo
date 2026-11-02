@@ -68,4 +68,4 @@ def recipe_mapping_shape(
                 if expectation.control_id in invariant_ids or expectation.control_id in fixed_control_ids
             ),
         ))
-    return replace(definition, datasets=tuple(datasets)).content_hash
+    return replace(definition, datasets=tuple(datasets), schema_hash="").content_hash

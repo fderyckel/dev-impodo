@@ -843,6 +843,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 expected_version,
                 actor,
                 operation_id=None,
+                schema_refresh=None,
             ):
                 del workspace_id, expected_version, actor, operation_id
                 self.draft = draft
@@ -858,6 +859,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 checked_draft,
                 actor,
                 operation_id=None,
+                schema_refresh=None,
             ):
                 del (
                     workspace_id,
@@ -878,6 +880,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 *,
                 actor,
                 operation_id=None,
+                schema_refresh=None,
             ):
                 del workspace_id, version, actor, operation_id
                 self.validation = validation

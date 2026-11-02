@@ -37,13 +37,14 @@ from ..mapping.contracts import (
     ScalarFieldMapping,
     ScalarValueSource,
     TargetFieldHandling,
+    relationship_input_columns,
     relationship_target_fields,
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
 
 COLUMNAR_PROGRAM_CONTRACT_VERSION = 7
-COLUMNAR_COMPILER_VERSION = 12
+COLUMNAR_COMPILER_VERSION = 13
 
 
 class _DatasetIdentified(Protocol):
@@ -1190,7 +1191,7 @@ def _compile_dataset(
             and bool(target_key_fields)
             and (
                 constant_provider
-                or target_source_keys == relationship.source_column_keys
+                or target_source_keys == relationship_input_columns(relationship)
             )
             and resolver.dataset_projection_field is None
         )
@@ -1211,7 +1212,7 @@ def _compile_dataset(
         ):
             key_columns = tuple(
                 _require_column(key, columns, draft)
-                for key in relationship.source_column_keys
+                for key in relationship_input_columns(relationship)
             )
             constant_reference = relationship.constant_reference
             constant_values = (

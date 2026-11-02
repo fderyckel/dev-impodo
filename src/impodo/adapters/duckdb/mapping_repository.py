@@ -30,6 +30,7 @@ from impodo.domain.workspace.derived_entities import (
     mapping_source_selection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from ...domain.mapping.artifacts import (
@@ -49,6 +50,7 @@ from ...domain.mapping.validation.evidence import (
 )
 from ...domain.schema.governance import SchemaGovernance
 from .repository import DuckDbRepository
+from .selection_choices import publish_selection_refresh
 
 
 class MappingSourceProjectionReader(Protocol):
@@ -284,6 +286,7 @@ class MappingRepository(DuckDbRepository):
         expected_version: int | None,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Replace unchecked editor progress using its optimistic draft version."""
 
@@ -374,10 +377,12 @@ class MappingRepository(DuckDbRepository):
                 if governance_row is not None
                 else None
             )
+            effective_governance = schema_refresh.governance if schema_refresh else governance
+            effective_schema = schema_refresh.schema if schema_refresh else schema
             expected_schema_hash = (
-                governance.content_hash
-                if governance is not None
-                else schema.content_hash
+                effective_governance.content_hash
+                if effective_governance is not None
+                else effective_schema.content_hash
             )
             if draft.definition.source_selection_hash != mapping_selection.content_hash:
                 raise WorkspaceError(
@@ -410,7 +415,7 @@ class MappingRepository(DuckDbRepository):
                 actual_version != expected_version
                 or draft.version != (actual_version or 0) + 1
                 or draft.mapping_id != expected_mapping_id
-                or draft.base_mapping_version != actual_base_version
+                or draft.base_mapping_version != (None if schema_refresh and schema_refresh.changed else actual_base_version)
             ):
                 raise MappingVersionConflict(
                     submitted_working_draft_version=expected_version,
@@ -421,6 +426,13 @@ class MappingRepository(DuckDbRepository):
             revision = self._workspace_revision(connection)
             connection.begin()
             try:
+                if schema_refresh:
+                    if revision != schema_refresh.workspace_revision:
+                        raise WorkspaceError("The workspace changed. Refresh the Odoo choices again.")
+                    publish_selection_refresh(connection, schema_refresh)
+                    if schema_refresh.changed:
+                        connection.execute("DELETE FROM mapping_current")
+                        self._invalidate_canonical_staging(connection, reason="ODOO_SELECTION_CHOICES_CHANGED")
                 connection.execute(
                     """
                     INSERT OR REPLACE INTO mapping_working_draft
@@ -521,6 +533,7 @@ class MappingRepository(DuckDbRepository):
         checked_draft: MappingWorkingDraft,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Promote an expected editor state to a checked immutable revision."""
 
@@ -584,6 +597,10 @@ class MappingRepository(DuckDbRepository):
                         current_mapping_revision_version=current_version,
                     )
                 revision_number = self._workspace_revision(connection)
+                if schema_refresh:
+                    if revision_number != schema_refresh.workspace_revision:
+                        raise WorkspaceError("The workspace changed. Refresh the Odoo choices again.")
+                    publish_selection_refresh(connection, schema_refresh)
                 connection.execute(
                     """
                     INSERT INTO mapping_revision
@@ -692,6 +709,7 @@ class MappingRepository(DuckDbRepository):
         *,
         actor: Actor,
         operation_id: str | None = None,
+        schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
 
@@ -720,6 +738,10 @@ class MappingRepository(DuckDbRepository):
             ).fetchone()
             connection.begin()
             try:
+                if schema_refresh:
+                    if schema_refresh.changed or self._workspace_revision(connection) != schema_refresh.workspace_revision:
+                        raise WorkspaceError("The Odoo choices changed. Refresh them again.")
+                    publish_selection_refresh(connection, schema_refresh)
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO mapping_validation

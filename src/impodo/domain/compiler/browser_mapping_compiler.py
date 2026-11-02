@@ -34,6 +34,7 @@ from ..mapping.contracts import (
     RelationshipValueSource,
     ResolverOrigin,
     ScalarValueSource,
+    relationship_input_columns,
     relationship_target_fields,
 )
 from ..mapping.create_field_policy import required_create_hook_inputs
@@ -232,7 +233,7 @@ def compile_browser_mapping(
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
                     for source_index, _source_column_key in enumerate(
-                        item.source_column_keys
+                        relationship_input_columns(item)
                     )
                 ),
                 resolve=relation_resolver,
