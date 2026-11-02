@@ -1357,13 +1357,29 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 self.assertIn(label, page.text)
                 self.assertNotIn("No matching rule available", page.text)
 
-    def test_uncaptured_many2one_offers_an_explicit_name_matching_rule(
+    def test_uncaptured_company_offers_the_reviewed_name_matching_rule(
         self,
     ) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             relationship_model="res.company",
+        )
+
+        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Company name — confirm", page.text)
+        self.assertIn("confirm", page.text)
+        self.assertIn("Match values", page.text)
+        self.assertNotIn('name="relation_key_0_0" disabled', page.text)
+        self.assertNotIn("No matching rule available", page.text)
+
+    def test_uncaptured_many2one_offers_an_explicit_name_matching_rule(self) -> None:
+        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            relationship_field_count=1,
+            relationship_model="res.bank",
         )
 
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")

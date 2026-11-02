@@ -1,5 +1,6 @@
 """Contact authoring uses optional child intent and exports handled check failures."""
 
+from contextlib import closing
 from dataclasses import replace
 from io import BytesIO
 import json
@@ -126,44 +127,46 @@ class SupportingMappingIntentBrowserTests(ProjectSetupBrowserTestCase):
     def test_handled_check_failure_keeps_draft_and_is_correlated_in_downloaded_bundle(self):
         workspace_id, dataset, key, _schema, _review = self.configure()
         context = self.app.state.context
-        recorder = LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")
-        self.addCleanup(recorder.close)
-        self.app.state.diagnostic_recorder = recorder
-        client = TestClient(RequestDiagnosticsMiddleware(self.app, recorder=recorder))
-        self.addCleanup(client.close)
-        client.cookies.update(self.client.cookies)
-        entries = [
-            ["csrf_token", self.csrf], ["action", "save_progress"],
-            ["operation_id", str(uuid4())], ["expected_parent_version", ""],
-            ["expected_working_draft_version", ""], ["editable_dataset_id", dataset.dataset_id],
-            ["target_model_0", "res.partner"], ["mode_0", "upsert"], ["on_existing_0", "block"],
-            ["source_identity_0", dataset.columns[0].stable_key], ["business_key_0", key.key_id],
-            ["identity_source_0_0", dataset.columns[0].stable_key],
-        ]
-        headers = {**POST_HEADERS, "X-CSRF-Token": self.csrf}
-        saved = client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries}, headers=headers)
-        self.assertEqual(saved.status_code, 200, saved.text)
-        draft = context.queries.get_mapping_working_draft(workspace_id)
-        operation_id = str(uuid4())
-        entries = [[name, "draft" if name == "action" else operation_id if name == "operation_id"
-                    else str(draft.version) if name == "expected_working_draft_version" else value]
-                   for name, value in entries]
-        # Inject a genuine domain failure at its consumer boundary. This tests
-        # the route's caught-exception path, rather than uncaught middleware errors.
-        with patch.object(context.mapping_workspace.supporting_decisions, "require_mapping", side_effect=supporting_error("19.0")):
-            rejected = client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries}, headers=headers)
-        self.assertEqual(rejected.status_code, 422, rejected.text)
-        self.assertEqual(rejected.json()["failure_code"], "SUPPORTING_PLAN_INCOMPLETE")
-        self.assertIn("res.partner.line_0_ids", rejected.json()["detail"])
-        self.assertEqual(context.queries.get_mapping_working_draft(workspace_id), draft)
-        receipt = client.get(f"/workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}")
-        self.assertEqual(receipt.json()["failure_code"], "SUPPORTING_PLAN_INCOMPLETE")
-        bundle = client.post("/diagnostics/bundle", data={"csrf_token": self.csrf}, headers=POST_HEADERS)
-        self.assertEqual(bundle.status_code, 200, bundle.text[:200])
-        with ZipFile(BytesIO(bundle.content)) as archive:
-            failures = json.loads(archive.read("recent-failures.json"))
-        failed = next(x for x in failures if x.get("mapping_operation_id") == operation_id)
-        self.assertEqual(failed["request_id"], rejected.headers["X-Impodo-Request-ID"])
-        self.assertEqual(failed["working_draft_version"], draft.version)
-        self.assertEqual(failed["mapping_action"], "CHECK_MATCHES")
-        self.assertEqual(failed["validation_failure"]["issues"][0]["field"], "line_0_ids")
+        # Method-scoped owners close before the fixture removes its directory.
+        # unittest cleanups run after tearDown, which is too late on Windows.
+        with (
+            closing(LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")) as recorder,
+            closing(TestClient(RequestDiagnosticsMiddleware(self.app, recorder=recorder))) as client,
+        ):
+            self.app.state.diagnostic_recorder = recorder
+            client.cookies.update(self.client.cookies)
+            entries = [
+                ["csrf_token", self.csrf], ["action", "save_progress"],
+                ["operation_id", str(uuid4())], ["expected_parent_version", ""],
+                ["expected_working_draft_version", ""], ["editable_dataset_id", dataset.dataset_id],
+                ["target_model_0", "res.partner"], ["mode_0", "upsert"], ["on_existing_0", "block"],
+                ["source_identity_0", dataset.columns[0].stable_key], ["business_key_0", key.key_id],
+                ["identity_source_0_0", dataset.columns[0].stable_key],
+            ]
+            headers = {**POST_HEADERS, "X-CSRF-Token": self.csrf}
+            saved = client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries}, headers=headers)
+            self.assertEqual(saved.status_code, 200, saved.text)
+            draft = context.queries.get_mapping_working_draft(workspace_id)
+            operation_id = str(uuid4())
+            entries = [[name, "draft" if name == "action" else operation_id if name == "operation_id"
+                        else str(draft.version) if name == "expected_working_draft_version" else value]
+                       for name, value in entries]
+            # Inject a genuine domain failure at its consumer boundary. This tests
+            # the route's caught-exception path, rather than uncaught middleware errors.
+            with patch.object(context.mapping_workspace.supporting_decisions, "require_mapping", side_effect=supporting_error("19.0")):
+                rejected = client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries}, headers=headers)
+            self.assertEqual(rejected.status_code, 422, rejected.text)
+            self.assertEqual(rejected.json()["failure_code"], "SUPPORTING_PLAN_INCOMPLETE")
+            self.assertIn("res.partner.line_0_ids", rejected.json()["detail"])
+            self.assertEqual(context.queries.get_mapping_working_draft(workspace_id), draft)
+            receipt = client.get(f"/workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}")
+            self.assertEqual(receipt.json()["failure_code"], "SUPPORTING_PLAN_INCOMPLETE")
+            bundle = client.post("/diagnostics/bundle", data={"csrf_token": self.csrf}, headers=POST_HEADERS)
+            self.assertEqual(bundle.status_code, 200, bundle.text[:200])
+            with ZipFile(BytesIO(bundle.content)) as archive:
+                failures = json.loads(archive.read("recent-failures.json"))
+            failed = next(x for x in failures if x.get("mapping_operation_id") == operation_id)
+            self.assertEqual(failed["request_id"], rejected.headers["X-Impodo-Request-ID"])
+            self.assertEqual(failed["working_draft_version"], draft.version)
+            self.assertEqual(failed["mapping_action"], "CHECK_MATCHES")
+            self.assertEqual(failed["validation_failure"]["issues"][0]["field"], "line_0_ids")
