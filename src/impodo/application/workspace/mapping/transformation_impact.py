@@ -8,6 +8,9 @@ from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
+    GroupedExactJoinSourcePort,
+)
 from impodo.application.workspace.preparation.preparation_service import (
     stage_browser_mapping,
 )
@@ -33,6 +36,10 @@ from impodo.domain.workspace.workbench import WorkspaceState
 from .bounded_direct_review import (
     direct_transformation_impact,
     uses_bounded_direct_review,
+)
+from .bounded_join_review import (
+    joined_transformation_impact,
+    supports_bounded_join_review,
 )
 
 
@@ -171,6 +178,8 @@ class TransformationImpactService:
         impacts: TransformationImpactRepository,
         artifacts: GovernedArtifactStores,
         authorization: WorkspaceAuthorizationPolicy,
+        *,
+        grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.mappings = mappings
@@ -179,6 +188,7 @@ class TransformationImpactService:
         self.impacts = impacts
         self.artifacts = artifacts
         self.authorization = authorization
+        self.grouped_exact_joins = grouped_exact_joins
 
     def context(self, workspace_id: str) -> TransformationImpactContext:
         """Resolve valid current inputs for the optional browser preview."""
@@ -298,6 +308,15 @@ class TransformationImpactService:
         def evaluate(
             write_impact: Callable[[TransformationImpactRow], None],
         ) -> TransformationImpactReport:
+            if (
+                context.plan is not None and self.grouped_exact_joins is not None
+                and supports_bounded_join_review(context.physical_selection, context.effective_selection, context.plan)
+            ):
+                return joined_transformation_impact(
+                    context.workspace_state, context.revision.definition,
+                    context.physical_selection, context.effective_selection, context.plan,
+                    self.artifacts, self.grouped_exact_joins, source_snapshots, write_impact,
+                )
             if uses_bounded_direct_review(
                 context.physical_selection,
                 context.effective_selection,

@@ -72,6 +72,11 @@ class LoadJob:
     updated_at: datetime
     finished_at: datetime | None
     failure_message: str
+    load_control_state: str = ""
+    load_pause_reason: str = ""
+    rejected_count: int = 0
+    blocked_count: int = 0
+    unattempted_count: int = 0
 
     @property
     def active(self) -> bool:

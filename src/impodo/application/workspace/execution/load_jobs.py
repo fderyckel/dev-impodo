@@ -201,6 +201,14 @@ class LoadJobManager:
                 default=None,
             )
 
+    def note_stop_requested(self, workspace_id: str, run_id: str) -> None:
+        """Reflect an already durable stop while the current request finishes."""
+        with self._lock:
+            job = self._active_locked(workspace_id)
+            if job is not None and job.execution_run_id == run_id:
+                self._store(replace(job, load_control_state="STOP_REQUESTED",
+                    message="Stopping after the current request", updated_at=_now()))
+
     def latest_many(self, workspace_ids: tuple[str, ...]) -> dict[str, LoadJob]:
         """Return one latest snapshot per requested workspace in one pass."""
 
@@ -325,13 +333,17 @@ class LoadJobManager:
             if result.verification_complete
             else "Odoo load saved; verification needs review"
         )
+        if job.load_control_state == "PAUSED":
+            message = "Upload paused after repeated failures; review the saved results"
+        elif job.load_control_state == "STOPPED":
+            message = "Upload stopped with partial results"
         return self._store(
             replace(
                 job,
                 status=LoadJobStatus.SUCCEEDED,
                 phase=LoadPhase.COMPLETE,
                 message=message,
-                progress_percent=100,
+                progress_percent=job.progress_percent if job.load_control_state == "PAUSED" else 100,
                 execution_run_id=result.execution_run_id,
                 verification_complete=result.verification_complete,
                 completion_warning=result.completion_warning.strip()[:1000],
@@ -402,6 +414,9 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
     updated_count = 0
     attention_count = 0
     unfinished_first_pass = 0
+    rejected_count = 0
+    blocked_count = 0
+    unattempted_count = 0
     scheduled_component_set: set[int] = set()
     active_components: set[int] = set()
     # Progress used to scan the complete journal independently for every
@@ -409,6 +424,9 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
     # has linear work with a small constant.
     for row in run.rows:
         status = row.status
+        rejected_count += status is ExecutionRowStatus.FAILED or (status is ExecutionRowStatus.PARTIALLY_APPLIED and row.diagnostic is not None)
+        blocked_count += status is ExecutionRowStatus.BLOCKED
+        unattempted_count += status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY}
         component = getattr(row, "schedule_component", -1)
         if status is ExecutionRowStatus.PARTIALLY_APPLIED:
             relationship_pending_count += 1
@@ -469,6 +487,11 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
     message = LOAD_PHASE_LABELS[effective_phase]
     if effective_phase is LoadPhase.WRITING and group_number and group_count:
         message = f"Sending load group {group_number} of {group_count} to Odoo"
+    control = run.load_control
+    if control is not None and control.state.value == "PAUSED":
+        message = "Upload paused after repeated failures; review the saved results"
+    elif control is not None and control.state.value == "STOP_REQUESTED":
+        message = "Stopping after the current request"
     return replace(
         job,
         phase=effective_phase,
@@ -487,6 +510,11 @@ def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJ
         load_group_count=group_count,
         progress_percent=max(job.progress_percent, percent),
         execution_run_id=run.run_id,
+        load_control_state=("STOP_REQUESTED" if job.load_control_state == "STOP_REQUESTED" and control is not None and control.state.value == "RUNNING" else control.state.value if control else ""),
+        load_pause_reason=control.reason if control else "",
+        rejected_count=rejected_count,
+        blocked_count=blocked_count,
+        unattempted_count=unattempted_count,
         updated_at=_now(),
     )
 

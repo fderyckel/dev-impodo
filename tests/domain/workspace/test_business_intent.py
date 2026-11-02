@@ -1,7 +1,7 @@
 """Portable expectations distinguish absence, zero and an explicitly closed scope."""
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import json
 import unittest
 from uuid import uuid4
@@ -57,9 +57,9 @@ class BusinessIntentContractTests(unittest.TestCase):
     def test_recording_integrity_is_separate_from_reusable_meaning(self):
         intent = BusinessIntent((BusinessModelIntent("res.partner", "update", updates=ExpectedCount(0, 500)),))
         binding = BusinessIntentBinding(*("sha256:" + str(index) * 64 for index in range(1, 7)))
-        revision = BusinessIntentRevision(str(uuid4()), 1, str(uuid4()), intent, binding, ACTOR.identity, datetime.now(UTC))
+        revision = BusinessIntentRevision(str(uuid4()), 1, str(uuid4()), intent, binding, ACTOR.identity, datetime(2026, 11, 2, tzinfo=UTC))
         self.assertEqual(revision, BusinessIntentRevision.from_json(revision.to_json()))
-        retried = replace(revision, recorded_at=datetime.now(UTC))
+        retried = replace(revision, recorded_at=revision.recorded_at + timedelta(microseconds=1))
         self.assertEqual(retried.request_hash, revision.request_hash)
         self.assertNotEqual(retried.content_hash, revision.content_hash)
         raw = json.loads(revision.to_json())

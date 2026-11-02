@@ -373,7 +373,7 @@
         {% if diagnostics_available %}
           <form method="post" action="/diagnostics/bundle">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="link-button" type="submit">
+            <button class="link-button" type="submit" title="Includes operational events and technical Odoo model and field identifiers. Source rows and credentials are excluded.">
               {{ app_icon("file-earmark-zip") }}
               Create diagnostic bundle
             </button>

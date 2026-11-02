@@ -224,7 +224,7 @@ The current reference store generation is
 
 The engine generation is
 `impodo-workspace-engine-2026-10-31-workspace-owned`, with baseline version 1
-and current version 3. The families
+and current version 4. The families
 below describe current engine evidence. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
 
@@ -247,7 +247,7 @@ says otherwise, the named tables remain DuckDB data-plane authority.
 | Normalization and transformation impact: `normalization_run`, `normalization_effect`, `normalization_group`, `normalization_transition`, `normalization_current`, `transformation_impact_run`, `transformation_impact_row`, `transformation_rule_impact`, `transformation_rule_acknowledgement` | Review status, aggregate counts, accepted revision, and receipt hashes only. Values, effects, groups, transitions, row impact, and acknowledgements remain DuckDB evidence. |
 | Coverage and resolution: `coverage_scope_revision`, `coverage_scope_current`, `reference_bundle_revision`, `reference_bundle_current`, `resolution_policy_revision`, `resolution_policy_current`, `resolution_run`, `resolution_candidate`, `resolution_finding`, `resolution_decision`, `effective_row`, `resolution_accounting`, `effective_dataset_reconciliation`, `resolution_current`, `effective_dataset_current` | Bounded phase state, aggregate counts, and receipt hashes only. Scope, reference payloads, candidates, findings, decisions, effective rows, and reconciliation stay in DuckDB. |
 | Preflight: `preflight_current`, `preflight_dataset`, `preflight_decision`, `preflight_target_snapshot`, `preflight_transition`, `preflight_execution_projection` | Overall readiness, blocker counts, target-binding hash, and receipt hash only. Per-dataset decisions, snapshots, transitions, and execution projections remain DuckDB or protected evidence. |
-| Execution and reconciliation: `execution_run`, `execution_row`, `execution_current`, `reconciliation_run`, `reconciliation_current` | Terminal state, safe counts, and receipt hashes only. Row intents, target results, read-back evidence, failures tied to customer rows, and reconciliation detail remain DuckDB or protected artifacts. |
+| Execution and reconciliation: `execution_run`, `execution_row`, `execution_current`, `execution_load_control`, `execution_load_control_event`, `execution_rejected_transport`, `reconciliation_run`, `reconciliation_current` | Terminal state, safe counts, and receipt hashes only. Row intents, target results, read-back evidence, failures tied to customer rows, and reconciliation detail remain DuckDB or protected artifacts. |
 | `audit_event` | Detailed migration decision and evidence events remain in DuckDB. Authentication, authorization, support access, account administration, lease, scheduling, and repair events are separate PostgreSQL audit facts. Stable actor identity and operation ID correlate them without copying customer detail. |
 
 ## Artifact and secret payloads

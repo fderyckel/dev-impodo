@@ -173,7 +173,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 20. It binds an explicit
+The exact current mapping contract is version 21. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -217,6 +217,13 @@ remains readable and hashable. Upgrading to v20 discards the obsolete action
 without changing the requiredness flags or source-preparation plan.
 Historical v19 and earlier evidence retains its original content hash.
 
+Mapping contract version 21 extends the constant existing-record provider to
+Many2many fields. The provider has no source columns and produces a singleton
+list containing the selected portable business reference. It supports only
+`replace`, so the complete target list has exactly that one record. Missing
+and ambiguous references remain blocking. Earlier contracts cannot contain
+this shape and retain their exact serialized layouts and content hashes.
+
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14
 added ordered two-to-five-column text concatenation. Version 15 adds a closed
@@ -250,8 +257,15 @@ loaded, upgraded, or silently reused.
 Reviewed file-source supporting choices are immutable workspace evidence bound
 to accepted source, preparation rules, scope, captured schema, target, policy
 and captured read-access hashes. Mapping checks and submission, Recipe
-compilation, and preparation must reject a stale review or a provider that
-contradicts it. An unchecked working draft remains recoverable.
+compilation, and preparation must reject stale saved choices or a provider that
+contradicts them. An unchecked working draft remains recoverable.
+
+An empty supporting review carries no incoming-table or supporting-read intent.
+Consumers verify its workspace ownership and recheck required relationships
+against current metadata, then treat it as no supporting choice set. Its old
+binding does not block a mapping that needs no such decisions. The immutable
+revision and its hashes remain unchanged; this rule never renews a nonempty
+review or grants a supporting read.
 
 Optional `supporting_choices` in Recipe target-contract version 2 uses logical
 incoming table identities and existing resolver meaning. Applications rebind

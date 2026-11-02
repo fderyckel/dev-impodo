@@ -147,6 +147,7 @@
                         </div>
                       {% endif %}
                       {% if row.relational %}
+                        <small>This linked field is part of the matching rule and is supplied here. To set the same existing record for every row, choose a matching rule without this field in <a href="/workspaces/{{ workspace_id }}/schema">Odoo data</a>, then use its linked-field card below.</small>
                         <label>
                           Where should Impodo find the related record?
                           <select name="identity_origin_{{ dataset_index }}_{{ loop.index0 }}" data-relationship-origin>

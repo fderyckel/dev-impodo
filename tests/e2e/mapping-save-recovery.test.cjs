@@ -10,7 +10,7 @@ const source = readFileSync(
   "utf8"
 );
 
-function editor(outcomes, waitMs = 1000) {
+function editor(outcomes, waitMs = 1000, inlineReview = true) {
   const elements = new Map();
   const element = (selector) => {
     if (!elements.has(selector)) {
@@ -29,9 +29,12 @@ function editor(outcomes, waitMs = 1000) {
   let dirty = true;
   let versions;
   const navigations = [];
+  const events = [];
   const window = { setTimeout, clearTimeout };
   vm.runInNewContext(source, {
     window, AbortController,
+    document: { dispatchEvent: (event) => { events.push(event); return !inlineReview; } },
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     fetch: async () => {
       const outcome = outcomes[Math.min(calls++, outcomes.length - 1)];
       if (outcome instanceof Error) throw outcome;
@@ -53,7 +56,7 @@ function editor(outcomes, waitMs = 1000) {
     setDirty: (value) => { dirty = value; },
   });
   return {
-    recovery, element, navigations,
+    recovery, element, navigations, events,
     get calls() { return calls; },
     get dirty() { return dirty; },
     get versions() { return versions; },
@@ -101,4 +104,28 @@ test("a confirmed version conflict stops polling and preserves unsaved edits", a
   assert.equal(page.dirty, true);
   assert.equal(page.recovery.blockIfNeeded(), true);
   assert.equal(page.element("[data-mapping-conflict-recovery]").hidden, false);
+});
+
+test("a stale supporting review opens inline recovery from a receipt without navigation", async () => {
+  const page = editor([{
+    status: "rejected", failure_code: "SUPPORTING_REVIEW_REQUIRED",
+    operation_id: operation.operationId,
+  }]);
+  assert.equal(await page.recovery.resolveMutationOutcome(operation), "rejected");
+  assert.equal(page.dirty, true);
+  assert.deepEqual(page.navigations, []);
+  assert.equal(page.recovery.blockIfNeeded(), false);
+  assert.equal(page.element("[data-mapping-save-outcome]").hidden, true);
+  assert.equal(page.events[0].type, "impodo:related-review-required");
+  assert.equal(page.events[0].detail.operationId, operation.operationId);
+});
+
+
+test("stale review keeps ordinary error guidance when inline recovery is unavailable", async () => {
+  const page = editor([{status: "rejected", failure_code: "SUPPORTING_REVIEW_REQUIRED",
+    detail: "Review related-data choices in Odoo data."}], 1000, false);
+  assert.equal(await page.recovery.resolveMutationOutcome(operation), "rejected");
+  assert.equal(page.element("[data-mapping-save-outcome]").hidden, false);
+  assert.match(page.element("[data-mapping-save-outcome-message]").textContent, /Review related-data/);
+  assert.equal(page.dirty, true);
 });

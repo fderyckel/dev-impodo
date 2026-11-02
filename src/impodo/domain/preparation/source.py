@@ -440,7 +440,7 @@ def _prepare_relation(
     """
 
     if relation.value_source == "constant_existing":
-        return LogicalReference(
+        reference = LogicalReference(
             origin="target",
             key=relation.constant_key_values,
             model=relation.resolve.target_model,
@@ -448,6 +448,7 @@ def _prepare_relation(
             target_scope_fields=relation.resolve.target_scope_fields,
             scope=relation.constant_scope_values,
         )
+        return (reference,) if relation.kind == "many2many" else reference
 
     if relation.kind == "many2one":
         if relation.blank_source_values and str(

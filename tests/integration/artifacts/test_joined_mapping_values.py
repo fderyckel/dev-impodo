@@ -45,6 +45,8 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.serialization import content_hash
+from impodo.domain.odoo_source_policy import odoo_source_policy_hash
+from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.structural import (
     AggregateOperation,
     AggregateSpec,
@@ -77,7 +79,7 @@ class JoinedMappingValueTests(unittest.TestCase):
     def setUp(self):
         self._prepare_join()
 
-    def _prepare_join(self, *, region_rows=None, row_counts=None):
+    def _prepare_join(self, *, region_rows=None, row_counts=None, wide=True, odoo_major=None):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         root = Path(temporary.name)
@@ -85,6 +87,14 @@ class JoinedMappingValueTests(unittest.TestCase):
         self.database = DuckDbWorkspaceDatabase(root / "databases")
         self.artifacts = LocalArtifactStore(root / "artifacts")
         self.physical = _selection()
+        if odoo_major is not None:
+            self.physical = replace(self.physical, datasets=tuple(
+                replace(dataset, source=OdooSourceBinding(
+                    content_hash(dataset.name), f"x_{dataset.name}", odoo_source_policy_hash(odoo_major),
+                    content_hash("target"), content_hash("scope"), content_hash("principal"),
+                    content_hash("permission"), content_hash("context"),
+                )) for dataset in self.physical.datasets
+            ))
         if row_counts:
             self.physical = replace(
                 self.physical,
@@ -98,9 +108,9 @@ class JoinedMappingValueTests(unittest.TestCase):
                                 SourceDatasetColumn(
                                     index, f"Unused {index}", f"unused_{index}", "empty"
                                 )
-                                for index in range(
+                                for index in (range(
                                     3, 89 if dataset.name == "primary" else 88
-                                )
+                                ) if wide else ())
                             ),
                         ),
                     )

@@ -190,6 +190,52 @@ class ScopedValueMatchTests(unittest.TestCase):
                 ).fetchall()
                 self.assertEqual(values[0][1], "United Caps Wiltz")
 
+    def test_scoped_leave_blank_applies_before_expansion_and_preserves_comparison(self):
+        before = self.definition.content_hash
+        self.definition = replace(self.definition, datasets=(replace(
+            self.definition.datasets[0], relationships=tuple(replace(
+                item, blank_source_values=("Other",),
+                resolver=replace(item.resolver, value_mappings=tuple(
+                    match for match in item.resolver.value_mappings if match.source_value != "Other"
+                )),
+            ) for item in self.definition.datasets[0].relationships),
+        ),))
+        expected_hash = self.definition.content_hash
+        self.assertNotEqual(before, expected_hash)
+        records, _, _, _ = self._prepare()
+        self.assertEqual(self.definition.content_hash, expected_hash)
+        for relation in self.definition.datasets[0].relationships:
+            self.assertIsNotNone(records[0].references[relation.target_field])
+            self.assertIsNone(records[1].references[relation.target_field])
+            self.assertIsNone(records[2].references[relation.target_field])
+        for major in (19, 20):
+            for mode in ("LOCAL", "REMOTE"):
+                with self.subTest(major=major, mode=mode):
+                    self._assert_scoped_comparison(records, major=major, mode=mode)
+
+    def test_selected_target_name_equal_to_a_blank_source_label_is_preserved(self):
+        original = self.definition
+        root = self.root
+        for scoped in (False, True):
+            with self.subTest(scoped=scoped):
+                self.root = root / str(scoped)
+                self.root.mkdir()
+                self.definition = replace(original, datasets=(replace(
+                    original.datasets[0], relationships=tuple(replace(
+                        item, blank_source_values=("Other",), resolver=replace(
+                            item.resolver,
+                            scope_mappings=item.resolver.scope_mappings if scoped else (),
+                            value_mappings=(ValueMapping("Retail", portable_supporting_value(("Other", "United Caps Wiltz")) if scoped else "Other"),),
+                        ),
+                    ) for item in original.datasets[0].relationships),
+                ),))
+                records, _, _, _ = self._prepare()
+                for relation in self.definition.datasets[0].relationships:
+                    reference = records[0].references[relation.target_field]
+                    self.assertEqual(reference.key, ("Other",))
+                    self.assertEqual(reference.scope, ("United Caps Wiltz",) if scoped else ())
+                    self.assertIsNone(records[1].references[relation.target_field])
+
     def test_comparison_resolves_same_names_in_different_companies_and_blocks_wrong_company(
         self,
     ):

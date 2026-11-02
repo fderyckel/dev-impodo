@@ -22,6 +22,7 @@ from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+from impodo.domain.execution.load_control import LoadControl
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRun,
@@ -70,8 +71,11 @@ class ScenarioExecutionJournal:
         correction_plan_hash: str = "",
         transfer_preflight_hash: str = "",
         intent_assessment_hash: str = "",
+        load_control: LoadControl | None = None,
     ) -> None:
         del actor, correction_plan_hash, transfer_preflight_hash
+        if load_control is not None:
+            raise WorkspaceError("Scenario execution has no qualified continuation policy")
         if run.workspace_id != workspace_id or self.path.exists():
             raise WorkspaceError(
                 "This scenario target already has execution evidence. "
@@ -288,7 +292,10 @@ def write_scenario_execution_snapshot(
 
 
 def _execution_run_payload(run: ExecutionRun) -> dict[str, object]:
+    if run.load_control is not None:
+        raise WorkspaceError("Scenario execution has no qualified continuation policy")
     payload = asdict(run)
+    payload.pop("load_control")
     payload["status"] = run.status.value
     payload["started_at"] = run.started_at.isoformat()
     payload["completed_at"] = (

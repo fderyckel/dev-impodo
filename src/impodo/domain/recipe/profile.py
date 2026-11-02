@@ -260,8 +260,6 @@ class RelationSpec(StrictModel):
             if self.constant_key_values or self.constant_scope_values:
                 raise ValueError("source relations cannot carry constant values")
         else:
-            if self.kind != "many2one":
-                raise ValueError("constant existing records require many2one")
             if self.source_fields:
                 raise ValueError("constant existing records cannot use source_fields")
             if self.resolve.origin != "target":
@@ -281,10 +279,12 @@ class RelationSpec(StrictModel):
             raise ValueError("validate_only relations cannot also set compare: true")
         if self.kind == "many2one" and self.operation != "replace":
             raise ValueError("many2one relations only support operation: replace")
-        if self.kind == "many2many" and len(self.source_fields) != 1:
+        if self.kind == "many2many" and self.value_source == "source" and len(self.source_fields) != 1:
             raise ValueError(
                 "many2many relations require exactly one list-valued source field"
             )
+        if self.value_source == "constant_existing" and self.operation != "replace":
+            raise ValueError("constant existing records require replace semantics")
         if (
             self.compare or self.required or self.required_on_create
         ) and self.on_missing != "error":

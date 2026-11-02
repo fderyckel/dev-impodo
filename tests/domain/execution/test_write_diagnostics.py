@@ -12,6 +12,29 @@ from impodo.domain.execution.write_diagnostics import (
 
 
 class WriteDiagnosticTests(TestCase):
+    def test_odoo_validity_wording_is_recognized_without_guessing_fields_or_retaining_values(self):
+        for model in ("res.partner", "x_supplier"):
+            with self.subTest(model=model):
+                result = import_rejection_diagnostic(
+                    [{
+                        "type": "error",
+                        "message": (
+                            "The VAT number [private-tax-number] for partner [Private customer] "
+                            "does not seem to be valid. Note: the expected format is FR23334175221"
+                        ),
+                        "rows": {"from": 0, "to": 0},
+                    }],
+                    model=model, fields=("name", "vat"), batch_size=1,
+                )
+                self.assertEqual(result.code, WriteFailureCode.VALIDATION)
+                self.assertEqual(result.fields, ())
+                self.assertEqual((result.row_from, result.row_to), (0, 0))
+                self.assertEqual(OdooWriteDiagnostic.from_dict(result.to_dict()), result)
+                safe = json.dumps(result.to_dict()) + result.summary
+                self.assertNotIn("private-tax-number", safe)
+                self.assertNotIn("Private customer", safe)
+                self.assertNotIn("FR23334175221", safe)
+
     def test_company_rejection_is_not_specific_to_accounting_relationships(self):
         result = import_rejection_diagnostic(
             [{

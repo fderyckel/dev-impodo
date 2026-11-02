@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from threading import RLock
@@ -11,6 +12,7 @@ from uuid import UUID
 
 import duckdb
 
+from impodo.domain.execution.load_control import LoadControl, LoadControlState
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
@@ -25,12 +27,16 @@ from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from .business_intent_assessment_repository import record_business_intent_approval
 from .database import DuckDbWorkspaceDatabase
-from .repository import DuckDbRepository
+from .execution_load_control import (
+    ExecutionLoadControlRecords,
+    read_load_control,
+    write_load_control,
+)
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
 
-class ExecutionRepository(DuckDbRepository):
+class ExecutionRepository(ExecutionLoadControlRecords):
     """Own the target-specific row journal and current execution pointer."""
 
     def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
@@ -67,6 +73,9 @@ class ExecutionRepository(DuckDbRepository):
         if str(row[0]) == "CLOSED":
             raise WorkspaceError("This MigrationWorkspace is closed and read-only")
 
+    def _ensure_load_control_schema(self, path: Path, connection: duckdb.DuckDBPyConnection) -> None:
+        self._ensure_execution_schema_once(path, connection)
+
     def start_run(
         self,
         workspace_id: str,
@@ -76,6 +85,7 @@ class ExecutionRepository(DuckDbRepository):
         correction_plan_hash: str = "",
         transfer_preflight_hash: str = "",
         intent_assessment_hash: str = "",
+        load_control: LoadControl | None = None,
     ) -> None:
         self._assert_workspace_mutable(workspace_id)
         try:
@@ -110,7 +120,7 @@ class ExecutionRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
@@ -228,6 +238,10 @@ class ExecutionRepository(DuckDbRepository):
                             for ordinal, item in enumerate(run.rows)
                         ],
                     )
+                if load_control is not None:
+                    if load_control.state is not LoadControlState.RUNNING:
+                        raise WorkspaceError("The initial load control is invalid")
+                    write_load_control(connection, canonical_run_id, load_control)
                 connection.execute(
                     "INSERT OR REPLACE INTO execution_current VALUES (1, ?)",
                     [canonical_run_id],
@@ -289,7 +303,7 @@ class ExecutionRepository(DuckDbRepository):
         ):
             raise WorkspaceError("Execution outcome is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_execution_schema_once(database_path, connection)
             connection.begin()
             try:
@@ -300,6 +314,8 @@ class ExecutionRepository(DuckDbRepository):
                 ).fetchone()
                 if run_status is None or str(run_status[0]) != "RUNNING":
                     raise WorkspaceError("Execution run is not active")
+                control = read_load_control(connection, canonical_run_id)
+                settled: list[tuple[str, str, bool]] = []
                 for item in rows:
                     stored = connection.execute(
                         """
@@ -411,6 +427,16 @@ class ExecutionRepository(DuckDbRepository):
                             item.row_id,
                         ],
                     )
+                    if (
+                        control is not None
+                        and previous.status is ExecutionRowStatus.IN_FLIGHT
+                        and item.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED, ExecutionRowStatus.FAILED}
+                    ):
+                        rejected = item.status is ExecutionRowStatus.FAILED or bool(item.diagnostic)
+                        settled.append((item.target_model, item.transport_phase, rejected))
+                if control is not None and settled:
+                    control = control.settle_many(settled)
+                    write_load_control(connection, canonical_run_id, control)
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -449,7 +475,7 @@ class ExecutionRepository(DuckDbRepository):
         ):
             raise WorkspaceError("Execution transport batch is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_execution_schema_once(database_path, connection)
             connection.begin()
             try:
@@ -460,6 +486,10 @@ class ExecutionRepository(DuckDbRepository):
                 ).fetchone()
                 if run_status is None or str(run_status[0]) != "RUNNING":
                     raise WorkspaceError("Execution run is not active")
+                control = read_load_control(connection, canonical_run_id)
+                if control is not None:
+                    control.require_running()
+                isolation = False
                 for item in rows:
                     stored = connection.execute(
                         "SELECT row_json FROM execution_row WHERE run_id = ? AND row_id = ?",
@@ -468,6 +498,10 @@ class ExecutionRepository(DuckDbRepository):
                     if stored is None:
                         raise WorkspaceError("Execution transport row is missing")
                     previous = ExecutionRowAttempt.from_json(str(stored[0]))
+                    isolation = isolation or (
+                        previous.status is ExecutionRowStatus.RETRY_READY
+                        and previous.safe_error == "Odoo rolled back this batch; isolation pending"
+                    )
                     expected_status = (
                         ExecutionRowStatus.PARTIALLY_APPLIED
                         if item.transport_phase == "COMPLETION"
@@ -532,6 +566,8 @@ class ExecutionRepository(DuckDbRepository):
                             item.row_id,
                         ],
                     )
+                if isolation and control is not None:
+                    write_load_control(connection, canonical_run_id, control.isolate())
                 connection.commit()
             except Exception:
                 connection.rollback()
@@ -561,7 +597,7 @@ class ExecutionRepository(DuckDbRepository):
         ):
             raise WorkspaceError("Execution recovery evidence is invalid")
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
@@ -606,6 +642,11 @@ class ExecutionRepository(DuckDbRepository):
                         ExecutionRowStatus.COMMITTED,
                     },
                 }
+                control = read_load_control(connection, canonical_run_id)
+                if control is not None and control.policy.value == "CONTINUE" and control.state is LoadControlState.PAUSED:
+                    allowed[ExecutionRowStatus.FAILED] = {ExecutionRowStatus.FAILED}
+                    allowed[ExecutionRowStatus.BLOCKED] = {ExecutionRowStatus.BLOCKED}
+                recovered_results: list[tuple[str, str, bool]] = []
                 for item in rows:
                     previous = stored[item.row_id]
                     stable_before = (
@@ -644,6 +685,11 @@ class ExecutionRepository(DuckDbRepository):
                         raise WorkspaceError(
                             "Execution recovery transition is invalid"
                         )
+                    if previous.status is ExecutionRowStatus.IN_FLIGHT and (
+                        item.status is ExecutionRowStatus.COMMITTED
+                        or (item.transport_phase == "CREATE" and item.status is ExecutionRowStatus.PARTIALLY_APPLIED)
+                    ):
+                        recovered_results.append((item.target_model, item.transport_phase, False))
                     connection.execute(
                         """
                         UPDATE execution_row
@@ -662,6 +708,8 @@ class ExecutionRepository(DuckDbRepository):
                             item.row_id,
                         ],
                     )
+                if control is not None:
+                    write_load_control(connection, canonical_run_id, control.settle_many(recovered_results))
                 revision = self._workspace_revision(connection)
                 self._insert_workspace_audit(
                     connection,
@@ -746,7 +794,7 @@ class ExecutionRepository(DuckDbRepository):
             raise WorkspaceError("Execution completion status is invalid")
         canonical_run_id = str(UUID(run_id))
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             connection.begin()
             try:
@@ -767,6 +815,10 @@ class ExecutionRepository(DuckDbRepository):
                 if planned is not None and int(planned[0]) != 0:
                     raise WorkspaceError("Execution run still has unattempted rows")
                 completed_at = datetime.now(UTC)
+                control = read_load_control(connection, canonical_run_id)
+                if control is not None:
+                    write_load_control(connection, canonical_run_id, replace(control,
+                        state=LoadControlState.STOPPED if control.state is LoadControlState.STOP_REQUESTED else LoadControlState.FINISHED))
                 connection.execute(
                     """
                     UPDATE execution_run SET status = ?, completed_at = ?
@@ -814,7 +866,7 @@ class ExecutionRepository(DuckDbRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("Workspace engine state not found")
-        with self._connect(database_path) as connection:
+        with self._load_control_lock, self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
             header = connection.execute(
                 """
@@ -834,6 +886,7 @@ class ExecutionRepository(DuckDbRepository):
                 """,
                 [canonical_run_id],
             ).fetchall()
+            control = read_load_control(connection, canonical_run_id)
         if header is None:
             return None
         return ExecutionRun(
@@ -860,4 +913,5 @@ class ExecutionRepository(DuckDbRepository):
             write_principal_hash=str(header[11] or ""),
             write_permission_hash=str(header[12] or ""),
             write_context_hash=str(header[13] or ""),
+            load_control=control,
         )

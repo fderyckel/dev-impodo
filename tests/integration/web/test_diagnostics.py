@@ -86,6 +86,40 @@ def _diagnostic_test_directory(prefix: str):
 
 
 class LocalDiagnosticRecorderTests(unittest.TestCase):
+    def test_load_policy_diagnostic_retains_pause_counts_without_rows(self) -> None:
+        from impodo.domain.execution.load_control import LoadControl, RejectionPolicy
+        control = LoadControl(policy=RejectionPolicy.CONTINUE)
+        for _ in range(10):
+            control = control.settle("res.partner", "CREATE", rejected=True)
+        with _diagnostic_test_directory("impodo-load-control") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            recorder.record_load_control(control)
+            recorder.close()
+            path = directory / DIAGNOSTIC_LOG_NAME
+            raw = path.read_text(encoding="utf-8")
+            export_input = json.loads(raw)
+            export_input["source_row"] = "private source value"
+            export_input["failure_windows"][0]["row_values"] = "private row value"
+            path.write_text(json.dumps(export_input) + "\n", encoding="utf-8")
+            with ZipFile(BytesIO(create_diagnostic_bundle(
+                directory, build_contract=PROCESS_BUILD_CONTRACT
+            ))) as archive:
+                failures = json.loads(archive.read("recent-failures.json"))
+                exported = archive.read("diagnostics.jsonl").decode("utf-8")
+        record = json.loads(raw)
+        self.assertEqual(record["policy"], "CONTINUE")
+        self.assertEqual(record["reason"], "CONSECUTIVE_REJECTIONS")
+        self.assertEqual(record["failure_windows"][0]["rejected_count"], 10)
+        self.assertEqual(record["consecutive_limit"], 10)
+        self.assertNotIn("source_row", raw)
+        self.assertNotIn("execution_run_id", raw)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0]["state"], "PAUSED")
+        self.assertEqual(failures[0]["policy"], "CONTINUE")
+        self.assertEqual(failures[0]["failure_windows"][0]["rejected_count"], 10)
+        self.assertNotIn("private source value", exported)
+        self.assertNotIn("private row value", exported)
+
     def test_diagnostic_directory_stays_outside_the_project_database_root(
         self,
     ) -> None:
@@ -369,6 +403,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                         "diagnostics.jsonl",
                         "manifest.json",
                         "slow-requests.json",
+                        "recent-failures.json",
                     },
                 )
                 encoded = "\n".join(
@@ -381,7 +416,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
 
         self.assertIn('"mapping_operation_id": "a50bdad5-3d09-4445-9c76-45232b4013fd"', encoded)
         self.assertNotIn("private source value", encoded)
-        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 1)
+        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 2)
         self.assertEqual(
             manifest["application"]["workspace_schema_version"],
             PROCESS_BUILD_CONTRACT.workspace_schema_version,
@@ -1218,7 +1253,18 @@ class ServerSupervisorTests(unittest.TestCase):
                 children.append(first)
                 first.start()
                 listener.close()
-                wait_for("/launch?token=spawn-launch-token", 303)
+                # Poll a read-only route before redeeming the single-use token.
+                # A short timeout followed by a retry can consume it and then
+                # report 401 on a slow Windows runner.
+                wait_for("/projects", 401)
+                try:
+                    with opener.open(
+                        origin + "/launch?token=spawn-launch-token", timeout=30
+                    ) as response:
+                        self.fail(f"Launch did not redirect: {response.status}")
+                except HTTPError as response:
+                    with response:
+                        self.assertEqual(response.code, 303)
                 projects, _status = wait_for("/projects", 200)
                 stopped_status, _body = post(
                     "/quit",

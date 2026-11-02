@@ -73,12 +73,13 @@
                     <select name="relation_value_source_{{ dataset_index }}_{{ relation_index }}" data-relation-value-source>
                       <option value="" {% if not relation_value_source %}selected{% endif %}>Do not fill this field</option>
                       <option value="source" {% if relation_value_source == 'source' %}selected{% endif %}>A value from the source</option>
-                      {% if row.metadata.type == 'many2one' %}
+                      {% if row.metadata.type in ['many2one', 'many2many'] %}
                         <option value="constant_existing" {% if relation_value_source == 'constant_existing' %}selected{% endif %}>The same existing Odoo record for every row</option>
                       {% endif %}
                     </select>
                   </label>
                   <div class="provider-control" data-relation-provider-constant {% if relation_value_source != 'constant_existing' %}hidden{% endif %}>
+                    {% if row.metadata.type == 'many2many' %}<p>Use one existing Odoo record as the complete list for every row.</p>{% endif %}
                     <div class="form-grid">
                       <label>
                         Find this record by

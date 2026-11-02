@@ -196,7 +196,7 @@ class MappingContractCompatibilityTests(unittest.TestCase):
             key_values=(ConstantReferenceComponent("name", "PCE"),),
         )
         invalid = (
-            {"kind": "many2many"},
+            {"kind": "one2many"},
             {"source_column_keys": ("uom",)},
             {"constant_reference": None},
             {

@@ -1,12 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Match data · {{ migration_project.display_name }} · Impodo{% endblock %}
 {% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/supporting-review.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/business-expectations.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-save-recovery.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/mapping-supporting-review.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-order.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-source-columns.js') }}" defer></script>
   <script src="{{ url_for('static', path='/mapping-selection-choices.js') }}" defer></script>
@@ -36,6 +38,12 @@
     </div>
   {% endif %}
   {% if selection and schema and (governance or odoo_pinned) %}
+    {% if related_data_review %}
+    <div data-related-review-host data-related-review-url="/workspaces/{{ workspace_id }}/mapping/supporting-review">
+      {% set inline_supporting_review = true %}
+      {% include "mapping/_supporting_review.html" %}
+    </div>
+    {% endif %}
     <section class="form-card" id="required-values-summary" aria-labelledby="required-values-title">
       <div class="page-heading compact"><div><p class="eyebrow">Mapping coverage</p><h2 id="required-values-title">Required values</h2><p>Review required-field decisions across {{ dataset_views|length }} table{{ 's' if dataset_views|length != 1 else '' }}, alongside identity and required-parent proof.</p></div><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/required-values">Review required values</a></div>
     </section>
@@ -72,7 +80,6 @@
       {% for view in dataset_views %}
         {% include "mapping/_dataset.html" %}
       {% endfor %}
-
       {% include "mapping/_row_inclusion_review.html" %}
       {% include "mapping/_validation.html" %}
       {% include "mapping/_next_step.html" %}

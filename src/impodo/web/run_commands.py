@@ -447,7 +447,7 @@ def publish_load_progress(
     application_id = job.access_context.recipe_application_id
     if application_id is None:
         return
-    if job.status is LoadJobStatus.RUNNING:
+    if job.status is LoadJobStatus.RUNNING or (job.status is LoadJobStatus.SUCCEEDED and job.load_control_state == "PAUSED"):
         target = RecipeApplicationStatus.COMPARED
         expected = (
             RecipeApplicationStatus.READY,

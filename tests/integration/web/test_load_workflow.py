@@ -674,6 +674,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
         )
         completed_run = SimpleNamespace(
+            load_control=None,
             run_id="11111111-1111-4111-8111-111111111111",
             total_count=2,
             planned_count=0,

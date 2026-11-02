@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 20
+MAPPING_CONTRACT_VERSION = 21
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -757,8 +757,8 @@ class RelationshipMapping:
                     "Source relationships cannot carry a constant reference"
                 )
             return
-        if self.kind != "many2one":
-            raise ValueError("Constant existing records require a many2one field")
+        if self.kind not in {"many2one", "many2many"}:
+            raise ValueError("Constant existing records require a many2one or many2many field")
         if self.constant_reference is None:
             raise ValueError("A constant existing record reference is required")
         if self.source_column_keys:
@@ -1049,6 +1049,16 @@ class MappingDefinition:
             raise ValueError(
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "a constant relationship"
+            )
+        if self.contract_version < 21 and any(
+            relationship.kind == "many2many"
+            and relationship.value_source is RelationshipValueSource.CONSTANT_EXISTING
+            for dataset in self.datasets
+            for relationship in dataset.relationships
+        ):
+            raise ValueError(
+                f"Mapping contract v{self.contract_version} cannot contain "
+                "a constant many2many relationship"
             )
         if self.contract_version < 16 and any(
             dataset.row_inclusion != RowInclusionPolicy()

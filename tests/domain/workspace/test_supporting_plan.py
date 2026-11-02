@@ -216,12 +216,17 @@ class SupportingDataPlanTests(unittest.TestCase):
             model("x.line", relation("product_id", "x.product")),
         )
         missing = proposal(models)
+        self.assertTrue(missing.complete)
+        self.assertEqual(missing.edges, ())
+        intended = (SupportingRelationshipIntent("x.product", "line_ids"),)
+        missing = proposal(models, intents=intended)
         self.assertIn(
             SupportingPlanGap.INCOMING_UNAVAILABLE,
             {item.reason for item in missing.issues},
         )
         result = proposal(
-            models, (dataset("lines", "x.line"), dataset("products", "x.product"))
+            models, (dataset("lines", "x.line"), dataset("products", "x.product")),
+            intents=intended,
         )
         self.assertTrue(result.complete)
         self.assertEqual(len(result.edges), 2)

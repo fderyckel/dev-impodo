@@ -428,6 +428,91 @@ def _mapping_column_keys(mapping: DatasetMapping, dataset: SourceDataset) -> tup
                  if has_formula or column.stable_key in keys)
 
 
+def validated_bounded_preparation_producers(
+    workspace_id: str,
+    definition: MappingDefinition,
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan,
+    snapshots: tuple[SourceSnapshot, ...],
+) -> tuple[tuple[BoundedPreparationProducer, ...], dict[str, SourceSnapshot]]:
+    """Share exact input and join-review verification with source-only reviews."""
+    producers = bounded_preparation_producers(physical_selection, effective_selection, plan)
+    if producers is None:
+        raise ReadinessError("Bounded grouped exact-join preparation is unavailable")
+    if plan.workspace_id != workspace_id or physical_selection.data_version_id != effective_selection.data_version_id:
+        raise ReadinessError("Canonical evaluation evidence belongs to another DataVersion or workspace")
+    if definition.source_selection_hash != effective_selection.content_hash:
+        raise ReadinessError("The submitted mapping no longer matches its source data")
+    mappings = {item.dataset_id: item for item in definition.datasets}
+    if len(mappings) != len(definition.datasets) or set(mappings) != {
+        producer.dataset.dataset_id for producer in producers
+    }:
+        raise ReadinessError("Prepared datasets are incomplete or duplicated")
+    snapshot_by_id = {snapshot.dataset_id: snapshot for snapshot in snapshots}
+    physical_by_id = {dataset.dataset_id: dataset for dataset in physical_selection.datasets}
+    if len(snapshot_by_id) != len(snapshots) or set(snapshot_by_id) != set(physical_by_id):
+        raise ReadinessError("Frozen source snapshots are incomplete")
+    current_snapshots = {
+        (snapshot.dataset_id, snapshot.logical_hash, snapshot.parquet_sha256)
+        for snapshot in snapshots
+    }
+    rule_ids = {rule.rule_id for producer in producers if producer.group for rule in producer.group.rules}
+    if any(
+        {(item.dataset_id, item.logical_hash, item.parquet_sha256) for item in review.input_snapshots}
+        != current_snapshots
+        for review in plan.join_reviews if review.rule_id in rule_ids
+    ):
+        raise ReadinessError("The accepted grouped exact-join review is stale")
+    for dataset_id, dataset in physical_by_id.items():
+        validate_snapshot_for_dataset(physical_selection, dataset, snapshot_by_id[dataset_id])
+    return producers, snapshot_by_id
+
+
+def iter_bounded_preparation_source_batches(
+    workspace_state: WorkspaceState,
+    definition: MappingDefinition,
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan,
+    artifacts: GovernedArtifactStores,
+    source: GroupedExactJoinSourcePort,
+    source_snapshots: Iterable[SourceSnapshot],
+    *,
+    column_keys: Mapping[str, tuple[str, ...]] | None = None,
+) -> Iterator[tuple[SourceDataset, GroupedExactJoinBatch]]:
+    """Stream requested logical columns with preparation's evidence checks.
+
+    This read-only boundary publishes no canonical session or review evidence.
+    Joined rows retain the same types and logical ordinals as preparation.
+    """
+    try:
+        producers, snapshots = validated_bounded_preparation_producers(
+            workspace_state.workspace_id, definition, physical_selection,
+            effective_selection, plan, tuple(source_snapshots),
+        )
+        mappings = {item.dataset_id: item for item in definition.datasets}
+        for producer in producers:
+            keys = (
+                _mapping_column_keys(mappings[producer.dataset.dataset_id], producer.dataset)
+                if column_keys is None else column_keys.get(producer.dataset.dataset_id)
+            )
+            if keys is None:
+                continue
+            count = 0
+            for batch in _producer_batches(
+                producer, workspace_state, physical_selection, artifacts, snapshots, source, keys,
+            ):
+                count += len(batch.rows)
+                if count > producer.dataset.row_count:
+                    raise ReadinessError("The reviewed logical source row count changed")
+                yield producer.dataset, batch
+            if producer.lookup is None and count != producer.dataset.row_count:
+                raise ReadinessError("The reviewed logical source row count changed")
+    except (ArtifactStoreError, SourceLoadError) as error:
+        raise ReadinessError("The frozen logical source could not be verified") from error
+
+
 def prepare_bounded_grouped_exact_join_session(
     workspace_state: WorkspaceState,
     definition: MappingDefinition,
@@ -451,44 +536,15 @@ def prepare_bounded_grouped_exact_join_session(
     mapping_hash = definition.content_hash
     schema_hash = definition.schema_hash
     derived_plan_hash = plan.content_hash
-    producers = bounded_preparation_producers(physical_selection, effective_selection, plan)
-    if producers is None:
-        raise ReadinessError("Bounded grouped exact-join preparation is unavailable")
-    if physical_selection.data_version_id != effective_selection.data_version_id:
-        raise ReadinessError("Canonical evaluation evidence belongs to another DataVersion")
+    snapshots = tuple(source_snapshots)
+    producers, snapshot_by_id = validated_bounded_preparation_producers(
+        workspace_state.workspace_id, definition, physical_selection,
+        effective_selection, plan, snapshots,
+    )
     if reference_bundle is not None and reference_bundle.workspace_id != workspace_state.workspace_id:
         raise ReadinessError("Reference data belongs to another workspace")
-    if definition.source_selection_hash != source_selection_hash:
-        raise ReadinessError("The submitted mapping no longer matches its source data")
     mappings = {item.dataset_id: item for item in definition.datasets}
-    if len(mappings) != len(definition.datasets) or set(mappings) != {
-        producer.dataset.dataset_id for producer in producers
-    }:
-        raise ReadinessError("Prepared datasets are incomplete or duplicated")
-
-    snapshots = tuple(source_snapshots)
-    snapshot_by_id = {snapshot.dataset_id: snapshot for snapshot in snapshots}
     physical_by_id = {dataset.dataset_id: dataset for dataset in physical_selection.datasets}
-    if len(snapshot_by_id) != len(snapshots) or set(snapshot_by_id) != set(physical_by_id):
-        raise ReadinessError("Frozen source snapshots are incomplete")
-    current_snapshots = {
-        (snapshot.dataset_id, snapshot.logical_hash, snapshot.parquet_sha256)
-        for snapshot in snapshots
-    }
-    if any(
-        {
-            (item.dataset_id, item.logical_hash, item.parquet_sha256)
-            for item in review.input_snapshots
-        }
-        != current_snapshots
-        for review in plan.join_reviews
-        if review.rule_id in {rule.rule_id for producer in producers
-                              if producer.group for rule in producer.group.rules}
-    ):
-        raise ReadinessError("The accepted grouped exact-join review is stale")
-    for dataset_id, dataset in physical_by_id.items():
-        snapshot = snapshot_by_id[dataset_id]
-        validate_snapshot_for_dataset(physical_selection, dataset, snapshot)
 
     compiled_plan = compile_browser_mapping(
         definition, effective_selection, derived_plan_hash=derived_plan_hash,

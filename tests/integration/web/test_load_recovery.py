@@ -48,6 +48,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             "write-secret", persistent=False,
         )
         self.run = SimpleNamespace(
+            load_control=None,
             run_id="11111111-1111-4111-8111-111111111111",
             workspace_id=self.workspace.workspace_id,
             status=ExecutionRunStatus.RUNNING, rows=(), total_count=5,
@@ -86,6 +87,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             writable_models=("res.partner",), observed_at="2026-08-23T00:00:00Z",
         )
         self.completed = SimpleNamespace(
+            load_control=None,
             run_id=self.run.run_id, total_count=5, planned_count=0,
             status=ExecutionRunStatus.COMPLETED,
             rows=tuple(SimpleNamespace(operation="CREATE", status=ExecutionRowStatus.COMMITTED)
@@ -95,6 +97,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         self.recovery = object()
         self.last_recovery_check_id = None
         self.recovery_plan = SimpleNamespace(
+            load_control_hash="",
             execution_run_id=self.run.run_id,
             snapshot_hash=self.snapshot.semantic_hash,
             total_count=5,

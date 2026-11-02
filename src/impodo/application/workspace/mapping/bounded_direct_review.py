@@ -229,6 +229,28 @@ def direct_row_inclusion_review(
 ) -> RowInclusionReviewReport | None:
     """Evaluate source-only admission rules without transforming target rows."""
 
+    return row_inclusion_review_from_batches(
+        definition, physical_selection, effective_selection,
+        _direct_batches(
+            workspace_state, definition, physical_selection, effective_selection,
+            catalogs, artifacts, source_snapshots,
+            dataset_ids=frozenset(
+                item.dataset_id for item in definition.datasets
+                if item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
+            ),
+        ),
+    )
+
+
+def row_inclusion_review_from_batches(
+    definition: MappingDefinition,
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    batches: Iterable[tuple[SourceDataset, DatasetMapping, CompiledBrowserRowTransformer, tuple[SourceRow, ...]]],
+    *,
+    derived_plan_hash: str | None = None,
+) -> RowInclusionReviewReport | None:
+    """Keep one admission evaluator and evidence layout for bounded sources."""
     matching = {
         item.dataset_id: item
         for item in definition.datasets
@@ -236,7 +258,7 @@ def direct_row_inclusion_review(
     }
     if not matching:
         return None
-    rows: list[RowInclusionReviewRow] = []
+    rows: dict[str, list[RowInclusionReviewRow]] = {dataset_id: [] for dataset_id in matching}
     counts = {
         dataset_id: {outcome: 0 for outcome in RowInclusionReviewOutcome}
         for dataset_id in matching
@@ -251,16 +273,7 @@ def direct_row_inclusion_review(
     }
     if set(sentences) != set(matching):
         raise ReadinessError("Row-inclusion review is missing current datasets")
-    for effective, mapping, transformer, batch in _direct_batches(
-        workspace_state,
-        definition,
-        physical_selection,
-        effective_selection,
-        catalogs,
-        artifacts,
-        source_snapshots,
-        dataset_ids=frozenset(matching),
-    ):
+    for effective, mapping, transformer, batch in batches:
         sentence = sentences[effective.dataset_id]
         for source_row in batch:
             projected = transformer.project(source_row)
@@ -280,7 +293,7 @@ def direct_row_inclusion_review(
                 )
                 message = ""
             counts[effective.dataset_id][outcome] += 1
-            rows.append(
+            rows[effective.dataset_id].append(
                 RowInclusionReviewRow(
                     dataset_id=effective.dataset_id,
                     dataset_name=effective.name,
@@ -313,8 +326,8 @@ def direct_row_inclusion_review(
             source_selection_hash=effective_selection.content_hash,
             mapping_content_hash=definition.content_hash,
             schema_hash=definition.schema_hash,
-            derived_plan_hash=None,
+            derived_plan_hash=derived_plan_hash,
         ),
         datasets=tuple(reviews),
-        rows=tuple(rows),
+        rows=tuple(row for dataset in effective_selection.datasets for row in rows.get(dataset.dataset_id, ())),
     )

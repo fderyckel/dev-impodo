@@ -413,6 +413,7 @@ stages:
       - src/impodo/application/supporting_mapping_guard.py::SupportingMappingGuard
       - src/impodo/application/recipe/odoo_requirements.py::extract_odoo_requirements
       - src/impodo/domain/workspace/supporting_closure.py::close_supporting_plan
+      - src/impodo/domain/workspace/supporting_errors.py::SupportingPlanIncompleteError
       - src/impodo/domain/workspace/supporting_review.py::SupportingReview
       - src/impodo/adapters/duckdb/supporting_review_repository.py::SupportingReviewRecords
       - src/impodo/web/presenters/schema.py::_schema_key_views
@@ -431,6 +432,7 @@ stages:
       - tests/domain/workspace/test_business_keys.py
       - tests/domain/workspace/test_supporting_models.py
       - tests/domain/workspace/test_supporting_plan.py
+      - tests/domain/workspace/test_supporting_plan_intent.py
       - tests/domain/workspace/test_supporting_sources.py
       - tests/application/workspace/test_supporting_data_plan.py
       - tests/application/workspace/test_supporting_review.py
@@ -441,6 +443,13 @@ stages:
       - tests/integration/web/test_supporting_read_access.py
       - tests/integration/web/test_supporting_review.py
       - tests/integration/web/test_product_supporting_review.py
+      - tests/domain/execution/test_company_reference_policy.py
+      - tests/integration/web/test_account_company_supporting.py
+      - tests/integration/web/test_constant_company_list.py
+      - tests/domain/preparation/test_constant_list_relationships.py
+      - tests/domain/recipe/test_account_company_references.py
+      - tests/integration/web/test_supporting_mapping_intent.py
+      - tests/integration/web/test_recipe_supporting_intent.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/test_schema_governance.py
       - tests/integration/web/test_schema_presenter.py
@@ -475,7 +484,10 @@ stages:
       - src/impodo/web/templates/mapping/page.html
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
+      - src/impodo/domain/workspace/supporting_review.py::SupportingReviewRequiredError
+      - src/impodo/web/presenters/supporting_review.py::mapping_supporting_review_view
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
+      - scripts/capture_load_controls.py::capture_mapping_coverage
       - src/impodo/domain/workspace/selection_choices.py::selection_schema_refresh
       - src/impodo/web/selection_choices.py::refresh_selection_choices
       - src/impodo/web/selection_choices.py::load_selection_refresh
@@ -519,6 +531,9 @@ stages:
       - src/impodo/domain/mapping/row_inclusion.py::row_is_included
       - src/impodo/domain/mapping/row_inclusion_review.py::RowInclusionReviewSnapshot
       - src/impodo/application/workspace/mapping/row_inclusion_review.py::RowInclusionReviewService
+      - src/impodo/application/workspace/mapping/bounded_join_review.py::joined_row_inclusion_review
+      - src/impodo/application/workspace/mapping/bounded_join_review.py::joined_transformation_impact
+      - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::iter_bounded_preparation_source_batches
       - src/impodo/adapters/duckdb/row_inclusion_review_repository.py::RowInclusionReviewRepository
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
       - src/impodo/domain/mapping/contracts.py::ConstantBusinessReference
@@ -555,6 +570,7 @@ stages:
       - src/impodo/adapters/artifacts/mapping_review.py::build_mapping_review_row_projection
       - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
       - src/impodo/web/diagnostics.py::create_diagnostic_bundle
+      - src/impodo/web/supporting_diagnostics.py::sanitize_supporting_failure
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
       - src/impodo/web/server_supervisor.py::supervise_server
       - scripts/capture_match_data_recovery_screenshots.py::capture
@@ -578,14 +594,19 @@ stages:
       - tests/integration/columnar/test_polars_transformation.py
       - tests/integration/columnar/test_scoped_value_matches.py
       - tests/integration/web/test_scoped_relationship_matches.py
+      - tests/integration/web/test_scoped_blank_expectations.py
+      - tests/integration/web/test_mapping_constraint_coverage.py
       - tests/domain/recipe/test_representative_shapes.py
       - tests/application/workspace/test_derived_entities.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/artifacts/test_joined_row_inclusion.py
       - tests/integration/web/test_selection_choice_refresh.py
       - tests/integration/web/test_recipe_selection_refresh.py
       - tests/e2e/test_selection_choice_refresh.py
       - tests/integration/web/test_odoo_company.py
+      - tests/integration/web/test_mapping_supporting_recovery.py
+      - tests/e2e/test_mapping_supporting_recovery.py
       - tests/integration/web/test_matching_expectations.py
       - tests/e2e/test_odoo_company.py
       - tests/integration/web/test_joined_value_matching.py
@@ -619,6 +640,8 @@ stages:
       - tests/integration/web/test_mapping_catalog_scale.py
       - tests/integration/web/test_mapping_catalog_runtime.py
       - tests/integration/web/test_diagnostics.py
+      - tests/integration/web/test_supporting_diagnostics.py
+      - tests/integration/web/test_supporting_mapping_intent.py
       - tests/domain/recipe/test_value_rules.py
       - tests/integration/artifacts/test_mapping_review_workbook.py
       - tests/domain/preparation/test_target_first_relationships.py
@@ -920,6 +943,11 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.current_transfer_run
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.save_transfer_preflight_report
       - scripts/capture_load_recovery.py::capture
+      - scripts/capture_load_controls.py::capture
+      - src/impodo/domain/execution/load_control.py::LoadControl
+      - src/impodo/application/workspace/execution/load_transport.py::create_transport_results
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.request_stop
+      - src/impodo/adapters/duckdb/execution_load_control.py::ExecutionLoadControlRecords
       - scripts/capture_odoo_transfer_screenshots.py::capture
       - scripts/capture_transfer_row_inclusion.py::capture
       - scripts/qualify_row_inclusion_recipe.py::qualify
@@ -958,6 +986,13 @@ stages:
       - tests/integration/odoo/test_readback_retries.py
       - tests/integration/web/test_load_workflow.py
       - tests/integration/web/test_load_recovery.py
+      - tests/integration/web/test_load_controls.py
+      - tests/integration/duckdb/test_execution_load_control.py
+      - tests/integration/duckdb/test_load_control_upgrade.py
+      - tests/domain/execution/test_load_control.py
+      - tests/application/workspace/execution/test_load_transport.py
+      - tests/application/workspace/execution/test_continuation.py
+      - tests/integration/web/test_recipe_run_progress.py
       - tests/integration/protected_evidence/test_target_credentials.py
       - tests/integration/web/test_correction_workflow.py
       - tests/application/test_correction_jobs.py

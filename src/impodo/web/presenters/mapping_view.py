@@ -112,6 +112,7 @@ from .mapping_impact import (
 from .matching_health_issues import matching_health_workflow_issue_summary
 from .missing_parent_actions import missing_parent_source_key
 from .relationship_health import relationship_health_view
+from .supporting_review import mapping_supporting_review_view
 
 
 @dataclass(frozen=True, slots=True)
@@ -596,6 +597,13 @@ def _render_mapping(
         )
     correction_binding = context.corrections.binding_for_successor(workspace_id)
     workspace_state = context.queries.get(workspace_id)
+    related_data_review = (
+        mapping_supporting_review_view(
+            request, context, workspace_state, physical_selection, schema, governance,
+            actor=actor, preparation=preparation_plan,
+        )
+        if correction_binding is None else None
+    )
     expectations = (
         matching_expectations_view(
             context, actor=actor, workspace=workspace_state, selection=selection,
@@ -614,6 +622,7 @@ def _render_mapping(
         workspace_state=workspace_state,
         expectations=expectations,
         company_access=company_access,
+        related_data_review=related_data_review,
         selection=selection,
         schema=schema,
         governance=governance,

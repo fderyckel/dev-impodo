@@ -425,6 +425,7 @@ def create_local_app(
     recipe_application_state = RecipeQualitySeedRepository(database, database)
     authoring_services = build_authoring_service_graph(
         exact_join_groups=DuckDbExactJoinGroupEvaluator(database),
+        grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
         logical_source_values=JoinedMappingSourceValues(
             source_repository,
             derived_entity_repository,

@@ -17,8 +17,12 @@ from impodo.domain.workspace.supporting_models import (
     SupportingModelRole,
     supporting_model_role,
 )
+from impodo.domain.workspace.supporting_review import (
+    SupportingChoice,
+    SupportingChoiceAction,
+)
 
-SUPPORTING_PLAN_VERSION = 1
+SUPPORTING_PLAN_VERSION = 2
 MAX_SUPPORTING_MODELS = 100
 MAX_SUPPORTING_EDGES = 1_000
 MAX_SUPPORTING_DEPTH = 5
@@ -75,6 +79,7 @@ class SupportingRelationshipIntent:
     source_model: str
     field_name: str
     incoming_dataset_id: str = ""
+    reuse_existing: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -140,6 +145,7 @@ def plan_supporting_data(
     odoo_version: str | None = None,
     dataset_intents: tuple[SupportingDatasetIntent, ...] = (),
     relationship_intents: tuple[SupportingRelationshipIntent, ...] = (),
+    reviewed_choices: tuple[SupportingChoice, ...] = (),
     input_limited: bool = False,
 ) -> SupportingDataPlan:
     """Walk only selected models and uniquely proposed incoming dependencies.
@@ -151,10 +157,12 @@ def plan_supporting_data(
     roots = tuple(sorted(set(selected_models)))
     bindings = tuple(sorted(set(dataset_intents)))
     intents = tuple(sorted(set(relationship_intents)))
+    choices = tuple(sorted(set(reviewed_choices)))
     intent_hash = content_hash(
         {
             "datasets": [asdict(item) for item in bindings],
             "relationships": [asdict(item) for item in intents],
+            "choices": [asdict(item) for item in choices],
         }
     )
     issues: set[SupportingPlanIssue] = set()
@@ -164,10 +172,13 @@ def plan_supporting_data(
         or len(datasets) > MAX_SUPPORTING_DATASETS
         or len(bindings) > MAX_SUPPORTING_DATASETS
         or len(intents) > MAX_SUPPORTING_EDGES
+        or len(choices) > MAX_SUPPORTING_EDGES
     ):
         issues.add(SupportingPlanIssue(SupportingPlanGap.INPUT_LIMIT))
     else:
-        _walk(roots, models, datasets, bindings, intents, edges, issues, odoo_version)
+        _walk(
+            roots, models, datasets, bindings, intents, choices, edges, issues, odoo_version
+        )
     return SupportingDataPlan(
         selected_models=roots,
         source_selection_hash=source_selection_hash,
@@ -197,6 +208,7 @@ def _walk(
     datasets: tuple[SupportingSourceDescriptor, ...],
     bindings: tuple[SupportingDatasetIntent, ...],
     intents: tuple[SupportingRelationshipIntent, ...],
+    choices: tuple[SupportingChoice, ...],
     edges: list[SupportingPlanEdge],
     issues: set[SupportingPlanIssue],
     odoo_version: str | None,
@@ -226,6 +238,12 @@ def _walk(
     )
     for intent in intents:
         by_edge[(intent.source_model, intent.field_name)].append(intent)
+    by_choice: dict[tuple[str, str], SupportingChoice] = {}
+    for choice in choices:
+        key = (choice.source_model, choice.field_name)
+        if key in by_choice:
+            issues.add(SupportingPlanIssue(SupportingPlanGap.INVALID_INTENT, *key))
+        by_choice[key] = choice
     pending = deque((name, 0) for name in roots)
     visited: set[str] = set()
     used_intents: set[tuple[str, str]] = set()
@@ -246,17 +264,14 @@ def _walk(
         for field in sorted(model.fields, key=lambda item: item.name):
             key = (name, field.name)
             explicit = by_edge.get(key, [])
+            choice = by_choice.get(key)
             eligible = (
                 field.type in {"many2one", "many2many", "one2many"}
                 and field.relation
                 and field.exportable is not False
                 and field.company_dependent is not True
             )
-            if not eligible or not (
-                field.required
-                or explicit
-                or (field.type == "one2many" and field.relation_field)
-            ):
+            if not eligible or not (field.required or explicit or choice):
                 continue
             if len(edges) >= MAX_SUPPORTING_EDGES:
                 issues.add(SupportingPlanIssue(SupportingPlanGap.EDGE_LIMIT, name))
@@ -265,30 +280,62 @@ def _walk(
             related = field.relation
             if related is None:
                 continue
+            if choice and choice.action is SupportingChoiceAction.SKIP_OPTIONAL:
+                if field.required:
+                    issues.add(
+                        SupportingPlanIssue(
+                            SupportingPlanGap.INVALID_INTENT, name, field.name, related
+                        )
+                    )
+                continue
             available = tuple(
                 sorted(candidates.get(related, ()), key=lambda item: item.dataset_id)
             )
             direct_role = supporting_model_role(
                 field, source_model=name, odoo_version=odoo_version
             )
-            if explicit and explicit[0].incoming_dataset_id:
+            incoming = (
+                choice.dataset_id
+                if choice
+                else explicit[0].incoming_dataset_id if explicit else ""
+            )
+            if incoming:
                 direct_role = supporting_model_role(field)
             role = (
                 SupportingPlanRole.UNRESOLVED
                 if direct_role is SupportingModelRole.REVIEW_INCOMING
                 else SupportingPlanRole(direct_role.value)
             )
-            if role is SupportingPlanRole.ODOO_MANAGED:
-                available = ()
-            elif explicit and (
-                len(explicit) > 1
-                or (
-                    explicit[0].incoming_dataset_id
-                    and not any(
-                        item.dataset_id == explicit[0].incoming_dataset_id
-                        for item in available
+            reviewed_role = (
+                {
+                    SupportingChoiceAction.REUSE: SupportingPlanRole.REUSE_EXISTING,
+                    SupportingChoiceAction.CHECKED_DEFAULT: SupportingPlanRole.CHECKED_DEFAULT,
+                    SupportingChoiceAction.ODOO_MANAGED: SupportingPlanRole.ODOO_MANAGED,
+                }.get(choice.action)
+                if choice else None
+            )
+            if reviewed_role is not None:
+                valid = (
+                    choice is not None
+                    and (
+                        choice.action is SupportingChoiceAction.REUSE
+                        and field.type != "one2many"
+                        or choice.action is SupportingChoiceAction.CHECKED_DEFAULT
+                        and field.create_default_present
+                        or choice.action is SupportingChoiceAction.ODOO_MANAGED
+                        and direct_role is SupportingModelRole.ODOO_MANAGED
                     )
                 )
+                role = reviewed_role
+                available = ()
+                if not valid:
+                    issues.add(
+                        SupportingPlanIssue(
+                            SupportingPlanGap.INVALID_INTENT, name, field.name, related
+                        )
+                    )
+            elif len(explicit) > 1 or (
+                explicit and explicit[0].reuse_existing and incoming
             ):
                 role = SupportingPlanRole.UNRESOLVED
                 issues.add(
@@ -296,17 +343,20 @@ def _walk(
                         SupportingPlanGap.INVALID_INTENT, name, field.name, related
                     )
                 )
+            elif explicit and explicit[0].reuse_existing and not choice:
+                role = SupportingPlanRole.REUSE_EXISTING
+                available = ()
+            elif role is SupportingPlanRole.ODOO_MANAGED:
+                available = ()
+            elif incoming and not any(item.dataset_id == incoming for item in available):
+                role = SupportingPlanRole.UNRESOLVED
+                issues.add(SupportingPlanIssue(
+                    SupportingPlanGap.INVALID_INTENT, name, field.name, related
+                ))
             else:
-                if explicit and explicit[0].incoming_dataset_id:
-                    available = tuple(
-                        item
-                        for item in available
-                        if item.dataset_id == explicit[0].incoming_dataset_id
-                    )
-                if available and (
-                    role is not SupportingPlanRole.CHECKED_DEFAULT
-                    or (explicit and explicit[0].incoming_dataset_id)
-                ):
+                if incoming:
+                    available = tuple(item for item in available if item.dataset_id == incoming)
+                if available and (role is not SupportingPlanRole.CHECKED_DEFAULT or incoming):
                     role = (
                         SupportingPlanRole.INCOMING_CANDIDATE
                         if len(available) == 1
@@ -340,7 +390,9 @@ def _walk(
                     related,
                     field.relation_field,
                     field.required,
-                    "EXPLICIT_RELATIONSHIP"
+                    "REVIEWED_RELATIONSHIP"
+                    if choice
+                    else "EXPLICIT_RELATIONSHIP"
                     if explicit
                     else "REQUIRED_RELATIONSHIP"
                     if field.required
@@ -359,5 +411,5 @@ def _walk(
                     )
                 else:
                     pending.append((related, depth + 1))
-    for key in by_edge.keys() - used_intents:
+    for key in (by_edge.keys() | by_choice.keys()) - used_intents:
         issues.add(SupportingPlanIssue(SupportingPlanGap.INVALID_INTENT, *key))

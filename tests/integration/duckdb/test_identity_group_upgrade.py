@@ -18,6 +18,9 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_load_control")
+            connection.execute("DROP TABLE execution_rejected_transport")
+            connection.execute("DROP TABLE execution_load_control_event")
             connection.execute("DROP TABLE matching_order_protected_relationship_choice")
             connection.execute(
                 "DROP INDEX matching_order_protected_identity_group_lookup"
@@ -89,5 +92,5 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(1, 2), (2, 3)],
+                [(1, 2), (2, 3), (3, 4), (4, 5)],
             )

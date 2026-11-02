@@ -32,7 +32,7 @@ class RecipeTargetMatchBrowserTests(TestCase):
         self.app = self.fixture.fixture.app
         self.context.preparation_jobs = None
 
-    def review_ready_delivery(self, *, odoo_version="19.0"):
+    def review_ready_delivery(self, *, odoo_version="19.0", include_unused_activities=False):
         """Create a fictional delivery with one valid and one unmatched language."""
 
         def configure_recipe(definition):
@@ -52,6 +52,15 @@ class RecipeTargetMatchBrowserTests(TestCase):
                 "name": "lang", "field_type": "selection", "required": False, "readonly": False,
                 "selection_values": ["en", "fr_FR"],
             })
+            if include_unused_activities:
+                definition["odoo_target_contract"]["supporting_choices"] = [{
+                    "source_model": "res.partner", "field_name": "activity_ids", "action": "SKIP_OPTIONAL",
+                    "dataset_id": "", "key_fields": [], "scope_fields": [], "display_field": "",
+                }]
+                definition["odoo_target_contract"]["models"][0]["fields"].append({
+                    "name": "activity_ids", "field_type": "one2many", "required": False,
+                    "readonly": False, "relation_model": "mail.activity",
+                })
 
         url = self.fixture.registered_delivery(
             configure_recipe=configure_recipe,
@@ -70,6 +79,10 @@ class RecipeTargetMatchBrowserTests(TestCase):
             odoo_base_url="https://fictional.example.test", odoo_database="fictional_test",
             intended_applications=(), intended_models=("res.partner",),
         )
+        extra_fields = (
+            SchemaField("activity_ids", "Activities", "one2many", False, False,
+                        "mail.activity", "res_id", ()),
+        ) if include_unused_activities else ()
         schema = OdooSchemaCatalog(
             workspace_id=state.workspace_id, policy_hash=content_hash("schema policy"), captured_at=datetime.now(UTC),
             captured_by="Data manager", connection_mode="REMOTE", database="fictional_test", odoo_version=odoo_version,
@@ -80,7 +93,8 @@ class RecipeTargetMatchBrowserTests(TestCase):
                     ("name", "Name", "char", ()), ("credit_limit", "Opening balance", "float", ()),
                     ("lang", "Language", "selection", (("en", "English"), ("fr_FR", "French"))),
                 )
-            )),), content_hash=content_hash("schema evidence"), origin=SchemaOrigin.LIVE_API,
+            ) + extra_fields),),
+            content_hash=content_hash("schema evidence"), origin=SchemaOrigin.LIVE_API,
             read_credential_binding_hash=content_hash("credential"), read_principal_hash=content_hash("principal"),
             read_permission_hash=content_hash("permissions"), read_context_hash=content_hash("context"),
             connection_target_hash=content_hash("target"),

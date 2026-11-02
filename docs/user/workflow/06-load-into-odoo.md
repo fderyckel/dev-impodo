@@ -237,6 +237,10 @@ sequence above for an Odoo-to-Odoo workspace.
    load. If a loading key is available, Impodo uses it without asking you to
    enter it again.
 5. Read the explicit confirmation and select the single load action once.
+   Under **If Odoo rejects a record**, choose **Stop at the first rejection**
+   or **Set aside rejected records and continue**. Continuation keeps rejected
+   records visible and lets independent records load. An uncertain response
+   always stops further uploads.
 6. Follow the current load group and relationship-completion totals. Do not
    resubmit an uncertain request.
 7. Open **Verify result** to read back the affected records.
@@ -272,6 +276,29 @@ write; verification remains a separate read-only check.
 ![Current fallout outcome with the different-values card, field filter, prepared and Odoo values, and read-only re-check.](../../images/user/18-load-fallout.png)
 
 ## Understand a stopped load
+
+With **Set aside rejected records and continue**, Impodo isolates a known
+rejection, retains its diagnostic, and continues independent records. A rejected
+parent blocks records that need it. Previously accepted records remain in Odoo.
+
+Impodo pauses after ten consecutive record rejections for one record type and
+operation, or a rejection rate of at least 20% after twenty settled records in
+the latest fifty results. It also limits attempts to isolate a bad batch when
+no write succeeds. Rolled-back peers do not count as individual rejections.
+
+On a paused load, review the rejected rows, then select **Check recovery**.
+After that read-only check, confirm **Continue with the next small group**
+only if you want to try the remaining records. Rejected records are not retried.
+Fixing them requires a fresh comparison and approval.
+
+Use **Stop further uploads** on the progress page or paused result to stop.
+An Odoo request already in progress finishes first and its receipt is saved.
+Stopping keeps earlier accepted records and prevents subsequent write requests.
+Closing the browser is not a stop request.
+
+![A paused fictional load retains ten rejected records and offers guarded continuation or Stop further uploads.](../../images/user/18c-load-paused.png)
+
+![Confirmation offers Stop at the first rejection or Set aside rejected records and continue.](../../images/user/18d-load-policy.png)
 
 The outcome separates records **written in Odoo**, **rejected**, and **not
 attempted**. For example, if Odoo accepts one related record and rejects the

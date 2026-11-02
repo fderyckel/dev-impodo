@@ -158,7 +158,7 @@ def _validate_relationship(
             )
         )
     if relation.kind == "many2many":
-        if len(relation.source_column_keys) != 1:
+        if source_provider and len(relation.source_column_keys) != 1:
             issues.append(
                 _issue(
                     "MAPPING_REFERENCE_KEY_INVALID",

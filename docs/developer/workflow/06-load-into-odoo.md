@@ -694,6 +694,48 @@ contract.
 
 ## Rejection diagnostics and generated names
 
+Prepared-data confirmation selects `RejectionPolicy.STOP` or `CONTINUE`.
+[`LoadControl`](../../../src/impodo/domain/execution/load_control.py) owns the
+versioned failure windows and durable pause/stop state.
+[`create_transport_results`](../../../src/impodo/application/workspace/execution/load_transport.py)
+isolates only confirmed rollback rejections through journal callbacks. The
+[`DuckDB companion repository`](../../../src/impodo/adapters/duckdb/execution_load_control.py) retains original rejected transports, control
+history and guarded continuation without rewriting historical row JSON.
+Old runs, transfers and completed-load correction keep their strict policy.
+
+`POST /workspaces/{workspace_id}/load/stop` verifies the session and CSRF token,
+then calls `ExecutionService.request_stop` inside one synchronous local command.
+The journal serializes the stop with the next in-flight transition and releases
+its owner before Odoo transport. An existing request finishes and retains its
+receipt. The controlled route test allows six physical opens: two navigation
+guard owners and four retained command owners, with one schema check.
+This is fixture evidence, not a live-workspace latency guarantee.
+
+A repeated-error pause leaves the journal `RUNNING` and its remaining rows
+unattempted. Check recovery binds the current control hash; confirmed
+continuation resets the probe windows without making failed rows retryable.
+A paused Recipe application stays at comparison rather than being marked
+executed. The progress page and saved result offer **Stop further uploads**.
+The support bundle includes policy version, limits, pause reason and bounded
+model/operation counts without row identities or values.
+
+The focused suites are
+[`test_continuation.py`](../../../tests/application/workspace/execution/test_continuation.py),
+[`test_load_transport.py`](../../../tests/application/workspace/execution/test_load_transport.py),
+[`test_execution_load_control.py`](../../../tests/integration/duckdb/test_execution_load_control.py),
+[`test_load_control_upgrade.py`](../../../tests/integration/duckdb/test_load_control_upgrade.py)
+and [`test_load_controls.py`](../../../tests/integration/web/test_load_controls.py).
+The pure budget tests are
+[`test_load_control.py`](../../../tests/domain/execution/test_load_control.py).
+[`Recipe progress tests`](../../../tests/integration/web/test_recipe_run_progress.py)
+cover the paused application state.
+They cover both supported majors through controlled local/remote execution,
+the 20,000-row all-fail case, isolated rejection, unknown receipts, stop after an
+in-flight write, guarded continuation and legacy preservation. These tests do
+not claim a live Odoo 19 or Odoo 20 acceptance run.
+[`capture_load_controls.py`](../../../scripts/capture_load_controls.py) reproduces
+the current controls with isolated fictional workspaces.
+
 [`OdooWriteDiagnostic`](../../../src/impodo/domain/execution/write_diagnostics.py)
 retains safe operation context in `ExecutionRowAttempt`. The
 [import-response adapter](../../../src/impodo/adapters/odoo/write_diagnostics.py)
@@ -702,6 +744,11 @@ fingerprints bounded server text without storing it. The executor attaches
 this evidence to `OdooWriteRejected`; the service persists it through the
 existing journal transaction. Direct writes, completion writes, and uncertain
 outcomes receive generic operation context when the adapter has no detail.
+The adapter recognizes Odoo's "does not seem to be valid" wording as
+`ODOO_VALUE_REJECTED`. It keeps the original fingerprint and trusts only an
+explicit, reviewed server field identifier; mentioning a tax number in free
+text does not establish a field binding. Historical journal evidence is not
+rewritten by this classification change.
 
 The browser separates written, rejected, and unattempted records. Its support
 projection emits aggregate safe codes and counts using the returned run, with

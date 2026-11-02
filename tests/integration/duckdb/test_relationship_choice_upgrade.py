@@ -18,6 +18,9 @@ class RelationshipChoiceUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_load_control")
+            connection.execute("DROP TABLE execution_rejected_transport")
+            connection.execute("DROP TABLE execution_load_control_event")
             connection.execute(
                 "DROP TABLE matching_order_protected_relationship_choice"
             )
@@ -69,5 +72,5 @@ class RelationshipChoiceUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(2, 3)],
+                [(2, 3), (3, 4), (4, 5)],
             )

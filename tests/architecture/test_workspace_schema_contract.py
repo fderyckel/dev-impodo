@@ -22,7 +22,8 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 3)
+            self.assertEqual(SCHEMA_VERSION, 5)
+            self.assertIn("execution_load_control", {item[0] for item in connection.execute("SHOW TABLES").fetchall()})
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }

@@ -34,6 +34,7 @@ from .forward_upgrades import (
     create_schema_migration_ledger,
     ensure_current_schema,
 )
+from .load_control import create_load_control_event_schema, create_load_control_schema
 from .odoo_company import create_odoo_company_bindings
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
@@ -286,7 +287,8 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "derived_entity_plan_current", "derived_entity_plan_revision",
         "derived_value_artifact_current", "derived_value_artifact_manifest",
         "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
-        "execution_current", "execution_row", "execution_run", "mapping_current",
+        "execution_current", "execution_row", "execution_run", "execution_load_control",
+        "execution_rejected_transport", "execution_load_control_event", "mapping_current",
         "mapping_mutation_receipt", "mapping_revision", "mapping_submission", "mapping_validation",
         "matching_order_preference", "matching_order_check",
         "matching_order_check_active", "matching_order_check_attempt",
@@ -1071,6 +1073,7 @@ class WorkspaceEngineSchemaMixin:
         create_relationship_choice_schema(connection)
         _create_row_inclusion_review_schema(connection)
         create_cross_store_coordination_schema(connection)
+        create_load_control_schema(connection)
 
     def _ensure_workspace_database_schema(
         self,
@@ -1140,6 +1143,9 @@ class WorkspaceEngineSchemaMixin:
         for table, expected in (
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
+            ("execution_load_control", ("run_id", "control_json")),
+            ("execution_load_control_event", ("run_id", "ordinal", "control_json")),
+            ("execution_rejected_transport", ("run_id", "transport_batch", "rejection_json")),
             ("odoo_company_binding", ("binding_hash", "selection_json")),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
             (
@@ -1269,4 +1275,6 @@ def _upgrade_identity_group_review(connection: duckdb.DuckDBPyConnection) -> Non
 WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     1: ForwardSchemaUpgrade("matching-identity-group-members-v2", _upgrade_identity_group_review),
     2: ForwardSchemaUpgrade("matching-relationship-choices-v3", create_relationship_choice_schema),
+    3: ForwardSchemaUpgrade("execution-load-control-v4", create_load_control_schema),
+    4: ForwardSchemaUpgrade("execution-load-control-events-v5", create_load_control_event_schema),
 }

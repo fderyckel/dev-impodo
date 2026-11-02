@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from uuid import uuid4
 
 from impodo.application.supporting_review_service import supporting_review_packet
@@ -11,6 +12,7 @@ from impodo.application.workspace.issues import (
     WorkflowIssueSeverity,
     WorkflowIssueState,
 )
+from impodo.domain.workspace.contracts import SchemaOrigin
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_models import (
     SupportingModelRole,
@@ -18,18 +20,24 @@ from impodo.domain.workspace.supporting_models import (
 )
 from impodo.domain.workspace.supporting_review import (
     SupportingChoiceAction,
+    SupportingReviewProblem,
+    SupportingReviewRequiredError,
     eligible_supporting_fields,
 )
+from impodo.domain.workspace.workbench import SourceMode
 
 
-def supporting_review_view(context, workspace, selection, schema, governance, *, actor):
+def supporting_review_view(
+    context, workspace, selection, schema, governance, *, actor, packet=None
+):
     """Reuse the page's evidence and read rules/review once for all fields."""
     service = context.schema_workspace.supporting
     try:
-        preparation = context.queries.get_derived_entity_plan(workspace.workspace_id)
-        packet = supporting_review_packet(
-            workspace, selection, schema, preparation, governance
-        )
+        if packet is None:
+            preparation = context.queries.get_derived_entity_plan(workspace.workspace_id)
+            packet = supporting_review_packet(
+                workspace, selection, schema, preparation, governance
+            )
         review = service.current(workspace.workspace_id, actor=actor)
         fields = eligible_supporting_fields(schema)
         if len(fields) > 1_000:
@@ -50,12 +58,15 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
             "issues": (_review_issue(workspace.workspace_id, error),),
         }
     error = ""
+    problem = ""
     try:
         service.require_current(
             packet, actor=actor, review=review, read_if_missing=False
         )
     except (ValueError, WorkspaceError) as failure:
         error = str(failure)
+        if isinstance(failure, SupportingReviewRequiredError):
+            problem = failure.problem.value
     saved = (
         {(item.source_model, item.field_name): item for item in review.choices}
         if review
@@ -124,6 +135,10 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
                 if choice
                 else "",
                 "incoming_available": field.relation in workspace.intended_models,
+                "needs_change": bool(
+                    choice and choice.action.value not in {value for value, _ in actions}
+                    or field.required and choice is None
+                ),
             }
         )
     issues = ()
@@ -142,9 +157,11 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
         "rows": tuple(rows),
         "datasets": packet.descriptors,
         "binding_hash": packet.binding_hash,
+        "saved_binding_hash": review.binding_hash if review else "",
         "version": review.version if review else 0,
         "operation_id": str(uuid4()),
         "error": error,
+        "problem": problem,
         "current": review is not None and not error,
         "has_reuse": bool(
             review
@@ -153,6 +170,69 @@ def supporting_review_view(context, workspace, selection, schema, governance, *,
             )
         ),
         "issues": issues,
+    }
+
+
+def mapping_supporting_review_view(
+    request, context, workspace, selection, schema, governance, *, actor, preparation
+):
+    """Project inline recovery from already loaded page evidence, without Odoo I/O."""
+    if (
+        workspace.source_mode is not SourceMode.FILE
+        or selection is None
+        or schema is None
+        or schema.origin is not SchemaOrigin.LIVE_API
+    ):
+        return None
+    owner = context.migration_workspaces.get(workspace.workspace_id, actor=actor)
+    if owner.recipe_application_id:
+        return None
+    packet = supporting_review_packet(
+        workspace, selection, schema, preparation, governance
+    )
+    view = supporting_review_view(
+        context, workspace, selection, schema, governance, actor=actor, packet=packet
+    )
+    marker = request.session.get("supporting_review_refresh")
+    refreshed = bool(
+        isinstance(marker, dict)
+        and marker.get("workspace_id") == workspace.workspace_id
+        and marker.get("schema_hash") == schema.content_hash
+        and marker.get("context_hash") == schema.read_context_hash
+        and marker.get("credential_hash") == schema.read_credential_binding_hash
+        and workspace.odoo_company is not None
+        and workspace.odoo_company.context_hash == schema.read_context_hash
+        and isinstance(marker.get("previous_context_hash"), str)
+        and isinstance(marker.get("previous_credential_hash"), str)
+        and view.get("problem") == SupportingReviewProblem.STALE
+    )
+    if refreshed:
+        # Prove that only the access evidence changed. A later source or
+        # preparation edit must not inherit an old company-refresh explanation.
+        previous = supporting_review_packet(
+            workspace, selection,
+            replace(
+                schema,
+                read_context_hash=marker["previous_context_hash"],
+                read_credential_binding_hash=marker["previous_credential_hash"],
+            ),
+            preparation, governance,
+        )
+        refreshed = previous.binding_hash == view.get("saved_binding_hash")
+    mapping_conflict = request.query_params.get("problem") == SupportingReviewProblem.MAPPING_CONFLICT
+    if mapping_conflict:
+        message = "A related-data choice does not match its linked-field rule. Review the linked fields, then check matches again."
+    elif refreshed and workspace.odoo_company is not None:
+        message = f"Odoo access was refreshed for {workspace.odoo_company.name}. Confirm your related-data choices again before checking matches."
+    elif view.get("problem") == SupportingReviewProblem.STALE:
+        message = "Your source or Odoo details changed. Confirm your related-data choices again before checking matches."
+    elif not view.get("error"):
+        message = "Your related-data choices are saved. Check matches to continue."
+    else:
+        message = "Review where related values come from before checking matches."
+    return {
+        **view, "message": message, "mapping_conflict": mapping_conflict,
+        "account_companies": any(row["model"] == "account.account" and row["field"] == "company_ids" for row in view["rows"]),
     }
 
 

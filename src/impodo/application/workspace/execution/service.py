@@ -16,6 +16,13 @@ from impodo.application.workspace.execution.navigation import (
     ExecutionReviewProjection,
 )
 from impodo.domain.execution.dependency_scheduler import dependency_component_pages
+from impodo.domain.execution.load_control import (
+    LoadControl,
+    LoadControlState,
+    LoadHalted,
+    RejectionPolicy,
+    can_set_aside,
+)
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
@@ -79,6 +86,11 @@ from impodo.domain.workspace.workbench import (
 
 from .business_review import BusinessIntentReview
 from .identity_lookups import NestedIdentityLookup
+from .load_transport import (
+    DependentCompletions,
+    LoadControlRepository,
+    create_transport_results,
+)
 
 DEFAULT_CREATE_BATCH_ROWS = 10
 NO_WRITE_ROWS_MESSAGE = "This preview has no rows to create or update"
@@ -261,6 +273,7 @@ class ExecutionJournalRepository(Protocol):
         actor: Actor,
         transfer_preflight_hash: str = "",
         intent_assessment_hash: str = "",
+        load_control: LoadControl | None = None,
     ) -> None:
         """Durably start the run that ``ExecutionService`` has authorized."""
         ...
@@ -443,6 +456,7 @@ class RecoveryResumePlan:
     safe_to_retry_count: int
     relationship_pending_count: int
     resume_count: int
+    load_control_hash: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -509,6 +523,7 @@ class ExecutionService:
         current_read_credential_binding: (
             ReadCredentialBindingProvider | None
         ) = None,
+        load_controls: LoadControlRepository | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.preflight = preflight
@@ -517,6 +532,7 @@ class ExecutionService:
         self.require_remote_read_identity = require_remote_read_identity
         self.require_remote_write_identity = require_remote_write_identity
         self.current_read_credential_binding = current_read_credential_binding
+        self.load_controls = load_controls
 
     def current_preview(
         self,
@@ -804,6 +820,7 @@ class ExecutionService:
         write_credential_binding_hash: str = "",
         progress: Callable[[ExecutionRun], None] | None = None,
         expected_intent_assessment_hash: str | None = None,
+        rejection_policy: RejectionPolicy = RejectionPolicy.STOP,
     ) -> ExecutionRun:
         """Start and carry out a reviewed conventional Odoo load.
 
@@ -908,7 +925,14 @@ class ExecutionService:
                 write_identity.context_hash if write_identity is not None else ""
             ),
         )
-        self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
+        if self.load_controls is not None:
+            control = LoadControl(policy=rejection_policy)
+            self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash, load_control=control)
+            run = replace(run, load_control=control)
+        else:
+            if rejection_policy is not RejectionPolicy.STOP:
+                raise WorkspaceError("Load continuation is unavailable for this journal")
+            self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
         return self._continue_run(
             workspace_state,
             snapshot,
@@ -1088,6 +1112,7 @@ class ExecutionService:
         write_identity: OdooWriteIdentity | None = None,
         write_credential_binding_hash: str = "",
         progress: Callable[[ExecutionRun], None] | None = None,
+        expected_load_control_hash: str = "",
     ) -> ExecutionRun:
         """Recover an interrupted conventional load before attempting retries.
 
@@ -1132,6 +1157,13 @@ class ExecutionService:
         ):
             raise WorkspaceError("The interrupted load or preview is no longer current")
         self.preflight.require_business_intent_approval(workspace_id, run)
+        paused_control = run.load_control
+        paused = paused_control is not None and paused_control.state is LoadControlState.PAUSED
+        if paused_control is not None and paused and (
+            self.load_controls is None
+            or expected_load_control_hash != paused_control.content_hash
+        ):
+            raise WorkspaceError("Review the paused load before continuing the next group")
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError(
                 "The recovery writer points to a different Odoo target"
@@ -1171,6 +1203,14 @@ class ExecutionService:
             run = self.journal.get_run(workspace_id, run.run_id)
             if run is None:
                 raise WorkspaceError("The recovered load journal could not be reloaded")
+
+        if paused:
+            if self.load_controls is None:
+                raise WorkspaceError("This load has no durable continuation control")
+            control = self.load_controls.resume_load_control(
+                workspace_id, run.run_id, expected_hash=expected_load_control_hash, actor=actor,
+            )
+            run = replace(run, load_control=control)
 
         write_rows = tuple(
             row
@@ -1276,7 +1316,7 @@ class ExecutionService:
             for item in classified
         )
         resume_count = sum(
-            item.status
+            item.diagnostic is None and item.status
             in {
                 ExecutionRowStatus.PLANNED,
                 ExecutionRowStatus.RETRY_READY,
@@ -1295,6 +1335,7 @@ class ExecutionService:
             safe_to_retry_count=safe_to_retry_count,
             relationship_pending_count=relationship_pending_count,
             resume_count=resume_count,
+            load_control_hash=run.load_control.content_hash if run.load_control else "",
         )
 
     def resume_transfer(
@@ -1472,7 +1513,61 @@ class ExecutionService:
             create_with_external_ids=True,
         )
 
+    def request_stop(self, workspace_id: str, run_id: str, *, actor: Actor) -> LoadControl:
+        """Authorize a durable stop for the exact current load."""
+        self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
+        if self.load_controls is None:
+            raise WorkspaceError("Durable load stopping is unavailable")
+        control = self.load_controls.request_load_stop(workspace_id, run_id, actor=actor)
+        saved = self.journal.get_run(workspace_id, run_id)
+        if saved is not None and not saved.in_flight_count and saved.status is ExecutionRunStatus.RUNNING:
+            pending = tuple(replace(row, status=ExecutionRowStatus.BLOCKED,
+                safe_error="Not attempted because the operator stopped further uploads")
+                for row in saved.rows if row.status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
+            if pending:
+                self.journal.record_outcomes(workspace_id, run_id, pending)
+            self.journal.finish_run(workspace_id, run_id, ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
+        return control
+
     def _continue_run(
+        self, workspace_state: WorkspaceState, snapshot: ExecutionSnapshot,
+        run: ExecutionRun, executor: OdooWriteExecutor, actor: Actor, *,
+        identity_cache: dict[str, int], progress: Callable[[ExecutionRun], None] | None,
+        protected_values: Mapping[str, Any] | None = None, create_with_external_ids: bool = False,
+    ) -> ExecutionRun:
+        """End new transport at a durable pause/stop while retaining all receipts."""
+        try:
+            return self._transport_run(workspace_state, snapshot, run, executor, actor,
+                identity_cache=identity_cache, progress=progress, protected_values=protected_values,
+                create_with_external_ids=create_with_external_ids)
+        except (LoadHalted, WorkspaceError) as error:
+            saved = self.journal.get_run(run.workspace_id, run.run_id)
+            if isinstance(error, WorkspaceError) and not (
+                saved is not None and saved.load_control is not None
+                and saved.load_control.state is LoadControlState.STOPPED
+                and saved.status is ExecutionRunStatus.COMPLETED_WITH_ERRORS
+                and not saved.in_flight_count
+            ):
+                raise
+            if saved is None or saved.load_control is None or saved.in_flight_count:
+                raise WorkspaceError("The halted load needs read-back before continuation") from None
+            if saved.status is not ExecutionRunStatus.RUNNING:
+                if progress is not None:
+                    progress(saved)
+                return saved
+            if saved.load_control.state is LoadControlState.STOP_REQUESTED:
+                recorded = {row.row_id: row for row in saved.rows}
+                pending = tuple(row for row in snapshot.rows if row.row_id in recorded
+                    and recorded[row.row_id].status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
+                self._record_blocked(run.workspace_id, run.run_id, pending, recorded,
+                    "Not attempted because the operator stopped further uploads")
+                saved = self.journal.finish_run(run.workspace_id, run.run_id,
+                    ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
+            if progress is not None:
+                progress(saved)
+            return saved
+
+    def _transport_run(
         self,
         workspace_state: WorkspaceState,
         snapshot: ExecutionSnapshot,
@@ -1506,6 +1601,10 @@ class ExecutionService:
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in run.rows
         }
+        accepted_models = {item.target_model for item in run.rows if item.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED}}
+        continuation_policy = bool(run.load_control and run.load_control.policy is RejectionPolicy.CONTINUE)
+        if continuation_policy and run.load_control is not None and not run.load_control.windows:
+            accepted_models.clear()
         progress_rows_since_publish = 0
         progress_row_interval = min(
             create_batch_rows,
@@ -1669,8 +1768,11 @@ class ExecutionService:
                     publish_progress(changed_rows=len(dataset_rows))
                     stop_after_rejection = True
                     continue
-            for start in range(0, len(creates), create_batch_rows):
-                batch = creates[start : start + create_batch_rows]
+            start = 0
+            while start < len(creates):
+                group_size = min(create_batch_rows, 10) if continuation_policy and dataset.target_model not in accepted_models else create_batch_rows
+                batch = creates[start : start + group_size]
+                start += len(batch)
                 prepared_rows: list[
                     tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
                 ] = []
@@ -1727,128 +1829,93 @@ class ExecutionService:
                 for prepared in prepared_rows:
                     groups.setdefault(tuple(sorted(prepared[1])), []).append(prepared)
                 for prepared_group in groups.values():
-                    batch_rows_for_transport = tuple(
-                        item[0] for item in prepared_group
-                    )
-                    self._start_transport_batch(
-                        workspace_id,
-                        run.run_id,
-                        batch_rows_for_transport,
-                        recorded,
-                        phase="CREATE",
-                        component=page.component_sequence,
-                        page=page.page_sequence,
-                        batch=next_transport_batch,
-                    )
-                    next_transport_batch += 1
+                    if stop_after_unknown or stop_after_rejection:
+                        break
                     import_create = (
                         create_with_external_ids
                         or workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
                     )
-                    try:
-                        values = tuple(item[1] for item in prepared_group)
-                        if import_create:
-                            identifiers = executor.load_create_rows(
-                                dataset.target_model,
-                                values,
-                                tuple(item[0].proposed_external_id for item in prepared_group),
+                    continuation = bool(run.load_control and run.load_control.policy is RejectionPolicy.CONTINUE)
+
+                    def begin(group_rows: tuple[ExecutionRow, ...], *, component: int = page.component_sequence, page_sequence: int = page.page_sequence) -> None:
+                        nonlocal next_transport_batch
+                        self._start_transport_batch(workspace_id, run.run_id, group_rows, recorded,
+                            phase="CREATE", component=component,
+                            page=page_sequence, batch=next_transport_batch)
+                        next_transport_batch += 1
+
+                    def rolled_back(group_rows: tuple[ExecutionRow, ...], error: OdooWriteRejected) -> None:
+                        if self.load_controls is None:
+                            raise WorkspaceError("Load isolation has no durable journal")
+                        retries = self.load_controls.record_rejected_batch(
+                            workspace_id, run.run_id, tuple(recorded[row.row_id] for row in group_rows), error)
+                        recorded.update({item.row_id: item for item in retries})
+
+                    for result in create_transport_results(prepared_group, model=dataset.target_model,
+                            executor=executor, import_create=import_create, continuation=continuation,
+                            begin=begin, rolled_back=rolled_back):
+                        error = result.error
+                        if error is not None:
+                            unknown = isinstance(error, OdooWriteOutcomeUnknown)
+                            outcomes = tuple(replace(recorded[row.row_id],
+                                status=ExecutionRowStatus.OUTCOME_UNKNOWN if unknown else ExecutionRowStatus.FAILED,
+                                safe_error=str(error), diagnostic=_write_diagnostic(error, row, len(result.prepared),
+                                    method="load" if import_create else "create"))
+                                for row, _values, _deferred in result.prepared)
+                            self.journal.record_outcomes(workspace_id, run.run_id, outcomes)
+                            recorded.update({item.row_id: item for item in outcomes})
+                            publish_progress(changed_rows=len(outcomes), force=True)
+                            if unknown:
+                                stop_after_unknown = True
+                            elif not (continuation and isinstance(error, OdooWriteRejected) and can_set_aside(error)):
+                                stop_after_rejection = True
+                            continue
+                        accepted_models.add(dataset.target_model)
+                        outcomes = []
+                        for (row, _values, deferred), identifier in zip(
+                            result.prepared, result.identifiers, strict=True
+                        ):
+                            needs_projection = bool(
+                                projected_requirements.get(row.row_id)
                             )
-                        else:
-                            identifiers = executor.create_rows(
-                                dataset.target_model,
-                                values,
-                            )
-                    except OdooWriteOutcomeUnknown as error:
-                        outcomes = tuple(
-                            replace(
-                                recorded[row.row_id],
-                                status=ExecutionRowStatus.OUTCOME_UNKNOWN,
-                                safe_error=str(error),
-                                diagnostic=_write_diagnostic(
-                                    error, row, len(prepared_group),
-                                    method="load" if import_create else "create",
-                                ),
-                            )
-                            for row, _values, _deferred in prepared_group
-                        )
-                        self.journal.record_outcomes(
-                            workspace_id, run.run_id, outcomes
-                        )
-                        recorded.update({item.row_id: item for item in outcomes})
-                        publish_progress(
-                            changed_rows=len(outcomes),
-                            force=True,
-                        )
-                        stop_after_unknown = True
-                        break
-                    except OdooWriteRejected as error:
-                        outcomes = tuple(
-                            replace(
-                                recorded[row.row_id],
-                                status=ExecutionRowStatus.FAILED,
-                                safe_error=str(error),
-                                diagnostic=_write_diagnostic(
-                                    error, row, len(prepared_group),
-                                    method="load" if import_create else "create",
-                                ),
-                            )
-                            for row, _values, _deferred in prepared_group
-                        )
-                        self.journal.record_outcomes(
-                            workspace_id, run.run_id, outcomes
-                        )
-                        recorded.update({item.row_id: item for item in outcomes})
-                        publish_progress(
-                            changed_rows=len(outcomes),
-                            force=True,
-                        )
-                        stop_after_rejection = True
-                        break
-                    outcomes = []
-                    for (row, _values, deferred), identifier in zip(
-                        prepared_group, identifiers, strict=True
-                    ):
-                        needs_projection = bool(
-                            projected_requirements.get(row.row_id)
-                        )
-                        outcome = replace(
-                            recorded[row.row_id],
-                            status=(
-                                ExecutionRowStatus.PARTIALLY_APPLIED
-                                if deferred or needs_projection
-                                else ExecutionRowStatus.COMMITTED
-                            ),
-                            odoo_id=identifier,
-                            safe_error=(
-                                "Created; deferred relationship update pending"
-                                if deferred
-                                else ""
-                            ),
-                        )
-                        if needs_projection and not deferred:
                             outcome = replace(
-                                outcome,
+                                recorded[row.row_id],
+                                status=(
+                                    ExecutionRowStatus.PARTIALLY_APPLIED
+                                    if deferred or needs_projection
+                                    else ExecutionRowStatus.COMMITTED
+                                ),
+                                odoo_id=identifier,
                                 safe_error=(
-                                    "Created; generated relationship read-back pending"
+                                    "Created; deferred relationship update pending"
+                                    if deferred
+                                    else ""
                                 ),
                             )
-                        outcomes.append(outcome)
-                        if deferred:
-                            deferred_by_row[row.row_id] = deferred
-                        source_cache[
-                            (
-                                row.dataset,
-                                _portable_key(row.source_identity),
-                                row.target_model,
-                                "",
-                            )
-                        ] = identifier
-                        identity_cache[_identity_cache_key(row)] = identifier
-                    self.journal.record_outcomes(
-                        workspace_id, run.run_id, outcomes
-                    )
-                    recorded.update({item.row_id: item for item in outcomes})
-                    publish_progress(changed_rows=len(outcomes))
+                            if needs_projection and not deferred:
+                                outcome = replace(
+                                    outcome,
+                                    safe_error=(
+                                        "Created; generated relationship read-back pending"
+                                    ),
+                                )
+                            outcomes.append(outcome)
+                            if deferred:
+                                deferred_by_row[row.row_id] = deferred
+                            source_cache[
+                                (
+                                    row.dataset,
+                                    _portable_key(row.source_identity),
+                                    row.target_model,
+                                    "",
+                                )
+                            ] = identifier
+                            identity_cache[_identity_cache_key(row)] = identifier
+                        self.journal.record_outcomes(
+                            workspace_id, run.run_id, outcomes
+                        )
+                        recorded.update({item.row_id: item for item in outcomes})
+                        publish_progress(changed_rows=len(outcomes))
                 if stop_after_unknown or stop_after_rejection:
                     break
 
@@ -1924,7 +1991,10 @@ class ExecutionService:
                             safe_error=str(error),
                             diagnostic=_write_diagnostic(error, row),
                         )
-                        stop_after_rejection = True
+                        stop_after_rejection = not (
+                            run.load_control and run.load_control.policy is RejectionPolicy.CONTINUE
+                            and can_set_aside(error)
+                        )
                     else:
                         outcome = replace(
                             recorded[row.row_id],
@@ -1956,6 +2026,7 @@ class ExecutionService:
                 executor,
                 next_transport_batch=next_transport_batch,
                 progress=lambda: publish_progress(changed_rows=1),
+                continuation=bool(run.load_control and run.load_control.policy is RejectionPolicy.CONTINUE),
             )
             stop_after_unknown = completion_stopped
             publish_progress(force=True)
@@ -1969,6 +2040,10 @@ class ExecutionService:
                 ExecutionRowStatus.RETRY_READY,
             }
         )
+        if remaining and self.load_controls is not None:
+            control = self.load_controls.get_load_control(workspace_id, run.run_id)
+            if control is not None:
+                control.require_running()
         if remaining:
             self._record_blocked(
                 workspace_id,
@@ -2203,6 +2278,17 @@ class ExecutionService:
                     raise WorkspaceError(
                         "The partial relationship result is not safe to resume"
                     )
+            elif (
+                run.load_control is not None
+                and run.load_control.policy is RejectionPolicy.CONTINUE
+                and run.load_control.state is LoadControlState.PAUSED
+                and status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
+                and outcome.status in {ReconciliationRowStatus.NOT_WRITTEN, ReconciliationRowStatus.VERIFIED, ReconciliationRowStatus.DIFFERENT}
+                and outcome.odoo_id == odoo_id
+            ):
+                # Retain a known rejection or dependency blocker. Recovery never
+                # makes either eligible for another write.
+                pass
             else:
                 raise WorkspaceError(
                     "This stopped load cannot resume; run Check changes again"
@@ -2799,9 +2885,15 @@ class ExecutionService:
         executor: OdooWriteExecutor,
         next_transport_batch: int,
         progress: Callable[[], None],
+        continuation: bool = False,
     ) -> tuple[bool, int]:
         """Patch deferred create relationships after all first-pass creates."""
 
+        dependencies = DependentCompletions(rows, tuple(
+            row.row_id for row in rows
+            if recorded[row.row_id].status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
+            or (recorded[row.row_id].status is ExecutionRowStatus.PARTIALLY_APPLIED and recorded[row.row_id].diagnostic is not None)
+        )) if continuation else None
         for row in rows:
             intents = deferred_by_row.get(row.row_id)
             if not intents:
@@ -2810,7 +2902,14 @@ class ExecutionService:
             if (
                 attempt.status is not ExecutionRowStatus.PARTIALLY_APPLIED
                 or attempt.odoo_id is None
+                or (continuation and attempt.diagnostic is not None)
             ):
+                continue
+            if dependencies is not None and dependencies.blocks(row.row_id):
+                outcome = replace(attempt, safe_error="Created; relationship completion is waiting because a required record was rejected")
+                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                recorded[row.row_id] = outcome
+                progress()
                 continue
             record_id = attempt.odoo_id
             try:
@@ -2835,6 +2934,8 @@ class ExecutionService:
                 )
                 self.journal.record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
+                if dependencies is not None:
+                    dependencies.reject(row.row_id)
                 progress()
                 continue
             self._start_transport_batch(
@@ -2878,6 +2979,13 @@ class ExecutionService:
                         f"update failed: {error}"
                     ),
                 )
+                if not continuation or not can_set_aside(error):
+                    self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                    recorded[row.row_id] = outcome
+                    progress()
+                    return True, next_transport_batch
+                if dependencies is not None:
+                    dependencies.reject(row.row_id)
             else:
                 outcome = replace(
                     attempt,
@@ -2887,8 +2995,6 @@ class ExecutionService:
             self.journal.record_outcomes(workspace_id, run_id, (outcome,))
             recorded[row.row_id] = outcome
             progress()
-            if outcome.status is ExecutionRowStatus.PARTIALLY_APPLIED:
-                return True, next_transport_batch
         return False, next_transport_batch
 
     def _row_values(

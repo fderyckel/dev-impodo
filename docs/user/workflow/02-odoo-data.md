@@ -120,6 +120,11 @@ select and save their business record type, load its Odoo details, and then
 choose **Use an accepted incoming table** with its accepted table name. Saving
 supporting choices never adds another record type to the write scope.
 
+Optional collections such as Contact Activities, Invoices, and Sales Orders
+can remain unused. Their presence in Odoo does not require incoming tables.
+If you map incoming child records to their parent, Impodo still checks that
+relationship and rejects a conflicting choice to leave it empty.
+
 For **Product · Products**, choose **Handled by Odoo** when Impodo recognizes
 the standard Product variant relationship. Odoo creates those variants when
 it creates the Product, so you do not need a separate incoming variants table.
@@ -135,9 +140,21 @@ Odoo records and does not prove that every source value resolves. Save the
 corresponding field or relationship rule in **Match data**, where Impodo checks
 the actual mapped values.
 
+For ledger accounts, choose **Reuse existing Odoo records** for **Account ·
+Companies**, then select **Save choices** and **Check existing Odoo values**.
+Impodo checks accessible company names without adding Companies to the records
+you will import. If two companies have the same name, that name remains
+ambiguous. In **Match data**, choose **The same existing Odoo record for every
+row** on Companies to select one existing company for all accounts. You can
+also connect company names supplied by your source or prepared table. Choosing **Company
+for this load** sets the operating context; it does not fill this list.
+
 If the accepted data, prepared table rules, selected business scope, Odoo
-details, or captured read access changes, review and save the current choices
-again. Impodo preserves your accepted data and matching rules. It blocks
+details, or captured read access changes, review and save your supporting choices
+again. If you saved no choices and no required relationship needs a decision,
+an older empty review does not block **Match data**. Impodo checks the current
+required relationships before allowing you to continue.
+Impodo preserves your accepted data and matching rules. It blocks
 confirmation until the required supporting choices are current.
 
 ![Saved file-source choices reuse existing Countries for two Contact relationships without adding Countries to the write scope.](../../images/user/08i-file-supporting-choices.png)

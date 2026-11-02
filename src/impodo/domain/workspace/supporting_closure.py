@@ -25,7 +25,6 @@ from impodo.domain.workspace.supporting_models import (
 from impodo.domain.workspace.supporting_plan import (
     SupportingDataPlan,
     SupportingDatasetIntent,
-    SupportingPlanRole,
     SupportingRelationshipIntent,
     SupportingSourceDescriptor,
     plan_supporting_data,
@@ -75,34 +74,64 @@ def close_supporting_plan(
             SupportingDatasetIntent(item.dataset_id, item.target_model)
             for item in mappings
         ),
-        relationship_intents=tuple(
-            SupportingRelationshipIntent(
-                item.source_model, item.field_name, item.dataset_id
-            )
-            for item in choices
-            if item.action is not SupportingChoiceAction.SKIP_OPTIONAL
-        ),
+        relationship_intents=supporting_mapping_intents(mappings, schema),
+        reviewed_choices=choices,
     )
-    by_edge = {(item.source_model, item.field_name): item for item in choices}
-    role = {
-        SupportingChoiceAction.INCOMING: SupportingPlanRole.INCOMING_CANDIDATE,
-        SupportingChoiceAction.REUSE: SupportingPlanRole.REUSE_EXISTING,
-        SupportingChoiceAction.CHECKED_DEFAULT: SupportingPlanRole.CHECKED_DEFAULT,
-        SupportingChoiceAction.ODOO_MANAGED: SupportingPlanRole.ODOO_MANAGED,
-    }
-    by_id = {item.dataset_id: item for item in datasets}
-    edges = []
-    for edge in proposal.edges:
-        choice = by_edge.get((edge.source_model, edge.field_name))
-        if choice and choice.action in role:
-            candidates = (
-                (by_id[choice.dataset_id],) if choice.dataset_id in by_id else ()
+    return ReviewedSupportingClosure(proposal, choices, recipe_hash)
+
+
+def supporting_mapping_intents(
+    mappings: tuple[DatasetMapping, ...], schema: OdooSchemaCatalog
+) -> tuple[SupportingRelationshipIntent, ...]:
+    """Retain actual providers and child ownership without inferring write scope."""
+    return _supporting_mapping_usage(mappings, schema)[0]
+
+
+def _supporting_mapping_usage(
+    mappings: tuple[DatasetMapping, ...], schema: OdooSchemaCatalog
+) -> tuple[tuple[SupportingRelationshipIntent, ...], frozenset[tuple[str, str, str]]]:
+    """Keep the exact parent table for conflict checks across repeated models."""
+    by_dataset = {item.dataset_id: item for item in mappings}
+    eligible = eligible_supporting_fields(schema)
+    inverses: dict[tuple[str, str, str], list[str]] = {}
+    for (model_name, field_name), field in eligible.items():
+        if field.type == "one2many" and field.relation and field.relation_field:
+            inverses.setdefault(
+                (model_name, field.relation, field.relation_field), []
+            ).append(field_name)
+    result = set()
+    owners = set()
+    for dataset in mappings:
+        providers = [(item.target_field, item.resolver) for item in dataset.relationships]
+        providers.extend(
+            (item.target_fields[0], item.resolver)
+            for item in (*dataset.target_identity, *dataset.target_scope)
+            if len(item.target_fields) == 1 and item.resolver is not None
+        )
+        for field_name, resolver in providers:
+            if (dataset.target_model, field_name) not in eligible:
+                # Company-dependent and other excluded providers keep their
+                # existing validator and company-policy owner.
+                continue
+            incoming = (
+                resolver.dataset_id or ""
+                if resolver.origin in {ResolverOrigin.DATASET, ResolverOrigin.TARGET_THEN_DATASET}
+                else ""
             )
-            edge = replace(edge, role=role[choice.action], candidates=candidates)
-        edges.append(edge)
-    return ReviewedSupportingClosure(
-        replace(proposal, edges=tuple(edges)), choices, recipe_hash
-    )
+            result.add(SupportingRelationshipIntent(
+                dataset.target_model, field_name, incoming,
+                reuse_existing=resolver.origin is ResolverOrigin.TARGET_CATALOG,
+            ))
+            parent = by_dataset.get(incoming)
+            if parent is not None and dataset.mode is not MappingTargetMode.REFERENCE:
+                for inverse in inverses.get(
+                    (parent.target_model, dataset.target_model, field_name), ()
+                ):
+                    result.add(SupportingRelationshipIntent(
+                        parent.target_model, inverse, dataset.dataset_id
+                    ))
+                    owners.add((parent.dataset_id, inverse, dataset.dataset_id))
+    return tuple(sorted(result)), frozenset(owners)
 
 
 def supporting_mapping_conflicts(
@@ -112,6 +141,7 @@ def supporting_mapping_conflicts(
 ) -> tuple[str, ...]:
     """Check each reviewed edge against every mapping that supplies its parent."""
     fields = eligible_supporting_fields(schema)
+    _intents, inverse_owners = _supporting_mapping_usage(datasets, schema)
     by_model: dict[str, list[DatasetMapping]] = {}
     by_dataset = {item.dataset_id: item for item in datasets}
     for dataset in datasets:
@@ -144,10 +174,8 @@ def supporting_mapping_conflicts(
                 item.target_field == choice.field_name for item in dataset.fields
             )
             inverse_used = field.type == "one2many" and any(
-                item.target_field == field.relation_field
-                and item.resolver.dataset_id == dataset.dataset_id
-                for related in by_model.get(field.relation or "", ())
-                for item in related.relationships
+                parent_id == dataset.dataset_id and field_name == choice.field_name
+                for parent_id, field_name, _child_id in inverse_owners
             )
             handling = next(
                 (
@@ -187,16 +215,8 @@ def supporting_mapping_conflicts(
                     valid = (
                         valid
                         and bool(field.relation_field)
-                        and any(
-                            item.target_field == field.relation_field
-                            and item.resolver.dataset_id == dataset.dataset_id
-                            and item.resolver.origin
-                            in {
-                                ResolverOrigin.DATASET,
-                                ResolverOrigin.TARGET_THEN_DATASET,
-                            }
-                            for item in related.relationships
-                        )
+                        and (dataset.dataset_id, choice.field_name, choice.dataset_id)
+                        in inverse_owners
                     )
                 else:
                     valid = (

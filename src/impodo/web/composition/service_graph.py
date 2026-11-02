@@ -132,6 +132,7 @@ from impodo.application.workspace.derived_entities import (
     DerivedEntityWorkspaceService,
     ExactJoinGroupEvaluator,
 )
+from impodo.application.workspace.execution.load_transport import LoadControlRepository
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationExecutionRepository,
     ReconciliationResultRepository,
@@ -316,6 +317,7 @@ class ExecutionSourcePorts(
 class ExecutionJournalPorts(
     ExecutionJournalRepository,
     ReconciliationExecutionRepository,
+    LoadControlRepository,
     Protocol,
 ):
     """Combine journal commands with the reconciliation read surface."""
@@ -644,6 +646,7 @@ def build_authoring_service_graph(
     capture_filters: OdooCaptureFilterStore,
     logical_source_values: LogicalSourceValues | None = None,
     exact_join_groups: ExactJoinGroupEvaluator | None = None,
+    grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
 ) -> AuthoringServiceGraph:
     """Wire source, Recipe, and Match data without choosing storage adapters."""
 
@@ -721,6 +724,7 @@ def build_authoring_service_graph(
         transformation_impacts,
         artifacts,
         foundation.workspace_access,
+        grouped_exact_joins=grouped_exact_joins,
     )
     row_inclusion_reviews = RowInclusionReviewService(
         transformation_impact_service,
@@ -862,6 +866,7 @@ def build_execution_service_graph(
         require_remote_read_identity=True,
         require_remote_write_identity=True,
         current_read_credential_binding=current_read_credential_binding,
+        load_controls=journal,
     )
     transfer_execution = TransferExecutionService(
         sources,

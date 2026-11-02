@@ -1,0 +1,15 @@
+<div class="notice info" data-odoo-validation-coverage>
+  <strong>What this match check covers</strong>
+  <p><strong>Covered here:</strong> captured Odoo field definitions, required-field decisions and available choice codes. Findings appear in the match check.</p>
+  <p><strong>Not checked:</strong> server VAT rules and other Python or database constraints. Captured field definitions do not contain those rules. Odoo applies them when loading records.</p>
+  {% if migration_workspace and migration_workspace.recipe_application_id %}
+    <p>To change which rows this Recipe uses, revise its <strong>Rows to use</strong> rule and start a new reviewed run. Loading can set aside known rejected records when you choose continuation.</p>
+  {% else %}
+    <p>Fix identified records in the source or matching choices, or set them aside through <strong>Rows to use</strong>. Exclude their exact source keys, then check matches and review the excluded counts before confirming. Their source evidence stays available.</p>
+    <div class="button-row">
+      {% for view in dataset_views if view.active %}
+        <a class="button secondary" href="{{ view.edit_url.split('#')[0] }}#rows-to-use-{{ view.index }}">Rows to use · {{ view.source.name }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+</div>

@@ -1,12 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_Process_LoadOdoo" targetNamespace="https://impodo.dev/bpmn/current" exporter="Impodo documentation generator" exporterVersion="1.0">
   <bpmn:process id="Process_LoadOdoo" name="Load into Odoo" isExecutable="false">
-    <bpmn:documentation>Current disposable-target execution, read-back reconciliation, and completed-load correction workflow.</bpmn:documentation>
+    <bpmn:documentation>Current reviewed execution with rejection continuation, durable pause and stop, read-back reconciliation, and completed-load correction workflow.</bpmn:documentation>
     <bpmn:laneSet id="LaneSet_Process_LoadOdoo">
       <bpmn:lane id="Lane_DataManager" name="Data manager">
         <bpmn:flowNodeRef>Start_Load</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ReviewLoad</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ExplicitLoad</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_ReviewPaused</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_Fallout</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>End_Fallout</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_EditCorrection</bpmn:flowNodeRef>
@@ -26,6 +27,8 @@
         <bpmn:flowNodeRef>Task_RecordAccepted</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_RecordRejected</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_RecordUnknown</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Gateway_Continuation</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_CheckRecovery</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Gateway_MoreBatches</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_ReadBack</bpmn:flowNodeRef>
         <bpmn:flowNodeRef>Task_Reconcile</bpmn:flowNodeRef>
@@ -59,7 +62,7 @@
     <bpmn:endEvent id="End_NoWrite" name="Complete; no writes">
       <bpmn:incoming>Flow_LOAD_04</bpmn:incoming>
     </bpmn:endEvent>
-    <bpmn:userTask id="Task_ReviewLoad" name="Review preview and provide separate write key">
+    <bpmn:userTask id="Task_ReviewLoad" name="Review preview, rejection policy, and separate write key">
       <bpmn:incoming>Flow_LOAD_05</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_06</bpmn:outgoing>
     </bpmn:userTask>
@@ -83,9 +86,10 @@
       <bpmn:incoming>Flow_LOAD_10</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_11</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:serviceTask id="Task_Write" name="Execute bounded dependency-ordered write batch">
+    <bpmn:serviceTask id="Task_Write" name="Check durable stop; journal and execute bounded write batch">
       <bpmn:incoming>Flow_LOAD_11</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_12</bpmn:outgoing>
+      <bpmn:incoming>Flow_LOAD_39</bpmn:incoming>
       <bpmn:incoming>Flow_LOAD_19</bpmn:incoming>
     </bpmn:serviceTask>
     <bpmn:exclusiveGateway id="Gateway_Transport" name="Transport outcome?">
@@ -106,13 +110,32 @@
       <bpmn:incoming>Flow_LOAD_15</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_18</bpmn:outgoing>
     </bpmn:serviceTask>
-    <bpmn:exclusiveGateway id="Gateway_MoreBatches" name="More reviewed batches?">
+    <bpmn:exclusiveGateway id="Gateway_Continuation" name="Policy and control allow continuation?">
       <bpmn:incoming>Flow_LOAD_16</bpmn:incoming>
+      <bpmn:incoming>Flow_LOAD_17</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_35</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_36</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_37</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="Task_ReviewPaused" name="Review pause; confirm next group or stop uploads">
+      <bpmn:incoming>Flow_LOAD_36</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_38</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_40</bpmn:outgoing>
+      <bpmn:incoming>Flow_LOAD_41</bpmn:incoming>
+    </bpmn:userTask>
+    <bpmn:serviceTask id="Task_CheckRecovery" name="Check identity, expectations, read-back and control hash">
+      <bpmn:incoming>Flow_LOAD_38</bpmn:incoming>
+      <bpmn:outgoing>Flow_LOAD_39</bpmn:outgoing>
+      <bpmn:outgoing>Flow_LOAD_41</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:exclusiveGateway id="Gateway_MoreBatches" name="More reviewed batches?">
+      <bpmn:incoming>Flow_LOAD_35</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_19</bpmn:outgoing>
       <bpmn:outgoing>Flow_LOAD_20</bpmn:outgoing>
     </bpmn:exclusiveGateway>
     <bpmn:serviceTask id="Task_ReadBack" name="Read back exact affected records">
-      <bpmn:incoming>Flow_LOAD_17</bpmn:incoming>
+      <bpmn:incoming>Flow_LOAD_37</bpmn:incoming>
+      <bpmn:incoming>Flow_LOAD_40</bpmn:incoming>
       <bpmn:incoming>Flow_LOAD_18</bpmn:incoming>
       <bpmn:incoming>Flow_LOAD_20</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_21</bpmn:outgoing>
@@ -187,8 +210,15 @@
     <bpmn:sequenceFlow id="Flow_LOAD_13" sourceRef="Gateway_Transport" targetRef="Task_RecordAccepted" name="Accepted" />
     <bpmn:sequenceFlow id="Flow_LOAD_14" sourceRef="Gateway_Transport" targetRef="Task_RecordRejected" name="Rejected or partial" />
     <bpmn:sequenceFlow id="Flow_LOAD_15" sourceRef="Gateway_Transport" targetRef="Task_RecordUnknown" name="Timeout or lost response" />
-    <bpmn:sequenceFlow id="Flow_LOAD_16" sourceRef="Task_RecordAccepted" targetRef="Gateway_MoreBatches" />
-    <bpmn:sequenceFlow id="Flow_LOAD_17" sourceRef="Task_RecordRejected" targetRef="Task_ReadBack" />
+    <bpmn:sequenceFlow id="Flow_LOAD_16" sourceRef="Task_RecordAccepted" targetRef="Gateway_Continuation" />
+    <bpmn:sequenceFlow id="Flow_LOAD_17" sourceRef="Task_RecordRejected" targetRef="Gateway_Continuation" />
+    <bpmn:sequenceFlow id="Flow_LOAD_35" sourceRef="Gateway_Continuation" targetRef="Gateway_MoreBatches" name="Running; known independent work" />
+    <bpmn:sequenceFlow id="Flow_LOAD_36" sourceRef="Gateway_Continuation" targetRef="Task_ReviewPaused" name="Failure budget paused" />
+    <bpmn:sequenceFlow id="Flow_LOAD_37" sourceRef="Gateway_Continuation" targetRef="Task_ReadBack" name="Stop policy or operator stop" />
+    <bpmn:sequenceFlow id="Flow_LOAD_38" sourceRef="Task_ReviewPaused" targetRef="Task_CheckRecovery" name="Explicit continue" />
+    <bpmn:sequenceFlow id="Flow_LOAD_39" sourceRef="Task_CheckRecovery" targetRef="Task_Write" name="Fresh checks pass; same journal" />
+    <bpmn:sequenceFlow id="Flow_LOAD_40" sourceRef="Task_ReviewPaused" targetRef="Task_ReadBack" name="Stop further uploads" />
+    <bpmn:sequenceFlow id="Flow_LOAD_41" sourceRef="Task_CheckRecovery" targetRef="Task_ReviewPaused" name="Changed or unresolved; no write" />
     <bpmn:sequenceFlow id="Flow_LOAD_18" sourceRef="Task_RecordUnknown" targetRef="Task_ReadBack" />
     <bpmn:sequenceFlow id="Flow_LOAD_19" sourceRef="Gateway_MoreBatches" targetRef="Task_Write" name="Yes" />
     <bpmn:sequenceFlow id="Flow_LOAD_20" sourceRef="Gateway_MoreBatches" targetRef="Task_ReadBack" name="No" />
@@ -275,6 +305,15 @@
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Task_RecordUnknown" bpmnElement="Task_RecordUnknown">
         <dc:Bounds x="1770" y="210" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Gateway_Continuation" bpmnElement="Gateway_Continuation" isMarkerVisible="true">
+        <dc:Bounds x="1980" y="430" width="50" height="50" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_ReviewPaused" bpmnElement="Task_ReviewPaused">
+        <dc:Bounds x="1920" y="110" width="150" height="70" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Task_CheckRecovery" bpmnElement="Task_CheckRecovery">
+        <dc:Bounds x="2110" y="430" width="150" height="70" />
       </bpmndi:BPMNShape>
       <bpmndi:BPMNShape id="Shape_Gateway_MoreBatches" bpmnElement="Gateway_MoreBatches" isMarkerVisible="true">
         <dc:Bounds x="1980" y="340" width="50" height="50" />
@@ -388,11 +427,45 @@
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_LOAD_16" bpmnElement="Flow_LOAD_16">
         <di:waypoint x="1920" y="335" />
-        <di:waypoint x="1980" y="365" />
+        <di:waypoint x="1980" y="455" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_LOAD_17" bpmnElement="Flow_LOAD_17">
         <di:waypoint x="1920" y="425" />
+        <di:waypoint x="1980" y="455" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_35" bpmnElement="Flow_LOAD_35">
+        <di:waypoint x="2030" y="455" />
+        <di:waypoint x="1980" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_36" bpmnElement="Flow_LOAD_36">
+        <di:waypoint x="2030" y="455" />
+        <di:waypoint x="2055" y="525" />
+        <di:waypoint x="1895" y="525" />
+        <di:waypoint x="1920" y="145" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_37" bpmnElement="Flow_LOAD_37">
+        <di:waypoint x="2030" y="455" />
         <di:waypoint x="2110" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_38" bpmnElement="Flow_LOAD_38">
+        <di:waypoint x="2070" y="145" />
+        <di:waypoint x="2110" y="465" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_39" bpmnElement="Flow_LOAD_39">
+        <di:waypoint x="2260" y="465" />
+        <di:waypoint x="2285" y="545" />
+        <di:waypoint x="1425" y="545" />
+        <di:waypoint x="1450" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_40" bpmnElement="Flow_LOAD_40">
+        <di:waypoint x="2070" y="145" />
+        <di:waypoint x="2110" y="365" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_Flow_LOAD_41" bpmnElement="Flow_LOAD_41">
+        <di:waypoint x="2260" y="465" />
+        <di:waypoint x="2285" y="545" />
+        <di:waypoint x="1895" y="545" />
+        <di:waypoint x="1920" y="145" />
       </bpmndi:BPMNEdge>
       <bpmndi:BPMNEdge id="Edge_Flow_LOAD_18" bpmnElement="Flow_LOAD_18">
         <di:waypoint x="1920" y="245" />

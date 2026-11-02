@@ -37,6 +37,9 @@ from impodo.adapters.odoo.connectors import (
     observe_json2_read_failures,
 )
 from impodo.application.shared.build_contract import ApplicationBuildContract
+from impodo.domain.execution.load_control import FailureWindow, LoadControl
+from impodo.domain.mapping.mutations import MappingMutationAction
+from impodo.web.supporting_diagnostics import sanitize_supporting_failure
 
 DIAGNOSTIC_SCHEMA_VERSION = 1
 DIAGNOSTIC_DIRECTORY_NAME = "diagnostics"
@@ -48,9 +51,10 @@ DEFAULT_BACKUP_COUNT = 5
 DEFAULT_SLOW_REQUEST_SECONDS = 2.0
 DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS = 0.25
 REQUEST_ID_HEADER = "X-Impodo-Request-ID"
-DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 1
+DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 2
 DEFAULT_MAX_BUNDLE_RECORDS = 5_000
 DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES = 64 * 1024
+_MAPPING_ACTIONS = {item.value for item in MappingMutationAction}
 
 _SAFE_SERVER_TIMINGS = frozenset(
     {
@@ -357,6 +361,8 @@ class LocalDiagnosticRecorder:
         exception_class: str | None = None,
         working_draft_version: int | None = None,
         mapping_operation_id: str | None = None,
+        validation_failure: object = None,
+        mapping_action: str | None = None,
         server_timings_ms: dict[str, float] | None = None,
         database_connection_count: int | None = None,
         database_schema_check_count: int | None = None,
@@ -388,6 +394,11 @@ class LocalDiagnosticRecorder:
         safe_operation_id = _safe_mapping_operation_id(mapping_operation_id)
         if safe_operation_id is not None:
             payload["mapping_operation_id"] = safe_operation_id
+        failure = sanitize_supporting_failure(validation_failure)
+        if failure is not None:
+            payload["validation_failure"] = failure
+        if isinstance(mapping_action, str) and mapping_action in _MAPPING_ACTIONS:
+            payload["mapping_action"] = mapping_action
         for name, value in (
             ("database_connection_count", database_connection_count),
             ("database_schema_check_count", database_schema_check_count),
@@ -488,6 +499,19 @@ class LocalDiagnosticRecorder:
                 0, min(10_000, int(new_record_types))
             )
         self._write(payload)
+
+    def record_load_control(self, control: LoadControl) -> None:
+        """Retain bounded policy, pause limits and counts without row evidence."""
+        payload = json.loads(control.to_json())
+        payload.pop("windows")
+        payload["failure_windows"] = [
+            {"model": window.model, "operation": window.operation,
+             "consecutive_rejections": window.consecutive,
+             "settled_count": len(window.recent), "rejected_count": sum(window.recent)}
+            for window in control.windows[:20]
+        ]
+        payload["omitted_window_count"] = max(0, len(control.windows) - 20)
+        self._write({"event": "odoo_load_control", **payload})
 
     def close(self) -> None:
         """Flush and close the rotating file without writing another record."""
@@ -620,6 +644,8 @@ class RequestDiagnosticsMiddleware:
                         state.get("diagnostic_working_draft_version")
                     ),
                     mapping_operation_id=state.get("diagnostic_mapping_operation_id"),
+                    validation_failure=state.get("diagnostic_validation_failure"),
+                    mapping_action=state.get("diagnostic_mapping_action"),
                     server_timings_ms=server_timings_ms,
                     database_connection_count=(
                         database_timings.connection_count
@@ -685,6 +711,14 @@ def create_diagnostic_bundle(
             continue
 
     records.sort(key=lambda item: str(item.get("recorded_at", "")))
+    failure_records = [
+        item for item in records
+        if item.get("validation_failure")
+        or item.get("exception_class")
+        or item.get("event") == "odoo_json2_read_failed"
+        or (item.get("event") == "odoo_load_control" and item.get("state") in {"PAUSED", "STOPPED"})
+        or (isinstance(item.get("status_code"), int) and item["status_code"] >= 400)
+    ][-100:]
     records = records[-max_records:]
     slow_records = [
         item
@@ -718,8 +752,10 @@ def create_diagnostic_bundle(
         },
         "record_count": len(records),
         "slow_record_count": len(slow_records),
+        "failure_record_count": len(failure_records),
         "privacy": (
-            "Operational metadata only. Source rows, formulas, credentials, "
+            "Operational and technical schema metadata only, including model and field identifiers. "
+            "Source rows, formulas, credentials, "
             "tokens, request bodies, headers, URLs, and query strings are omitted."
         ),
     }
@@ -736,6 +772,10 @@ def create_diagnostic_bundle(
             + "\n",
         )
         archive.writestr("diagnostics.jsonl", encoded_records)
+        archive.writestr(
+            "recent-failures.json",
+            json.dumps(failure_records, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+        )
         archive.writestr(
             "slow-requests.json",
             json.dumps(
@@ -929,6 +969,8 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "recorded_at": recorded_at,
         "event": event,
     }
+    if event == "odoo_load_control":
+        safe.update(_sanitize_load_control(value))
     integer_fields = {
         "process_id": (1, 2_147_483_647),
         "child_process_id": (1, 2_147_483_647),
@@ -971,6 +1013,11 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
     operation_id = _safe_mapping_operation_id(value.get("mapping_operation_id"))
     if operation_id is not None:
         safe["mapping_operation_id"] = operation_id
+    failure = sanitize_supporting_failure(value.get("validation_failure"))
+    if failure is not None:
+        safe["validation_failure"] = failure
+    if isinstance(value.get("mapping_action"), str) and value["mapping_action"] in _MAPPING_ACTIONS:
+        safe["mapping_action"] = value["mapping_action"]
     if "method" in value:
         safe["method"] = _safe_method(str(value["method"]))
     if "route_template" in value:
@@ -989,6 +1036,49 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         if safe_timings:
             safe["server_timings_ms"] = safe_timings
     return safe
+
+
+def _sanitize_load_control(value: dict[str, Any]) -> dict[str, Any]:
+    """Keep validated pause limits and counts without copying row evidence."""
+    keys = (
+        "policy", "state", "reason", "consecutive_limit", "window_size",
+        "minimum_results", "rejection_percent", "isolation_limit",
+        "isolation_calls", "contract_version",
+    )
+    try:
+        control = LoadControl(**{key: value[key] for key in keys})
+    except (KeyError, TypeError, ValueError):
+        return {}
+    result = json.loads(control.to_json())
+    result.pop("windows")
+    result.pop("content_hash")
+    windows = []
+    raw_windows = value.get("failure_windows")
+    for raw in raw_windows[:20] if isinstance(raw_windows, list) else ():
+        if not isinstance(raw, dict):
+            continue
+        try:
+            window = FailureWindow(
+                raw["model"], raw["operation"], raw["consecutive_rejections"]
+            )
+            settled, rejected = raw["settled_count"], raw["rejected_count"]
+            if (
+                type(settled) is not int or type(rejected) is not int
+                or not 0 <= rejected <= settled <= control.window_size
+            ):
+                continue
+        except (KeyError, TypeError, ValueError):
+            continue
+        windows.append({
+            "model": window.model, "operation": window.operation,
+            "consecutive_rejections": window.consecutive,
+            "settled_count": settled, "rejected_count": rejected,
+        })
+    result["failure_windows"] = windows
+    omitted = value.get("omitted_window_count")
+    if type(omitted) is int and 0 <= omitted <= 1_000:
+        result["omitted_window_count"] = omitted
+    return result
 
 
 def _bounded_int(value: Any, minimum: int, maximum: int) -> int | None:

@@ -71,6 +71,8 @@ from impodo.domain.workspace.derived_entities import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import reference_policy_hash
+from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
+from impodo.domain.workspace.supporting_review import SupportingReviewRequiredError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 from impodo.web.composition.target_readers import (
     _capture_mapping_supporting_values,
@@ -168,6 +170,7 @@ from ..presenters.mapping_view import (
 from ..request_identity import request_identity
 from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
+from ..supporting_diagnostics import set_diagnostic_supporting_failure
 from .matching_company_refresh import (
     build_matching_company_refresh_router,
     check_matching_access,
@@ -936,7 +939,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Linked record matching requires confirmed Odoo matching rules"
                     )
-                if field.type != "many2one" or not field.relation:
+                if (
+                    not field.relation
+                    or field.type not in {"many2one", "many2many"}
+                    or (field.type == "many2many" and kind != "constant_relationship")
+                ):
                     raise WorkspaceError(
                         "Value matching currently supports linked single records"
                     )
@@ -1484,6 +1491,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 operation_id = _text(form, "operation_id") or str(uuid4())
                 set_diagnostic_mapping_operation_id(request, operation_id)
+                request.state.diagnostic_mapping_action = _mapping_mutation_action(action).value
                 receipt = context.mapping_workspace.begin_mutation(
                     workspace_id,
                     operation_id=operation_id,
@@ -2258,6 +2266,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             MigrationRunPlanningError,
             WorkspaceError,
         ) as error:
+            if isinstance(error, SupportingPlanIncompleteError):
+                set_diagnostic_supporting_failure(request, error)
             failure_code = (
                 _ROW_REVIEW_FAILURE_CODE
                 if row_review_check_started
@@ -2754,6 +2764,8 @@ async def _reject_mapping_mutation(
 
 
 def _mapping_mutation_failure_code(error: Exception) -> str:
+    if isinstance(error, (SupportingPlanIncompleteError, SupportingReviewRequiredError)):
+        return error.failure_code
     if isinstance(error, (ConnectorError, SecretStoreError)):
         return "ODOO_READ_FAILED"
     if isinstance(error, MigrationRunPlanningError):

@@ -208,6 +208,38 @@ method.
 
 ## Safe write diagnostics
 
+For conventional prepared-data loads, confirmation selects the versioned
+`STOP` or `CONTINUE` rejection policy. `LoadControl` stores that policy and its
+failure limits beside the journal. A historical run without this companion
+retains `STOP`. Transfers and completed-load correction retain their existing
+strict policy. Snapshot and historical row hashes are unchanged.
+
+Continuation applies only to classified, uncommitted data rejections. A rejected
+create group is retained in `execution_rejected_transport` before its rows
+become retry-ready. Deterministic bisection keeps original values and External
+IDs. Each child has a new journalled transport batch and incremented attempt.
+An unknown response never permits splitting or resend. Access failures and
+unclassified rejections stop subsequent transport.
+
+Failure windows belong to one model and transport phase. They count distinct
+settled rows, exclude rolled-back peers and dependency blockers, and are
+evaluated after the complete receipt. Limits pause after ten consecutive
+rejections, a 20% rejection rate in the latest fifty settled rows after at
+least twenty results, or twenty-five additional isolation calls without a
+successful commit. The first create group for a model is at most ten rows.
+The latest control and its append-only history remain in
+`execution_load_control` and `execution_load_control_event`.
+
+A stop request and each in-flight transition share the journal owner's short
+local transaction lock. The transition checks the durable control before
+transport; the lock and database connection end before the Odoo call. An
+in-flight request finishes and records its receipt after a stop. A paused load
+retains its unattempted rows. Continuation binds the current control hash,
+current business expectations, identity and fresh recovery evidence. It keeps
+known rejected rows ineligible for transport. Stop requests cannot be resumed
+as automatic pauses. Final reconciliation and count expectations still govern
+completion.
+
 Conventional execution checks that a supplied write identity uses the ready
 comparison's company context before it creates a load journal. This repeats
 the browser's company-context guard inside the application service. Different
@@ -314,8 +346,10 @@ identifier; it never recreates the source or accepts a changed projected
 identifier. A
 committed dependency that changed, an ambiguous match, a missing
 receipt, another target, or another principal stops prepared-data resume. A
-changed earlier transfer component also stops transfer resume. Known rejections
-and terminal `OUTCOME_UNKNOWN` runs require a new **Check changes** result.
+changed earlier transfer component also stops transfer resume. Retrying known
+rejected rows and terminal `OUTCOME_UNKNOWN` runs requires a new **Check changes**
+result. A paused continuation may advance independent unattempted rows while
+retaining those known rejections.
 
 Stage 6 automatically attempts read-back after a completed transfer and also
 offers manual verification of its saved journal. A `RUNNING` transfer exposes

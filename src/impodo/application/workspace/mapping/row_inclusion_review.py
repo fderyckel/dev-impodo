@@ -28,6 +28,10 @@ from .bounded_direct_review import (
     direct_row_inclusion_review,
     uses_bounded_direct_review,
 )
+from .bounded_join_review import (
+    joined_row_inclusion_review,
+    supports_bounded_join_review,
+)
 
 
 class RowInclusionReviewRepository(Protocol):
@@ -121,7 +125,17 @@ class RowInclusionReviewService:
         snapshots = self.checked_mapping.sources.get_current_source_snapshots(
             workspace_id
         )
-        if uses_bounded_direct_review(
+        if (
+            context.plan is not None
+            and self.checked_mapping.grouped_exact_joins is not None
+            and supports_bounded_join_review(context.physical_selection, context.effective_selection, context.plan)
+        ):
+            report = joined_row_inclusion_review(
+                context.workspace_state, context.revision.definition,
+                context.physical_selection, context.effective_selection, context.plan,
+                self.checked_mapping.artifacts, self.checked_mapping.grouped_exact_joins, snapshots,
+            )
+        elif uses_bounded_direct_review(
             context.physical_selection,
             context.effective_selection,
             context.plan,
@@ -185,7 +199,17 @@ class RowInclusionReviewService:
         snapshots = self.checked_mapping.sources.get_current_source_snapshots(
             workspace_id
         )
-        if uses_bounded_direct_review(
+        if (
+            context.plan is not None
+            and self.checked_mapping.grouped_exact_joins is not None
+            and supports_bounded_join_review(context.physical_selection, context.effective_selection, context.plan)
+        ):
+            report = joined_row_inclusion_review(
+                context.workspace_state, definition,
+                context.physical_selection, context.effective_selection, context.plan,
+                self.checked_mapping.artifacts, self.checked_mapping.grouped_exact_joins, snapshots,
+            )
+        elif uses_bounded_direct_review(
             context.physical_selection,
             context.effective_selection,
             context.plan,

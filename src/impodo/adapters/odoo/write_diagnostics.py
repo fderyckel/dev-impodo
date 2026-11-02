@@ -92,7 +92,12 @@ def import_rejection_diagnostic(
             or "duplicate key" in probe
         ):
             code = WriteFailureCode.CONSTRAINT
-        elif "not valid" in probe or "invalid" in probe or "validationerror" in probe:
+        elif (
+            "not valid" in probe
+            or "invalid" in probe
+            or "validationerror" in probe
+            or "does not seem to be valid" in probe
+        ):
             code = WriteFailureCode.VALIDATION
         codes.append(code)
     specific = tuple(

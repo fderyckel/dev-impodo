@@ -308,6 +308,15 @@
             <small>Use 10 for constrained hosted servers. A tested self-hosted server can use a larger value. This changes request size, not the total records loaded.</small>
           </label>
         </details>
+        <label>
+          If Odoo rejects a record
+          <select name="rejection_policy" required>
+            <option value="STOP">Stop at the first rejection</option>
+            <option value="CONTINUE">Set aside rejected records and continue</option>
+          </select>
+          <small>Continuation pauses automatically after repeated failures. Uncertain results always stop further uploads.</small>
+        </label>
+        <input type="hidden" name="load_policy_version" value="1">
         <div class="button-row">
           <button class="button primary" type="submit">Load {{ preview.snapshot.write_count }} record{{ 's' if preview.snapshot.write_count != 1 else '' }} into Odoo</button>
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/load/review">Back to check changes</a>
@@ -318,14 +327,15 @@
     {% endif %}
 
   {% else %}
+    {% set paused_load = preview.current_run and preview.current_run.load_control and preview.current_run.load_control.state.value == 'PAUSED' %}
     <div class="page-heading">
       <div>
         <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Verify result{% else %}Stage 6 of 6 &middot; Verify result{% endif %}</p>
-        <h1>{{ 'Continue the interrupted Odoo load' if interrupted_load else 'Verify the Odoo result' }}</h1>
-        <p>{% if interrupted_load %}The saved upload is unfinished. Impodo must check the actual Odoo records before continuing.{% else %}The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.{% endif %}</p>
+        <h1>{{ 'Review the paused Odoo load' if paused_load else 'Continue the interrupted Odoo load' if interrupted_load else 'Verify the Odoo result' }}</h1>
+        <p>{% if paused_load %}Repeated failures paused further uploads. Review the saved results before deciding whether to continue.{% elif interrupted_load %}The saved upload is unfinished. Impodo must check the actual Odoo records before continuing.{% else %}The API receipt is saved. Verification checks the actual Odoo records before this load is considered complete.{% endif %}</p>
       </div>
       <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
-        {% if interrupted_load %}Interrupted load{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
+        {% if paused_load %}Paused{% elif interrupted_load %}Interrupted load{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs checking{% else %}Verified with fallout{% endif %}
       </span>
     </div>
 
@@ -341,9 +351,13 @@
     {% endif %}
 
     {% if interrupted_load %}
+      {% set paused_load = preview.current_run.load_control and preview.current_run.load_control.state.value == 'PAUSED' %}
       <section class="next-action-card review" aria-labelledby="load-recovery-title">
         <div>
-          <p class="eyebrow">Interrupted load</p>
+          <p class="eyebrow">{{ 'Paused after repeated failures' if paused_load else 'Interrupted load' }}</p>
+          {% if paused_load %}
+            <p>Odoo rejected {{ preview.current_run.rejected_count }} records. The {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} remaining records have not been attempted. Review the rejected rows below before continuing.</p>
+          {% endif %}
           <h2 id="load-recovery-title">{{ 'Recovery ready' if recovery_check else 'Reconnect and check recovery' }} {{ decision_help("load-recovery") }}</h2>
           <p><strong>{{ preview.current_run.committed_count }} accepted &middot;
             {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} waiting to load &middot;
@@ -361,6 +375,7 @@
             <p><strong>Check recovery cannot create or update Odoo records.</strong></p>
           {% endif %}
         </div>
+        <div class="load-recovery-actions">
         {% if recovery_check %}
           <form method="post" action="/workspaces/{{ workspace_id }}/load/recover" data-recovery-action-form>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -371,7 +386,7 @@
               <input type="checkbox" name="confirm_resume" required>
               <span>I confirm that Impodo may continue this saved load</span>
             </label>
-            <button class="button primary" type="submit" data-busy-label="Starting recovery...">Resume saved load</button>
+            <button class="button primary" type="submit" data-busy-label="Starting recovery...">{{ 'Continue with the next small group' if paused_load else 'Resume saved load' }}</button>
             <small class="muted" role="status" data-recovery-action-status hidden>Repeating the safety check before any remaining records are sent to Odoo.</small>
           </form>
         {% else %}
@@ -405,6 +420,12 @@
             <p>The original saved loading key is unavailable, and this older load has no write-identity evidence that can safely authorize another key. Do not start another load.</p>
           {% endif %}
         {% endif %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/load/stop">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="execution_run_id" value="{{ preview.current_run.run_id }}">
+          <button class="button secondary" type="submit">Stop further uploads</button>
+        </form>
+        </div>
       </section>
     {% elif reconciliation %}
       <section class="next-action-card {% if reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}" aria-labelledby="load-result-title">
@@ -437,7 +458,7 @@
             <p><strong>{{ reconciliation_summary.different_count }} different &middot; {{ reconciliation_summary.missing_count }} missing &middot; {{ reconciliation_summary.not_written_count }} not written &middot; {{ reconciliation_summary.unknown_count }} unknown.</strong></p>
           {% else %}
             {% if reconciliation_summary.rejected_count %}
-              <p>Loading stopped after Odoo rejected a write. Records marked not attempted were stopped afterward; Odoo did not reject them individually. Review the rejected row's diagnostic below.</p>
+              <p>Odoo rejected {{ reconciliation_summary.rejected_count }} records. Review their diagnostics below. Records marked not attempted were not sent. Odoo did not reject them individually.</p>
             {% endif %}
             {% if reconciliation_summary.missing_count == 0 and reconciliation_summary.not_written_count == 0 and reconciliation_summary.unknown_count == 0 %}
               <p>These records were not rejected. Odoo accepted the write, then returned a different final value in {{ reconciliation_summary.affected_field_count }} field{{ 's' if reconciliation_summary.affected_field_count != 1 else '' }}.</p>

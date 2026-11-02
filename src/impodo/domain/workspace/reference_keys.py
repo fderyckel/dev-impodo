@@ -9,7 +9,7 @@ from typing import Protocol
 
 from impodo.domain.serialization import content_hash
 
-REFERENCE_POLICY_VERSION = 4
+REFERENCE_POLICY_VERSION = 5
 
 
 class ReferenceReadPurpose(StrEnum):
@@ -237,6 +237,22 @@ PRODUCT_VARIANT_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
         "must prove that every incoming reference identifies at most one product."
     ),
 )
+COMPANY_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
+    model="res.company",
+    odoo_major_version=19,
+    key_fields=("name",),
+    scope_fields=(),
+    display_field="name",
+    field_contracts=(
+        StandardReferenceFieldContract("name", "char", True, False),
+    ),
+    description="Company name",
+    reason="Company names provide portable references to existing companies.",
+    warning=(
+        "The connected destination must prove that each company name identifies "
+        "exactly one accessible company. Repeated names remain ambiguous."
+    ),
+)
 
 
 def _candidate_for_major(
@@ -252,6 +268,7 @@ _SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR = {
         for item in (
             BOM_REFERENCE_CANDIDATE,
             PRODUCT_VARIANT_REFERENCE_CANDIDATE,
+            COMPANY_REFERENCE_CANDIDATE,
         )
     }
     for major in (19, 20)
@@ -290,6 +307,13 @@ def _reference_policy_hash(
         "bounded_match_probe": {
             "purpose": ReferenceReadPurpose.MATCH_CHOICES,
             "relationship_type": "many2one",
+            "company_list_probe": {
+                "relationship_type": "many2many",
+                "related_model": "res.company",
+                "key_fields": ("name",),
+                "scope_fields": (),
+                "requested_fields": ("name",),
+            },
             "identities": (
                 {
                     "key_fields": ("name",),
@@ -367,6 +391,8 @@ PREVIOUS_REFERENCE_POLICY_HASHES = frozenset(
         PREVIOUS_REFERENCE_POLICY_HASH,
         "sha256:b0f241e8d0b5a302799ac4a8db0673123fb3d4d6523ed6e3d6dede30bfc359b8",
         "sha256:462e13bfba360a4c4ddc1124a8ed3426fad99755bb6d62f98305d6ecf1fe5a11",
+        "sha256:2c0d36b4830ff458df6b501f18aca56b6d54833700fd8641096a70ea2c8fca25",
+        "sha256:15268eed0edc1c73d11e8d75a8fc98c6d62f763efb770b9bc4707338d7cf6233",
     }
 )
 READABLE_REFERENCE_POLICY_HASHES = frozenset(
@@ -380,6 +406,21 @@ def reference_policy_hash(odoo_major_version: int) -> str | None:
     return REFERENCE_POLICY_HASHES.get(odoo_major_version)
 
 
+def _candidate_fields_match(
+    candidate: SupportingReferenceCandidate,
+    captured_fields: tuple[StandardReferenceFieldContract, ...],
+) -> bool:
+    """Verify candidate field types without granting a relationship read."""
+
+    fields = {field.name: field for field in captured_fields}
+    return all(
+        (actual := fields.get(expected.name)) is not None
+        and actual.field_type == expected.field_type
+        and actual.relation_model == expected.relation_model
+        for expected in candidate.field_contracts
+    )
+
+
 def authorize_supporting_match_probe(
     request: GovernedReferenceRequest,
     *,
@@ -390,8 +431,8 @@ def authorize_supporting_match_probe(
     This is deliberately narrower than normal reference authorization.  It
     lets Match data inspect either the generic ``name`` fallback or an exact
     reviewed supporting candidate on the related model named by a captured
-    parent field. The returned field types must be verified before any choices
-    become evidence.
+    parent field. Company-name probes also support a captured Companies list.
+    The returned field types must be verified before any choices become evidence.
     """
 
     name_only = request.scope_fields == () and request.requested_fields == ("name",)
@@ -418,7 +459,14 @@ def authorize_supporting_match_probe(
     accepted = bool(
         current_policy_hash is not None
         and request.purpose is ReferenceReadPurpose.MATCH_CHOICES
-        and request.relationship_type == "many2one"
+        and (
+            request.relationship_type == "many2one"
+            or (
+                request.relationship_type == "many2many"
+                and request.related_model == "res.company"
+                and candidate_identity
+            )
+        )
         and request.relationship_model == request.related_model
         and bool(request.parent_model)
         and bool(request.relationship_field)
@@ -442,15 +490,7 @@ def authorize_supporting_match_probe(
                 raise RuntimeError(
                     "A supporting-reference identity requires its candidate contract"
                 )
-            expected_fields = {
-                field.name: field for field in candidate.field_contracts
-            }
-            accepted = all(
-                (actual := fields.get(field_name)) is not None
-                and actual.field_type == expected.field_type
-                and actual.relation_model == expected.relation_model
-                for field_name, expected in expected_fields.items()
-            )
+            accepted = _candidate_fields_match(candidate, captured_fields)
         else:
             name = fields.get("name")
             accepted = name is not None and name.field_type in {
@@ -627,6 +667,18 @@ def authorize_governed_reference(
             affected_field=missing,
             contract=standard,
         )
+
+    candidate = supporting_reference_candidate(
+        request.related_model, odoo_major_version=request.odoo_major_version
+    )
+    if (
+        request.purpose is ReferenceReadPurpose.MATCH_CHOICES
+        and candidate is not None
+        and candidate.key_fields == request.key_fields
+        and candidate.scope_fields == request.scope_fields
+        and not _candidate_fields_match(candidate, captured_fields)
+    ):
+        return reject(ReferencePolicyDenial.CAPTURED_METADATA_MISMATCH)
 
     if standard_identity:
         if standard is None:

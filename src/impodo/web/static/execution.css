@@ -3,6 +3,25 @@
   margin-bottom: 1rem;
 }
 
+.load-recovery-actions {
+  display: grid;
+  flex: 0 0 22rem;
+  gap: 1rem;
+  max-width: 40%;
+}
+
+.load-recovery-actions form {
+  margin: 0;
+}
+
+@media (max-width: 900px) {
+  .load-recovery-actions {
+    flex-basis: auto;
+    width: 100%;
+    max-width: none;
+  }
+}
+
 .load-order-list {
   display: grid;
   gap: .65rem;

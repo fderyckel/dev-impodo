@@ -37,6 +37,8 @@ from impodo.domain.workspace.supporting_review import (
     SupportingChoice,
     SupportingChoiceAction,
     SupportingReview,
+    SupportingReviewProblem,
+    SupportingReviewRequiredError,
     SupportingReviewSummary,
     eligible_supporting_fields,
     supporting_read_display_field,
@@ -330,19 +332,41 @@ class SupportingReviewService:
         fields = eligible_supporting_fields(packet.schema)
         if review is None:
             if any(item.required for item in fields.values()):
-                raise WorkspaceError(
+                raise SupportingReviewRequiredError(
+                    SupportingReviewProblem.MISSING,
                     "Review the required supporting-data choices before confirming matching rules"
                 )
             return None
-        if (
-            review.workspace_id != packet.workspace.workspace_id
-            or review.binding_hash != packet.binding_hash
-        ):
-            raise WorkspaceError(
+        if review.workspace_id != packet.workspace.workspace_id:
+            raise SupportingReviewRequiredError(
+                SupportingReviewProblem.STALE,
                 "Supporting-data choices need refresh; review and save them again"
             )
-        if SupportingReviewService.normalize(packet, review.choices) != review.choices:
-            raise WorkspaceError(
+        if not review.choices:
+            # An empty revision grants no incoming or supporting-read intent.
+            # Recheck today's required fields without treating old metadata as
+            # reviewed evidence or rewriting the immutable saved revision.
+            try:
+                SupportingReviewService.normalize(packet, ())
+            except WorkspaceError as error:
+                raise SupportingReviewRequiredError(
+                    SupportingReviewProblem.CHOICES_CHANGED, str(error)
+                ) from error
+            return None
+        if review.binding_hash != packet.binding_hash:
+            raise SupportingReviewRequiredError(
+                SupportingReviewProblem.STALE,
+                "Supporting-data choices need refresh; review and save them again"
+            )
+        try:
+            normalized = SupportingReviewService.normalize(packet, review.choices)
+        except WorkspaceError as error:
+            raise SupportingReviewRequiredError(
+                SupportingReviewProblem.CHOICES_CHANGED, str(error)
+            ) from error
+        if normalized != review.choices:
+            raise SupportingReviewRequiredError(
+                SupportingReviewProblem.CHOICES_CHANGED,
                 "Supporting matching keys changed; review the choices again"
             )
         return review

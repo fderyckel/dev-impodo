@@ -73,7 +73,10 @@ class SelectionChoiceRefreshTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(payload["selection_added"], 1)
                 self.assertEqual(payload["selection_removed"], 1)
                 self.assertEqual(self.context.queries.get_odoo_schema_catalog(self.workspace_id), self.schema)
-                self.assertLessEqual(timings.connection_count, 24, timings)
+                # Six opens for source projection; four for each candidate scope.
+                self.assertLessEqual(timings.connection_count, 14, timings)
+                self.assertLessEqual(timings.schema_check_count, 3, timings)
+                self.assertEqual(timings.lock_retry_count, 0)
                 entries = [
                     ["csrf_token", self.csrf], ["action", "save_progress"],
                     ["expected_parent_version", ""], ["expected_working_draft_version", ""],

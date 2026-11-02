@@ -282,12 +282,21 @@ def build_matching_company_refresh_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_id}/schema#odoo-schema-changes",
                 status_code=303,
             )
+        if _access_binding(checked) != _access_binding(prepared.schema):
+            request.session["supporting_review_refresh"] = {
+                "workspace_id": workspace_id,
+                "schema_hash": checked.content_hash,
+                "context_hash": checked.read_context_hash,
+                "credential_hash": checked.read_credential_binding_hash,
+                "previous_context_hash": prepared.schema.read_context_hash,
+                "previous_credential_hash": prepared.schema.read_credential_binding_hash,
+            }
         _flash(
             request,
-            "Company-specific values checked. Review linked-value matches and check the current field matches before preparing.",
+            "Company-specific values checked. Review any related-data choices marked Needs confirmation, then check matches.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/mapping#odoo-operation-company",
+            f"/workspaces/{workspace_id}/mapping#related-data-review",
             status_code=303,
         )
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.application.shared.secrets import SecretStoreError
@@ -26,15 +26,45 @@ from impodo.web.context import WebContext
 from impodo.web.forms import _secure_form, _text
 from impodo.web.presenters.common import _flash
 from impodo.web.presenters.schema import _render_schema
+from impodo.web.presenters.supporting_review import mapping_supporting_review_view
 from impodo.web.request_identity import request_identity
+from impodo.web.security import require_session
 
 
 def build_supporting_review_router(context: WebContext) -> APIRouter:
     """Install commands without adding any implicit Odoo read to page rendering."""
     router = APIRouter()
 
+    @router.get("/workspaces/{workspace_id}/mapping/supporting-review")
+    async def matching_review(request: Request, workspace_id: str):
+        """Reload only recovery controls; leave the browser's field edits intact."""
+        require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
+
+        def render():
+            packet = context.schema_workspace.supporting_review_inputs(workspace_id, actor=actor)
+            view = mapping_supporting_review_view(
+                request, context, packet.workspace, packet.selection, packet.schema,
+                packet.governance, actor=actor, preparation=packet.preparation,
+            )
+            return request.app.state.templates.TemplateResponse(
+                request=request,
+                name="mapping/_supporting_review.html",
+                context={
+                    "workspace_id": workspace_id,
+                    "related_data_review": view,
+                    "inline_supporting_review": True,
+                    "related_review_requested": True,
+                    "csrf_token": request.session.get("csrf_token", ""),
+                },
+                headers={"Cache-Control": "no-store"},
+            )
+
+        return await run_page_read(render)
+
     @router.post("/workspaces/{workspace_id}/schema/supporting/save")
     async def save_supporting_choices(request: Request, workspace_id: str):
+        json_request = "application/json" in request.headers.get("accept", "")
         form = await request.form()
         try:
             count = int(_text(form, "choice_count"))
@@ -92,8 +122,10 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
                     actor=actor,
                 )
 
-            await run_local_operation(save)
+            review = await run_local_operation(save)
         except (ValueError, WorkspaceError) as error:
+            if json_request:
+                return JSONResponse({"detail": str(error)}, status_code=422)
             return await run_page_read(
                 _render_schema,
                 request,
@@ -102,6 +134,8 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
                 error=str(error),
                 status_code=422,
             )
+        if json_request:
+            return JSONResponse({"version": review.version, "binding_hash": review.binding_hash})
         _flash(
             request,
             "Saved the current supporting-data choices. Your business scope is unchanged.",

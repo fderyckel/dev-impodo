@@ -805,9 +805,9 @@ def _mapping_datasets_from_form(
             ):
                 continue
             if value_source is RelationshipValueSource.CONSTANT_EXISTING:
-                if metadata.type != "many2one" or not metadata.relation:
+                if metadata.type not in {"many2one", "many2many"} or not metadata.relation:
                     raise ValueError(
-                        "A constant existing record requires a many-to-one field"
+                        "A constant existing record requires a single link or linked list"
                     )
                 business_key = keys.get(
                     _text(

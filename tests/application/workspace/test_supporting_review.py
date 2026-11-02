@@ -199,6 +199,31 @@ class SupportingReviewApplicationTests(unittest.TestCase):
         with self.assertRaisesRegex(WorkspaceError, "data changed"):
             self.save(binding="stale")
 
+    def test_empty_historical_review_has_no_intent_to_refresh_but_requires_current_fields(self):
+        for version in ("19.0", "20.0"):
+            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                with self.subTest(version=version, mode=mode):
+                    self.schema.odoo_version = version
+                    self.workspace.odoo_connection_mode = mode
+                    field = replace(self.schema.models[0].fields[0], required=False)
+                    self.schema.models = (model("res.partner", field),)
+                    packet = supporting_review_packet(self.workspace, self.selection, self.schema, None, None)
+                    review = self.service.save(
+                        packet, expected_binding_hash=packet.binding_hash, expected_version=0,
+                        operation_id=str(uuid4()), choices=(), actor=self.actor,
+                    )
+                    saved_json = review.to_json()
+                    changed = replace(packet, binding_hash="new-source-plan-schema-or-policy")
+                    self.assertIsNone(self.service.require_current(changed, actor=self.actor, review=review))
+                    self.assertEqual(self.service.requirements(changed, review, actor=self.actor), ())
+                    self.assertEqual(review.to_json(), saved_json)
+                    with self.assertRaisesRegex(WorkspaceError, "need refresh"):
+                        self.service.require_current(changed, actor=self.actor, review=replace(review, workspace_id="other"))
+                    self.schema.models = (model("res.partner", replace(field, required=True)),)
+                    required = supporting_review_packet(self.workspace, self.selection, self.schema, None, None)
+                    with self.assertRaisesRegex(WorkspaceError, "required supporting"):
+                        self.service.require_current(required, actor=self.actor, review=review)
+
     def test_denial_precedes_repository_access_and_packet_revision_is_not_mutated(self):
         self.authorization.require.side_effect = PermissionError("denied")
         with self.assertRaises(PermissionError):

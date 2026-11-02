@@ -10,6 +10,7 @@ from enum import StrEnum
 
 from impodo.domain.shared.models import canonical_json_bytes
 
+from .load_control import LoadControl
 from .write_diagnostics import OdooWriteDiagnostic
 
 # This is a defensive process-level ceiling, not a recommended Odoo request
@@ -178,6 +179,7 @@ class ExecutionRun:
     write_principal_hash: str = ""
     write_permission_hash: str = ""
     write_context_hash: str = ""
+    load_control: LoadControl | None = None
 
     def __post_init__(self) -> None:
         """Reject partial or malformed non-secret execution identity evidence."""
@@ -198,6 +200,13 @@ class ExecutionRun:
     @property
     def failed_count(self) -> int:
         return sum(item.status is ExecutionRowStatus.FAILED for item in self.rows)
+
+    @property
+    def rejected_count(self) -> int:
+        """Include a rejected relationship write whose create receipt remains."""
+        return sum(item.status is ExecutionRowStatus.FAILED or (
+            item.status is ExecutionRowStatus.PARTIALLY_APPLIED and item.diagnostic is not None
+        ) for item in self.rows)
 
     @property
     def partially_applied_count(self) -> int:

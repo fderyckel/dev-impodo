@@ -273,6 +273,20 @@
         if (operation.action !== "submit") {
           setDirty(true);
         }
+        if (["SUPPORTING_REVIEW_REQUIRED", "SUPPORTING_MAPPING_CONFLICT"].includes(payload.failure_code)) {
+          const recovery = new CustomEvent("impodo:related-review-required", {
+            cancelable: true,
+            detail: { operationId: currentOperationId, mappingConflict: payload.failure_code === "SUPPORTING_MAPPING_CONFLICT" },
+          });
+          if (!document.dispatchEvent(recovery)) {
+            clear();
+            if (saveStatus) {
+              saveStatus.textContent = "Related-data choices need review. Your edits are retained.";
+              saveStatus.classList.add("unsaved");
+            }
+            return "rejected";
+          }
+        }
         const message =
           (payload.detail || payload.message || "The operation was rejected.") +
           failureSuffix(operation);

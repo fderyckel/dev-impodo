@@ -14,6 +14,7 @@ from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operatio
 from impodo.domain.schema.governance import BusinessKeyStatus, SchemaGovernance
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferenceReadPurpose,
@@ -24,6 +25,27 @@ from impodo.domain.workspace.reference_keys import (
     standard_reference_key,
     supporting_reference_candidate,
 )
+
+
+class SupportingReviewProblem(StrEnum):
+    """Classify review recovery without interpreting diagnostic sentences."""
+
+    MISSING = "MISSING"
+    STALE = "STALE"
+    CHOICES_CHANGED = "CHOICES_CHANGED"
+    MAPPING_CONFLICT = "MAPPING_CONFLICT"
+
+
+class SupportingReviewRequiredError(WorkspaceError):
+    """Request explicit review while retaining the original diagnostic detail."""
+
+    failure_code = "SUPPORTING_REVIEW_REQUIRED"
+
+    def __init__(self, problem: SupportingReviewProblem, detail: str) -> None:
+        self.problem = problem
+        if problem is SupportingReviewProblem.MAPPING_CONFLICT:
+            self.failure_code = "SUPPORTING_MAPPING_CONFLICT"
+        super().__init__(detail)
 
 
 class SupportingChoiceAction(StrEnum):

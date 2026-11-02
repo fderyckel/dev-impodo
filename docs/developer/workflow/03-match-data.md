@@ -6,6 +6,18 @@ status: current
 
 # Match data
 
+The checked-page partial `_odoo_validation_coverage.html` distinguishes captured
+field and choice metadata from unchecked server VAT, Python and database
+constraints. It adds no scan, database owner, remote call or inference of a
+target rule profile. Authoring links to the current table's existing **Rows to
+use** editor; its checked population and confirmation remain authoritative.
+Recipe runs explain that changing a fixed selection needs a revised rule and
+fresh reviewed run. The controlled browser regression is
+[`test_mapping_constraint_coverage.py`](../../../tests/integration/web/test_mapping_constraint_coverage.py)
+for Odoo 19 and Odoo 20 in local and remote modes. The isolated screenshot is
+reproduced by `capture_mapping_coverage` in
+[`capture_load_controls.py`](../../../scripts/capture_load_controls.py).
+
 ## Responsibility
 
 Match data builds a portable mapping definition from frozen source datasets to
@@ -87,6 +99,41 @@ latency claim.
 
 Changed fields or access keep the existing pending-schema review path.
 
+Related-data recovery stays inside Match data.
+[`SupportingReviewRequiredError`](../../../src/impodo/domain/workspace/supporting_review.py)
+classifies missing, stale, changed, and conflicting decisions without parsing
+diagnostic sentences. Mapping receipts retain `SUPPORTING_REVIEW_REQUIRED` or
+`SUPPORTING_MAPPING_CONFLICT`, including when the browser recovers a rejected
+receipt after losing the original response. A missing inline recovery handler
+retains the ordinary failure guidance.
+
+`supporting_review.py` serves the authenticated, uncached
+`GET /mapping/supporting-review` fragment inside one `run_page_read` scope.
+The [review presenter](../../../src/impodo/web/presenters/supporting_review.py)
+reuses the page's source, preparation, schema, and governance
+inputs. The shared choice partial preserves the Odoo data controls and their
+validation. The existing supporting-save endpoint also returns JSON for inline
+review, retaining its capability, CSRF, binding, optimistic-version, and
+idempotency checks. It saves inside one `run_local_operation` scope.
+
+`mapping-supporting-review.js` replaces only the review fragment. After a
+confirmed choice save, it submits the current mapping form through the normal
+Check matches receipt flow. Rejected saves and network failures retain field
+edits. A conflict also offers **Review linked fields**. The company-refresh
+explanation requires matching current access evidence and a reconstruction of
+the exact previous review binding; a later source change receives generic
+guidance instead. No saved review is automatically reauthorized.
+
+The [isolated rich-page regression](../../../tests/integration/web/test_mapping_supporting_recovery.py)
+measures eight connections and two schema
+checks with and without the inline projection. Fragment reads and choice saves
+are bounded at six connections and one schema check, with no lock retries.
+These fixture results do not establish live latency. The [browser regression](../../../tests/e2e/test_mapping_supporting_recovery.py)
+qualifies failed saves, retained edits, successful checks, and company conflicts
+on Odoo 19 and 20. Reproduce its fictional 1440 by 1024 screenshot by setting
+`IMPODO_RELATED_REVIEW_SCREENSHOT=docs/images/user/11o-related-data-recovery.png`
+and running `tests.e2e.test_mapping_supporting_recovery` with Playwright.
+
 One reviewed load uses one operating company. It never fills or substitutes
 record `company_id`. Shared and parent-company reference eligibility stays
 with the existing Odoo domain and compatibility checks. Recipe transforms and
@@ -165,11 +212,15 @@ and schema evidence.
 `mapping.py` parses the browser form, requests bounded dynamic value choices,
 saves drafts, promotes checked revisions, publishes transformation-impact
 snapshots, records acknowledgements, and submits the exact valid revision.
-For writable many2one fields, the relationship card separates a source value
+For writable many2one and many2many fields, the relationship card separates a source value
 from one constant existing Odoo record. The constant path captures an ordered
 governed business key and scope without a source-column binding or numeric
 Odoo ID. The `constant_relationship` value-choice request reuses the bounded
 read-only relationship lookup and returns only portable values and labels.
+For many2many, the chooser selects one existing record for the complete list.
+The route accepts this shape only for `constant_relationship`, so it never
+scans source values to populate that chooser. Reopening uses the saved
+portable constant and the existing target-bound lookup cache.
 
 The browser requires each key and scope value while the constant provider is
 selected. A blank or whitespace-only value opens its enclosing cards and
@@ -294,7 +345,9 @@ values. Semantic validation rejects empty entries, duplicates, and nontext
 comparison types before a rule can be checked.
 
 After a semantically valid **Check matches**, `RowInclusionReviewService`
-reuses the bounded browser staging oracle. It publishes one immutable review
+uses the bounded direct reader, the reviewed-join reader, or the bounded
+browser staging oracle according to the accepted source shape. It publishes
+one immutable review
 whose identity binds physical and effective source selections, mapping,
 schema, derived plan, and evaluator version. The report reconciles every
 governed dataset as included, excluded, or cannot-evaluate before the current
@@ -302,6 +355,27 @@ pointer changes. `GET /workspaces/{workspace_id}/mapping/rows-to-use` returns
 at most 100 protected decisions per request with server-side dataset, outcome,
 value, and cursor filters. It performs no Odoo read and cannot mutate mapping
 meaning.
+
+Reviewed exact-join outputs use
+[`bounded_join_review.py`](../../../src/impodo/application/workspace/mapping/bounded_join_review.py)
+for both row admission and rule-effects review. It shares
+[`iter_bounded_preparation_source_batches`](../../../src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py)
+with preparation, including workspace ownership, source hashes, current
+snapshot manifests, and exact saved join-review bindings. The reader fetches
+logical output in 1,000-row batches. Row admission projects only condition
+columns; rule effects project mapping dependencies and retain the full field
+surface when a formula needs it. Neither action creates a canonical session
+or contacts Odoo.
+
+The existing 50,000-row bounded-review envelope applies to logical output rows,
+so a join with more than 25,000 physical input rows can still be reviewed.
+Unqualified source shapes retain the materialized evaluator's physical-row
+guard. Both routes use the same row-condition evaluator, deterministic output
+ordinals, review values, and evidence identities. Rule-effect details stream
+to the existing atomic snapshot writer. The
+[joined-review regressions](../../../tests/integration/artifacts/test_joined_row_inclusion.py)
+cover a 65,299-input-row join with 4,753 logical rows, parity with the small-data
+oracle, bounded reads, failed publication, and Odoo 19/20 frozen snapshots.
 
 If a current review excludes rows, `CONFIRM_ROWS` records approval for the
 exact snapshot, mapping hash, and source-selection hash. The confirmation and
@@ -748,7 +822,9 @@ cannot-evaluate, not a silent exclusion. Older readable contracts project to
 
 Mapping contract version 15 adds `RelationshipValueSource`. Existing
 relationships decode as `source`; `constant_existing` is limited to a
-many2one that uses `target_catalog` resolution and `replace` semantics.
+many2one that uses `target_catalog` resolution and `replace` semantics. Version
+21 adds the same provider to many2many as a singleton list. Older mapping
+versions reject that new shape while retaining their original hashes.
 `ConstantBusinessReference` stores one to five ordered key components plus
 the governed scope components. Each `ConstantReferenceComponent` contains a
 bounded non-blank portable scalar and rejects the technical `id` field. A
@@ -915,6 +991,15 @@ The browser fixture can reproduce the 1440 by 1024 screenshot with
 It starts an authenticated isolated application with fictional data.
 No running customer workspace is accessed.
 
+A controlled fixture with mocked Odoo metadata measured the saved-choice read
+at 164 ms with six physical opens and one schema check. Refresh measured 289 ms
+with fourteen opens and three schema checks across its three bounded local
+operations. Connection setup took 75 ms and 141 ms respectively; schema checks
+took 6 ms and 18 ms. Both recorded zero lock retries. The regression ceiling
+allows six source-projection opens and four for each candidate operation.
+These measurements exclude live Odoo latency and do not establish a live
+performance improvement.
+
 ### Match linked records
 
 Many2one and many2many relationships use one of three closed origins.
@@ -941,6 +1026,19 @@ compiler v10 uses a native Polars expression before key normalization. Recipe
 publication and application preserve the decisions, and Recipe review labels
 them **Leave blank (no linked record)** without requiring a target choice.
 Historic mapping versions retain their original field layout and hashes.
+
+The browser compiler consumes the synthetic relationship columns produced by
+the row transformer. That transformer applies intentional blanks to the
+original source choice before expanding reviewed key and company components.
+`compile_browser_mapping` therefore does not copy raw `blank_source_values`
+into `RelationSpec`. Reapplying them after transformation would reject a
+single-choice scoped mapping as multi-column and could discard a selected
+target whose name equals an unrelated blank source label. Directly authored
+profiles retain their own blank-source validation. The
+[checked expectations projection tests](../../../tests/integration/web/test_scoped_blank_expectations.py)
+cover opening this state for standard and custom models on both Odoo majors;
+the scoped-value tests also compare Python, native preparation, persisted
+projection, and local/remote comparison outcomes.
 
 Mapping contract v20 uses the existing `required` and `required_on_create`
 settings for every Many2one resolver origin. The Stage 3 **Must have a value**
@@ -1027,6 +1125,12 @@ a root row. `mapping_forms.py` derives this policy only from the current
 `DerivedDatasetLink`, captured optional many-to-one metadata, the selected
 parent-key source column, and a resolver back to the same dataset. All other
 identity and scope components retain `reject`.
+
+A `constant_existing` many2many produces a singleton tuple of target
+`LogicalReference` values through the existing Python list-preparation path.
+Shared keys are batched by the target-read planner, including when thousands
+of owner rows use the same company. The existing native many2one path is
+unchanged.
 
 A `constant_existing` many2one produces the same target `LogicalReference`
 for every applicable owner row. The row evaluator uses the stored values
@@ -1275,6 +1379,29 @@ The exported bundle retains that UUID and rejects malformed values. The
 recorder does not accept raw URLs, query strings, headers, bodies, source
 values, formulas, credentials, CSRF tokens, or launch tokens.
 
+Handled supporting-plan failures retain `SUPPORTING_PLAN_INCOMPLETE` instead
+of collapsing into `MAPPING_INPUT_INVALID`. The domain's
+`SupportingPlanIncompleteError` carries the qualified Odoo major and metadata
+for each issue. The mapping route attaches that projection to request state
+before returning its validation response. The terminal request record includes
+the closed mapping action and a `validation_failure` object with at most 20
+issues, the total issue count, and an explicit truncation flag. Each issue can
+identify its technical source model, field, related model, field type, trigger,
+requiredness, mapping use, saved choice, and candidate count. Browser guidance
+names the affected relationship; diagnostic output omits its display labels
+and arbitrary exception text.
+
+[`web/supporting_diagnostics.py`](../../../src/impodo/web/supporting_diagnostics.py)
+validates the same bounded schema when the
+request is recorded and again when the bundle is exported. Unknown fields and
+decision codes are discarded. Constructing the failure projection uses only
+already-loaded metadata and adds no database or Odoo read.
+The [diagnostic export tests](../../../tests/integration/web/test_supporting_diagnostics.py)
+cover nested sanitization, bounds, and retention. The
+[mapping browser tests](../../../tests/integration/web/test_supporting_mapping_intent.py)
+cover the handled HTTP 422 path, support-reference correlation, and draft
+preservation.
+
 The complete synchronous mapping-page build runs in the bounded thread pool,
 not on the asynchronous event loop. It reports thread-pool queue wait,
 workspace-read, view-build, template-render, and total durations through
@@ -1359,7 +1486,14 @@ pool. It reads at most 5,000 bounded log records and re-sanitizes every field
 against a second allowlist before creating the ZIP. The bundle contains a
 manifest with application, Python, operating-system, and workspace-schema
 versions, sanitized JSON Lines, and at most 100 recent slow-request or
-event-loop-delay summaries. Exported routes are reduced to a fixed route class.
+event-loop-delay summaries. Bundle schema version 2 also includes
+`recent-failures.json`, with at most 100 failures from retained log files,
+including fast HTTP validation refusals. This summary is selected before the
+5,000-record limit, so later successful health requests cannot displace a
+retained failure from the summary. Log rotation still bounds retention.
+The manifest reports the summary count and discloses technical model and field
+identifiers. Export reads log files only, never workspace databases or Odoo.
+Exported routes are reduced to a fixed route class.
 The exporter cannot include source rows, formulas, credentials, tokens,
 request bodies, headers, raw URLs, query strings, or arbitrary exception text.
 

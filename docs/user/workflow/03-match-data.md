@@ -67,6 +67,22 @@ when the same Odoo user, permissions and fields are verified.
 Other changes require the normal schema review. Verify
 an active or uncertain load before changing its company.
 
+If a refresh makes your related-data choices outdated, **Review related-data
+choices** appears in Match data. Open **Review choices**, keep or correct the
+displayed selections, then select **Save choices and check matches**. Impodo
+saves those choices before checking the field mappings currently on your page.
+If saving fails, your entered mappings remain visible. **Reload choices**
+reloads only the related-data controls.
+
+If a saved choice disagrees with a linked-field rule, select **Review linked
+fields**. For example, choosing Northwind Factory under **Company for this
+load** does not fill an account's **Companies** field. To assign that company
+to every account, connect **Companies** using **The same existing Odoo record
+for every row** and select Northwind Factory. Keep the existing account
+401100 Customers in the separate **Parent Account** field.
+
+![Match data keeps field edits on the page while you review and save existing-company choices.](../../images/user/11o-related-data-recovery.png)
+
 A Recipe keeps reusable transformations and business keys. It does not copy
 the authoring database's company number into another run. Choose the new run's
 company before activation and check its company-specific defaults and linked
@@ -432,6 +448,12 @@ checked**. Select **Review rows** to filter the complete decision set by table,
 decision, or relevant source value. This review is read-only: filtering the
 page never changes the saved rule or its decisions.
 
+For a reviewed combined table, **Rows to use** and the rule-effects review
+check the combined output. For example, three files containing 70,000 rows
+can produce a combined table with 4,000 rows. Impodo reviews those 4,000 rows
+through its bounded join reader; the input total alone does not require
+splitting the project. These reviews support up to 50,000 logical output rows.
+
 When at least one row is excluded, select **Confirm N rows to use** before
 confirming the field matches. The confirmation belongs only to the exact
 checked mapping and Data version. Editing the rule, checking a different
@@ -560,6 +582,10 @@ The decision applies to the field on each matching row; it keeps the accepted
 source unchanged. It works with combined tables and is retained in a saved
 Recipe. Prepare data produces no linked record for that choice, and a later
 Recipe run checks new choices separately.
+
+The same choice works when a linked record is identified by both its name and
+company. Impodo applies **Leave blank** to the original source choice before
+splitting a selected record into those matching fields.
 
 ![The Match values dialog explicitly maps TO_DEFINE to Leave blank while retaining a linked record for Standard.](../../images/user/03c-many2one-leave-blank.png)
 
@@ -693,6 +719,22 @@ of Measure. Expand **Product Unit of Measure**, then:
 4. If the matching rule contains several key or scope parts, enter every part
    in the order shown.
 5. Review the summary, then select **Save progress** and **Check matches**.
+
+For **Companies** on ledger accounts, use the same choice and select the
+existing company by **Company name**. Impodo uses a list containing that one
+company for every account. This replaces the complete Companies list for the
+mapped records. The choices come from Odoo; **A value from the source** instead
+asks you to select a column in your incoming table.
+
+If **Parent Account** is part of your matching rule, such as **Account Name
+within Parent Account**, it appears under **Within** at the top of the table.
+It is supplied there rather than through a second linked-field card. To use
+one existing parent for all rows through that card, choose a matching rule
+without Parent Account in **Odoo data**. For example, when account code is the
+intended identifier, confirm **Code**, map your account-number column to it,
+then open **Parent Account** and choose the existing parent for every row.
+The writable field is **Parent Account** (`parent_id`); the plural **Parent**
+(`parent_ids`) can be read-only in Odoo.
 
 Loading the choices does not select a record. Choose a record from the list,
 or type its exact matching values in the boxes above. If a required matching
@@ -910,6 +952,21 @@ Confirming these choices still does not contact or change Odoo.
 
 ## What Complete means
 
+**What this match check covers** distinguishes captured Odoo field checks from
+server rules. **Not checked** includes VAT rules and other server constraints.
+Impodo remains client-only; a ready match check cannot guarantee that Odoo will
+accept every record.
+
+To set aside records you have identified, open **Rows to use** for the table.
+Choose **Use only rows that match**, select their exact source identifier and
+**is not one of (comma-separated list)**, and enter the identifiers to exclude.
+Check matches, review the excluded rows and counts, then confirm that exact
+selection. Their source evidence remains available. Required relationships to
+excluded records still need resolution. A Recipe run requires a revised Recipe
+rule and a new reviewed run when its fixed selection must change.
+
+![A checked fictional mapping distinguishes field checks from unverified server VAT rules and links to Rows to use.](../../images/user/16i-odoo-rule-coverage.png)
+
 The exact checked mapping is confirmed for this data version and the
 stage shows **Complete**. Saving a Recipe is a later, separate action on the
 data project overview and is not required for one-off work.
@@ -1013,8 +1070,13 @@ does not repeat the action.
 
 If the server does not recover, restart Impodo normally. After it opens, select
 **Create diagnostic bundle** in the page footer before trying the action again.
-The downloaded ZIP contains bounded operational timings, process events, and
-version information. It does not contain source rows, formula contents,
+The downloaded ZIP contains bounded operational timings, process events,
+version information, and recent failures. For an incomplete supporting-data
+plan, it includes the affected technical Odoo model and field names, the saved
+choice, and whether the relationship is required or used by the mapping. The
+support reference identifies the failed action. These details are recorded
+when the check fails, so a new bundle cannot add them to an older failure.
+The ZIP does not contain source rows, formula contents,
 credentials, tokens, request bodies, headers, complete URLs, or query strings.
 
 The following screen shows the connection warning on a fictional Match data

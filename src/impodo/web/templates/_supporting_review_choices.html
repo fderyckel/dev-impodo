@@ -1,0 +1,43 @@
+    <datalist id="supporting-table-choices">{% for dataset in supporting_review.datasets %}<option value="{{ dataset.label }}">{{ dataset.label }}</option>{% endfor %}</datalist>
+    <input type="hidden" name="binding_hash" value="{{ supporting_review.binding_hash }}">
+    <input type="hidden" name="expected_version" value="{{ supporting_review.version }}">
+    <input type="hidden" name="operation_id" value="{{ supporting_review.operation_id }}">
+    <input type="hidden" name="choice_count" value="{{ supporting_review.rows|length }}">
+    <div class="supporting-review-list">
+      {% for row in supporting_review.rows %}
+      <fieldset class="supporting-review-choice">
+        <legend>
+          {{ row.model_label }} · {{ row.label }}
+          <span class="status {% if row.required %}attention{% endif %}">{{ "Required" if row.required else "Optional" }}</span>
+        </legend>
+        {% if inline_supporting_review %}<p class="status attention">{{ 'Choose a current source' if row.needs_change else 'Needs confirmation' }}</p>{% endif %}
+        <input type="hidden" name="edge_{{ loop.index0 }}" value="{{ row.model }}|{{ row.field }}">
+        <label for="support-action-{{ loop.index0 }}">
+          Where should this value come from?
+          <select id="support-action-{{ loop.index0 }}" name="action_{{ loop.index0 }}" data-supporting-action {% if row.required %}required{% endif %}>
+            <option value="">Choose a source</option>
+            {% for value, label in row.actions %}<option value="{{ value }}" {% if row.chosen == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+          </select>
+        </label>
+        {% if row.managed %}
+          <p>Odoo supplies this relationship. No incoming table is needed.</p>
+        {% elif row.incoming_available %}
+          <label class="supporting-review-dataset" for="support-table-{{ loop.index0 }}">
+            Which incoming table?
+            <input id="support-table-{{ loop.index0 }}" name="dataset_{{ loop.index0 }}" list="supporting-table-choices" value="{{ row.dataset_label }}" placeholder="Choose an accepted table">
+          </label>
+        {% else %}
+          <details class="technical-details">
+            <summary>Why incoming data is not an option</summary>
+            <p>First <a href="#odoo-data-choices">add the related records to this migration</a> and load their Odoo details.</p>
+          </details>
+        {% endif %}
+        {% if row.read_key %}
+          <details class="technical-details">
+            <summary>Reviewed matching fields</summary>
+            <p>{{ row.read_key }}. Match data checks the actual values later.</p>
+          </details>
+        {% endif %}
+      </fieldset>
+      {% endfor %}
+    </div>

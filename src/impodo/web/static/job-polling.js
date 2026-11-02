@@ -366,9 +366,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const complete = loadJob.querySelector("[data-load-complete]");
     const continueLink = loadJob.querySelector("[data-load-continue]");
     const run = loadJob.querySelector("[data-load-run]");
+    const stopRun = loadJob.querySelector("[data-load-stop-run]");
+    const stopButton = loadJob.querySelector("[data-load-stop-button]");
     let pollTimer;
 
     const showLoadStatus = (job) => {
+      if (stopRun) stopRun.value = job.execution_run_id || "";
+      if (stopButton) stopButton.disabled = !job.execution_run_id || ["STOP_REQUESTED", "STOPPED", "FINISHED"].includes(job.load_control_state);
       const active = job.status === "QUEUED" || job.status === "RUNNING";
       if (message) message.textContent = job.message;
       if (progress) progress.value = job.progress_percent;

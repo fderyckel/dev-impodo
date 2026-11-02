@@ -24,6 +24,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.domain.correction_origin import CorrectionOriginError
+from impodo.domain.execution.load_control import LoadControlState, RejectionPolicy
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
@@ -208,6 +209,7 @@ class LoadRecoveryCheck:
     safe_to_retry_count: int
     relationship_pending_count: int
     resume_count: int
+    load_control_hash: str = ""
 
 
 def _current_recovery_check(
@@ -235,6 +237,7 @@ def _current_recovery_check(
         "safe_to_retry_count",
         "relationship_pending_count",
         "resume_count",
+        "load_control_hash",
     }
     count_names = tuple(
         name for name in expected_keys if name.endswith("_count")
@@ -256,6 +259,7 @@ def _current_recovery_check(
         or run is None
         or raw.get("execution_run_id") != run.run_id
         or raw.get("snapshot_hash") != preview.snapshot.semantic_hash
+        or raw.get("load_control_hash") != (run.load_control.content_hash if run.load_control else "")
         or write_credential is None
         or raw.get("credential_binding_hash") != write_credential.binding_hash
         or not isinstance(check_id, str)
@@ -271,6 +275,7 @@ def _current_recovery_check(
         safe_to_retry_count=counts["safe_to_retry_count"],
         relationship_pending_count=counts["relationship_pending_count"],
         resume_count=counts["resume_count"],
+        load_control_hash=str(raw["load_control_hash"]),
     )
 
 
@@ -297,6 +302,7 @@ def _save_recovery_check(
         "safe_to_retry_count": plan.safe_to_retry_count,
         "relationship_pending_count": plan.relationship_pending_count,
         "resume_count": plan.resume_count,
+        "load_control_hash": plan.load_control_hash,
     }
 
 
@@ -895,6 +901,25 @@ def build_execution_router(
             status_code=200,
         )
 
+    @router.post("/workspaces/{workspace_id}/load/stop")
+    async def stop_load(request: Request, workspace_id: str):
+        """Persist a stop without cancelling an in-flight Odoo request."""
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "execution_run_id"})
+        actor = request_identity(request, context.identity_resolver).actor
+        try:
+            await run_local_operation(
+                context.execution.request_stop, workspace_id,
+                _text(form, "execution_run_id"), actor=actor,
+            )
+        except WorkspaceError as error:
+            _flash(request, str(error))
+            return RedirectResponse(f"/workspaces/{workspace_id}/load/outcome", status_code=303)
+        _manager(context).note_stop_requested(workspace_id, _text(form, "execution_run_id"))
+        _flash(request, "Stop requested. Any current request will finish and its result will be saved.")
+        job = _manager(context).active(workspace_id)
+        return RedirectResponse(_load_progress_url(workspace_id, job.job_id) if job else f"/workspaces/{workspace_id}/load/outcome", status_code=303)
+
     @router.get("/workspaces/{workspace_id}/load/progress/{job_id}/status")
     async def load_progress_status(
         request: Request,
@@ -1156,6 +1181,8 @@ def build_execution_router(
                 "snapshot_hash",
                 "intent_assessment_hash",
                 "batch_rows",
+                "rejection_policy",
+                "load_policy_version",
                 "prior_execution_run_id",
                 "write_api_key",
                 "remember_write_api_key",
@@ -1204,6 +1231,12 @@ def build_execution_router(
                 None if recovering
                 else validated_create_batch_rows(_text(form, "batch_rows"))
             )
+            try:
+                rejection_policy = RejectionPolicy(_text(form, "rejection_policy") or "STOP")
+            except ValueError as error:
+                raise WorkspaceError("Choose how to handle rejected records") from error
+            if _text(form, "rejection_policy") and _text(form, "load_policy_version") != "1":
+                raise WorkspaceError("The load policy changed; review confirmation again")
             with _diagnostic_load_stage(
                 diagnostic_recorder,
                 "submission_preview",
@@ -1501,6 +1534,7 @@ def build_execution_router(
                                 if write_identity is not None else ""
                             ),
                             progress=report_writing,
+                            expected_load_control_hash=recovery_check.load_control_hash if recovery_check else "",
                         )
                     else:
                         if batch_rows is None:
@@ -1512,6 +1546,7 @@ def build_execution_router(
                             executor=executor,
                             actor=actor,
                             batch_rows=batch_rows,
+                            rejection_policy=rejection_policy,
                             read_identity=read_identity,
                             read_credential_binding_hash=read_credential_binding_hash,
                             write_identity=write_identity,
@@ -1522,7 +1557,15 @@ def build_execution_router(
                             progress=report_writing,
                         )
                 _record_write_diagnostics(diagnostic_recorder, run.rows)
+                if diagnostic_recorder is not None and run.load_control is not None:
+                    diagnostic_recorder.record_load_control(run.load_control)
                 report_verifying(run)
+                if run.load_control is not None and run.load_control.state is LoadControlState.PAUSED:
+                    return LoadJobResult(
+                        execution_run_id=run.run_id, verification_complete=False,
+                        completion_warning="Repeated failures paused further uploads. Review the rejected records and check recovery before continuing.",
+                        completion_warning_code="LOAD_PAUSED",
+                    )
                 try:
                     with _diagnostic_load_stage(diagnostic_recorder, "verification"):
                         readback_identity = _probe_remote_write_identity_sync(
@@ -2223,6 +2266,11 @@ def _job_payload(job: LoadJob) -> dict[str, object]:
         "not_completed_count": job.not_completed_count,
         "progress_percent": job.progress_percent,
         "execution_run_id": job.execution_run_id,
+        "load_control_state": job.load_control_state,
+        "load_pause_reason": job.load_pause_reason,
+        "rejected_count": job.rejected_count,
+        "blocked_count": job.blocked_count,
+        "unattempted_count": job.unattempted_count,
         "verification_complete": job.verification_complete,
         "completion_warning": job.completion_warning,
         "completion_warning_code": job.completion_warning_code,

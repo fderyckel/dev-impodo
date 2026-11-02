@@ -517,10 +517,10 @@ def _open_xlsx_rows(
 
         def iter_rows() -> Iterator[SourceRow]:
             data_rows = 0
-            for cells in iterator:
-                row_number = cells[0].row if cells else header_row + data_rows + 1
-                if row_number is None:
-                    raise SourceLoadError("source row number is unavailable")
+            # Read-only iteration includes missing worksheet rows and EmptyCell
+            # placeholders, which have no row attribute. Count every physical
+            # position, including skipped blanks, to retain source coordinates.
+            for row_number, cells in enumerate(iterator, start=header_row + 1):
                 _reject_unsafe_cells(
                     cells,
                     source_label,

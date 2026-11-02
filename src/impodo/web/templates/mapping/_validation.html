@@ -9,6 +9,7 @@
               {% if validation_problem_count %}{{ validation_problem_count }} decision{{ "s" if validation_problem_count != 1 else "" }}{% else %}No issues{% endif %}
             </span>
           </div>
+          {% include "mapping/_odoo_validation_coverage.html" %}
           {% if validation_problem_count %}
             {% if validation.status.value == 'INVALID' %}
               <p>Resolve every reason shown at the top of this page. Impodo rechecks Odoo-default decisions automatically; check matches after other changes.</p>

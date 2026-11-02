@@ -229,7 +229,10 @@ def compile_browser_mapping(
                 relation_resolver = resolver(item.resolver)
             relations[item.target_field] = RelationSpec(
                 kind=_relation_kind(item.kind),
-                blank_source_values=item.blank_source_values,
+                # The row transformer has already applied leave-blank choices
+                # to the original source value, before expanding key/scope
+                # components. Raw labels must not be reapplied to those
+                # transformed values or mistaken for a multi-column source.
                 source_fields=tuple(
                     synthetic_relationship_field(index, source_index)
                     for source_index, _source_column_key in enumerate(

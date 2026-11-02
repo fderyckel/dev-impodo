@@ -23,7 +23,12 @@ from impodo.domain.workspace.supporting_closure import (
     close_supporting_plan,
     supporting_mapping_conflicts,
 )
-from impodo.domain.workspace.supporting_review import SupportingReview
+from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
+from impodo.domain.workspace.supporting_review import (
+    SupportingReview,
+    SupportingReviewProblem,
+    SupportingReviewRequiredError,
+)
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 
 
@@ -163,12 +168,13 @@ class SupportingMappingGuard:
             preparation_hash=preparation.content_hash if preparation else None,
         )
         if not closure.proposal.complete:
-            raise WorkspaceError(
-                "Review the incomplete supporting-data plan in Odoo data before checking Match data"
+            raise SupportingPlanIncompleteError(
+                closure.proposal, schema, datasets, review.choices
             )
         conflicts = supporting_mapping_conflicts(review.choices, datasets, schema)
         if conflicts:
-            raise WorkspaceError(
+            raise SupportingReviewRequiredError(
+                SupportingReviewProblem.MAPPING_CONFLICT,
                 "Review supporting choices in Odoo data and the corresponding Match data rule: "
                 + "; ".join(conflicts)
             )

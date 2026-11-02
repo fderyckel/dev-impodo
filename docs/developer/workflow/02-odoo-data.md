@@ -171,20 +171,40 @@ not establish a binding. Query intents are proposals bound to these exact
 inputs, not persisted scope decisions.
 
 `supporting_plan.py` indexes those descriptors and captured models once. It
-retains each required, inverse-owned, or explicitly intended relationship edge.
-Optional fields enter the proposal only through exact relationship intent.
+retains each required or explicitly intended relationship edge. Optional
+collections do not become blocking dependencies merely because the schema
+declares an inverse field. The direct Stage 2 preview can still show them.
+`close_supporting_plan` derives optional intent from actual relationship,
+identity, and scope providers. It retains an inverse child only when its
+incoming mapping points to the exact parent dataset. Explicitly skipped
+optional fields remain unused; a conflicting actual provider is still rejected.
+Reviewed reuse, checked-default, and Odoo-managed choices take effect before
+candidate expansion. A target-catalog mapping also retains reuse intent when
+no supporting choice was saved. These rules prevent unrelated accepted tables
+from creating spurious ambiguity or missing-metadata errors.
 The walk follows uniquely proposed incoming models, preserves repeated uses of
 one related model as separate field edges, and deduplicates cycles. Ambiguous
 tables, unavailable incoming metadata, invalid intent, and limit exhaustion
 produce an explicitly incomplete result. A complete proposal does not prove
 relationship values or authorize reads, writes, or a stage transition.
 
-Contract version 1 permits 100 reached models, 1,000 relationship edges, five
+Contract version 2 binds reviewed choices and actual provider intent into the
+derived proposal hash. Saved reviews, schema hashes, source evidence, and
+mapping identities retain their existing contracts. The planner permits
+100 reached models, 1,000 relationship edges, five
 dependency expansions from the selected roots, 1,000 dataset descriptors, and
 200 source-preparation rules. Existing checked defaults and Odoo-managed
 fields retain their direct-classifier meaning. The browser keeps its direct
 supporting preview and also presents the reviewed file-source decisions
 described below. Odoo-source edge ownership is unchanged.
+
+[`SupportingPlanIncompleteError`](../../../src/impodo/domain/workspace/supporting_errors.py)
+retains metadata for failed edges and names the relationship in browser
+guidance. The intent regressions are covered by the
+[domain cases](../../../tests/domain/workspace/test_supporting_plan_intent.py),
+[local and remote authoring and preparation checks](../../../tests/integration/web/test_supporting_mapping_intent.py),
+and [Recipe run checks](../../../tests/integration/web/test_recipe_supporting_intent.py)
+for Odoo 19 and Odoo 20.
 
 The composition injects source, schema, preparation, workspace, and
 authorization ports. There is no PostgreSQL or DuckDB dependency in the
@@ -221,6 +241,17 @@ reproduces the saved choice in an isolated fictional workspace.
 workspace engine. The initial schema creates this table and
 `supporting_review_projection`, a rebuildable local summary containing bounded
 counts and verified evidence hashes. No review is approved implicitly.
+An empty saved revision contains no supporting choices to renew.
+`SupportingReviewService.validate_review` verifies its workspace and normalizes
+an empty choice set against current metadata, then returns no effective review.
+New required relationships still block. A stale empty revision cannot block
+Match data solely because its input binding changed. No hash or saved revision
+is rewritten, and nonempty reviews retain every freshness check. The
+[supporting-review application tests](../../../tests/application/workspace/test_supporting_review.py)
+cover both majors and access modes; the
+[mapping browser regressions](../../../tests/integration/web/test_supporting_mapping_intent.py)
+exercise Save followed by Check matches and verify committed receipts.
+
 Publication compares the expected review version, reserves the operation UUID,
 checks retry meaning and Actor identity, and writes the revision and audit in
 one transaction. An exact retry returns the original revision. Changed choices
@@ -246,6 +277,24 @@ inputs and the exact saved review inside a second local operation before
 publishing any returned lookup. Changed access or input evidence rejects the
 old result. The existing capture limits, returned-metadata verification, and
 protected lookup snapshots remain authoritative.
+
+On Odoo 19 and Odoo 20, `reference_keys.py` also allows the reviewed
+`res.company` name candidate through a captured `many2many` relationship, such
+as `account.account.company_ids`. This exception reads only `name` for
+`MATCH_CHOICES`; the bounded probe still denies other list models and wider
+projections. It
+does not classify company names as globally unique standard reference keys.
+Duplicate names stay ambiguous in the target-bound lookup. The shared policy
+checks returned candidate field types before accepting them as captured
+governed evidence.
+
+Saving this review performs no Odoo read. The explicit check groups company
+relationships with the same identity into one read and retains the existing
+local operation boundaries before reading and before publishing. Recipe
+publication uses the verified lookup's field contracts; subsequent runs check
+their own company metadata and values. Reference policy version 5 changes the
+current hashes for both majors. Historical hashes remain readable, while
+currentness checks require renewed review and lookup evidence.
 
 The save and check routes authorize the request Actor before governed work.
 They expose no generic Odoo method or write. The complete decisions, read
@@ -625,6 +674,13 @@ scope.
 - [`tests/application/workspace/test_supporting_data_plan.py`](../../../tests/application/workspace/test_supporting_data_plan.py)
 - [`tests/application/workspace/test_supporting_review.py`](../../../tests/application/workspace/test_supporting_review.py)
 - [`tests/integration/web/test_supporting_review.py`](../../../tests/integration/web/test_supporting_review.py)
+- [Company-list policy boundaries](../../../tests/domain/execution/test_company_reference_policy.py)
+- [Local and remote account company review](../../../tests/integration/web/test_account_company_supporting.py)
+- [Constant company chooser and parent-field placement](../../../tests/integration/web/test_constant_company_list.py)
+- [Singleton company preparation and batched reads](../../../tests/domain/preparation/test_constant_list_relationships.py)
+- [Constant company-list mapping in the browser](../../../tests/integration/web/test_constant_company_list.py)
+- [Constant list relationship preparation](../../../tests/domain/preparation/test_constant_list_relationships.py)
+- [Account company Recipe publication and rebinding](../../../tests/domain/recipe/test_account_company_references.py)
 - [`tests/application/workspace/test_workflow_issues.py`](../../../tests/application/workspace/test_workflow_issues.py)
 - [`tests/integration/web/test_schema_presenter.py`](../../../tests/integration/web/test_schema_presenter.py)
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)

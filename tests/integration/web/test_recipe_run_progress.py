@@ -14,6 +14,16 @@ from tests.support.identity import resolve_local_actor
 
 
 class RecipeRunOdooProgressTests(TestCase):
+    def test_paused_load_does_not_mark_recipe_execution_complete(self) -> None:
+        from impodo.application.workspace.execution.job_models import LoadJobStatus
+        from impodo.domain.run.contracts import RecipeApplicationStatus
+        from impodo.web.run_commands import publish_load_progress
+        job = SimpleNamespace(access_context=SimpleNamespace(recipe_application_id="application-1"), status=LoadJobStatus.SUCCEEDED, load_control_state="PAUSED", verification_complete=False)
+        context = SimpleNamespace()
+        with patch("impodo.web.run_commands._transition_application_progress", return_value=SimpleNamespace(status=RecipeApplicationStatus.COMPARED)) as transition:
+            publish_load_progress(context, job, actor=resolve_local_actor(SimpleNamespace(identity_resolver=LocalRequestIdentityResolver())))
+        self.assertEqual(transition.call_args.kwargs["status"], RecipeApplicationStatus.COMPARED)
+
     def test_odoo_check_reports_each_bounded_stage_before_continuing(self) -> None:
         workspace = SimpleNamespace(
             workspace_id="workspace-1",

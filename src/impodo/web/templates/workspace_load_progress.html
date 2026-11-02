@@ -122,6 +122,12 @@
     </section>
 
     <div class="load-progress-actions" data-load-active {% if not active %}hidden{% endif %}>
+      <form method="post" action="/workspaces/{{ job.workspace_id }}/load/stop" data-load-stop-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="execution_run_id" value="{{ job.execution_run_id }}" data-load-stop-run>
+        <button class="button secondary" type="submit" data-load-stop-button {% if not job.execution_run_id %}disabled{% endif %}>Stop further uploads</button>
+        <small>A request already in progress finishes first. Earlier accepted records remain in Odoo.</small>
+      </form>
       <a class="button secondary" href="/projects">Work on another data project</a>
     </div>
 
