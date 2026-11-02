@@ -257,7 +257,7 @@ def _run_child(
 ) -> dict[str, object]:
     import psutil
 
-    with tempfile.TemporaryDirectory(dir=ROOT / ".tmp") as directory:
+    with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         database = DuckDbWorkspaceDatabase(root)
         projects = WorkspaceStateRepository(database)

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from copy import deepcopy
 import unittest
+from copy import deepcopy
 
+from impodo.domain.shared.access import LOCAL_ACTOR
 from scripts.benchmark_dependency_execution import (
     DependencyBenchmarkError,
+    _BenchmarkPreflight,
+    _Journal,
     _require_same_semantics,
     build_fixture,
     measure_shape,
@@ -14,6 +17,24 @@ from scripts.benchmark_relationships import _project, _run_child
 
 
 class DependencyExecutionBaselineTests(unittest.TestCase):
+    def test_preflight_review_matches_the_exact_fixture_assessment(self) -> None:
+        snapshot = build_fixture("optional_cycle").snapshot
+        preflight = _BenchmarkPreflight(snapshot, _Journal())
+        review = preflight.business_intent_review(
+            snapshot.workspace_id, snapshot.semantic_hash, actor=LOCAL_ACTOR
+        )
+        self.assertIsNotNone(review)
+        self.assertTrue(review.ready)
+        self.assertEqual(review.snapshot_hash, snapshot.semantic_hash)
+        self.assertEqual(review.assessment_hash, preflight.assessment.content_hash)
+        self.assertEqual(review.model_count, 2)
+        self.assertIsNone(preflight.business_intent_review(
+            snapshot.workspace_id, "stale-snapshot", actor=LOCAL_ACTOR
+        ))
+        self.assertIsNone(preflight.business_intent_review(
+            "other-workspace", snapshot.semantic_hash, actor=LOCAL_ACTOR
+        ))
+
     def test_accepted_fixtures_freeze_rows_edges_and_business_order(self) -> None:
         expectations = {
             "product_unit": (

@@ -160,10 +160,10 @@ def _is_relative_to(path: Path, parent: Path) -> bool:
 
 
 def _apply_private_windows_acl(root: Path) -> None:
-    """Install a protected DACL for the user, SYSTEM, and Administrators."""
+    """Set the current user as owner and install the protected DACL."""
 
     current_sid = _current_windows_user_sid()
-    descriptor_text = f"D:P(A;OICI;FA;;;{current_sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+    descriptor_text = f"O:{current_sid}D:P(A;OICI;FA;;;{current_sid})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
     advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     local_free = kernel32.LocalFree
@@ -190,6 +190,22 @@ def _apply_private_windows_acl(root: Path) -> None:
         raise _windows_security_error("create the private security descriptor")
 
     try:
+        # Elevated Windows tokens can create folders owned by Administrators.
+        # Set the exact user owner as well as the DACL before verifying either.
+        get_owner = advapi32.GetSecurityDescriptorOwner
+        get_owner.argtypes = [
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_void_p),
+            ctypes.POINTER(ctypes.c_int),
+        ]
+        get_owner.restype = ctypes.c_int
+        owner = ctypes.c_void_p()
+        owner_defaulted = ctypes.c_int()
+        if not get_owner(
+            descriptor, ctypes.byref(owner), ctypes.byref(owner_defaulted)
+        ) or not owner.value:
+            raise _windows_security_error("read the private owner SID")
+
         get_dacl = advapi32.GetSecurityDescriptorDacl
         get_dacl.argtypes = [
             ctypes.c_void_p,
@@ -227,15 +243,15 @@ def _apply_private_windows_acl(root: Path) -> None:
         result = set_security(
             os.fspath(root),
             1,
-            0x00000004 | 0x80000000,
-            None,
+            0x00000001 | 0x00000004 | 0x80000000,
+            owner,
             None,
             dacl,
             None,
         )
         if result:
             raise ProjectRootSecurityError(
-                f"Windows refused the private project-root DACL: "
+                f"Windows refused the private project-root owner or DACL: "
                 f"{ctypes.WinError(result)}"
             )
     finally:

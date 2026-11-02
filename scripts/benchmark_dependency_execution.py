@@ -25,6 +25,9 @@ from types import SimpleNamespace
 from typing import Any, Self
 from uuid import NAMESPACE_URL, uuid5
 
+from impodo.application.workspace.execution.business_review import (
+    build_business_intent_review,
+)
 from impodo.application.workspace.execution.service import (
     ExecutionService,
     execution_api_scope,
@@ -182,6 +185,9 @@ class _BenchmarkPreflight:
             LOCAL_ACTOR.identity, datetime(2026, 10, 31, tzinfo=UTC),
         )
         self.assessment = assess_business_intent(observation, revision)
+        self.review = build_business_intent_review(
+            observation, revision, self.assessment, labels={}
+        )
 
     def current_execution_snapshot(self, workspace_id):
         return self.snapshot if workspace_id == self.snapshot.workspace_id else None
@@ -196,6 +202,12 @@ class _BenchmarkPreflight:
             or self.journal.run is None or run.run_id != self.journal.run.run_id
             or self.journal.intent_assessment_hash != self.assessment.content_hash):
             raise DependencyBenchmarkError("Benchmark run has no exact business-intent approval")
+
+    def business_intent_review(self, workspace_id, snapshot_hash, *, actor, run_id=""):
+        del actor, run_id
+        if self.current_business_intent_assessment(workspace_id, snapshot_hash) is None:
+            return None
+        return self.review
 
 
 class _Executor:
