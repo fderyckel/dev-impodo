@@ -322,13 +322,15 @@ def _windows_security_descriptor(root: Path) -> str:
     get_security.restype = ctypes.c_uint
 
     descriptor = ctypes.c_void_p()
+    owner = ctypes.c_void_p()
+    dacl = ctypes.c_void_p()
     result = get_security(
         os.fspath(root),
         1,
         0x00000001 | 0x00000004,
+        ctypes.byref(owner),
         None,
-        None,
-        None,
+        ctypes.byref(dacl),
         None,
         ctypes.byref(descriptor),
     )
@@ -359,11 +361,67 @@ def _windows_security_descriptor(root: Path) -> str:
         ):
             raise _windows_security_error("format the project-root DACL")
         try:
-            return output.value or ""
+            return _canonical_windows_sddl(output.value or "", owner, dacl)
         finally:
             local_free(ctypes.cast(output, ctypes.c_void_p))
     finally:
         local_free(descriptor)
+
+
+def _canonical_windows_sddl(
+    descriptor: str, owner: ctypes.c_void_p, dacl: ctypes.c_void_p
+) -> str:
+    """Read full SIDs from the same descriptor instead of trusting SDDL aliases."""
+
+    descriptor = re.sub(
+        r"O:(S-\d(?:-\d+)+|[A-Z]{2})",
+        "O:" + _windows_sid_text(owner),
+        descriptor,
+        count=1,
+    )
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    get_ace = advapi32.GetAce
+    get_ace.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    get_ace.restype = ctypes.c_int
+    # SDDL preserves ACE order. Preserve each rule's type, flags, and rights;
+    # only replace its trustee with the full SID from that exact native ACE.
+    for index, match in enumerate(re.finditer(r"\(([^()]*)\)", descriptor)):
+        fields = match.group(1).split(";")
+        if len(fields) != 6 or fields[0] != "A":
+            continue  # The strict validator rejects unsupported rule shapes.
+        ace = ctypes.c_void_p()
+        if not get_ace(dacl, index, ctypes.byref(ace)) or not ace.value:
+            raise _windows_security_error("read a project-root access rule")
+        if ctypes.c_ubyte.from_address(ace.value).value != 0:
+            raise ProjectRootSecurityError("Windows returned an unexpected ACE type.")
+        # ACCESS_ALLOWED_ACE consists of a four-byte header, DWORD mask, SID.
+        fields[-1] = _windows_sid_text(ctypes.c_void_p(ace.value + 8))
+        descriptor = descriptor.replace(match.group(0), "(" + ";".join(fields) + ")", 1)
+    return descriptor
+
+
+def _windows_sid_text(sid: ctypes.c_void_p) -> str:
+    """Format a native SID without domain-relative SDDL abbreviations."""
+
+    advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    convert_sid = advapi32.ConvertSidToStringSidW
+    convert_sid.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_wchar_p)]
+    convert_sid.restype = ctypes.c_int
+    local_free = kernel32.LocalFree
+    local_free.argtypes = [ctypes.c_void_p]
+    local_free.restype = ctypes.c_void_p
+    output = ctypes.c_wchar_p()
+    if not convert_sid(sid, ctypes.byref(output)):
+        raise _windows_security_error("format a project-root identity SID")
+    try:
+        return output.value or ""
+    finally:
+        local_free(ctypes.cast(output, ctypes.c_void_p))
 
 
 def _current_windows_user_sid() -> str:

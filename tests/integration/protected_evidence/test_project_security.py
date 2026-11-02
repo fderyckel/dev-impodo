@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 from impodo.adapters.protected_evidence.project_security import (
     ProjectRootSecurityError,
     _apply_private_windows_acl,
+    _canonical_windows_sddl,
     _validate_private_windows_sddl,
     development_mode_enabled,
     prepare_project_root,
@@ -60,6 +61,48 @@ class ProjectRootPolicyTests(unittest.TestCase):
 
 
 class WindowsProjectRootAclTests(unittest.TestCase):
+    def test_native_sids_resolve_aliases_without_accepting_other_identities(
+        self,
+    ) -> None:
+        sid = "S-1-5-21-100-200-300-500"
+        other = "S-1-5-21-100-200-999-500"
+        descriptor = "O:LAD:PAI(A;OICI;FA;;;LA)(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+        for owner_sid, user_trustee in ((sid, sid), (other, sid), (sid, other)):
+            with self.subTest(owner=owner_sid, trustee=user_trustee):
+                aces = [ctypes.create_string_buffer(16) for _ in range(3)]
+                sid_text = {
+                    100: owner_sid,
+                    ctypes.addressof(aces[0]) + 8: user_trustee,
+                    ctypes.addressof(aces[1]) + 8: "S-1-5-18",
+                    ctypes.addressof(aces[2]) + 8: "S-1-5-32-544",
+                }
+
+                def get_ace(_dacl, index, output):
+                    ctypes.cast(output, ctypes.POINTER(ctypes.c_void_p))[0] = (
+                        ctypes.addressof(aces[index])
+                    )
+                    return 1
+
+                advapi = Mock()
+                advapi.GetAce.side_effect = get_ace
+                with (
+                    patch.object(ctypes, "WinDLL", return_value=advapi, create=True),
+                    patch(
+                        "impodo.adapters.protected_evidence.project_security._windows_sid_text",
+                        side_effect=lambda pointer: sid_text[pointer.value],
+                    ),
+                ):
+                    normalized = _canonical_windows_sddl(
+                        descriptor, ctypes.c_void_p(100), ctypes.c_void_p(200)
+                    )
+                self.assertEqual(advapi.GetAce.call_count, 3)
+                if owner_sid == sid and user_trustee == sid:
+                    _validate_private_windows_sddl(normalized, sid)
+                    self.assertIn("D:PAI", normalized)
+                else:
+                    with self.assertRaises(ProjectRootSecurityError):
+                        _validate_private_windows_sddl(normalized, sid)
+
     def test_private_sddl_accepts_only_expected_inheritable_full_control(self) -> None:
         sid = "S-1-5-21-100-200-300-400"
         descriptor = (

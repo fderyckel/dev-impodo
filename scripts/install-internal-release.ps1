@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
-$bundle = (Resolve-Path -LiteralPath $BundleDirectory).Path
+$bundle = [IO.Path]::GetFullPath((Resolve-Path -LiteralPath $BundleDirectory).ProviderPath)
 $manifestPath = Join-Path $bundle "release-manifest.json"
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
     throw "The internal release manifest is missing."
