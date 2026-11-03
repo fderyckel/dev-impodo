@@ -166,6 +166,30 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch {
       stored = null;
     }
+    const revealDestination = (target, focusTarget = target) => {
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          target.scrollIntoView({ block: "start", behavior: "auto" });
+          focusTarget.focus({ preventScroll: true });
+        });
+      });
+    };
+    let hashTarget = null;
+    try {
+      hashTarget = document.getElementById(decodeURIComponent(window.location.hash.slice(1)));
+    } catch {
+      // An invalid fragment must not prevent ordinary editor restoration.
+    }
+    if (hashTarget) {
+      revealDestination(hashTarget);
+      return;
+    }
+    const missingCompany = document.querySelector('[data-company-choice-required="true"]');
+    // An unresolved company choice takes priority over remembered field scroll.
+    if (missingCompany) {
+      revealDestination(missingCompany, missingCompany.querySelector("select, button") || missingCompany);
+      return;
+    }
     if (!stored || !document.querySelector("[data-mapping-form]")) {
       return;
     }

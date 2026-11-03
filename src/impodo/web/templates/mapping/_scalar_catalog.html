@@ -566,6 +566,7 @@
                       </details>
                     </td>
                     <td class="mapping-preview" data-scalar-preview>
+                      {% include "mapping/_field_effects.html" %}
                       {% if row.preview %}
                         <span data-preview-raw>{{ row.preview.raw }}</span>
                         <span aria-hidden="true">→</span>

@@ -40,7 +40,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema(connection)
                 self.assertEqual(
                     connection.execute("SELECT version FROM schema_version").fetchone(),
-                    (5,),
+                    (6,),
                 )
                 self.assertEqual(
                     connection.execute(
@@ -62,7 +62,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute("SELECT * FROM schema_migration").fetchall(),
-                    [(4, 5, "execution-load-control-events-v5")],
+                    [(4, 5, "execution-load-control-events-v5"), (5, 6, "transformation-field-counts-v6")],
                 )
 
     def test_failed_v4_upgrade_rolls_back_the_new_table_and_version(self):
@@ -195,5 +195,5 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(3, 4), (4, 5)],
+                [(3, 4), (4, 5), (5, 6)],
             )

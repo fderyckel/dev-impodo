@@ -84,7 +84,7 @@ class ConstantListRelationshipTests(unittest.TestCase):
         self,
     ):
         definition, _plan, _prepared = self.inputs()
-        self.assertEqual(definition.contract_version, 21)
+        self.assertEqual(definition.contract_version, 22)
         self.assertEqual(MappingDefinition.from_json(definition.to_json()), definition)
         for version in (15, 19, 20):
             with (

@@ -306,7 +306,7 @@ class IdentityComponent(StrictModel):
     type: ScalarType = "string"
     normalize: NormalizationSpec = Field(default_factory=NormalizationSpec)
     resolve: ResolveSpec | None = None
-    null_policy: Literal["reject", "explicit_scope_null"] = "reject"
+    null_policy: Literal["reject", "explicit_scope_null", "zero_as_scope_null"] = "reject"
 
     @model_validator(mode="after")
     def validate_arity(self) -> IdentityComponent:
@@ -318,7 +318,7 @@ class IdentityComponent(StrictModel):
             )
         if self.resolve is not None and len(self.target_fields) != 1:
             raise ValueError("relational identity components target one relation field")
-        if self.null_policy == "explicit_scope_null" and self.resolve is None:
+        if self.null_policy != "reject" and self.resolve is None:
             raise ValueError(
                 "explicit_scope_null requires a relational identity component"
             )
@@ -336,7 +336,7 @@ class TargetIdentitySpec(StrictModel):
         """Keep nullable hierarchy semantics out of the identity key itself."""
 
         if any(
-            component.null_policy == "explicit_scope_null"
+            component.null_policy != "reject"
             for component in self.components
         ):
             raise ValueError(
@@ -443,11 +443,12 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
         )
     for dataset in datasets:
         for component in dataset.target_identity.scope:
-            if component.null_policy != "explicit_scope_null":
+            if component.null_policy == "reject":
                 continue
             if (
                 component.resolve is None
                 or component.resolve.dataset != dataset.name
+                or (component.null_policy == "zero_as_scope_null" and len(component.source_fields) != 1)
             ):
                 raise ValueError(
                     "explicit_scope_null requires a self-referencing incoming "

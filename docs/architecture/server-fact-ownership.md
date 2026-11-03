@@ -224,9 +224,17 @@ The current reference store generation is
 
 The engine generation is
 `impodo-workspace-engine-2026-10-31-workspace-owned`, with baseline version 1
-and current version 4. The families
+and current version 5. The families
 below describe current engine evidence. Unless a row explicitly
 says otherwise, the named tables remain DuckDB data-plane authority.
+
+Version 5 adds the load-control event companion through an explicit forward
+migration. Early version-4 stores have load settings and rejected transport
+evidence but no event table; later version-4 stores already contain the table.
+The migration creates it when absent and preserves existing event history.
+Exact schema validation still rejects incompatible table layouts and rolls
+back the migration. Existing source, mapping, execution, and protected evidence
+rows are not rewritten.
 
 | Evidence family and current tables | Server projection, if any |
 | --- | --- |

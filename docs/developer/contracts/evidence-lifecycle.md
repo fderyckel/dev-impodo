@@ -173,7 +173,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 21. It binds an explicit
+The exact current mapping contract is version 22. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -198,7 +198,7 @@ cannot reuse that confirmation. The accepted Data version itself is unchanged.
 
 Mapping contract version 17 adds a closed `IdentityNullPolicy`. Its default
 `reject` preserves prior identity behavior. `explicit_scope_null` is valid only
-for an optional, generated, self-referencing hierarchy parent in target scope;
+for an optional self-referencing incoming parent in target scope;
 an all-blank parent key then represents a deliberate root and remains part of
 the complete collision identity. Historical version-16 evidence cannot carry
 or inherit this new meaning.
@@ -223,6 +223,15 @@ list containing the selected portable business reference. It supports only
 `replace`, so the complete target list has exactly that one record. Missing
 and ambiguous references remain blocking. Earlier contracts cannot contain
 this shape and retain their exact serialized layouts and content hashes.
+
+Mapping contract version 22 adds `zero_as_scope_null`, an explicit no-parent
+marker for an optional self-referencing incoming target scope with one source
+column. It prepares an exact trimmed `0` as null while retaining normal blank
+root handling. Other keys are unchanged. Required parents, other-table and
+Odoo resolvers, compound references, and ordinary identity fields cannot use
+this policy. Earlier contracts cannot contain it and retain their historical
+serialization and content hashes. Physical incoming scope coverage now blocks
+unresolved parent keys at Match data; target Odoo existence remains deferred.
 
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14

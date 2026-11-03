@@ -359,6 +359,7 @@ class ReferenceResolution:
     match_count: int
     target_binding_hash: str = ""
     affected_count: int = 1
+    resolved_target: BusinessReference | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -464,6 +465,11 @@ class PreflightResult:
                     "match_count": resolution.match_count,
                     "target_binding_hash": resolution.target_binding_hash,
                     "affected_count": resolution.affected_count,
+                    **(
+                        {"resolved_target": portable_value(resolution.resolved_target)}
+                        if resolution.resolved_target is not None
+                        else {}
+                    ),
                 }
                 for resolution in self.reference_resolutions
             ],

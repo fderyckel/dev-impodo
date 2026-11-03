@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 from uuid import uuid4
 
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
@@ -20,13 +20,11 @@ from impodo.domain.staging.transformation_impact import (
     TransformationImpactRow,
 )
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
-from tests.support.paths import REPOSITORY_ROOT
 
 
 class TransformationImpactRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.database = DuckDbWorkspaceDatabase(Path(self.temporary.name))
         self.workspace_id = str(uuid4())
         WorkspaceStateRepository(self.database).initialize_workbench(

@@ -1,0 +1,11 @@
+{% if row.field_effects %}
+  <div data-field-effects data-field-effects-state="{{ row.field_effects.status }}">
+    <small><strong>Rule effects · <span data-field-effects-status>{{ row.field_effects.status }}</span></strong></small>
+    {% if row.field_effects.counts %}
+      {% set counts = row.field_effects.counts %}
+      <small>{{ counts.changed_count }} changed · {{ counts.fallback_count }} fallback · {{ counts.invalid_count }} invalid · {{ counts.null_count }} blank · {{ counts.provided_count }} supplied · {{ counts.unchanged_count }} unchanged</small>
+    {% endif %}
+    <small data-field-effects-help {% if row.field_effects.status == 'Current' %}hidden{% endif %}>Save and check your changes, then review rule effects to refresh these counts.</small>
+    <a href="{{ row.field_effects.url }}">Review this field’s rule effects</a>
+  </div>
+{% endif %}

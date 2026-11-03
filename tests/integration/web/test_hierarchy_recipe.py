@@ -46,10 +46,16 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
     def test_supplied_odoo20_remote(self):
         self._reuse(20, "REMOTE", "supplied")
 
-    def _reuse(self, major, mode, source_shape):
+    def test_supplied_zero_root_odoo19_remote(self):
+        self._reuse(19, "REMOTE", "supplied", zero_root=True)
+
+    def test_supplied_zero_root_odoo20_remote(self):
+        self._reuse(20, "REMOTE", "supplied", zero_root=True)
+
+    def _reuse(self, major, mode, source_shape, *, zero_root=False):
         context, actor = self.context, self.actor
         workspace_id, original = self.hierarchy(
-            major=major, mode=mode, source_shape=source_shape
+            major=major, mode=mode, source_shape=source_shape, zero_root=zero_root,
         )
         self.prepare(workspace_id)
         owner = context.migration_workspaces.get(workspace_id, actor=actor)
@@ -87,7 +93,10 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
         page = self.client.get(url)
         fresh_rows = tuple(reversed(PRODUCT_ROWS))
         files = (
-            supplied_files(fresh_rows, categories=tuple(reversed(CATEGORY_ROWS)))
+            supplied_files(fresh_rows, categories=tuple(
+                (key, name, parent or "0") if zero_root else (key, name, parent)
+                for key, name, parent in reversed(CATEGORY_ROWS)
+            ))
             if source_shape == "supplied"
             else {"products": product_csv(fresh_rows)}
         )
@@ -161,7 +170,8 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
             if mapping.target_model == "product.category"
         )
         self.assertEqual(
-            category.target_scope[0].null_policy.value, "explicit_scope_null"
+            category.target_scope[0].null_policy.value,
+            "zero_as_scope_null" if zero_root else "explicit_scope_null",
         )
         staging, quality = self.prepare(application.workspace_id)
         assert_prepared_hierarchy(self, application.workspace_id, staging, quality)

@@ -1192,6 +1192,7 @@ def _relationship_value_choices(
     key: BusinessKeyDefinition,
     *,
     refresh: bool = False,
+    constant_key_value: str | None = None,
     actor: Actor,
 ) -> tuple[
     tuple[dict[str, str], ...],
@@ -1306,8 +1307,10 @@ def _relationship_value_choices(
         base_url=workspace_state.odoo_base_url,
         database=workspace_state.odoo_database,
     )
-    if not refresh:
-        current = context.supporting_lookups.current(
+    targeted = bool(constant_key_value)
+    if not refresh and not targeted:
+        current = run_local_operation_sync(
+            context.supporting_lookups.current,
             workspace_state.workspace_id,
             relation_model=relation_model,
             key_fields=key.key_fields,
@@ -1349,6 +1352,15 @@ def _relationship_value_choices(
                 True,
             )
 
+    record_requests = (
+        (RecordRequest(
+            model=relation_model,
+            fields=requested_fields,
+            domain=((key_field, "=", constant_key_value),),
+            limit=VALUE_MATCH_MAX_TARGET_CHOICES + 1,
+        ),)
+        if targeted else None
+    )
     metadata, record_snapshot, access = _read_supporting_lookup_snapshots(
         context,
         workspace_state,
@@ -1356,6 +1368,7 @@ def _relationship_value_choices(
         actor=actor,
         relation_model=relation_model,
         requested_fields=requested_fields,
+        record_requests=record_requests,
     )
     if (
         metadata.fingerprint != record_snapshot.fingerprint
@@ -1400,8 +1413,15 @@ def _relationship_value_choices(
     records = record_snapshot.records.get(relation_model, ())
     if len(records) > VALUE_MATCH_MAX_TARGET_CHOICES:
         raise WorkspaceError(
+            "Too many Odoo records to list. Enter a matching value above and select Check this record."
+            if constant_key_value == "" else
             "This Odoo model has too many records for quick matching"
         )
+    if targeted and any(
+        _portable_relationship_choice_component(record.values.get(key_field)) != constant_key_value
+        for record in records
+    ):
+        raise WorkspaceError("Odoo returned records outside the requested matching value")
     by_key: dict[str, list[TargetRecord]] = {}
     identity_fields = (*key.key_fields, *key.scope_fields)
     for record in records:
@@ -1438,7 +1458,12 @@ def _relationship_value_choices(
             label = f"{label} ({value})"
         choices.append({"value": value, "label": label})
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
-    stored = context.supporting_lookups.capture(
+    if targeted:
+        # A one-key result is not a complete choice catalogue. Never publish it
+        # into the cache consumed by later unfiltered relationship browsing.
+        return tuple(choices), ambiguous, captured_at, False
+    stored = run_local_operation_sync(
+        context.supporting_lookups.capture,
         workspace_state.workspace_id,
         relation_model=relation_model,
         key_fields=key.key_fields,
@@ -2189,6 +2214,7 @@ def _read_supporting_lookup_snapshots(
     actor: Actor,
     relation_model: str,
     requested_fields: tuple[str, ...],
+    record_requests: tuple[RecordRequest, ...] | None = None,
 ) -> tuple[
     MetadataSnapshot,
     RecordSnapshot,
@@ -2202,6 +2228,7 @@ def _read_supporting_lookup_snapshots(
         schema,
         actor=actor,
         grouped_requests=((relation_model, requested_fields),),
+        record_requests=record_requests,
     )
 
 

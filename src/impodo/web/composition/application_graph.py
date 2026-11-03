@@ -65,6 +65,10 @@ from impodo.application.workspace.derived_entities import (
 from impodo.application.workspace.mapping.field_catalog import (
     MappingFieldCatalogQueryRepository,
 )
+from impodo.application.workspace.mapping.field_effects import (
+    FieldEffectsQuery,
+    FieldEffectsService,
+)
 from impodo.application.workspace.mapping.required_values_query import (
     RequiredValuesQuery,
     RequiredValuesQueryService,
@@ -345,6 +349,7 @@ def build_web_context(
     infrastructure: WebInfrastructureDependencies,
     target: WebTargetDependencies,
     required_values: RequiredValuesQuery | None = None,
+    field_effects: FieldEffectsQuery | None = None,
 ) -> WebContext:
     """Map one application graph and deployment adapters into the route context."""
 
@@ -385,6 +390,9 @@ def build_web_context(
         mapping_workspace=authoring.mapping_workspace,
         business_intents=authoring.business_intents,
         matching_order=authoring.matching_order,
+        field_effects=field_effects if field_effects is not None else FieldEffectsService(
+            support.queries, authoring.mapping_workspace.authorization
+        ),
         required_values=required_values if required_values is not None else RequiredValuesQueryService(
             support.queries, authoring.mapping_workspace, authoring.matching_order
         ),

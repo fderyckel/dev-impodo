@@ -167,7 +167,11 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     )
 
                 self.assertEqual(tuple(records), expected_records)
-                self.assertEqual(collector.report(), expected_report)
+                native_report = collector.report()
+                self.assertIsNone(native_report.field_impacts)
+                self.assertEqual(
+                    native_report, replace(expected_report, field_impacts=None)
+                )
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
 
@@ -248,7 +252,11 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 batch.impacts,
                 batch.rule_impacts,
             )
-        self.assertEqual(collector.report(), expected_report)
+        native_report = collector.report()
+        self.assertIsNone(native_report.field_impacts)
+        self.assertEqual(
+            native_report, replace(expected_report, field_impacts=None)
+        )
 
     def test_combined_source_columns_match_python_oracle_for_both_blank_policies(
         self,
@@ -329,7 +337,11 @@ class PolarsTransformationParityTests(unittest.TestCase):
                     )
 
                 self.assertEqual(tuple(records), expected_records)
-                self.assertEqual(collector.report(), expected_report)
+                native_report = collector.report()
+                self.assertIsNone(native_report.field_impacts)
+                self.assertEqual(
+                    native_report, replace(expected_report, field_impacts=None)
+                )
 
     def test_incoming_relationship_keys_match_python_oracle_across_batches(
         self,
@@ -732,7 +744,11 @@ class PolarsTransformationParityTests(unittest.TestCase):
             )
 
         self.assertEqual(tuple(records), expected_records)
-        self.assertEqual(collector.report(), expected_report)
+        native_report = collector.report()
+        self.assertIsNone(native_report.field_impacts)
+        self.assertEqual(
+            native_report, replace(expected_report, field_impacts=None)
+        )
         counts_by_kind = {
             item.rule_kind: (
                 item.evaluated_value_count,

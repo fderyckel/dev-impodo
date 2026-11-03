@@ -7,6 +7,7 @@
     updateMappingVersionFields,
     navigateToMappingResult,
     setDirty,
+    onCommitted,
   }) => {
     const saveOutcome = mappingForm.querySelector(
       "[data-mapping-save-outcome]"
@@ -187,6 +188,7 @@
         unresolvedOperation = null;
         staleConflict = false;
         updateMappingVersionFields(payload);
+        onCommitted?.(operation);
         window.impodoFormulaValidation?.applySaveResult(payload);
         setDirty(false);
         clear();

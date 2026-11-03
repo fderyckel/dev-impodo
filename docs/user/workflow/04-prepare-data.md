@@ -84,6 +84,11 @@ pages. Root findings appear before inherited dependencies. An **Inherited
 dependency** means that Impodo set the row aside because a linked parent or
 another member of its identity group was already unsafe.
 
+If every record was set aside, the review opens these findings automatically.
+It shows **All records were set aside** and asks you to review the causes;
+there is no action to approve an empty prepared result. Correct the affected
+source or field rule, then prepare again in the same workspace.
+
 Each issue card shows the affected record type, friendly fields, complete-run
 record count, correction owner, and one **Match data** action. For a direct
 cause, the card also separates the parents, children, and siblings that Impodo

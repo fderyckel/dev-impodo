@@ -27,6 +27,23 @@ HASH = "sha256:" + "1" * 64
 
 
 class MappingContractCompatibilityTests(unittest.TestCase):
+    def test_zero_parent_marker_requires_v22_and_preserves_v21_meaning(self):
+        component = IdentityComponentMapping(
+            ("category.parent",), ("parent_id",),
+            resolver=RelationshipResolver(ResolverOrigin.DATASET, dataset_id="categories"),
+            null_policy=IdentityNullPolicy.ZERO_AS_SCOPE_NULL,
+        )
+        definition = MappingDefinition("mapping:zero-root", HASH, HASH, (
+            DatasetMapping("categories", "product.category", target_scope=(component,)),
+        ))
+        self.assertEqual(MappingDefinition.from_json(definition.to_json()), definition)
+        with self.assertRaisesRegex(ValueError, "v22"):
+            replace(definition, contract_version=21)
+        legacy = replace(definition, contract_version=21, datasets=(replace(
+            definition.datasets[0], target_scope=(replace(component, null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL),),
+        ),))
+        self.assertEqual(MappingDefinition.from_json(legacy.to_json()), legacy)
+
     def test_v17_versions_explicit_scope_null_without_reinterpreting_v16(self) -> None:
         component = IdentityComponentMapping(
             source_column_keys=("category.parent_key",),

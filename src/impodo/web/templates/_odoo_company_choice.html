@@ -1,6 +1,6 @@
 {% set selected_company = workspace_state.destination_company if workspace_state.source_mode.value == 'ODOO' else workspace_state.odoo_company %}
 {% set company_action = company_action if company_action is defined else '/workspaces/' ~ workspace_id ~ ('/transfer-destination/company' if workspace_state.source_mode.value == 'ODOO' else '/mapping/company') %}
-      <section id="odoo-operation-company" class="form-card" aria-labelledby="odoo-operation-company-title">
+      <section id="odoo-operation-company" class="form-card" aria-labelledby="odoo-operation-company-title" tabindex="-1" data-company-choice-required="{{ 'false' if selected_company else 'true' }}">
         <h2 id="odoo-operation-company-title">Company for this load</h2>
         <p><strong>Current choice:</strong> {{ selected_company.name if selected_company else 'Choose a company before loading' }}.</p>
         {% if company_access %}

@@ -89,6 +89,15 @@
         {% endif %}
       </div>
     </section>
+  {% elif normalization.eligible_record_count == 0 and normalization.set_aside_record_count %}
+    <section class="next-action-card blocked" aria-labelledby="prepared-next-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        <h2 id="prepared-next-title">All records were set aside</h2>
+        <p>There are no records to approve. Review the root findings, correct the affected field rules, then prepare the data again.</p>
+      </div>
+      <a class="button primary" href="/workspaces/{{ workspace_id }}/normalization?status=set_aside#review-groups">Review why records were set aside</a>
+    </section>
   {% elif dry_run.status.value == 'REVIEW_REQUIRED' %}
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
       <div>

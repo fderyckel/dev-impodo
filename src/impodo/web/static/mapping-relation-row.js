@@ -250,8 +250,14 @@ document.addEventListener("DOMContentLoaded", () => {
         data.set("target_model", chooser.dataset.constantTargetModel || "");
         data.set("target_field", chooser.dataset.targetField || "");
         data.set("business_key_id", businessKey.value);
+        const matchingValue = row.querySelector(
+          '[data-constant-component-slot="0"] [data-constant-component-value]'
+        )?.value.trim() || "";
+        data.set("constant_value", matchingValue);
         data.set("refresh", "0");
-        if (status) status.textContent = "Checking current Odoo choices…";
+        if (status) status.textContent = matchingValue
+          ? "Checking this matching value in Odoo…"
+          : "Loading existing Odoo choices…";
         try {
           const response = await fetch(chooser.dataset.endpoint, {
             method: "POST",
@@ -268,8 +274,12 @@ document.addEventListener("DOMContentLoaded", () => {
           renderScopeChoices();
           renderChoices();
           if (status) {
-            status.textContent = loadedChoices.length
+            status.textContent = (payload.ambiguous_values || []).length && !loadedChoices.length
+              ? "More than one Odoo record matches. Choose the company for this load or use a more specific matching rule."
+              : loadedChoices.length
               ? `${loadedChoices.length.toLocaleString()} unambiguous existing record(s) available. Choose a record to fill the matching value.`
+              : matchingValue
+              ? "No matching Odoo record was found under the current company and read access."
               : "No unambiguous existing record matches this rule.";
           }
         } catch (error) {

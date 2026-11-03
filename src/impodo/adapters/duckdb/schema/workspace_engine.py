@@ -976,7 +976,8 @@ class WorkspaceEngineSchemaMixin:
                 null_count BIGINT NOT NULL,
                 invalid_count BIGINT NOT NULL,
                 provided_count BIGINT NOT NULL,
-                unchanged_count BIGINT NOT NULL
+                unchanged_count BIGINT NOT NULL,
+                field_counts_json VARCHAR
             );
 
             CREATE TABLE transformation_impact_row (
@@ -1140,6 +1141,8 @@ class WorkspaceEngineSchemaMixin:
             raise WorkspaceStateCompatibilityError(
                 _UNSUPPORTED_WORKSPACE_MESSAGE
             ) from error
+        if "field_counts_json" not in table_columns.get("transformation_impact_run", ()):
+            raise WorkspaceStateCompatibilityError(_UNSUPPORTED_WORKSPACE_MESSAGE)
         for table, expected in (
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
@@ -1272,9 +1275,15 @@ def _upgrade_identity_group_review(connection: duckdb.DuckDBPyConnection) -> Non
     connection.execute("CREATE INDEX matching_order_protected_identity_group_lookup ON matching_order_protected_identity_choice (check_id, group_hash, ordinal)")
 
 
+def _upgrade_transformation_field_counts(connection: duckdb.DuckDBPyConnection) -> None:
+    """Leave historical snapshots intact and their absent field counts unknown."""
+    connection.execute("ALTER TABLE transformation_impact_run ADD COLUMN IF NOT EXISTS field_counts_json VARCHAR")
+
+
 WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     1: ForwardSchemaUpgrade("matching-identity-group-members-v2", _upgrade_identity_group_review),
     2: ForwardSchemaUpgrade("matching-relationship-choices-v3", create_relationship_choice_schema),
     3: ForwardSchemaUpgrade("execution-load-control-v4", create_load_control_schema),
     4: ForwardSchemaUpgrade("execution-load-control-events-v5", create_load_control_event_schema),
+    5: ForwardSchemaUpgrade("transformation-field-counts-v6", _upgrade_transformation_field_counts),
 }

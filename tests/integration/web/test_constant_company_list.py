@@ -136,7 +136,7 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
                     self.assertEqual(response.status_code, 200, response.text)
                     draft = context.queries.get_mapping_working_draft(workspace_id)
                     relation = draft.definition.datasets[0].relationships[0]
-                    self.assertEqual(draft.definition.contract_version, 21)
+                    self.assertEqual(draft.definition.contract_version, 22)
                     self.assertEqual(relation.kind, "many2many")
                     self.assertEqual(relation.source_column_keys, ())
                     self.assertIs(

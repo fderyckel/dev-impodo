@@ -45,7 +45,13 @@ class SelectionChoiceRefreshBrowserTests(unittest.TestCase):
         return page
 
     def test_stage3_retains_edits_flags_removed_language_and_saves_current_list(self):
-        fixture = stage_fixtures.SelectionChoiceRefreshTests(methodName="runTest")
+        self._stage3_refresh_and_repeated_save(stage_fixtures.SelectionChoiceRefreshTests)
+
+    def test_odoo20_stage3_refresh_and_repeated_save(self):
+        self._stage3_refresh_and_repeated_save(stage_fixtures.SelectionChoiceRefreshOdoo20Tests)
+
+    def _stage3_refresh_and_repeated_save(self, fixture_type):
+        fixture = fixture_type(methodName="runTest")
         fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         fixture.configure()
@@ -94,6 +100,18 @@ class SelectionChoiceRefreshBrowserTests(unittest.TestCase):
             with page.expect_response(lambda response: response.url.endswith("/mapping/save") and response.request.method == "POST") as response:
                 page.get_by_role("button", name="Save progress", exact=True).click()
             self.assertEqual(response.value.status, 200)
+            # Save progress keeps this document open. Its accepted refresh must
+            # not be submitted again against the newly saved draft version.
+            with page.expect_response(lambda response: response.url.endswith("/mapping/save") and response.request.method == "POST") as repeated:
+                page.get_by_role("button", name="Save progress", exact=True).click()
+            self.assertEqual(repeated.value.status, 200, repeated.value.text())
+            self.assertEqual(json.loads(page.locator('[name="selection_refreshes"]').input_value()), [])
+            row.locator("[data-open-value-match]").click()
+            expect(dialog.get_by_label("Odoo choice for de", exact=True)).to_have_value("it_IT")
+            dialog.get_by_role("button", name="Use complete matches", exact=True).click()
+            with page.expect_response(lambda response: response.url.endswith("/mapping/save") and response.request.method == "POST") as reopened:
+                page.get_by_role("button", name="Save progress", exact=True).click()
+            self.assertEqual(reopened.value.status, 200, reopened.value.text())
             page.reload(wait_until="networkidle")
             row.evaluate("row => { for (let node = row; node; node = node.parentElement) if (node.tagName === 'DETAILS') node.open = true; }")
             row.locator("[data-open-value-match]").click()

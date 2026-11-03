@@ -216,6 +216,15 @@ class TransformationImpactRow:
 
 
 @dataclass(frozen=True, slots=True)
+class TransformationFieldImpact:
+    """Complete value-free outcome counts for one evaluated field."""
+
+    dataset: str
+    target_field: str
+    counts: TransformationImpactCounts
+
+
+@dataclass(frozen=True, slots=True)
 class TransformationImpactReport:
     """Bounded browser projection with complete all-row outcome counts."""
 
@@ -230,6 +239,7 @@ class TransformationImpactReport:
     rows: tuple[TransformationImpactRow, ...]
     rule_impacts: tuple[TransformationRuleImpact, ...] = ()
     detail_limit: int = TRANSFORMATION_IMPACT_DETAIL_LIMIT
+    field_impacts: tuple[TransformationFieldImpact, ...] | None = None
 
     @property
     def impact_count(self) -> int:
@@ -385,6 +395,8 @@ class _TransformationImpactCollector:
     rows: list[TransformationImpactRow] = field(default_factory=list)
     sink: Callable[[TransformationImpactRow], None] | None = None
     rule_impacts: dict[str, TransformationRuleImpact] = field(default_factory=dict)
+    field_counts: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict)
+    field_counts_complete: bool = True
 
     def register_rule(self, rule: TransformationRuleImpact) -> None:
         """Register one configured rule even when no row reaches it."""
@@ -469,6 +481,8 @@ class _TransformationImpactCollector:
         self.evaluated_count += 1
         attribute = f"{outcome}_count"
         setattr(self, attribute, getattr(self, attribute) + 1)
+        counts = self.field_counts.setdefault((dataset, target_field), {})
+        counts[attribute] = counts.get(attribute, 0) + 1
         if outcome == "unchanged":
             return
         impact = TransformationImpactRow(
@@ -495,6 +509,8 @@ class _TransformationImpactCollector:
         rule_impacts: tuple[TransformationRuleImpact, ...] = (),
     ) -> None:
         """Merge one native batch without replaying unchanged scalar cells."""
+
+        self.field_counts_complete = False
 
         if len(impacts) != counts.impact_count:
             raise ValueError("Transformation impact batch does not reconcile")
@@ -539,6 +555,8 @@ class _TransformationImpactCollector:
     ) -> None:
         """Merge facts already persisted by a native set-based projection."""
 
+        self.field_counts_complete = False
+
         self.evaluated_count += counts.evaluated_count
         self.changed_count += counts.changed_count
         self.fallback_count += counts.fallback_count
@@ -564,6 +582,18 @@ class _TransformationImpactCollector:
                 self.rule_impacts[key] for key in sorted(self.rule_impacts)
             ),
             detail_limit=self.detail_limit,
+            field_impacts=(
+                tuple(
+                    TransformationFieldImpact(
+                        dataset, target_field,
+                        TransformationImpactCounts(
+                            evaluated_count=sum(counts.values()), **counts
+                        ),
+                    )
+                    for (dataset, target_field), counts in sorted(self.field_counts.items())
+                )
+                if self.field_counts_complete else None
+            ),
         )
 
 

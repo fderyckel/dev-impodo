@@ -2,8 +2,10 @@
 
 from dataclasses import asdict
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
+from starlette.datastructures import FormData
 
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
@@ -27,6 +29,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.derived_entities import derived_dataset_links
 from impodo.web.app import create_local_app
 from impodo.web.composition.page_reads import run_local_operation_sync
+from impodo.web.presenters.mapping_forms import _mapping_datasets_from_form
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -261,7 +264,7 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         )
         return schema
 
-    def submit(self, workspace_id, mappings, *, confirm_rows=False):
+    def submit(self, workspace_id, mappings, *, confirm_rows=False, check_only=False):
         current = self.context.mapping_workspace.mappings.get_mapping_revision(
             workspace_id
         )
@@ -276,6 +279,8 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
             expected_working_draft_version=working.version if working else None,
             actor=self.actor,
         )
+        if check_only:
+            return validation
         self.assertNotEqual(validation.status.value, "INVALID", validation.issues)
         draft = self.context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id
@@ -309,9 +314,11 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
 
     def hierarchy(
         self, *, major=19, mode="LOCAL", rows=PRODUCT_ROWS,
-        source_shape="generated", categories=CATEGORY_ROWS,
+        source_shape="generated", categories=CATEGORY_ROWS, check_only=False, zero_root=False,
     ):
         if source_shape == "supplied":
+            if zero_root:
+                categories = tuple((key, name, parent or "0") for key, name, parent in categories)
             files = supplied_files(rows, categories=categories)
         elif source_shape == "generated":
             files = {"products": product_csv(rows)}
@@ -369,6 +376,36 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
         parent = RelationshipResolver(
             origin=ResolverOrigin.DATASET, dataset_id=category_id
         )
+        category_mapping = DatasetMapping(
+            category_id,
+            "product.category",
+            source_identity_column_keys=(category_key,),
+            target_identity=(IdentityComponentMapping((category_name,), ("name",)),),
+            target_scope=(
+                IdentityComponentMapping(
+                    (category_parent,), ("parent_id",), resolver=parent,
+                    null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+                ),
+            ),
+        )
+        if source_shape == "supplied":
+            # Exercise the browser authoring boundary in every supplied-file
+            # workflow and Recipe run, without generated hierarchy metadata.
+            category_mapping = _mapping_datasets_from_form(
+                FormData((
+                    ("target_model_0", "product.category"),
+                    ("business_key_0", "category:name-parent"),
+                    ("source_identity_0", category_key),
+                    ("identity_source_0_0", category_name),
+                    ("identity_source_0_1", category_parent),
+                    ("identity_origin_0_1", "dataset"),
+                    ("identity_dataset_0_1", category_id),
+                    *(( ("identity_zero_root_0_1", "1"), ) if zero_root else ()),
+                )),
+                SimpleNamespace(datasets=(category,)),
+                self.context.queries.get_odoo_schema_catalog(workspace_id),
+                self.context.queries.get_schema_governance(workspace_id),
+            )[0]
         revision = self.submit(
             workspace_id,
             (
@@ -394,23 +431,9 @@ class HierarchyWorkflowFixture(ProjectSetupBrowserTestCase):
                         ),
                     ),
                 ),
-                DatasetMapping(
-                    category_id,
-                    "product.category",
-                    source_identity_column_keys=(category_key,),
-                    target_identity=(
-                        IdentityComponentMapping((category_name,), ("name",)),
-                    ),
-                    target_scope=(
-                        IdentityComponentMapping(
-                            (category_parent,),
-                            ("parent_id",),
-                            resolver=parent,
-                            null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
-                        ),
-                    ),
-                ),
+                category_mapping,
             ),
+            check_only=check_only,
         )
         return workspace_id, revision
 

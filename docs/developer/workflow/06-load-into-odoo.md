@@ -725,6 +725,16 @@ The focused suites are
 [`test_execution_load_control.py`](../../../tests/integration/duckdb/test_execution_load_control.py),
 [`test_load_control_upgrade.py`](../../../tests/integration/duckdb/test_load_control_upgrade.py)
 and [`test_load_controls.py`](../../../tests/integration/web/test_load_controls.py).
+
+Workspace schema version 5 upgrades early version-4 stores that lack
+`execution_load_control_event`. The additive migration also accepts later
+version-4 stores with existing event history and leaves that history intact.
+It validates the complete schema before committing the version and migration
+ledger. Failed upgrades roll back; incompatible existing event layouts remain
+blocked. The migration tests cover both version-4 shapes, preserved evidence,
+and rollback. The [project reopening regression](../../../tests/integration/web/test_project_setup.py)
+opens an affected workspace through its Project page for captured Odoo 19 and
+20 metadata without contacting Odoo or changing the captured details.
 The pure budget tests are
 [`test_load_control.py`](../../../tests/domain/execution/test_load_control.py).
 [`Recipe progress tests`](../../../tests/integration/web/test_recipe_run_progress.py)

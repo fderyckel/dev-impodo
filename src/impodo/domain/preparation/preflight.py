@@ -311,7 +311,7 @@ def _resolve_records(
                     Issue(
                         code="REFERENCE_TARGET_PRECEDENCE_REUSE",
                         message=(
-                            "an exact or explicitly matched Odoo record wins; "
+                            "a matching Odoo record wins; "
                             "this incoming row is reused without updating Odoo"
                         ),
                         severity=Severity.WARNING,
@@ -429,7 +429,8 @@ def _resolve_records(
         matches: tuple[Any, ...]
         target_binding_hash = ""
         if value.origin == "target_then_incoming":
-            target_matches = catalog.find_by_fields(
+            resolved_target: BusinessReference | None = None
+            target_matches = catalog.find_target_first_matches(
                 str(value.model),
                 (*value.target_fields, *value.target_scope_fields),
                 (*value.key, *value.scope),
@@ -440,11 +441,15 @@ def _resolve_records(
                     target_matches[0].model,
                     target_matches[0].odoo_id,
                 )
-                result = BusinessReference(
-                    model=str(value.model),
-                    key=value.key,
-                    scope=value.scope,
+                resolved_target = catalog.reference_from_id(
+                    target_matches[0].model,
+                    target_matches[0].odoo_id,
+                    value.target_fields,
+                    value.target_scope_fields,
                 )
+                result = resolved_target
+                if resolved_target == BusinessReference(str(value.model), value.key, value.scope):
+                    resolved_target = None
                 matches = target_matches
             elif len(target_matches) > 1:
                 status = "AMBIGUOUS"
@@ -571,6 +576,7 @@ def _resolve_records(
                     status=status,
                     match_count=len(matches),
                     target_binding_hash=target_binding_hash,
+                    resolved_target=resolved_target,
                 )
             )
             return result
@@ -731,7 +737,7 @@ def _hybrid_incoming_outcomes(
             ):
                 continue
             incoming_identity = (value.dataset, value.incoming_key)
-            matches = catalog.find_by_fields(
+            matches = catalog.find_target_first_matches(
                 value.model,
                 (*value.target_fields, *value.target_scope_fields),
                 (*value.key, *value.scope),
@@ -741,11 +747,11 @@ def _hybrid_incoming_outcomes(
                 if previous.odoo_id != matches[0].odoo_id:
                     winner_conflicts.add(incoming_identity)
                 continue
-            if not matches and catalog.find_casefold_by_fields(
-                value.model,
-                (*value.target_fields, *value.target_scope_fields),
-                (*value.key, *value.scope),
-            ):
+            fields = (*value.target_fields, *value.target_scope_fields)
+            key = (*value.key, *value.scope)
+            if not catalog.find_by_fields(
+                value.model, fields, key
+            ) and catalog.find_casefold_by_fields(value.model, fields, key):
                 case_conflicts.add(incoming_identity)
     return winners, case_conflicts, winner_conflicts
 
@@ -1317,6 +1323,7 @@ def _group_resolutions(
                 item.status,
                 item.match_count,
                 item.target_binding_hash,
+                canonical_json_text(portable_value(item.resolved_target)),
             )
         ].append(item)
     result = []

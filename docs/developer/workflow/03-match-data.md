@@ -53,6 +53,23 @@ verification, using the destination credential and independent company binding.
 Changing that choice retires destination verification and requires another
 connection check before matching.
 
+The company card renders before a choice exists. Its
+`data-company-choice-required` attribute exposes that presentation state to
+[`mapping.js`](../../../src/impodo/web/static/mapping.js). The position-restoration
+code gives existing fragment targets priority over cached field positions.
+With no explicit target, the company control receives focus whenever a company
+choice is missing. This does not depend on the browser supplying a referrer.
+After selection, the editor restores the saved field position on ordinary
+returns. This affects scrolling and focus only; it adds no local
+database reads or Odoo calls and does not change matching or authorization.
+The [company-entry browser regression](../../../tests/e2e/test_mapping_company_entry.py)
+checks Odoo 19 and 20, including local and remote targets with remembered field
+positions and no referrer. It also covers confirming rules with no draft,
+direct company anchors, and ordinary position restoration after selection.
+Set `IMPODO_COMPANY_ENTRY_SCREENSHOT=docs/images/user/08-company-first-entry.png`
+and run that browser module with Playwright to reproduce the fictional
+1440 by 1024 first-entry capture.
+
 `matching_company_refresh.py` owns `/mapping/company/refresh`. A bounded local
 operation verifies authority, workspace revision, current schema and checking
 credential. A worker then reads all selected models and probes identity through
@@ -221,6 +238,29 @@ For many2many, the chooser selects one existing record for the complete list.
 The route accepts this shape only for `constant_relationship`, so it never
 scans source values to populate that chooser. Reopening uses the saved
 portable constant and the existing target-bound lookup cache.
+
+For any related model, the constant chooser sends an entered primary matching
+value as `constant_value`. The server accepts it only for
+`constant_relationship`, bounds its length, and uses the selected governed
+key field to build an equality domain. Shared target readers preserve the
+selected company and verified access for Odoo 19 and 20. The entered value is
+never substituted into SQL or interpreted as a record ID. Empty values retain
+bounded browsing. Missing and duplicate keys remain unselected, and an
+oversized response still blocks proving uniqueness.
+
+An exact result is returned to the chooser without replacing the full-model
+supporting lookup cache. Full-catalogue cache reads and publications use bounded
+`run_local_operation_sync` scopes that close before Odoo I/O. The narrow lookup
+does not scan source rows or approve the eventual import; Check matches keeps
+its existing evidence and validation responsibilities. The
+[route regressions](../../../tests/integration/web/test_constant_record_lookup.py)
+cover account codes and a custom model with a different key, both majors,
+local and remote access, the browse limit, ambiguity, and cache isolation.
+The [browser regression](../../../tests/e2e/test_constant_record_lookup.py)
+checks typed values, selecting the parent, and saving the portable rule. Set
+`IMPODO_PARENT_LOOKUP_SCREENSHOT=docs/images/user/11-parent-account-lookup.png`
+and run `tests.e2e.test_constant_record_lookup` with Playwright to reproduce
+the fictional 1440 by 1024 capture.
 
 The browser requires each key and scope value while the constant provider is
 selected. A blank or whitespace-only value opens its enclosing cards and
@@ -1097,10 +1137,13 @@ business keys; this source reader has no model-specific branches.
 Relational components inside `target_identity` and `target_scope` use the same
 three origins. The guided identity form stores `identity_origin_*`,
 `identity_dataset_*`, and `identity_resolver_key_*`; an omitted origin retains
-the compatibility default `target_catalog`. The view offers only other source
+the compatibility default `target_catalog`. The identity view offers source
 tables whose currently selected target model matches the captured many2one
-relation. Semantic validation remains authoritative when a forged or stale
-form names another table.
+relation. For a self-referencing scope, this includes the current table,
+labelled **(this table)** for supplied data and **(this generated table)** for
+a generated hierarchy. Linked-field cards also offer the current table for
+self-referencing many2one fields. Semantic validation remains authoritative
+when a forged or stale form names another table.
 
 For an incoming relational component, its selected child source columns are
 the reference tuple and the referenced dataset's
@@ -1119,12 +1162,50 @@ snapshot schedules a created parent before every dependent child. Missing,
 ambiguous, or blocked parents continue to fail closed. This behavior does not
 authorize partial loading of otherwise valid rows.
 
-Mapping contract version 17 adds `explicit_scope_null` for the one generated
-hierarchy case that needs a deliberate blank: an optional self-parent scope on
-a root row. `mapping_forms.py` derives this policy only from the current
-`DerivedDatasetLink`, captured optional many-to-one metadata, the selected
-parent-key source column, and a resolver back to the same dataset. All other
-identity and scope components retain `reject`.
+Mapping contract version 17 introduced `explicit_scope_null` for an optional
+self-parent scope on a root row. `mapping_forms.py` now derives this policy
+from captured optional many2one metadata and an explicitly selected
+incoming-table resolver back to the same dataset. Supplied parent/child
+tables therefore receive the same root handling as generated hierarchies,
+without requiring a `DerivedDatasetLink`. Every source component must be
+blank to form a root; `0` remains a populated key unless explicitly configured.
+Required parents, target
+lookups, other-table lookups, and ordinary identity components retain
+`reject`. The existing mapping contract, compiler and Recipe portability
+rules remain unchanged.
+
+Mapping contract v22 adds the explicit `zero_as_scope_null` policy for one
+source column in an optional incoming self-parent scope. The identity form
+saves **A parent value of 0 means no parent**; its browser compiler, Python
+evaluator, native Polars expression, Recipe publication/application, metadata
+checks and parent-domain planner preserve that policy. The source snapshot
+stays immutable; a new checked mapping and preparation replace current
+derived evidence through the normal lifecycle. Existing v21 and earlier
+mappings retain their original zero and blank meanings.
+
+[`incoming_parent_coverage.py`](../../../src/impodo/application/workspace/mapping/incoming_parent_coverage.py)
+checks physical incoming scope references during mapping validation. It uses
+one narrow projection per participating table, applies each table's row
+inclusion rule, and reports `MAPPING_INCOMING_PARENT_MISSING` against the
+actual parent field. Blank roots and explicitly declared zero roots are
+excluded from the missing-key test. Odoo resolution, generated keys,
+ambiguity and dependency cycles retain their runtime owners. The
+[root-feedback regressions](../../../tests/integration/web/test_parent_root_feedback.py)
+cover both Odoo majors and local/remote targets, source-hash preservation,
+and the all-set-aside review. That review automatically opens saved causes
+and does not offer zero-row approval; its GET owns one `run_page_read` scope.
+
+The [same-table route regressions](../../../tests/integration/web/test_same_table_hierarchy.py)
+cover physical `RecId`, `ParentCategory`, and `Name` columns for Odoo 19 and
+20 with local and remote targets. The existing supplied hierarchy workflow
+and Recipe fixtures author their parent scope through the browser form
+translator before verifying matching, parent-first loading and readback.
+The [browser regressions](../../../tests/e2e/test_same_table_hierarchy.py)
+save and reopen the same-table selection for both majors. Set
+`IMPODO_SAME_TABLE_HIERARCHY_SCREENSHOT=docs/images/user/10c-supplied-category-parent.png`
+and run that browser module with Playwright to reproduce the fictional
+1440 by 1024 capture. The editor adds no repository reads; route tests retain
+the existing eight-connection and two-schema-check ceilings.
 
 A `constant_existing` many2many produces a singleton tuple of target
 `LogicalReference` values through the existing Python list-preparation path.
@@ -1161,12 +1242,14 @@ precedence and classifies the corresponding incoming row as `UNCHANGED` with
 no field differences. This precedence is a reference decision, not authority
 to update the existing Odoo record.
 
-String identity remains case-sensitive. The bounded record plan also captures
-case-insensitive exact candidates with `=ilike`, but preflight uses those rows
-only to emit `REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED`. It never treats them as
-equal. `TargetCatalog` caches exact and case-folded field indexes, and the read
-planner batches distinct keys, so neither exact matching nor case review adds
-one Odoo query or one target scan per source row.
+String identity remains case-sensitive. The bounded record plan captures
+case-insensitive candidates with `=ilike`. For target-first payment term
+references, a unique case-insensitive candidate wins when there is no exact
+match. Preflight records the exact Odoo business key and opaque target binding
+for execution. Several candidates remain ambiguous and block incoming fallback.
+For other models, a unique case-only candidate still requires review.
+`TargetCatalog` caches exact and case-folded field indexes, and the read
+planner batches distinct keys.
 
 Execution preserves the reviewed split. A `RESOLVED_TARGET` outcome becomes a
 portable `BusinessReference`. A `RESOLVED_INCOMING` outcome becomes an

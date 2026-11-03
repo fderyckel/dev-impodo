@@ -357,7 +357,7 @@ def _prepare_identity_component(
     """
 
     if component.resolve is not None:
-        allows_null_scope = component.null_policy == "explicit_scope_null"
+        allows_null_scope = component.null_policy != "reject"
         incoming_key = _parse_reference_key(
             component.source_fields,
             row,
@@ -367,6 +367,8 @@ def _prepare_identity_component(
             issues,
             required=not allows_null_scope,
         )
+        if component.null_policy == "zero_as_scope_null" and incoming_key == ("0",):
+            incoming_key = (None,)
         if allows_null_scope and all(value is None for value in incoming_key):
             return (None,)
         if allows_null_scope and any(value is None for value in incoming_key):

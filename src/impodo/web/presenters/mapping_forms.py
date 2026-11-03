@@ -19,7 +19,6 @@ from impodo.domain.recipe.value_rules import (
     ScalarValidationPolicy,
     TextTransformStep,
 )
-from impodo.domain.workspace.derived_entities import DerivedDatasetLink
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     standard_reference_key,
@@ -293,6 +292,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"identity_source_{dataset_index}_{identity_index}",
                     f"identity_origin_{dataset_index}_{identity_index}",
                     f"identity_dataset_{dataset_index}_{identity_index}",
+                    f"identity_zero_root_{dataset_index}_{identity_index}",
                     f"identity_resolver_key_{dataset_index}_{identity_index}",
                 }
             )
@@ -395,8 +395,8 @@ def _mapping_datasets_from_form(
     governance,
     *,
     fixed_controls: Mapping[str, DatasetMapping] | None = None,
-    derived_links: Iterable[DerivedDatasetLink] = (),
 ) -> tuple[DatasetMapping, ...]:
+    """Translate source bindings, allowing blank optional same-table parent scopes."""
     models = {item.name: item for item in schema.models}
     keys = _available_mapping_business_keys(schema, governance)
     source_identity_by_dataset = {
@@ -407,11 +407,6 @@ def _mapping_datasets_from_form(
         )
         for dataset_index, source_dataset in enumerate(selection.datasets)
         if source_dataset.origin is not SourceOriginKind.ODOO
-    }
-    hierarchy_parent_links = {
-        (link.derived_dataset_id, link.parent_key_column_key): link
-        for link in derived_links
-        if link.hierarchical and link.parent_key_column_key is not None
     }
     datasets: list[DatasetMapping] = []
     for dataset_index, source_dataset in enumerate(selection.datasets):
@@ -506,15 +501,13 @@ def _mapping_datasets_from_form(
                             else None
                         ),
                     )
-            hierarchy_link = (
-                hierarchy_parent_links.get(
-                    (source_dataset.dataset_id, selected_sources[0])
-                )
-                if len(selected_sources) == 1
-                else None
-            )
             null_policy = (
-                IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+                (
+                    IdentityNullPolicy.ZERO_AS_SCOPE_NULL
+                    if len(selected_sources) == 1
+                    and _checked(form, f"identity_zero_root_{dataset_index}_{identity_index}")
+                    else IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+                )
                 if (
                     is_scope
                     and resolver is not None
@@ -524,8 +517,6 @@ def _mapping_datasets_from_form(
                     and metadata.type == "many2one"
                     and not metadata.required
                     and metadata.relation == target_model
-                    and hierarchy_link is not None
-                    and hierarchy_link.target_model == target_model
                 )
                 else IdentityNullPolicy.REJECT
             )

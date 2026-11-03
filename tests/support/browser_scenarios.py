@@ -1191,6 +1191,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         relationship_field_names: tuple[str, ...] | None = None,
         relationship_field_labels: tuple[str, ...] | None = None,
         connection_mode: OdooConnectionMode = OdooConnectionMode.LOCAL,
+        odoo_major: int = 19,
     ):
         context = self.app.state.context
         created = self.workspaces.create(
@@ -1207,7 +1208,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
                 if connection_mode is OdooConnectionMode.LOCAL
                 else "https://remote.example.test"
             ),
-            database="odoo19_local",
+            database=f"odoo{odoo_major}_local",
             intended_models=(target_model,),
         )
         read_credential_binding_hash = "sha256:" + "1" * 64
@@ -1482,7 +1483,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=registered.odoo_connection_mode.value,
             database=registered.odoo_database,
-            odoo_version="19.0",
+            odoo_version=f"{odoo_major}.0",
             models=(SchemaModel(target_model, target_model, fields),),
             content_hash="sha256:" + "4" * 64,
             origin=SchemaOrigin.LIVE_API,

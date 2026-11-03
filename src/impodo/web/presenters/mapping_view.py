@@ -98,6 +98,7 @@ from ..mapping_formula_authoring import (
 )
 from ..request_identity import request_identity
 from .common import _render
+from .field_effects import add_field_effects
 from .identity_health import identity_health_view
 from .mapping_forms import (
     _canonical_mapping_type,
@@ -387,6 +388,10 @@ def _render_mapping(
         )
         if selection and schema
         else ()
+    )
+    add_field_effects(
+        context, workspace_id, dataset_views, physical_selection, selection, schema,
+        governance, active_definition, preparation_plan, actor=actor,
     )
     collision_overrides, collision_draft = _collision_exclusion_draft(
         request,
@@ -835,6 +840,12 @@ def _render_mapping_field_catalog(
             status_code=409,
         )
 
+    if catalog_kind == "scalar":
+        add_field_effects(
+            context, workspace_id, dataset_views, physical_selection, selection, schema,
+            governance, active_definition, preparation_plan,
+            actor=request_identity(request, context.identity_resolver).actor,
+        )
     projection_ms = (perf_counter() - started) * 1000
     view_build_ms = max(0.0, projection_ms - workspace_read_ms)
     render_started = perf_counter()
@@ -2271,13 +2282,17 @@ def _mapping_dataset_views(
                     component.resolver if component else None,
                     related_keys,
                 )
-                hierarchy_self_parent = bool(
-                    derived_link is not None
-                    and derived_link.hierarchical
-                    and derived_link.parent_key_column_key is not None
+                self_parent = bool(
+                    target_field in selected_key.scope_fields
                     and metadata is not None
                     and metadata.type == "many2one"
                     and metadata.relation == selected_model_name
+                )
+                hierarchy_self_parent = bool(
+                    self_parent
+                    and derived_link is not None
+                    and derived_link.hierarchical
+                    and derived_link.parent_key_column_key is not None
                 )
                 related_datasets = tuple(
                     item
@@ -2286,7 +2301,7 @@ def _mapping_dataset_views(
                     == (metadata.relation if metadata is not None else None)
                     and (
                         item.dataset_id != source_dataset.dataset_id
-                        or hierarchy_self_parent
+                        or self_parent
                     )
                 )
                 identity_rows.append(
@@ -2349,6 +2364,8 @@ def _mapping_dataset_views(
                             )
                         ),
                         "related_datasets": related_datasets,
+                        "self_parent": self_parent,
+                        "zero_root": bool(component and component.null_policy.value == "zero_as_scope_null"),
                         "recommended_related_key_id": (
                             standard_related_key.key_id
                             if standard_related_key is not None
@@ -2627,6 +2644,15 @@ def _mapping_dataset_views(
                 "mapping": mapping,
                 "disposition": disposition_by_target.get(field.name),
                 "related_keys": related_keys,
+                "related_datasets": tuple(
+                    candidate
+                    for candidate in selection.datasets
+                    if candidate.dataset_id != source_dataset.dataset_id
+                    or (
+                        field.type == "many2one"
+                        and field.relation == selected_model_name
+                    )
+                ),
                 "related_key_labels": _matching_rule_labels(
                     related_keys,
                     models,
@@ -2694,6 +2720,9 @@ def _mapping_dataset_views(
                 "index": dataset_index,
                 "active": active,
                 "source": source_dataset,
+                "generated_hierarchy": bool(
+                    derived_link is not None and derived_link.hierarchical
+                ),
                 "source_by_key": {
                     item.stable_key: item for item in source_dataset.columns
                 },

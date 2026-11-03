@@ -30,6 +30,7 @@ function editor(outcomes, waitMs = 1000, inlineReview = true) {
   let versions;
   const navigations = [];
   const events = [];
+  const accepted = [];
   const window = { setTimeout, clearTimeout };
   vm.runInNewContext(source, {
     window, AbortController,
@@ -54,9 +55,10 @@ function editor(outcomes, waitMs = 1000, inlineReview = true) {
     updateMappingVersionFields: (payload) => { versions = payload; },
     navigateToMappingResult: (url) => navigations.push(url),
     setDirty: (value) => { dirty = value; },
+    onCommitted: (operation) => accepted.push(operation),
   });
   return {
-    recovery, element, navigations, events,
+    recovery, element, navigations, events, accepted,
     get calls() { return calls; },
     get dirty() { return dirty; },
     get versions() { return versions; },
@@ -83,6 +85,7 @@ test("a transient receipt failure keeps waiting and applies the saved versions",
   assert.equal(page.dirty, false);
   assert.deepEqual(page.navigations, [committed.redirect_url]);
   assert.equal(page.element("[data-mapping-save-outcome]").hidden, true);
+  assert.deepEqual(page.accepted, [operation]);
 });
 
 test("an outage reaches the deadline, retains edits, and prevents another write", async () => {
@@ -93,6 +96,7 @@ test("an outage reaches the deadline, retains edits, and prevents another write"
   assert.deepEqual(page.navigations, []);
   assert.equal(page.recovery.blockIfNeeded(), true);
   assert.equal(page.element("[data-mapping-unknown-recovery]").hidden, false);
+  assert.deepEqual(page.accepted, []);
 });
 
 test("a confirmed version conflict stops polling and preserves unsaved edits", async () => {
@@ -104,6 +108,7 @@ test("a confirmed version conflict stops polling and preserves unsaved edits", a
   assert.equal(page.dirty, true);
   assert.equal(page.recovery.blockIfNeeded(), true);
   assert.equal(page.element("[data-mapping-conflict-recovery]").hidden, false);
+  assert.deepEqual(page.accepted, []);
 });
 
 test("a stale supporting review opens inline recovery from a receipt without navigation", async () => {

@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.data_version.inspection import SourceInspectionError
+from impodo.domain.shared.schema import WORKSPACE_SCHEMA_VERSION
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
@@ -14,6 +17,36 @@ from tests.support.identity import resolve_local_actor
 
 
 class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
+    def test_project_reopens_an_early_v4_workspace_without_changing_odoo_evidence(self):
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace_id, _, _ = self._mapping_ready_workspace(scalar_field_count=0)
+                schema = replace(context.queries.get_odoo_schema_catalog(workspace_id), odoo_version=f"{major}.0")
+                context.schema_workspace.schemas.save_odoo_schema_catalog(workspace_id, schema, actor=actor)
+                owner = context.migration_workspaces.get(workspace_id, actor=actor)
+                repository = context.workspace_states.repository
+                database = repository.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+                with repository._connect(database) as connection:
+                    connection.execute("DROP TABLE execution_load_control_event")
+                    connection.execute("UPDATE schema_version SET version = 4")
+                calls = len(self.readiness_calls)
+                with collect_duckdb_request_timings() as timings:
+                    page = self.client.get(f"/projects/{owner.project_id}")
+                self.assertEqual(page.status_code, 200, page.text[:500])
+                self.assertNotIn("cannot safely open", page.text)
+                # Project access and its bounded local view share the small
+                # set of registry, project, data-version, and workspace owners.
+                self.assertLessEqual(timings.connection_count, 8)
+                self.assertLessEqual(timings.schema_check_count, 2)
+                self.assertEqual(timings.lock_retry_count, 0)
+                self.assertEqual(context.queries.get_odoo_schema_catalog(workspace_id), schema)
+                self.assertEqual(len(self.readiness_calls), calls)
+                with repository._connect(database) as connection:
+                    self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone(), (WORKSPACE_SCHEMA_VERSION,))
+                    self.assertEqual(connection.execute("SELECT from_version,to_version FROM schema_migration WHERE to_version=5").fetchall(), [(4, 5)])
+
     def test_new_project_asks_only_for_name_and_source_mode(self) -> None:
         new_page = self.client.get("/projects/new")
         self.assertIn("Data project name", new_page.text)

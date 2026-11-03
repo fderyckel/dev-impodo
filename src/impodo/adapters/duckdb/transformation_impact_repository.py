@@ -4,16 +4,23 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Iterator, Sequence
+from dataclasses import asdict
 from datetime import (
     UTC,
     datetime,
 )
 
+from impodo.application.workspace.mapping.field_effects import (
+    FIELD_EFFECTS_LIMIT,
+    FieldEffectsProjection,
+)
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from ...domain.staging.transformation_impact import (
+    TransformationFieldImpact,
+    TransformationImpactCounts,
     TransformationImpactFilter,
     TransformationImpactIdentity,
     TransformationImpactPage,
@@ -32,6 +39,36 @@ def _stored_integer(value: object, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise TypeError(f"Stored transformation impact {field_name} must be an integer")
     return value
+
+
+def _decode_field_impact(value: object) -> TransformationFieldImpact:
+    """Validate saved aggregate counters without accepting arbitrary payloads."""
+    if not isinstance(value, dict) or not isinstance(value.get("counts"), dict):
+        raise WorkspaceError("Stored field counts are invalid")
+    counts = value["counts"]
+    return TransformationFieldImpact(
+        dataset=str(value["dataset"]), target_field=str(value["target_field"]),
+        counts=TransformationImpactCounts(**{
+            name: _stored_integer(counts[name], name)
+            for name in (
+                "evaluated_count", "changed_count", "fallback_count", "null_count",
+                "invalid_count", "provided_count", "unchanged_count",
+            )
+        }),
+    )
+
+
+def _validate_field_impacts(report: TransformationImpactReport) -> None:
+    """Reject incomplete aggregate publication in the snapshot transaction."""
+    fields = report.field_impacts or ()
+    if len({(item.dataset, item.target_field) for item in fields}) != len(fields):
+        raise WorkspaceError("Transformation field counts contain duplicate fields")
+    for name in (
+        "evaluated_count", "changed_count", "fallback_count", "null_count",
+        "invalid_count", "provided_count", "unchanged_count",
+    ):
+        if sum(getattr(item.counts, name) for item in fields) != getattr(report, name):
+            raise WorkspaceError("Transformation field counts do not reconcile")
 
 
 class TransformationImpactRepository(DuckDbRepository):
@@ -59,7 +96,7 @@ class TransformationImpactRepository(DuckDbRepository):
                        evaluator_version, created_at, created_by,
                        affected_row_count, evaluated_count, changed_count, fallback_count,
                        null_count, invalid_count, provided_count,
-                       unchanged_count
+                       unchanged_count, field_counts_json
                   FROM transformation_impact_run
                  WHERE singleton_id = 1
                 """
@@ -106,7 +143,7 @@ class TransformationImpactRepository(DuckDbRepository):
         self._assert_workspace_mutable(workspace_id)
         with self._transformation_impact_lock:
             current = self.get_transformation_impact_snapshot(workspace_id, identity)
-            if current is not None:
+            if current is not None and current.report.field_impacts is not None:
                 return current
             database_path = (
                 self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
@@ -200,6 +237,8 @@ class TransformationImpactRepository(DuckDbRepository):
                         raise WorkspaceError(
                             "Transformation impact rows were not stored completely"
                         )
+                    if report.field_impacts is not None:
+                        _validate_field_impacts(report)
                     if report.rule_impacts:
                         connection.executemany(
                             """
@@ -242,8 +281,8 @@ class TransformationImpactRepository(DuckDbRepository):
                             evaluator_version, created_at, created_by,
                             affected_row_count, evaluated_count, changed_count, fallback_count,
                             null_count, invalid_count, provided_count,
-                            unchanged_count
-                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                            unchanged_count, field_counts_json
+                        ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         [
                             identity.content_hash,
@@ -264,6 +303,8 @@ class TransformationImpactRepository(DuckDbRepository):
                             report.invalid_count,
                             report.provided_count,
                             report.unchanged_count,
+                            json.dumps([asdict(item) for item in report.field_impacts])
+                            if report.field_impacts is not None else None,
                         ],
                     )
                     connection.commit()
@@ -278,6 +319,49 @@ class TransformationImpactRepository(DuckDbRepository):
                 report=report,
                 acknowledged_rule_fingerprints=(),
             )
+
+    def get_transformation_field_effects(
+        self, workspace_id: str, identity: TransformationImpactIdentity | None,
+        fields: tuple[tuple[str, str], ...],
+    ) -> FieldEffectsProjection:
+        """Select bounded aggregate metadata; never decode impact-row values."""
+        if len(fields) > FIELD_EFFECTS_LIMIT or len(set(fields)) != len(fields):
+            raise WorkspaceError("Choose one bounded page of distinct rule-effect fields")
+        if not fields:
+            return FieldEffectsProjection()
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            header = connection.execute(
+                "SELECT identity_hash, field_counts_json IS NOT NULL FROM transformation_impact_run WHERE singleton_id = 1"
+            ).fetchone()
+            if header is None or not header[1]:
+                return FieldEffectsProjection()
+            rows = connection.execute(
+                """
+                SELECT to_json(item)
+                  FROM (
+                    SELECT unnest(from_json(field_counts_json, ?)) AS item
+                      FROM transformation_impact_run
+                  ) counts
+                  JOIN (SELECT unnest(from_json(?, '[["VARCHAR"]]')) AS key) requested
+                    ON item.dataset = key[1] AND item.target_field = key[2]
+                 ORDER BY item.dataset, item.target_field
+                 LIMIT ?
+                """,
+                [json.dumps([{
+                    "dataset": "VARCHAR", "target_field": "VARCHAR",
+                    "counts": {name: "BIGINT" for name in (
+                        "evaluated_count", "changed_count", "fallback_count", "null_count",
+                        "invalid_count", "provided_count", "unchanged_count",
+                    )},
+                }]), json.dumps(fields), FIELD_EFFECTS_LIMIT],
+            ).fetchall()
+        return FieldEffectsProjection(
+            available=True,
+            current=identity is not None and header[0] == identity.content_hash,
+            fields=tuple(_decode_field_impact(json.loads(str(row[0]))) for row in rows),
+        )
 
     def acknowledge_transformation_rule(
         self,
@@ -562,6 +646,10 @@ class TransformationImpactRepository(DuckDbRepository):
                 rows=(),
                 rule_impacts=rule_impacts,
                 detail_limit=0,
+                field_impacts=(
+                    tuple(_decode_field_impact(item) for item in json.loads(str(row[18])))
+                    if row[18] is not None else None
+                ),
             ),
             acknowledged_rule_fingerprints=acknowledgements,
         )

@@ -161,11 +161,19 @@
                           <select name="identity_dataset_{{ dataset_index }}_{{ loop.index0 }}">
                             <option value="">Not from another table</option>
                             {% for candidate in row.related_datasets %}
-                              <option value="{{ candidate.dataset_id }}" {% if row.selected_dataset_id == candidate.dataset_id %}selected{% endif %}>{{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this generated table){% endif %}</option>
+                              <option value="{{ candidate.dataset_id }}" {% if row.selected_dataset_id == candidate.dataset_id %}selected{% endif %}>{{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this{% if view.generated_hierarchy %} generated{% endif %} table){% endif %}</option>
                             {% endfor %}
                           </select>
                           <small>Choose a table mapped to {{ row.metadata.relation }} when incoming records are allowed.</small>
+                          {% if row.self_parent and not view.generated_hierarchy %}<small>For a parent in this table, select this table. Parent values must match its unique row identifier. {% if not row.metadata.required %}With an incoming-table lookup, a blank parent means a top-level record.{% endif %}</small>{% endif %}
                         </label>
+                        {% if row.self_parent and not row.metadata.required %}
+                          <label data-relationship-incoming-control {% if row.selected_origin == 'target_catalog' %}hidden{% endif %}>
+                            <input type="checkbox" name="identity_zero_root_{{ dataset_index }}_{{ loop.index0 }}" value="1" {% if row.zero_root %}checked{% endif %}>
+                            A parent value of 0 means no parent
+                            <small>Use this only when 0 marks a top-level record in your source. Other parent IDs still have to match a row in the selected table.</small>
+                          </label>
+                        {% endif %}
                         <label data-relationship-odoo-control {% if row.selected_origin == 'dataset' %}hidden{% endif %}>
                           How should Impodo identify the existing Odoo record?
                           <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}" {% if not row.related_keys %}disabled{% endif %}>

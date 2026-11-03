@@ -69,7 +69,7 @@ def _validate_identity_component(
     for column in component.source_column_keys:
         _check_column(dataset, column, path, columns, issues)
     explicit_scope_null = (
-        component.null_policy is IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+        component.null_policy is not IdentityNullPolicy.REJECT
     )
     if explicit_scope_null and (not is_scope or component.resolver is None):
         issues.append(
@@ -162,6 +162,10 @@ def _validate_identity_component(
         or metadata.relation != dataset.target_model
         or component.resolver.origin is not ResolverOrigin.DATASET
         or component.resolver.dataset_id != dataset.dataset_id
+        or (
+            component.null_policy is IdentityNullPolicy.ZERO_AS_SCOPE_NULL
+            and len(component.source_column_keys) != 1
+        )
     ):
         issues.append(
             _issue(

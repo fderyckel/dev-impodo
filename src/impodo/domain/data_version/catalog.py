@@ -18,6 +18,9 @@ from collections.abc import Iterable, Mapping
 from typing import Any
 
 from impodo.domain.shared.models import BusinessReference, TargetRecord
+from impodo.domain.workspace.reference_keys import (
+    allows_case_insensitive_payment_term_lookup,
+)
 
 
 class TargetCatalog:
@@ -87,6 +90,19 @@ class TargetCatalog:
         normalized_key = tuple(_lookup_value(value) for value in key)
         return self._field_indexes[index_key].get(normalized_key, ())
 
+    def find_target_first_matches(
+        self,
+        model: str,
+        fields: tuple[str, ...],
+        key: tuple[Any, ...],
+    ) -> tuple[TargetRecord, ...]:
+        """Prefer exact matches, allowing payment term matches by letter case."""
+
+        exact = self.find_by_fields(model, fields, key)
+        if exact or not allows_case_insensitive_payment_term_lookup(model):
+            return exact
+        return self.find_casefold_by_fields(model, fields, key)
+
     def find_casefold_by_fields(
         self,
         model: str,
@@ -95,9 +111,8 @@ class TargetCatalog:
     ) -> tuple[TargetRecord, ...]:
         """Find case-insensitive text peers without changing exact identity.
 
-        The cached index prevents one scan per source row. Callers use the
-        result only to require review; an item returned here is never treated
-        as an exact business-key match.
+        The cached index prevents one scan per source row. The lookup policy
+        determines whether these candidates can be reused or require review.
         """
 
         index_key = (model, fields)

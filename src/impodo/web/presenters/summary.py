@@ -184,6 +184,8 @@ def _render_normalization(
     selected_status = request.query_params.get("status", "").strip()
     if selected_status not in {"", "automatic", "pending", "reviewed", "set_aside"}:
         selected_status = ""
+    if not selected_status and not summary.eligible_record_count and summary.set_aside_record_count:
+        selected_status = "set_aside"
     matching = tuple(
         item
         for item in items

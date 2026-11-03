@@ -144,6 +144,7 @@ from ..mapping_formula_authoring import (
     validate_formula_authoring,
 )
 from ..presenters.common import _flash, _render
+from ..presenters.field_effects import selected_field_counts
 from ..presenters.mapping_forms import (
     _active_mapping_definition,
     _mapping_allowed_fields,
@@ -782,7 +783,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             return response
 
         if search_generation is None:
-            return await run_in_threadpool(render_catalog)
+            return await run_page_read(render_catalog)
         editor_id, generation = search_generation
         catalog_kind = (
             "relation"
@@ -791,7 +792,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
         async def render_latest_catalog():
-            return await run_in_threadpool(render_catalog)
+            return await run_page_read(render_catalog)
 
         try:
             response = await catalog_searches.run_latest(
@@ -853,6 +854,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "target_model",
                 "target_field",
                 "business_key_id",
+                "constant_value",
                 "refresh",
                 "selection_refreshes",
             },
@@ -865,6 +867,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "constant_relationship",
             }:
                 raise WorkspaceError("Choose a supported Odoo field")
+            constant_value = _text(form, "constant_value").strip()
+            if len(constant_value) > 10_000 or (constant_value and kind != "constant_relationship"):
+                raise WorkspaceError("Choose one valid constant matching value")
             dataset_id = _text(form, "dataset_id")
             source_column_key = _text(form, "source_column_key")
 
@@ -976,6 +981,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     field,
                     key,
                     refresh=_text(form, "refresh") == "1",
+                    constant_key_value=constant_value if kind == "constant_relationship" else None,
                     actor=actor,
                 )
                 target_checked_at = checked_at.isoformat()
@@ -1064,112 +1070,116 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
             return RedirectResponse(active_url, status_code=303)
-        try:
-            evidence = _transformation_impact_evidence(context, workspace_id)
-        except WorkspaceError as error:
-            return await run_in_threadpool(
-                _render_mapping,
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
+        def render_impact():
+            """Read the saved review and render it within one local operation."""
+            try:
+                evidence = _transformation_impact_evidence(context, workspace_id)
+            except WorkspaceError as error:
+                return _render_mapping(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+            workspace_state, revision, physical_selection, effective_selection, plan = (
+                evidence
             )
-        workspace_state, revision, physical_selection, effective_selection, plan = (
-            evidence
-        )
-        identity = _transformation_impact_identity(
-            revision,
-            physical_selection,
-            effective_selection,
-            plan,
-        )
-        snapshot = context.queries.get_transformation_impact_snapshot(
-            workspace_id,
-            identity,
-        )
-        (
-            datasets,
-            field_labels,
-            field_choices,
-            selection_labels,
-        ) = _transformation_impact_labels(
-            context, workspace_id, revision, effective_selection
-        )
-        filters = _transformation_impact_filters(
-            dataset=request.query_params.get("dataset", ""),
-            outcome=request.query_params.get("outcome", ""),
-            target_field=request.query_params.get("field", ""),
-            query=request.query_params.get("q", ""),
-            allowed_datasets={item[0] for item in datasets},
-            allowed_fields={item[0] for item in field_choices},
-        )
-        page = None
-        previous_url = None
-        next_url = None
-        rows = ()
-        outcome_urls = {
-            outcome: _transformation_impact_url(
-                workspace_id,
-                replace(filters, outcome=outcome),
+            identity = _transformation_impact_identity(
+                revision,
+                physical_selection,
+                effective_selection,
+                plan,
             )
-            for outcome in TRANSFORMATION_IMPACT_OUTCOMES
-        }
-        if snapshot is not None:
-            after = _optional_nonnegative_query_int(request.query_params.get("after"))
-            before = (
-                None
-                if after is not None
-                else _optional_nonnegative_query_int(request.query_params.get("before"))
-            )
-            page = context.queries.get_transformation_impact_page(
+            snapshot = context.queries.get_transformation_impact_snapshot(
                 workspace_id,
                 identity,
-                filters,
-                page_size=TRANSFORMATION_IMPACT_PAGE_SIZE,
-                after=after,
-                before=before,
             )
-            rows = _transformation_impact_row_views(page.rows)
-            if page.previous_before is not None:
-                previous_url = _transformation_impact_url(
-                    workspace_id,
-                    filters,
-                    before=page.previous_before,
-                )
-            if page.next_after is not None:
-                next_url = _transformation_impact_url(
-                    workspace_id,
-                    filters,
-                    after=page.next_after,
-                )
-        return _render(
-            request,
-            "workspace_transformation_impact.html",
-            workspace_state=workspace_state,
-            revision=revision,
-            snapshot=snapshot,
-            report=snapshot.report if snapshot is not None else None,
-            rule_impact_views=_transformation_rule_impact_views(
-                request,
-                workspace_id,
-                snapshot,
-                revision,
-                effective_selection,
+            (
+                datasets,
                 field_labels,
+                field_choices,
                 selection_labels,
-            ),
-            rows=rows,
-            datasets=datasets,
-            field_labels=field_labels,
-            field_choices=field_choices,
-            filters=filters,
-            impact_page=page,
-            outcome_urls=outcome_urls,
-            previous_url=previous_url,
-            next_url=next_url,
-            error=None,
-        )
+            ) = _transformation_impact_labels(
+                context, workspace_id, revision, effective_selection
+            )
+            filters = _transformation_impact_filters(
+                dataset=request.query_params.get("dataset", ""),
+                outcome=request.query_params.get("outcome", ""),
+                target_field=request.query_params.get("field", ""),
+                query=request.query_params.get("q", ""),
+                allowed_datasets={item[0] for item in datasets},
+                allowed_fields={item[0] for item in field_choices},
+            )
+            page = None
+            previous_url = None
+            next_url = None
+            rows = ()
+            outcome_urls = {
+                outcome: _transformation_impact_url(
+                    workspace_id,
+                    replace(filters, outcome=outcome),
+                )
+                for outcome in TRANSFORMATION_IMPACT_OUTCOMES
+            }
+            if snapshot is not None:
+                after = _optional_nonnegative_query_int(request.query_params.get("after"))
+                before = (
+                    None
+                    if after is not None
+                    else _optional_nonnegative_query_int(request.query_params.get("before"))
+                )
+                page = context.queries.get_transformation_impact_page(
+                    workspace_id,
+                    identity,
+                    filters,
+                    page_size=TRANSFORMATION_IMPACT_PAGE_SIZE,
+                    after=after,
+                    before=before,
+                )
+                rows = _transformation_impact_row_views(page.rows)
+                if page.previous_before is not None:
+                    previous_url = _transformation_impact_url(
+                        workspace_id,
+                        filters,
+                        before=page.previous_before,
+                    )
+                if page.next_after is not None:
+                    next_url = _transformation_impact_url(
+                        workspace_id,
+                        filters,
+                        after=page.next_after,
+                    )
+            return _render(
+                request,
+                "workspace_transformation_impact.html",
+                workspace_state=workspace_state,
+                revision=revision,
+                snapshot=snapshot,
+                report=snapshot.report if snapshot is not None else None,
+                field_counts=selected_field_counts(snapshot, filters),
+                rule_impact_views=_transformation_rule_impact_views(
+                    request,
+                    workspace_id,
+                    snapshot,
+                    revision,
+                    effective_selection,
+                    field_labels,
+                    selection_labels,
+                ),
+                rows=rows,
+                datasets=datasets,
+                field_labels=field_labels,
+                field_choices=field_choices,
+                filters=filters,
+                impact_page=page,
+                outcome_urls=outcome_urls,
+                previous_url=previous_url,
+                next_url=next_url,
+                error=None,
+            )
+
+        return await run_page_read(render_impact)
 
     @router.post("/workspaces/{workspace_id}/mapping/transformation-impact/prepare")
     async def prepare_transformation_impact(request: Request, workspace_id: str):
@@ -1826,14 +1836,12 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         if len(item.effective_control_totals)
                         == len(item.control_definitions)
                     }
-                preparation_plan = context.queries.get_derived_entity_plan(workspace_id)
                 datasets = _mapping_datasets_from_form(
                     form,
                     selection,
                     effective_schema,
                     effective_governance,
                     fixed_controls=fixed_controls,
-                    derived_links=derived_consumer_links(preparation_plan),
                 )
                 constant_fields = {
                     (dataset.dataset_id, relation.target_field)

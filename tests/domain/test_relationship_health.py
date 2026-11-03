@@ -68,6 +68,28 @@ class RelationshipHealthTests(unittest.TestCase):
         self.assertEqual(result.case_mismatch_count, 1)
         self.assertEqual(result.incoming_count, 0)
 
+    def test_target_first_payment_terms_prefer_exact_then_unique_case_match(self) -> None:
+        result = classify_relationship_health(
+            owner_dataset_id="suppliers",
+            target_field="property_payment_term_id",
+            relationship_kind="many2one",
+            resolver_origin=ResolverOrigin.TARGET_THEN_DATASET,
+            related_model="account.payment.term",
+            dependency_dataset_id="payment_terms",
+            required=True,
+            source_row_count=7,
+            source_key_counts={("NET30",): 4, ("NET60",): 1, ("NEW",): 1, ("Net90",): 1},
+            blank_row_count=0,
+            incomplete_row_count=0,
+            target_keys=(("Net30",), ("Net60",), ("net60",), ("Net90",), ("net90",)),
+            incoming_key_counts={("NET30",): 1, ("NET60",): 1, ("NEW",): 1},
+        )
+
+        self.assertEqual(result.target_count, 5)
+        self.assertEqual(result.ambiguous_count, 1)
+        self.assertEqual(result.incoming_count, 1)
+        self.assertEqual(result.case_mismatch_count, 0)
+
     def test_optional_blank_relationship_can_be_ready(self) -> None:
         result = classify_relationship_health(
             owner_dataset_id="products",

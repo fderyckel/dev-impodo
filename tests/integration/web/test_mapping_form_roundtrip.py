@@ -263,7 +263,7 @@ class MappingFormRoundTripTests(unittest.TestCase):
 
     def parse(self, form):
         return _mapping_datasets_from_form(
-            form, self.selection, self.schema, self.governance, derived_links=self.links,
+            form, self.selection, self.schema, self.governance,
         )
 
     def render_form(self, definition, active):

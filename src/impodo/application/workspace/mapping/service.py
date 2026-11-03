@@ -71,6 +71,7 @@ from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 
 from .categorical_coverage import CategoricalCoverageService
+from .incoming_parent_coverage import incoming_parent_issues
 from .numeric_precision_coverage import NumericPrecisionCoverageService
 from .order_service import MatchingOrderService
 from .required_values import RequiredValuesProjection, project_required_values
@@ -1285,7 +1286,13 @@ class MappingWorkspaceService:
         )
         issues = tuple(
             sorted(
-                (*validation.issues, *collected.issues, *precision_issues),
+                (
+                    *validation.issues, *collected.issues, *precision_issues,
+                    *(incoming_parent_issues(
+                        self.categorical_coverage, workspace_id, definition, selection,
+                    ) if validation.status is not MappingValidationStatus.INVALID
+                    and not any(item.severity == "error" for item in collected.issues) else ()),
+                ),
                 key=lambda item: (
                     item.severity,
                     item.path,

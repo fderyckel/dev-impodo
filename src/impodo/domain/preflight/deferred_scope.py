@@ -21,6 +21,7 @@ from typing import Protocol
 
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
+    BusinessReference,
     Classification,
     LogicalReference,
     PreparedRecord,
@@ -723,6 +724,9 @@ def portable_reference_resolutions(
             reference = restore_portable_value(item["reference"])
             if not isinstance(reference, LogicalReference):
                 raise TypeError("Reference resolution is not logical")
+            resolved_target = restore_portable_value(item.get("resolved_target"))
+            if resolved_target is not None and not isinstance(resolved_target, BusinessReference):
+                raise TypeError("Resolved target is not a business reference")
             resolutions.append(
                 ReferenceResolution(
                     dataset=str(item["dataset"]),
@@ -731,6 +735,7 @@ def portable_reference_resolutions(
                     status=str(item["status"]),
                     match_count=_portable_int(item["match_count"], "match count"),
                     target_binding_hash=str(item.get("target_binding_hash") or ""),
+                    resolved_target=resolved_target,
                     affected_count=_portable_int(
                         item.get("affected_count", 1), "affected count"
                     ),

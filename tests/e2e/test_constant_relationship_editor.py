@@ -52,6 +52,7 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
           window.choiceResult = {ok: false, detail: "Check the connection and fields in Odoo data again."};
           window.fetch = async (url, options) => {
             if (url.endsWith('/value-choices')) {
+              window.choiceRequest = Object.fromEntries(options.body.entries());
               const result = window.choiceResult;
               return {ok: result.ok, json: async () => result};
             }
@@ -133,6 +134,17 @@ class ConstantRelationshipEditorTests(unittest.TestCase):
         self.assertEqual(self.value.input_value(), "PCE")
         self.submit()
         self.assertEqual(self.saved_reference(), "PCE")
+
+    def test_check_sends_the_entered_matching_value_and_retains_it_until_selection(self):
+        self.value.fill("401100")
+        self.page.evaluate("window.choiceResult = {ok: true, target_choices: [{value: '401100', label: 'Customers (401100)'}]}")
+        self.row.locator("[data-check-constant-record]").click()
+        self.assertEqual(self.page.evaluate("window.choiceRequest.constant_value"), "401100")
+        self.assertEqual(self.value.input_value(), "401100")
+        choice = self.row.locator("[data-constant-existing-choice]")
+        choice.select_option("401100")
+        self.assertEqual(self.value.input_value(), "401100")
+        self.assertEqual(self.errors, [])
 
     def test_required_components_follow_the_selected_rule_and_provider(self):
         self.key.evaluate("""select => {

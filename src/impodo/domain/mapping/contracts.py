@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 21
+MAPPING_CONTRACT_VERSION = 22
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -89,6 +89,7 @@ class IdentityNullPolicy(StrEnum):
 
     REJECT = "reject"
     EXPLICIT_SCOPE_NULL = "explicit_scope_null"
+    ZERO_AS_SCOPE_NULL = "zero_as_scope_null"
 
 
 class RelationshipValueSource(StrEnum):
@@ -1068,6 +1069,12 @@ class MappingDefinition:
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "row inclusion rules"
             )
+        if self.contract_version < 22 and any(
+            component.null_policy is IdentityNullPolicy.ZERO_AS_SCOPE_NULL
+            for dataset in self.datasets
+            for component in (*dataset.target_identity, *dataset.target_scope)
+        ):
+            raise ValueError("Zero parent markers require mapping contract v22")
         if self.contract_version < 17 and any(
             component.null_policy is not IdentityNullPolicy.REJECT
             for dataset in self.datasets

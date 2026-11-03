@@ -14,6 +14,10 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.application.workspace.mapping.field_effects import (
+    FieldEffectsProjection,
+    FieldEffectsRepository,
+)
 from impodo.domain.preparation.quality import (
     QualityCollisionGroup,
     QualityReviewPage,
@@ -176,7 +180,7 @@ class QualityQueryRepository(Protocol):
     ) -> dict[str, QualityCollisionGroup]: ...
 
 
-class TransformationImpactQueryRepository(Protocol):
+class TransformationImpactQueryRepository(FieldEffectsRepository, Protocol):
     """Read bounded transformation-impact snapshots, pages, and export rows."""
 
     def get_transformation_impact_snapshot(
@@ -391,6 +395,13 @@ class BrowserQueryService:
         return self._transformation_impacts.get_transformation_impact_snapshot(
             workspace_id, identity
         )
+
+    def get_transformation_field_effects(
+        self, workspace_id: str, identity: TransformationImpactIdentity | None,
+        fields: tuple[tuple[str, str], ...],
+    ) -> FieldEffectsProjection:
+        """Forward one value-free field page to its deployment-owned repository."""
+        return self._transformation_impacts.get_transformation_field_effects(workspace_id, identity, fields)
 
     def get_transformation_impact_page(
         self,

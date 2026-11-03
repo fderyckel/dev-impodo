@@ -1165,7 +1165,7 @@ def _text_expression(
             result = result.str.to_lowercase()
         elif operation is ColumnarOperationKind.EMPTY_AS_NULL:
             result = (
-                pl.when(result == "")
+                pl.when(result == (step.text or ""))
                 .then(pl.lit(None, dtype=pl.String))
                 .otherwise(result)
             )

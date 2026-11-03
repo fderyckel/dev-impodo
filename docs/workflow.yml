@@ -565,6 +565,7 @@ stages:
       - src/impodo/domain/preparation/source.py::_prepare_relation
       - src/impodo/web/presenters/mapping_forms.py::_scalar_concatenation_from_form
       - src/impodo/web/presenters/mapping_forms.py::_ordered_incoming_relationship_sources
+      - src/impodo/application/workspace/mapping/incoming_parent_coverage.py::incoming_parent_issues
       - src/impodo/adapters/duckdb/transformation_impact_repository.py::TransformationImpactRepository
       - src/impodo/adapters/artifacts/mapping_review.py::write_mapping_review_workbook
       - src/impodo/adapters/artifacts/mapping_review.py::build_mapping_review_row_projection
@@ -588,6 +589,9 @@ stages:
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_mapping_forms.py
+      - tests/integration/web/test_same_table_hierarchy.py
+      - tests/integration/web/test_parent_root_feedback.py
+      - tests/e2e/test_same_table_hierarchy.py
       - tests/domain/mapping/test_validation.py
       - tests/domain/mapping/test_selection_rules.py
       - tests/domain/mapping/test_concatenation.py
@@ -605,10 +609,13 @@ stages:
       - tests/integration/web/test_recipe_selection_refresh.py
       - tests/e2e/test_selection_choice_refresh.py
       - tests/integration/web/test_odoo_company.py
+      - tests/integration/web/test_constant_record_lookup.py
+      - tests/e2e/test_constant_record_lookup.py
       - tests/integration/web/test_mapping_supporting_recovery.py
       - tests/e2e/test_mapping_supporting_recovery.py
       - tests/integration/web/test_matching_expectations.py
       - tests/e2e/test_odoo_company.py
+      - tests/e2e/test_mapping_company_entry.py
       - tests/integration/web/test_joined_value_matching.py
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py

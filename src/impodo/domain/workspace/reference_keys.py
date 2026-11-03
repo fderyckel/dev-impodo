@@ -12,6 +12,12 @@ from impodo.domain.serialization import content_hash
 REFERENCE_POLICY_VERSION = 5
 
 
+def allows_case_insensitive_payment_term_lookup(model: str) -> bool:
+    """Allow case-insensitive fallback for target-first payment term links."""
+
+    return model == "account.payment.term"
+
+
 class ReferenceReadPurpose(StrEnum):
     """Name the governed workflow that needs a supporting Odoo reference."""
 

@@ -67,7 +67,7 @@ class ValueMatchVisibilityTests(unittest.TestCase):
             <select name="relation_value_source_0_0" data-relation-value-source><option value="source">Source</option></select>
             <select name="relation_source_0_0"><option value="column:legacy">Legacy</option></select>
             <select name="relation_origin_0_0"><option value="target_catalog">Odoo</option></select>
-            <select name="relation_key_0_0"><option value="name_company">Name and Company</option></select>
+            <select name="relation_key_0_0"><option value="name_company" data-scope-fields="company_id">Name and Company</option></select>
             <input name="relation_value_matches_0_0" data-value-match-storage type="hidden">
             <span data-value-match-summary></span>
             <button type="button" data-open-value-match data-value-match-kind="relationship" data-target-label="Payment Method">Match values</button>
@@ -90,7 +90,12 @@ class ValueMatchVisibilityTests(unittest.TestCase):
         html += """<script>window.impodoMappingSourceColumns = {
           hydrateSourceOptions() {}, releaseSourceOptions() {}, initializeLazySourceSelect() {}
         };</script>"""
-        for name in ("mapping-save-recovery.js", "mapping-editor.js"):
+        for name in (
+            "mapping-save-recovery.js",
+            "mapping-selection-choices.js",
+            "mapping-value-match-company.js",
+            "mapping-editor.js",
+        ):
             html += (
                 "<script>"
                 + (REPOSITORY_ROOT / "src/impodo/web/static" / name).read_text()
@@ -135,6 +140,34 @@ class ValueMatchVisibilityTests(unittest.TestCase):
     def test_exact_suggestion_does_not_replace_a_saved_company_choice(self):
         self.targets = [{"value": "Legacy", "label": "Legacy"}]
         self.assertEqual(self._open().input_value(), '["Bank","Company A"]')
+
+    def test_company_filter_narrows_choices_and_keeps_existing_match(self):
+        company_a = '["Bank","Company A"]'
+        company_b = '["Bank","Company B"]'
+        self.targets = [
+            {"value": company_a, "label": "Bank (Company A)"},
+            {"value": company_b, "label": "Bank (Company B)"},
+            {"value": '["Cash","Company A"]', "label": "Cash (Company A)"},
+        ]
+        selected = self._open()
+        company_filter = self.page.get_by_label("Filter by company")
+        self.assertEqual(company_filter.input_value(), "")
+        company_filter.select_option("Company B")
+        selected.focus()
+        self.assertEqual(selected.input_value(), company_a)
+        self.assertEqual(selected.locator("option:checked").inner_text(), "Bank (Company A)")
+        self.assertEqual(selected.get_by_role("option", name="Cash (Company A)").count(), 0)
+        selected.select_option(company_b)
+        self.page.locator("[data-use-value-matches]").click()
+        self.page.get_by_role("button", name="Save progress").click()
+        self.page.wait_for_function(
+            "document.querySelector('[data-mapping-save-status]').textContent.includes('Matches saved')"
+        )
+        self.page.reload()
+        selected = self._open()
+        self.assertEqual(selected.input_value(), company_b)
+        self.assertEqual(selected.locator("option:checked").inner_text(), "Bank (Company B)")
+        self.assertEqual(self.errors, [])
 
     def test_explicit_leave_blank_remains_selected_when_reopened(self):
         self.saved = [{"source_value": "Legacy", "action": "leave_blank"}]

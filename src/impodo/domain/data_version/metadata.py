@@ -149,7 +149,7 @@ def validate_plan_metadata(
                     )
                 )
             if (
-                component.null_policy == "explicit_scope_null"
+                component.null_policy != "reject"
                 and field_metadata.required
             ):
                 issues.append(

@@ -104,6 +104,7 @@ from ..application.workspace.execution.service import ExecutionService
 from ..application.workspace.mapping.categorical_coverage import (
     CategoricalCoverageService,
 )
+from ..application.workspace.mapping.field_effects import FieldEffectsQuery
 from ..application.workspace.mapping.order_service import MatchingOrderService
 from ..application.workspace.mapping.row_inclusion_review import (
     RowInclusionReviewService,
@@ -282,6 +283,7 @@ class WebContext:
     business_intents: BusinessIntentService
     matching_order: MatchingOrderService
     required_values: RequiredValuesQuery
+    field_effects: FieldEffectsQuery
     supporting_lookups: SupportingLookupService
     recipe_target_matches: RecipeTargetMatchService
     recipe_run_jobs: RecipeRunJobRuntime | None

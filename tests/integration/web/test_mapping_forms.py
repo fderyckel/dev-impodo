@@ -642,7 +642,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             ("line.item", "line.number"),
         )
 
-    def test_generated_hierarchy_self_parent_allows_an_explicit_root_null(
+    def test_generated_and_supplied_self_parent_allow_an_explicit_root_null(
         self,
     ) -> None:
         source = SourceDataset(
@@ -751,9 +751,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
             selection,
             schema,
             governance,
-            derived_links=(link,),
         )[0]
-        untrusted = _mapping_datasets_from_form(
+        supplied = _mapping_datasets_from_form(
             form,
             SimpleNamespace(datasets=(source,)),
             schema,
@@ -765,8 +764,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
             IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
         )
         self.assertIs(
-            untrusted.target_scope[0].null_policy,
-            IdentityNullPolicy.REJECT,
+            supplied.target_scope[0].null_policy,
+            IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
         )
         compiled = compile_browser_mapping(
             definition := MappingDefinition(
@@ -794,6 +793,31 @@ class OrderedTextStepFormTests(unittest.TestCase):
             "MAPPING_IDENTITY_NULL_POLICY_INVALID",
             {item.code for item in validation.issues},
         )
+        for links, label in (((link,), "this generated table"), ((), "this table")):
+            views = _mapping_dataset_views(
+                selection, schema, governance, (trusted,), derived_links=links,
+            )
+            self.assertEqual(
+                views[0]["identity_rows"][1]["related_datasets"], (source,),
+                label,
+            )
+        for origin, dataset_id in (
+            ("target_catalog", source.dataset_id),
+            ("target_then_dataset", source.dataset_id),
+            ("dataset", "another-table"),
+        ):
+            with self.subTest(origin=origin, dataset_id=dataset_id):
+                alternate = FormData((
+                    *[(name, value) for name, value in form.multi_items()
+                      if name not in {"identity_origin_0_1", "identity_dataset_0_1"}],
+                    ("identity_origin_0_1", origin),
+                    ("identity_dataset_0_1", dataset_id),
+                    ("identity_resolver_key_0_1", key.key_id),
+                ))
+                component = _mapping_datasets_from_form(
+                    alternate, selection, schema, governance,
+                )[0].target_scope[0]
+                self.assertIs(component.null_policy, IdentityNullPolicy.REJECT)
 
     def test_mapping_form_builds_constant_existing_many2one_without_source(self) -> None:
         source = SourceDataset(

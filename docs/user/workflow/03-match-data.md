@@ -38,6 +38,13 @@ You can also save progress and select **Check company-specific values** to
 refresh earlier, before reviewing individual defaults or linked values.
 The connection and record types have already been checked in Odoo data.
 
+When you open Match data without a chosen company, Impodo brings **Company for
+this load** into view, even if it remembers an older field position. A direct
+link to a specific section still opens that section. Once you choose a
+company, ordinary returns can restore your last field position.
+
+![First entry to Match data brings the unchosen company controls into view before field matching.](../../images/user/08-company-first-entry.png)
+
 For example, Northwind Group can be the user's default company while this
 load belongs to Northwind Factory. Select Factory to check, load and verify
 company-specific values there. The user's default remains Group.
@@ -281,10 +288,14 @@ inputs or saved check changed, or the check predates this review, Impodo asks
 you to check again before showing the values.
 
 For **Use Odoo first, otherwise use the incoming table**, an exact Odoo match
-wins. A case-only Odoo match does not fall through silently to the incoming
-table because that could create a near duplicate. The card shows it as a
-separate correction cause. The check never changes an existing Odoo record or
-authorizes an update.
+wins. When linking to a payment term, Impodo can also reuse one Odoo match
+that differs only by capitalization. For example, a supplier whose term is
+`NET30` can link to the existing Odoo term `Net30`. The incoming payment
+term is marked as reused and keeps the existing Odoo record intact. If there
+are several case-insensitive candidates and no exact match, review the
+ambiguity. If Odoo has no match, Impodo can use the incoming term. For other
+models, a case-only Odoo match still requires review before the incoming
+table can be used.
 
 Odoo fills a One2many list from the child records. If a saved One2many choice
 is present, the card directs you to the selected child table and its inverse
@@ -664,6 +675,39 @@ again.
 
 ![Use original spelling replaces a normalized matching key with the generated Name column for the Odoo field.](../../images/user/03d-generated-original-spelling.png)
 
+### Match a table that already contains parents and children
+
+If each category row already has its own ID and its parent's ID, use that
+table directly. For example, a row with `RecId = 200`, `Name = Bags`, and
+`ParentCategory = 100` belongs below the row whose `RecId` is `100`. The IDs
+connect your source rows; the category names identify the records in Odoo.
+
+1. Choose `RecId` as the **Unique row identifier**.
+2. Choose the matching rule for category name within its parent category.
+3. Map **Name** to `Name` and **Parent Category** to `ParentCategory`.
+4. Choose **Only another incoming table**, then select your categories table
+   marked **(this table)** under **Which related source table?**.
+5. Select **Save progress**, then **Check matches**.
+
+Impodo finds each parent by comparing `ParentCategory` with this table's
+`RecId`. It matches the parent in Odoo using that row's `Name` within its own
+parent, then resolves the child. The same name may appear under different
+parents. Source row order does not matter; Impodo loads new parents before
+their children.
+
+A blank `ParentCategory` means a top-level category. If your export uses `0`
+for no parent, select **A parent value of 0 means no parent** under the parent
+lookup. Impodo saves this rule with your mapping and prepares a blank parent
+for those root rows. You can correct an existing workspace this way without
+reuploading its files. Other parent IDs still have to identify included rows.
+**Check matches** blocks missing parents in physical incoming-table matching
+scopes before you confirm the mapping. Generated hierarchies and existing Odoo
+records retain their later resolution checks.
+A missing parent row, duplicate `RecId` values, circular links, or a parent
+set aside for review prevent the affected categories from loading.
+
+![ParentCategory finds its parent in the supplied categories table marked this table.](../../images/user/10c-supplied-category-parent.png)
+
 ### Match a generated hierarchy and the table that uses it
 
 When Stage 1 creates a hierarchy from separate source fields, match the
@@ -713,9 +757,12 @@ of Measure. Expand **Product Unit of Measure**, then:
    record for every row**.
 2. Under **Find this record by**, select the confirmed matching rule, such as
    **Odoo record name**.
-3. Select **Check this record** to load the bounded current Odoo choices, then
-   choose `PCE` under **Existing Product Unit of Measure**. You can filter the
-   loaded choices by typing in **Search existing Product Unit of Measure**.
+3. If you know the matching value, enter it in the box above **Check this
+   record**, then select that button to look up that value in Odoo. Choose
+   `PCE` under **Existing Product Unit of Measure**. Leaving the value blank
+   loads a bounded list instead; large lists require an entered matching value.
+   **Search existing Product Unit of Measure** filters the choices already
+   loaded on this page; it does not search Odoo.
 4. If the matching rule contains several key or scope parts, enter every part
    in the order shown.
 5. Review the summary, then select **Save progress** and **Check matches**.
@@ -735,6 +782,16 @@ intended identifier, confirm **Code**, map your account-number column to it,
 then open **Parent Account** and choose the existing parent for every row.
 The writable field is **Parent Account** (`parent_id`); the plural **Parent**
 (`parent_ids`) can be read-only in Odoo.
+
+For example, to use existing account **401100 Customers** as the parent of
+every imported account, first choose its company under **Company for this
+load** and check company-specific values. In **Parent Account**, select
+**The same existing Odoo record for every row**, choose **Code**, enter
+`401100`, and select **Check this record**. Choose **Customers (401100)**
+from the returned list, then save progress. Impodo looks up that code directly;
+it does not need to load the company's complete chart of accounts.
+
+![Parent Account uses the entered Code to find and select Customers (401100) without loading the full chart of accounts.](../../images/user/11-parent-account-lookup.png)
 
 Loading the choices does not select a record. Choose a record from the list,
 or type its exact matching values in the boxes above. If a required matching

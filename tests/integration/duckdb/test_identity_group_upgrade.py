@@ -92,5 +92,5 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(1, 2), (2, 3), (3, 4), (4, 5)],
+                [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)],
             )

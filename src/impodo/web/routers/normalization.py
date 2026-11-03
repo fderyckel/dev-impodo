@@ -12,6 +12,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateError
 
 from ...domain.errors import ReadinessError
+from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash
@@ -51,7 +52,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/normalization", response_class=HTMLResponse)
     async def review_prepared_data(request: Request, workspace_id: str):
         require_session(request)
-        return _render_normalization(request, context, workspace_id)
+        return await run_page_read(_render_normalization, request, context, workspace_id)
 
     @router.post(
         "/workspaces/{workspace_id}/normalization/groups/{group_id}/accept"

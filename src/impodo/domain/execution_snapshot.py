@@ -759,7 +759,7 @@ def _validate_read_evidence(snapshot: ExecutionSnapshot) -> None:
 
 def _target_resolution_index(
     result: PreflightResult,
-) -> dict[tuple[str, bytes], tuple[str, int]]:
+) -> dict[tuple[str, bytes], tuple[str, int, BusinessReference | None]]:
     """Index reviewed target-reference outcomes without carrying Odoo IDs.
 
     Resolution evidence is grouped by field for reporting, while the logical
@@ -767,7 +767,7 @@ def _target_resolution_index(
     references within one dataset must therefore have one consistent outcome.
     """
 
-    outcomes: dict[tuple[str, bytes], tuple[str, int]] = {}
+    outcomes: dict[tuple[str, bytes], tuple[str, int, BusinessReference | None]] = {}
     for evidence in result.reference_resolutions:
         reference = evidence.reference
         if reference.origin not in {"target", "target_then_incoming"}:
@@ -776,7 +776,7 @@ def _target_resolution_index(
             evidence.dataset,
             canonical_json_bytes(portable_value(reference)),
         )
-        outcome = (evidence.status, evidence.match_count)
+        outcome = (evidence.status, evidence.match_count, evidence.resolved_target)
         previous = outcomes.setdefault(key, outcome)
         if previous != outcome:
             raise ValueError("Target relationship resolution evidence conflicts")
@@ -811,7 +811,7 @@ def _target_binding_index(
             decision.target_binding_hash,
         )
     for evidence in result.reference_resolutions:
-        reference = evidence.reference
+        reference = evidence.resolved_target or evidence.reference
         if reference.model:
             add(
                 reference.model,
@@ -826,7 +826,7 @@ def _incoming_update_resolution_index(
     plan: CompiledMigrationPlan,
     records: tuple[PreparedRecord, ...],
     result: PreflightResult,
-    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int]],
+    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int, BusinessReference | None]],
 ) -> dict[tuple[str, int, str, bytes], LogicalReference]:
     """Restore incoming provenance erased by comparison business references."""
 
@@ -860,7 +860,7 @@ def _incoming_update_resolution_index(
                             canonical_json_bytes(portable_value(value)),
                         )
                     )
-                    if outcome == ("RESOLVED_INCOMING", 1):
+                    if outcome == ("RESOLVED_INCOMING", 1, None):
                         source_key = value.incoming_key
                 if source_key is None or value.dataset is None:
                     continue
@@ -902,7 +902,7 @@ def _incoming_update_resolution_index(
 
 def _resolved_create_record(
     record: PreparedRecord,
-    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int]],
+    target_resolutions: Mapping[tuple[str, bytes], tuple[str, int, BusinessReference | None]],
 ) -> PreparedRecord:
     """Use reviewed target matches while preserving incoming dependencies.
 
@@ -928,7 +928,7 @@ def _resolved_create_record(
         )
         if outcome is None:
             raise ValueError("Target relationship resolution evidence is incomplete")
-        status, match_count = outcome
+        status, match_count, resolved_target = outcome
         if value.origin == "target_then_incoming" and status == "RESOLVED_INCOMING":
             if value.dataset is None or value.incoming_key is None:
                 raise ValueError("Resolved incoming fallback evidence is invalid")
@@ -946,7 +946,7 @@ def _resolved_create_record(
             return value
         if match_count != 1 or not value.model:
             raise ValueError("Resolved target relationship evidence is invalid")
-        return BusinessReference(
+        return resolved_target or BusinessReference(
             model=value.model,
             key=value.key,
             scope=value.scope,

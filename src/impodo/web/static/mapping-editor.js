@@ -291,6 +291,9 @@ document.addEventListener("DOMContentLoaded", () => {
       saveStatus,
       updateMappingVersionFields,
       navigateToMappingResult,
+      onCommitted: (operation) => window.impodoSelectionChoices.consumeAcceptedRefreshes(
+        stagedSelectionChoices, selectionRefreshStorage, activeValueMatch, operation
+      ),
       setDirty: (value) => {
         dirty = value;
       },
@@ -657,6 +660,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     const resetValueMatchDialog = () => {
+      window.impodoValueMatchCompany?.reset(valueMatchDialog);
       if (valueMatchError) {
         valueMatchError.textContent = "";
         valueMatchError.hidden = true;
@@ -697,6 +701,8 @@ document.addEventListener("DOMContentLoaded", () => {
       const targetValues = new Set(
         targetChoices.map((choice) => String(choice.value))
       );
+      const companyFilter = window.impodoValueMatchCompany?.render(
+        valueMatchDialog, activeValueMatch.trigger, targetChoices, () => valueMatchRows.querySelectorAll("select[data-source-value]").forEach(releaseTargetSelect));
       const existing =
         activeValueMatch.pendingMatches ||
         parseValueMatches(activeValueMatch.storage);
@@ -714,7 +720,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const targetChoiceLabel = (choice) => {
         const value = String(choice.value);
         const label = String(choice.label || choice.value);
-        return label === value ? value : `${label} — ${value}`;
+        return companyFilter?.hasCompany(value) || label === value ? label : `${label} — ${value}`;
       };
 
       const updateValueMatchProgress = () => {
@@ -767,7 +773,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const selectedValue = select.value;
         for (const choice of targetChoices) {
           const value = String(choice.value);
-          if (value === selectedValue) {
+          if (value === selectedValue || companyFilter?.excludes(value)) {
             continue;
           }
           const option = document.createElement("option");

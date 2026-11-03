@@ -43,18 +43,17 @@ class HierarchyFailureWorkflowTests(HierarchyWorkflowFixture):
         self._assert_populated_parent_is_not_root(staging)
         self.assertIsNone(self.context.execution.journal.get_current_run(workspace_id))
 
-    def test_missing_source_parent_keeps_missing_reason_and_populated_scope(self):
-        workspace_id, _ = self.hierarchy(
+    def test_missing_source_parent_is_blocked_before_preparation(self):
+        workspace_id, validation = self.hierarchy(
             source_shape="supplied",
             categories=tuple(row for row in CATEGORY_ROWS if row[0] != "C100"),
+            check_only=True,
         )
-        staging, quality = self.prepare(workspace_id)
-        self.assertEqual(quality.excluded_count, 0)
+        self.assertEqual(validation.status.value, "INVALID")
         self.assertIn(
-            "INCOMING_RELATIONSHIP_MISSING",
-            {issue.reason_code for issue in self._issues(workspace_id).issues},
+            "MAPPING_INCOMING_PARENT_MISSING", {issue.code for issue in validation.issues},
         )
-        self._assert_populated_parent_is_not_root(staging)
+        self.assertIsNone(self.context.preparation.staging.get_current_staging_summary(workspace_id))
 
     def test_quarantined_parent_remains_a_saved_parent_consequence(self):
         workspace_id, _ = self.hierarchy(
@@ -82,7 +81,7 @@ class HierarchyFailureWorkflowTests(HierarchyWorkflowFixture):
         key = next(
             item.stable_key for item in category.columns if item.source_name == "Key"
         )
-        self.submit(
+        validation = self.submit(
             workspace_id,
             tuple(
                 replace(
@@ -104,14 +103,10 @@ class HierarchyFailureWorkflowTests(HierarchyWorkflowFixture):
                 for mapping in revision.definition.datasets
             ),
             confirm_rows=True,
+            check_only=True,
         )
-        staging, quality = self.prepare(workspace_id)
-        self.assertEqual(quality.excluded_count, 1)
-        excluded = [row for row in staging.rows if row.disposition.value == "EXCLUDED"]
-        self.assertEqual(len(excluded), 1)
-        self.assertEqual(excluded[0].lineage.source_row, 2)
-        self.assertGreater(quality.quarantined_count, 0)
-        self._assert_populated_parent_is_not_root(staging)
+        self.assertEqual(validation.status.value, "INVALID")
+        self.assertIn("MAPPING_INCOMING_PARENT_MISSING", {issue.code for issue in validation.issues})
 
     def test_ambiguous_destination_root_blocks_the_accepted_file_journey(self):
         workspace_id, _ = self.hierarchy(source_shape="supplied")

@@ -30,5 +30,19 @@
     return text;
   };
 
-  window.impodoSelectionChoices = { annotateUnavailable, freshnessText };
+  const consumeAcceptedRefreshes = (stagedChoices, storage, activeMatch, operation) => {
+    // Only a committed operation consumes candidates. Keep a newer refresh
+    // staged while the save was in flight, including during receipt recovery.
+    const raw = operation.entries?.find(([name]) => name === "selection_refreshes")?.[1];
+    const accepted = new Set(JSON.parse(raw || "[]"));
+    for (const [field, reference] of stagedChoices) {
+      if (accepted.has(reference)) stagedChoices.delete(field);
+    }
+    if (activeMatch && accepted.has(activeMatch.selectionRefresh)) {
+      activeMatch.selectionRefresh = null;
+    }
+    storage.value = JSON.stringify([...stagedChoices.values()]);
+  };
+
+  window.impodoSelectionChoices = { annotateUnavailable, freshnessText, consumeAcceptedRefreshes };
 })();

@@ -168,10 +168,10 @@
                       Which related source table?
                       <select name="relation_dataset_{{ dataset_index }}_{{ relation_index }}">
                         <option value="">Not from another table</option>
-                        {% for candidate in view.other_datasets %}
+                        {% for candidate in row.related_datasets %}
                           {% set selected_dataset_id = mapping.resolver.dataset_id if mapping else row.recommended_dataset_id %}
                           <option value="{{ candidate.dataset_id }}" {% if selected_dataset_id == candidate.dataset_id %}selected{% endif %}>
-                            {{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this generated table){% endif %}
+                            {{ candidate.name }}{% if candidate.dataset_id == view.source.dataset_id %} (this{% if view.generated_hierarchy %} generated{% endif %} table){% endif %}
                           </option>
                         {% endfor %}
                       </select>
@@ -197,7 +197,7 @@
                       <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
                         <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                         {% for key in row.related_keys %}
-                          <option value="{{ key.key_id }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
+                          <option value="{{ key.key_id }}" data-scope-fields="{{ key.scope_fields | join('|') }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
                             {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
                           </option>
                         {% endfor %}

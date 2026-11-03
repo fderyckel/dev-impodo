@@ -18,6 +18,9 @@ from impodo.domain.relationship_review import (
     RelationshipChoiceResolution,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    allows_case_insensitive_payment_term_lookup,
+)
 
 
 class RelationshipHealthStatus(StrEnum):
@@ -243,6 +246,10 @@ def classify_relationship_health(
     incoming_folded = _folded_counts(incoming_counts)
     target = incoming = missing = ambiguous = case_mismatch = 0
 
+    reuse_case_match = (
+        origin is ResolverOrigin.TARGET_THEN_DATASET
+        and allows_case_insensitive_payment_term_lookup(related_model)
+    )
     for key, occurrence_count in normalized_source.items():
         target_outcome = (
             _lookup_outcome(key, target_counts, target_folded)
@@ -252,7 +259,7 @@ def classify_relationship_health(
             }
             else "missing"
         )
-        if target_outcome == "exact":
+        if target_outcome == "exact" or (reuse_case_match and target_outcome == "case"):
             target += occurrence_count
             continue
         if target_outcome == "ambiguous":

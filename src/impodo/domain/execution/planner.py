@@ -424,7 +424,7 @@ def _hierarchical_identity_domain_chunks(
     """
 
     supports_explicit_root = any(
-        component.null_policy == "explicit_scope_null"
+        component.null_policy != "reject"
         and component.resolve is not None
         and component.resolve.dataset == dataset.name
         for component in dataset.target_identity.scope
@@ -504,7 +504,7 @@ def _record_identity_domain_expression(
             resolve = component.resolve
             relation_field = f"{prefix}{component.target_fields[0]}"
             if reference is None:
-                if component.null_policy != "explicit_scope_null":
+                if component.null_policy == "reject":
                     return None
                 # Odoo domains represent an unset many2one with boolean false.
                 terms.append([relation_field, "=", False])

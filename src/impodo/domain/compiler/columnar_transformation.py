@@ -1558,11 +1558,13 @@ def _identity_component(
             *((
                 ColumnarExpressionStep(ColumnarOperationKind.COLLAPSE_WHITESPACE),
             ) if component.resolver is None else ()),
+            *((ColumnarExpressionStep(ColumnarOperationKind.EMPTY_AS_NULL, text="0"),)
+              if component.null_policy is IdentityNullPolicy.ZERO_AS_SCOPE_NULL else ()),
             ColumnarExpressionStep(ColumnarOperationKind.EMPTY_AS_NULL),
             *conversion_steps,
         ),
         required=(
-            component.null_policy is not IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+            component.null_policy is IdentityNullPolicy.REJECT
         ),
         failure_code=(
             "SOURCE_REQUIRED_VALUE_MISSING"

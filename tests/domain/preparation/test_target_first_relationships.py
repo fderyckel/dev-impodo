@@ -27,6 +27,7 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     bind_snapshot_hashes,
 )
+from impodo.domain.preflight.deferred_scope import portable_reference_resolutions
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.source import (
     CompiledPreparedRowTransformer,
@@ -67,11 +68,11 @@ from impodo.domain.workspace.contracts import (
 _HASH = "sha256:" + "1" * 64
 
 
-def _plan() -> CompiledMigrationPlan:
+def _plan(related_model: str = "uom.uom") -> CompiledMigrationPlan:
     sales_uoms = DatasetSpec(
         name="sales_uoms",
         source=SourceSpec(file="sales_uoms.csv"),
-        target=TargetSpec(model="uom.uom", mode="upsert"),
+        target=TargetSpec(model=related_model, mode="upsert"),
         source_identity=SourceIdentitySpec(fields=("uom_code",)),
         target_identity=TargetIdentitySpec(
             components=(
@@ -118,7 +119,7 @@ def _plan() -> CompiledMigrationPlan:
                 resolve=ResolveSpec(
                     dataset="sales_uoms",
                     target_source_fields=("uom_code",),
-                    target_model="uom.uom",
+                    target_model=related_model,
                     target_fields=("name",),
                     target_value_mappings=(("UNI", "Unit"),),
                 ),
@@ -181,19 +182,23 @@ def _tables(*, uom_codes: tuple[str, ...]) -> tuple[SourceTable, ...]:
     )
 
 
-def _snapshots() -> tuple[MetadataSnapshot, RecordSnapshot]:
+def _snapshots(
+    related_model: str = "uom.uom",
+    odoo_version: str = "19.0",
+    connection_mode: str = "LOCAL",
+) -> tuple[MetadataSnapshot, RecordSnapshot]:
     fingerprint = TargetFingerprint(
         target_hash=_HASH,
-        connection_mode="LOCAL",
+        connection_mode=connection_mode,
         database="target_first_test",
-        odoo_version="19.0",
+        odoo_version=odoo_version,
         snapshot_timestamp="2026-08-27T00:00:00Z",
     )
     metadata = MetadataSnapshot(
         fingerprint=fingerprint,
         models={
-            "uom.uom": ModelMetadata(
-                model="uom.uom",
+            related_model: ModelMetadata(
+                model=related_model,
                 description="Units of Measure",
                 fields={
                     "name": FieldMetadata(
@@ -225,7 +230,7 @@ def _snapshots() -> tuple[MetadataSnapshot, RecordSnapshot]:
                         name="uom_id",
                         type="many2one",
                         required=True,
-                        relation="uom.uom",
+                        relation=related_model,
                     ),
                 },
             ),
@@ -234,19 +239,19 @@ def _snapshots() -> tuple[MetadataSnapshot, RecordSnapshot]:
     records = RecordSnapshot(
         fingerprint=fingerprint,
         records={
-            "uom.uom": (
+            related_model: (
                 TargetRecord(
-                    "uom.uom",
+                    related_model,
                     10,
                     {"name": "Unit", "rounding": Decimal(1)},
                 ),
                 TargetRecord(
-                    "uom.uom",
+                    related_model,
                     11,
                     {"name": "kg", "rounding": Decimal("0.001")},
                 ),
                 TargetRecord(
-                    "uom.uom",
+                    related_model,
                     12,
                     {"name": "m", "rounding": Decimal("0.01")},
                 ),
@@ -254,7 +259,7 @@ def _snapshots() -> tuple[MetadataSnapshot, RecordSnapshot]:
             "product.template": (),
         },
         requested_fields={
-            "uom.uom": ("name", "rounding"),
+            related_model: ("name", "rounding"),
             "product.template": ("default_code", "name", "uom_id"),
         },
     )
@@ -919,6 +924,67 @@ class TargetFirstRelationshipTests(unittest.TestCase):
         ]
         self.assertEqual(len(reused_uoms), 3)
         self.assertTrue(all(not row.fields for row in reused_uoms))
+
+    def test_unique_payment_term_case_match_reuses_existing_and_keeps_new_terms(self) -> None:
+        model = "account.payment.term"
+        plan = _plan(model)
+        prepared = _prepared(plan, "KG", "PCE")
+        for major in ("19.0", "20.0"):
+            for mode in ("LOCAL", "REMOTE"):
+                with self.subTest(major=major, mode=mode):
+                    metadata, records = _snapshots(model, major, mode)
+                    result = PreflightEngine().run(plan, prepared, metadata, records)
+                    self.assertEqual(
+                        portable_reference_resolutions(result.to_portable_dict()),
+                        result.reference_resolutions,
+                    )
+                    snapshot = build_execution_snapshot(
+                        preflight_run_id=str(uuid4()),
+                        frozen=_frozen(plan, prepared),
+                        result=result,
+                    )
+                    rows = {(row.dataset, row.source_identity): row for row in snapshot.rows}
+                    existing = rows["sales_uoms", ("KG",)]
+                    self.assertEqual(existing.disposition, "UNCHANGED")
+                    self.assertEqual(existing.fields, ())
+                    self.assertEqual(rows["sales_uoms", ("PCE",)].disposition, "CREATE")
+                    links = {
+                        code: next(
+                            field for field in rows["products", (f"P-{code}",)].fields
+                            if field.field == "uom_id"
+                        )
+                        for code in ("KG", "PCE")
+                    }
+                    self.assertEqual(links["KG"].value, BusinessReference(model, ("kg",)))
+                    self.assertTrue(links["KG"].target_binding_hashes)
+                    self.assertEqual(
+                        links["PCE"].value,
+                        LogicalReference(origin="incoming", key=("PCE",), dataset="sales_uoms"),
+                    )
+
+    def test_ambiguous_payment_term_case_matches_block_both_tables(self) -> None:
+        model = "account.payment.term"
+        plan = _plan(model)
+        prepared = _prepared(plan, "KG")
+        metadata, records = _snapshots(model)
+        records = replace(
+            records,
+            content_hash=None,
+            records={
+                **records.records,
+                model: (*records.records[model], TargetRecord(model, 13, {"name": "Kg"})),
+            },
+        )
+        metadata, records = bind_snapshot_hashes(metadata, records)
+
+        result = PreflightEngine().run(plan, prepared, metadata, records)
+
+        self.assertEqual(
+            {decision.classification for decision in result.decisions},
+            {Classification.BLOCKED},
+        )
+        self.assertEqual(result.reference_resolutions[0].status, "AMBIGUOUS")
+        self.assertEqual(result.reference_resolutions[0].match_count, 2)
 
     def test_case_only_odoo_candidate_requires_explicit_review(self) -> None:
         plan = _plan()
