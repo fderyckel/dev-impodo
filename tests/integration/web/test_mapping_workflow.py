@@ -1228,9 +1228,11 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
         )
         self.assertIn("Country code — recommended", page.text)
+        from tests.support.hierarchy_correction import MappingForm
+
         self.assertIn(
-            'value="odoo-standard:res.country:code" selected',
-            page.text,
+            ["relation_key_0_0", "odoo-standard:res.country:code"],
+            MappingForm(page.text).entries,
         )
         self.assertIn("data-refresh-value-match", page.text)
         mapping_script = self.client.get("/static/mapping-editor.js")

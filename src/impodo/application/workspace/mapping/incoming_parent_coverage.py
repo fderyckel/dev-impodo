@@ -30,23 +30,27 @@ def incoming_parent_issues(
 ) -> tuple[MappingValidationIssue, ...]:
     """Reject missing physical scope parents without guessing root markers."""
 
-    physical = coverage.sources.get_source_selection(workspace_id)
-    if physical is None:
-        return ()
-    physical_ids = {source.dataset_id for source in physical.datasets}
     mappings = {dataset.dataset_id: dataset for dataset in definition.datasets}
-    names = {source.dataset_id: source.name for source in selection.datasets}
     checks = [
         (dataset_index, dataset, scope_index, component, component.resolver.dataset_id)
         for dataset_index, dataset in enumerate(definition.datasets)
         for scope_index, component in enumerate(dataset.target_scope)
         if component.resolver is not None
         and component.resolver.origin is ResolverOrigin.DATASET
-        and dataset.dataset_id in physical_ids
-        and component.resolver.dataset_id in physical_ids
         and component.resolver.dataset_id in mappings
         and mappings[component.resolver.dataset_id].source_identity_column_keys
     ]
+    if not checks:
+        return ()
+    physical = coverage.sources.get_source_selection(workspace_id)
+    if physical is None:
+        return ()
+    physical_ids = {source.dataset_id for source in physical.datasets}
+    checks = [
+        check for check in checks
+        if check[1].dataset_id in physical_ids and check[4] in physical_ids
+    ]
+    names = {source.dataset_id: source.name for source in selection.datasets}
     columns: dict[str, list[str]] = {}
     for _, dataset, _, component, parent_id in checks:
         if parent_id is None:

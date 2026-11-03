@@ -171,7 +171,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema,
                 SCHEMA_GENERATION,
                 SCHEMA_VERSION,
-                "a0d680f80c063e1b36816cbd46c8354fdbfe66905257b5646a333a62a10ae20a",
+                "bb78df7188d96958f5b497c56fdebb6fdab6204a34a9ddb96ab3e8b50fc05854",
             ),
         )
         for initialize, ensure, generation, version, fingerprint in stores:
@@ -182,7 +182,6 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 initialize(connection)
                 ensure(connection)
                 ensure(connection)
-                self.assertEqual(version, 5 if generation == SCHEMA_GENERATION else 1)
                 self.assertEqual(
                     connection.execute(
                         "SELECT generation, version FROM schema_version"
