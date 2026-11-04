@@ -526,6 +526,8 @@ stages:
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_included_key_tuples
+      - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_value_choices_and_blank_count
+      - src/impodo/domain/preparation/create_relationships.py::blank_create_reference
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::RowInclusionPolicy
       - src/impodo/domain/mapping/row_inclusion.py::row_is_included
@@ -617,6 +619,8 @@ stages:
       - tests/e2e/test_odoo_company.py
       - tests/e2e/test_mapping_company_entry.py
       - tests/integration/web/test_joined_value_matching.py
+      - tests/integration/web/test_blank_create_relationships.py
+      - tests/domain/preparation/test_blank_create_relationships.py
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py
       - tests/integration/web/test_mapping_form_roundtrip.py
@@ -624,6 +628,7 @@ stages:
       - tests/domain/preparation/test_optional_many2one.py
       - tests/application/workspace/mapping/test_blank_relationship_choices.py
       - tests/e2e/test_many2one_blank_match.py
+      - tests/e2e/test_value_match_visibility.py
       - tests/integration/artifacts/test_joined_mapping_values.py
       - tests/domain/workspace/test_combined_hierarchy.py
       - tests/integration/web/test_combined_hierarchy.py

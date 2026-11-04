@@ -39,6 +39,7 @@ document.addEventListener("DOMContentLoaded", () => {
   let lastNetworkFailureAt = 0;
   let activeRequest = null;
   let nextCheck = null;
+  let delayedNotice = null;
   let recoveredNotice = null;
   let waitForVisibleCheck = false;
   let visibleCheckAfter = 0;
@@ -99,9 +100,18 @@ document.addEventListener("DOMContentLoaded", () => {
     banner.hidden = false;
   };
 
+  const dismissDelayed = () => {
+    window.clearTimeout(delayedNotice);
+    delayedAcknowledged = true;
+    if (connectivity === "CONNECTED" && operation === "DELAYED") banner.hidden = true;
+  };
+
   const showDelayed = () => {
     operation = "DELAYED";
-    if (delayedAcknowledged) { banner.hidden = true; return; }
+    if (delayedAcknowledged) {
+      if (connectivity === "CONNECTED") banner.hidden = true;
+      return;
+    }
     setBannerKind("warning");
     if (title) title.textContent = "Impodo is still working";
     if (message) {
@@ -110,6 +120,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (action) { action.hidden = false; action.textContent = "Got it"; }
     if (help) help.textContent = "You do not need to start this step again.";
     banner.hidden = false;
+    delayedNotice ??= window.setTimeout(dismissDelayed, 2000);
   };
 
   const showRecovered = () => {
@@ -133,21 +144,12 @@ document.addEventListener("DOMContentLoaded", () => {
       !waitForVisibleCheck &&
       lastNetworkFailureAt > lastResponseAt &&
       now() - lastResponseAt >= disconnectedMs
-    ) {
-      showDisconnected();
-      return;
-    }
-    if (operation === "OUTCOME_UNKNOWN") {
-      showOutcomeUnknown();
-      return;
-    }
+    ) return showDisconnected();
+    if (operation === "OUTCOME_UNKNOWN") return showOutcomeUnknown();
     if (
       (operation === "BUSY" || operation === "DELAYED") &&
       now() - operationStartedAt >= delayedMs
-    ) {
-      showDelayed();
-      return;
-    }
+    ) return showDelayed();
     if (connectivity === "CONNECTED") banner.hidden = true;
   };
 
@@ -164,15 +166,11 @@ document.addEventListener("DOMContentLoaded", () => {
     return true;
   };
 
-  const noteResponsive = () => {
-    if (connectivity === "SESSION_ENDED") return;
-    lastResponseAt = now();
-    lastSuccessAt = lastResponseAt;
-    showRecovered();
-    render();
-  };
+  const noteResponsive = () => void noteResponse(null, { successful: true });
 
   const beginOperation = ({ label = "This step", mutation = false } = {}) => {
+    window.clearTimeout(delayedNotice);
+    delayedNotice = null;
     operation = "BUSY";
     delayedAcknowledged = false;
     operationStartedAt = now();
@@ -182,6 +180,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const endOperation = ({ outcomeKnown = true } = {}) => {
+    window.clearTimeout(delayedNotice);
     operation = outcomeKnown ? "IDLE" : mutationPending ? "OUTCOME_UNKNOWN" : "IDLE";
     mutationPending = false;
     render();
@@ -237,13 +236,13 @@ document.addEventListener("DOMContentLoaded", () => {
     void checkHealth();
   });
   action?.addEventListener("click", () => {
-    if (operation === "DELAYED" && connectivity === "CONNECTED") {
-      delayedAcknowledged = true;
-      banner.hidden = true;
-    } else void checkHealth();
+    if (operation === "DELAYED" && connectivity === "CONNECTED") dismissDelayed();
+    else void checkHealth();
   });
   window.addEventListener("pagehide", () => {
     window.clearTimeout(nextCheck);
+    window.clearTimeout(delayedNotice);
+    delayedNotice = null;
     window.clearTimeout(recoveredNotice);
     activeRequest?.abort();
   });

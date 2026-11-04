@@ -23,6 +23,15 @@ class WriteFailureCode(StrEnum):
     UNKNOWN = "ODOO_WRITE_OUTCOME_UNKNOWN"
 
 
+class OdooWriteErrorType(StrEnum):
+    """Built-in Odoo exception types safe to retain from JSON-2 errors."""
+
+    ACCESS = "odoo.exceptions.AccessError"
+    MISSING = "odoo.exceptions.MissingError"
+    USER = "odoo.exceptions.UserError"
+    VALIDATION = "odoo.exceptions.ValidationError"
+
+
 _MESSAGES = {
     WriteFailureCode.REQUIRED_VALUE: "Odoo requires a value that was not supplied",
     WriteFailureCode.RELATED_RECORD: "Odoo could not resolve a linked record",
@@ -53,16 +62,24 @@ class OdooWriteDiagnostic:
     batch_size: int = 1
     message_count: int = 0
     message_fingerprint: str = ""
+    http_status: int | None = None
+    error_type: OdooWriteErrorType | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", WriteFailureCode(self.code))
         object.__setattr__(self, "fields", tuple(sorted(set(self.fields))))
+        if self.error_type is not None:
+            object.__setattr__(self, "error_type", OdooWriteErrorType(self.error_type))
         if (
             _NAME.fullmatch(self.model) is None
             or self.method
             not in {"load", "create", "write", "search_read", "completion"}
             or not 1 <= self.batch_size <= 1000
             or not 0 <= self.message_count <= 1_000_000
+            or (
+                self.http_status is not None
+                and (type(self.http_status) is not int or not 100 <= self.http_status <= 599)
+            )
             or len(self.fields) > 200
             or any(_NAME.fullmatch(field) is None for field in self.fields)
             or (
@@ -90,12 +107,23 @@ class OdooWriteDiagnostic:
             if self.row_from is not None and self.row_to is not None
             else ""
         )
-        return f"{_MESSAGES[self.code]}.{field_text}{rows} [{self.code.value}]"
+        status = f" HTTP status {self.http_status}." if self.http_status is not None else ""
+        error_type = f" Odoo reported {self.error_type.value.rsplit('.', 1)[-1]}." if self.error_type else ""
+        message = (
+            "Odoo rejected this operation"
+            if self.code is WriteFailureCode.REJECTED and self.error_type
+            else _MESSAGES[self.code]
+        )
+        return f"{message}.{field_text}{rows}{status}{error_type} [{self.code.value}]"
 
     def to_dict(self) -> dict[str, object]:
         payload = asdict(self)
         payload["code"] = self.code.value
         payload["fields"] = list(self.fields)
+        if self.http_status is None:
+            del payload["http_status"]
+        if self.error_type is None:
+            del payload["error_type"]
         return payload
 
     @classmethod
@@ -106,6 +134,10 @@ class OdooWriteDiagnostic:
         ):
             raise ValueError("Odoo diagnostic fields are invalid")
         start, end = payload.get("row_from"), payload.get("row_to")
+        http_status = payload.get("http_status")
+        error_type = payload.get("error_type")
+        if http_status is not None and type(http_status) is not int:
+            raise ValueError("Odoo diagnostic HTTP status is invalid")
         if (start is not None and type(start) is not int) or (
             end is not None and type(end) is not int
         ):
@@ -120,4 +152,6 @@ class OdooWriteDiagnostic:
             batch_size=int(str(payload.get("batch_size", 1))),
             message_count=int(str(payload.get("message_count", 0))),
             message_fingerprint=str(payload.get("message_fingerprint", "")),
+            http_status=http_status,
+            error_type=OdooWriteErrorType(str(error_type)) if error_type is not None else None,
         )

@@ -6,10 +6,23 @@
               <h2>{% if validation.status.value == 'INVALID' %}Needs attention{% else %}Ready to confirm{% endif %}</h2>
             </div>
             <span class="status {% if validation_problem_count %}needs_review{% else %}ready{% endif %}">
-              {% if validation_problem_count %}{{ validation_problem_count }} decision{{ "s" if validation_problem_count != 1 else "" }}{% else %}No issues{% endif %}
+              {% if validation_problem_count %}{{ validation_problem_count }} decision{{ "s" if validation_problem_count != 1 else "" }}{% elif advisory_issues %}{{ advisory_issues|length }} warning{{ "s" if advisory_issues|length != 1 else "" }}{% else %}No issues{% endif %}
             </span>
           </div>
           {% include "mapping/_odoo_validation_coverage.html" %}
+          {% if advisory_issues %}
+            <div class="notice warning">
+              <strong>Odoo will supply these fields for new products</strong>
+              <ul>
+                {% for item in advisory_issues %}
+                  <li><strong>{{ item.dataset_label }} &middot; {{ item.field_label }}</strong><br>
+                    {{ item.issue.remediation }}
+                    {% if item.fix_url %}<a href="{{ item.fix_url }}">Match this field</a>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% endif %}
           {% if validation_problem_count %}
             {% if validation.status.value == 'INVALID' %}
               <p>Resolve every reason shown at the top of this page. Impodo rechecks Odoo-default decisions automatically; check matches after other changes.</p>
@@ -41,7 +54,7 @@
               </table>
             </div>
             {% endif %}
-          {% else %}
+          {% elif not advisory_issues %}
             <p>Your field matches are consistent. The next step prepares every source row for review.</p>
           {% endif %}
           {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}

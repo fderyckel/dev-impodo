@@ -32,10 +32,10 @@
     const companies = [...new Set(companiesByValue.values())]
       .sort((left, right) => left.localeCompare(right));
     filter.replaceChildren(
-      new Option("All companies", ""),
+      new Option("All available choices", ""),
       ...companies.map((company) => new Option(company, company))
     );
-    label.hidden = companies.length === 0;
+    label.hidden = companies.length < 2;
     filter.onchange = onChange;
     return {
       hasCompany: (value) => companiesByValue.has(value),

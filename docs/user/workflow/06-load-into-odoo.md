@@ -286,7 +286,8 @@ operation, or a rejection rate of at least 20% after twenty settled records in
 the latest fifty results. It also limits attempts to isolate a bad batch when
 no write succeeds. Rolled-back peers do not count as individual rejections.
 
-On a paused load, review the rejected rows, then select **Check recovery**.
+On a paused load, select **Review rejected records** to see the saved message
+for each affected row. Then select **Check recovery** if you intend to continue.
 After that read-only check, confirm **Continue with the next small group**
 only if you want to try the remaining records. Rejected records are not retried.
 Fixing them requires a fresh comparison and approval.
@@ -305,12 +306,12 @@ attempted**. For example, if Odoo accepts one related record and rejects the
 first customer, later customers may remain unattempted. Those later records
 were not individually rejected. Keep the records that were written.
 
-Read the failed row's message. New load attempts retain a safe reason code,
-the affected field when Odoo reports one, and the batch position when Odoo
-identifies it unambiguously. When Odoo gives no usable detail, the message
-says so. A diagnostic bundle includes aggregate failure codes; it excludes
-source values and arbitrary server messages. Older loads cannot recover error
-detail that was not saved at the time.
+Read the failed row's message. It includes the affected field and position
+within the group when Odoo identifies them. One failed request can mark
+several records as rejected. If the message gives no specific cause, ask
+your Odoo administrator to check the destination error at the time of the
+load. The support bundle includes technical details about the failed
+operation and excludes source values and raw Odoo error messages.
 
 ![A fictional load outcome separates one written record, one rejected record, and one record that was not attempted.](../../images/user/16h-load-rejection-diagnostic.png)
 

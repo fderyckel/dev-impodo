@@ -1351,9 +1351,9 @@ class OrderedTextStepFormTests(unittest.TestCase):
 
     def test_mapping_page_owns_its_page_assets(self) -> None:
         root = REPOSITORY_ROOT
-        template = (
-            root / "src" / "impodo" / "web" / "templates" / "mapping" / "page.html"
-        ).read_text(encoding="utf-8")
+        mapping_templates = root / "src" / "impodo" / "web" / "templates" / "mapping"
+        template = (mapping_templates / "page.html").read_text(encoding="utf-8")
+        script_template = (mapping_templates / "_scripts.html").read_text(encoding="utf-8")
         dataset_template = (
             root
             / "src"
@@ -1399,14 +1399,16 @@ class OrderedTextStepFormTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("/mapping.css", template)
-        self.assertIn("/mapping-save-recovery.js", template)
-        self.assertIn("/mapping-order.js", template)
-        self.assertIn("/mapping-editor.js", template)
-        self.assertIn("/mapping-formula-validation.js", template)
-        self.assertIn("/mapping-value-rules.js", template)
-        self.assertIn("/mapping-catalogs.js", template)
-        self.assertIn("/mapping-row-inclusion.js", template)
-        self.assertIn("/mapping.js", template)
+        self.assertIn("mapping/_scripts.html", template)
+        self.assertIn("/mapping-save-recovery.js", script_template)
+        self.assertIn("/mapping-order.js", script_template)
+        self.assertIn("/mapping-value-match.js", script_template)
+        self.assertIn("/mapping-editor.js", script_template)
+        self.assertIn("/mapping-formula-validation.js", script_template)
+        self.assertIn("/mapping-value-rules.js", script_template)
+        self.assertIn("/mapping-catalogs.js", script_template)
+        self.assertIn("/mapping-row-inclusion.js", script_template)
+        self.assertIn("/mapping.js", script_template)
         self.assertIn(".scalar-table-scroll-top", styles)
         self.assertIn(".mapping-save-state.unsaved", styles)
         self.assertIn(".mapping-table-fields-toggle", styles)

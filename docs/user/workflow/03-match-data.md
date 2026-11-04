@@ -558,11 +558,20 @@ added table that did not match a primary row do not add choices or increase
 their counts. **Check matches** uses the same combined values and reports any
 populated choice that still needs a match.
 
+**Match values** shows when Impodo is loading choices and how many values are
+matched when the list is ready. If a source column or matching rule is missing,
+follow the prompt beside the field. While **Refresh Odoo values** runs, your
+current choices stay visible. If loading fails or times out, select **Try
+again**.
+
 For a Fiscal Position or Payment Terms identified by **Name within Company
 (if available)**, choose the Odoo record with the intended company in
 **Match values**. For example, `Domestic (Northwind Factory)` links the row
 to the Domestic fiscal position for Northwind Factory. Impodo keeps the name
 and company together when you save, prepare, and compare the rows.
+When choices are available for multiple companies, **Filter Odoo choices by
+company** narrows the dropdowns and keeps your selected matches visible.
+**Company for this load** sets the operating company separately.
 
 If an earlier comparison displayed a value such as
 `["Domestic","Northwind Factory"]` under **Missing parent values**, return to
@@ -625,6 +634,22 @@ source classification code can match an existing classification with a
 different name. You do not need a special rule built into Impodo for that
 source column. Review the matching rule and company scope before choosing
 the destination records.
+
+### Choose a fallback for blank links on new records
+
+If a required linked field such as **Unit** or **Product Category** has blank
+cells, open **Match values** from its linked-field card. When you match one
+source column to existing Odoo records, Impodo shows the number of blanks in
+the saved **Rows to use** scope. This is the number of rows that could use the
+fallback. The comparison with Odoo determines which of those rows create
+records.
+
+Under **When the source is blank on a new record**, select an existing Odoo
+record. To use the target's own value, select **Check Odoo default** and review
+the resulting choice. For example, you can match `kg` to `kg` and use `PCE`
+for new products whose Unit is blank. A blank source cell on an update keeps
+the existing Odoo value. Choose **Use matches and blank fallback**, then
+select **Check matches**.
 
 ### Combine source columns into one text field
 
@@ -1097,12 +1122,11 @@ workflow actions. They are also announced to assistive technology.
 
 While an Impodo page is open, the browser tracks the current Impodo action and
 checks that the local server answers. If a known action lasts about 20 seconds,
-the page shows the amber message **Impodo is still working**. Select **Got it**
-to dismiss the message while Impodo continues the action. Do not start the
-action again. Keep the tab open for an action that is waiting for a page
-response. For a background job such as preparation, you can leave the page and
-return to check its progress. The amber message does not mean that Impodo
-stopped.
+the page shows the amber message **Impodo is still working**. The message
+disappears after two seconds, or you can select **Got it** to dismiss it sooner.
+Impodo continues the action. Wait for it to finish and keep the tab open if
+you are waiting for a page response. For a background job such as preparation,
+you can leave the page and return to check its progress.
 
 The red **Connection to Impodo was interrupted** message appears only after at
 least 45 seconds without an authenticated Impodo response and after a recent

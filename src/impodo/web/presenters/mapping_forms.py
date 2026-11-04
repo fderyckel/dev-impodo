@@ -60,6 +60,7 @@ from ...domain.mapping.contracts import (
     TargetFieldDisposition,
     TargetFieldHandling,
     ValueMapping,
+    matched_reference_components,
 )
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
@@ -378,6 +379,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"relation_null_{dataset_index}_{relation_index}",
                     f"relation_separator_{dataset_index}_{relation_index}",
                     f"relation_value_matches_{dataset_index}_{relation_index}",
+                    f"relation_blank_create_{dataset_index}_{relation_index}",
                     f"relation_categorical_policy_{dataset_index}_{relation_index}",
                 }
             )
@@ -1008,6 +1010,24 @@ def _mapping_datasets_from_form(
                 form,
                 f"relation_categorical_policy_{dataset_index}_{relation_index}",
             )
+            blank_create = _text(form, f"relation_blank_create_{dataset_index}_{relation_index}")
+            blank_create_values = None
+            if blank_create:
+                choice = json.loads(blank_create)
+                if not isinstance(choice, dict):
+                    raise ValueError("Choose a valid value for blank source cells")
+                if set(choice) == {"default"} and choice["default"] is True:
+                    blank_create_values = ()
+                elif (
+                    set(choice) == {"key", "record"}
+                    and choice["key"] == _text(form, f"relation_key_{dataset_index}_{relation_index}")
+                    and isinstance(choice["record"], str)
+                ):
+                    blank_create_values = matched_reference_components(
+                        choice["record"], len(resolver.key_mappings) + len(resolver.scope_mappings)
+                    )
+                else:
+                    raise ValueError("Review the blank value again using the current matching rule")
             relationships.append(
                 RelationshipMapping(
                     target_field=metadata.name,
@@ -1095,6 +1115,7 @@ def _mapping_datasets_from_form(
                     ),
                     value_source=value_source,
                     blank_source_values=blank_source_values,
+                    blank_create_values=blank_create_values,
                 )
             )
         mode = MappingTargetMode(

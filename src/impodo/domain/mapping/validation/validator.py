@@ -658,6 +658,21 @@ class MappingSemanticValidator:
                         odoo_version=context.schema_catalog.odoo_version,
                     )
                     if (
+                        assessment.advisory is not None
+                        and target_field not in intentionally_omitted
+                    ):
+                        issues.append(
+                            _issue(
+                                "MAPPING_ODOO_PRODUCT_FIELD_DEFERRED",
+                                f"{base}/target_model",
+                                "Odoo supplies this field when it creates the product.",
+                                assessment.advisory,
+                                severity="advisory",
+                                dataset=dataset,
+                                target_field=target_field,
+                            )
+                        )
+                    if (
                         assessment.coverage
                         in {
                             CreateFieldCoverage.DEFAULT_AVAILABLE,
@@ -840,7 +855,7 @@ class MappingSemanticValidator:
             if any(item.severity == "error" for item in sorted_issues)
             else (
                 MappingValidationStatus.VALID_WITH_WARNINGS
-                if sorted_issues
+                if any(item.severity == "warning" for item in sorted_issues)
                 else MappingValidationStatus.VALID
             )
         )

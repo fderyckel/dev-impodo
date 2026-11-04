@@ -215,17 +215,30 @@ class CategoricalCoverageService:
                 workspace_id, selection, dataset_id, (source_column_key,),
             )
             counts = _single_column_counts(frame, source_column_key)
-        if len(counts) > MAX_VALUE_MAPPINGS:
+        return _value_choices_from_counts(counts)
+
+    def source_value_choices_and_blank_count(
+        self, workspace_id: str, selection: SourceSelection, dataset_id: str, source_column_key: str,
+        row_inclusion: RowInclusionPolicy,
+    ) -> tuple[tuple[dict[str, object], ...], int]:
+        """Keep complete populated choices and count blanks in the saved row scope."""
+
+        keys = tuple(dict.fromkeys((source_column_key, *(
+            condition.source_column_key for condition in row_inclusion.conditions
+        ))))
+        frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
+        counts = _single_column_counts(frame, source_column_key)
+        blank_count = 0
+        try:
+            for row in frame.iter_rows(named=True):
+                raw = row[source_column_key]
+                if (raw is None or not str(raw).strip()) and row_is_included(row_inclusion, row):
+                    blank_count += 1
+        except SourceConditionValueError as error:
             raise WorkspaceError(
-                "This column has too many distinct choices for quick matching"
-            )
-        return tuple(
-            {"value": value, "count": count}
-            for value, count in sorted(
-                counts.items(),
-                key=lambda item: (item[0].casefold(), item[0]),
-            )
-        )
+                "The saved row-inclusion rule cannot be evaluated on the current frozen source"
+            ) from error
+        return _value_choices_from_counts(counts), blank_count
 
     def source_identity_counts(
         self,
@@ -897,6 +910,15 @@ def _coverage_fields(
                 )
             )
     return tuple(fields)
+
+
+def _value_choices_from_counts(counts: Mapping[str, int]) -> tuple[dict[str, object], ...]:
+    if len(counts) > MAX_VALUE_MAPPINGS:
+        raise WorkspaceError("This column has too many distinct choices for quick matching")
+    return tuple(
+        {"value": value, "count": count}
+        for value, count in sorted(counts.items(), key=lambda item: (item[0].casefold(), item[0]))
+    )
 
 
 def _single_column_counts(frame: pl.DataFrame, key: str) -> Counter[str]:

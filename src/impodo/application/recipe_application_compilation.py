@@ -694,7 +694,7 @@ class RecipeApplicationCompiler:
                                         f"{model_name}.{field.name} when it "
                                         "creates the record."
                                     ),
-                                    "No source column or value match is required.",
+                                    assessment.advisory or "No source column or value match is required.",
                                     f"{model_name}.{field.name}",
                                 )
                             )
@@ -1658,6 +1658,7 @@ class RecipeApplicationCompiler:
         }
         return RelationshipMapping(
             blank_source_values=item.get("blank_source_values", ()),
+            blank_create_values=item.get("blank_create_values"),
             target_field=str(item["target_field"]),
             kind=str(item["kind"]),
             source_column_keys=tuple(

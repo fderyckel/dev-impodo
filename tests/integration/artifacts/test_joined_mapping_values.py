@@ -42,6 +42,10 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipResolver,
     ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
+    SelectionConditionOperator,
     ValueMapping,
 )
 from impodo.domain.serialization import content_hash
@@ -233,6 +237,18 @@ class JoinedMappingValueTests(unittest.TestCase):
 
     def test_choices_and_generic_many2one_coverage_share_joined_values(self):
         self._assert_choices_and_coverage()
+
+    def test_blank_count_respects_saved_rows_to_use_on_a_joined_source(self):
+        self._prepare_join(region_rows=((1, None), (2, "FR"), (3, None)))
+        identity = next(column.stable_key for column in self.dataset.columns if column.source_name == "ID")
+        choices, blank_count = self.coverage.source_value_choices_and_blank_count(
+            self.workspace_id, self.effective, self.dataset.dataset_id, self.key,
+            RowInclusionPolicy(RowInclusionMode.MATCHING_ROWS, (
+                RowInclusionCondition(str(uuid4()), identity, SelectionConditionOperator.EQUALS, "1", "integer"),
+            )),
+        )
+        self.assertEqual(choices, ({"value": "FR", "count": 1},))
+        self.assertEqual(blank_count, 1)
 
     def _assert_choices_and_coverage(self):
         choices = self.coverage.source_value_choices(

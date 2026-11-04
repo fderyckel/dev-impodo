@@ -274,6 +274,11 @@ values. Field names must belong to the reviewed request. An unrecognized or
 missing error retains operation context and a generic rejection code; it must
 not invent a root cause. Create, update, completion, and uncertain outcomes
 have a generic fallback when no structured diagnostic is supplied.
+The JSON-2 writer records the HTTP status of a failed write when available.
+It reads a bounded error response to recognize built-in exception names from
+a fixed allowlist. It discards the response body after reading it. The
+exception name supplies context without changing whether the write can be
+isolated, resumed, or retried.
 
 Recognized company-inconsistency messages retain `ODOO_COMPANY_MISMATCH` and
 only technical field names that belong to the reviewed write. Customer names,
@@ -281,11 +286,14 @@ related-record labels, company names and arbitrary server text remain outside
 the diagnostic payload. The classifier does not imply that preflight proves
 every model-specific Odoo company rule.
 
-The support log records only aggregate reason codes and affected-attempt
-counts after execution returns. Neither that projection nor diagnostic
-serialization opens another database connection or makes an Odoo request.
-Retry, authorization, journal transactions, and unknown-outcome semantics are
-unchanged. A historic error that was discarded cannot be reconstructed.
+After execution returns, the support log counts affected attempts by reason,
+model, API method, reported technical fields, HTTP status, and allowlisted
+exception name. It records at most 40 groups and counts attempts in any
+remaining groups together. The bundle includes those entries in
+`recent-failures.json`. The paused outcome page lists the rejected rows and
+their saved explanations. Both projections use the loaded execution journal
+without opening another database connection or making an Odoo request.
+A historic error that was discarded cannot be reconstructed.
 
 `plan_generated_name_repairs` is an export-only helper for a flat generated
 list whose confirmed load used its normalized key as the target name. It

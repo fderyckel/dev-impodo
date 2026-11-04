@@ -154,7 +154,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH
+from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH, reference_policy_hash
 from impodo.domain.workspace.workbench import WorkspaceStateService
 from impodo.web.app import create_local_app
 from impodo.web.routers.mapping import (
@@ -181,6 +181,66 @@ class SimulatedCrash(RuntimeError):
 
 
 class RecipeApplicationServiceTests(unittest.TestCase):
+    def test_product_tracking_retains_its_odoo_version_specific_run_decision(self):
+        compiler = RecipeApplicationService(
+            sources=SimpleNamespace(), schemas=SimpleNamespace(),
+            schema_workspace=SimpleNamespace(), references=SimpleNamespace(),
+            preparation=SimpleNamespace(), mappings=SimpleNamespace(),
+            categorical=SimpleNamespace(), application_state=SimpleNamespace(),
+        )
+        for major in (19, 20):
+            with self.subTest(major=major):
+                field = (
+                    SchemaField(
+                        "store_by", "Tracking", "selection", True, False, None,
+                        None, (("untracked", "None"),), stored=False,
+                    )
+                    if major == 20
+                    else SchemaField(
+                        "tracking", "Tracking", "selection", True, False, None,
+                        None, (("none", "No Tracking"),), stored=True,
+                        create_default_present=True, create_default_value="none",
+                    )
+                )
+                schema = OdooSchemaCatalog(
+                    workspace_id=str(uuid4()), policy_hash=content_hash("policy"),
+                    captured_at=datetime.now(UTC), captured_by="Data manager",
+                    connection_mode="REMOTE", database="fictional_test",
+                    odoo_version=f"{major}.0", origin=SchemaOrigin.LIVE_API,
+                    models=(SchemaModel("product.template", "Product", (
+                        SchemaField("name", "Name", "char", True, False, None, None, ()),
+                        field,
+                    )),), content_hash=content_hash("schema"),
+                    read_credential_binding_hash=content_hash("credential"),
+                    read_principal_hash=content_hash("principal"),
+                    read_permission_hash=content_hash("permissions"),
+                    read_context_hash=content_hash("context"),
+                    connection_target_hash=content_hash("target"),
+                )
+                definition = {
+                    "contract_versions": {"odoo_target_contract": 2},
+                    "odoo_target_contract": {
+                        "odoo_major_version": major,
+                        "reference_policy_hash": reference_policy_hash(major),
+                        "approved_write_fields": {"product.template": ("name",)},
+                        "models": ({"model": "product.template", "fields": ()},),
+                    },
+                    "mapping": {"datasets": ({
+                        "target_model": "product.template",
+                        "identity": ({"target_fields": ("name",)},),
+                    },)},
+                }
+                _, issues, defaults = compiler._target_assessment(definition, schema)
+                tracking = next(issue for issue in issues if issue.logical_id == f"product.template.{field.name}")
+                if major == 20:
+                    self.assertEqual(defaults, ())
+                    self.assertEqual(tracking.code, "RECIPE_TARGET_ODOO_MANAGED")
+                    self.assertFalse(tracking.blocks)
+                    self.assertIn("inventory settings", tracking.recovery_action)
+                else:
+                    self.assertEqual(defaults, (("product.template", "tracking"),))
+                    self.assertEqual(tracking.code, "RECIPE_TARGET_ODOO_DEFAULT_AVAILABLE")
+
     """Exercise the retained compiler with the accepted Customer envelope."""
 
     def test_fresh_row_counts_require_review_and_fail_closed(self):

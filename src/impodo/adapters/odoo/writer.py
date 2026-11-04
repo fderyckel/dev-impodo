@@ -15,6 +15,7 @@ import re
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote
@@ -34,12 +35,18 @@ from impodo.domain.execution.odoo_write import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteDiagnostic,
+    OdooWriteErrorType,
+    WriteFailureCode,
+)
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
 from .write_diagnostics import import_rejection_diagnostic
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
+_WRITE_TRANSPORT = partial(_urllib_transport, capture_write_error_type=True)
 
 
 @dataclass(slots=True)
@@ -48,7 +55,7 @@ class Json2WriteExecutor:
 
     config: Json2Config
     scope: OdooApiScope
-    transport: Transport = _urllib_transport
+    transport: Transport = _WRITE_TRANSPORT
 
     @property
     def target_hash(self) -> str:
@@ -190,6 +197,7 @@ class Json2WriteExecutor:
                 "context": dict(self.config.context),
             },
             write=True,
+            batch_size=len(rows),
         )
         if isinstance(response, int) and not isinstance(response, bool):
             identifiers = (response,)
@@ -242,6 +250,7 @@ class Json2WriteExecutor:
                 },
             },
             write=True,
+            batch_size=len(rows),
         )
         if not isinstance(response, Mapping):
             raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
@@ -303,6 +312,7 @@ class Json2WriteExecutor:
                 "context": dict(self.config.context),
             },
             write=True,
+            batch_size=len(identifiers),
         )
         if response is not True:
             raise OdooWriteOutcomeUnknown("Odoo update returned an invalid receipt")
@@ -428,6 +438,7 @@ class Json2WriteExecutor:
         payload: Mapping[str, Any],
         *,
         write: bool,
+        batch_size: int = 1,
     ) -> object:
         permitted_methods = {"create", "load", "write"} if write else {"search_read"}
         permitted_fields = (
@@ -487,10 +498,21 @@ class Json2WriteExecutor:
             raise OdooWriteRejected("Odoo did not return a response")
         if status == 200:
             return response
+        if write:
+            unknown = status >= 500 or status in {408, 425, 429}
+            code = (
+                WriteFailureCode.UNKNOWN if unknown
+                else WriteFailureCode.ACCESS_DENIED if status in {401, 403}
+                else WriteFailureCode.REJECTED
+            )
+            diagnostic = OdooWriteDiagnostic(
+                code, model, method, batch_size=batch_size,
+                http_status=status if 100 <= status <= 599 else None,
+                error_type=response if isinstance(response, OdooWriteErrorType) else None,
+            )
+            if unknown:
+                raise OdooWriteOutcomeUnknown(diagnostic.summary, diagnostic=diagnostic)
+            raise OdooWriteRejected(diagnostic.summary, diagnostic=diagnostic)
         if status in {401, 403}:
             raise OdooWriteRejected("Odoo did not authorize this load")
-        if write and (status >= 500 or status in {408, 425, 429}):
-            raise OdooWriteOutcomeUnknown(
-                "Odoo did not return a definitive write result; the outcome is unknown"
-            )
         raise OdooWriteRejected(f"Odoo rejected the load request (HTTP {status})")

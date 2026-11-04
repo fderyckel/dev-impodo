@@ -722,3 +722,53 @@
 @media (max-width: 600px) {
   .expectation-counts { grid-template-columns: minmax(0, 1fr); }
 }
+
+.value-match-toolbar,
+.value-match-message {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+}
+
+.value-match-toolbar {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-height: 36px;
+  margin: .5rem 0;
+}
+
+.value-match-message {
+  color: var(--muted);
+}
+
+.value-match-dialog [hidden],
+.value-match-entry > button[hidden] {
+  display: none;
+}
+
+.value-match-dialog > details {
+  color: var(--muted);
+  font-size: .875rem;
+}
+
+.value-match-dialog [inert] select {
+  opacity: .65;
+}
+
+.value-match-company-filter {
+  width: fit-content;
+  max-width: 100%;
+  margin: .75rem 0 0 auto;
+  font-size: .875rem;
+}
+
+.value-match-prerequisite {
+  border: 0;
+  padding: 0;
+  color: var(--impodo-red-dark);
+  background: none;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  cursor: pointer;
+}

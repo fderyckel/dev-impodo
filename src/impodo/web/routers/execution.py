@@ -28,6 +28,7 @@ from impodo.domain.execution.load_control import LoadControlState, RejectionPoli
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRowAttempt,
+    ExecutionRowStatus,
     ExecutionRunStatus,
 )
 from impodo.domain.execution.odoo_readback import OdooReadbackError
@@ -397,12 +398,17 @@ def _record_write_diagnostics(
     recorder: LocalDiagnosticRecorder | None,
     rows: Sequence[ExecutionRowAttempt],
 ) -> None:
-    """Include aggregate failure codes in support bundles without row data."""
+    """Count affected attempts by safe technical context without row data."""
 
     if recorder is None:
         return
-    counts = Counter(row.diagnostic.code for row in rows if row.diagnostic is not None)
-    for code, count in sorted(counts.items()):
+    counts = Counter(
+        (diagnostic.code, diagnostic.model, diagnostic.method,
+         diagnostic.fields[:20], diagnostic.http_status, diagnostic.error_type)
+        for row in rows if (diagnostic := row.diagnostic) is not None
+    )
+    groups = counts.most_common(40)
+    for (code, model, method, fields, status, error_type), count in groups:
         recorder.record_operation_stage(
             "odoo_load",
             "write_result",
@@ -410,6 +416,17 @@ def _record_write_diagnostics(
             outcome="unknown" if code is WriteFailureCode.UNKNOWN else "rejected",
             reason=code.value,
             total_rows=count,
+            odoo_model=model,
+            json2_method=method,
+            odoo_fields=fields,
+            odoo_status_code=status,
+            odoo_error_type=error_type,
+        )
+    if len(counts) > len(groups):
+        recorder.record_operation_stage(
+            "odoo_load", "write_result", duration_ms=0, outcome="omitted",
+            reason="ODOO_WRITE_DIAGNOSTIC_GROUP_LIMIT",
+            total_rows=counts.total() - sum(count for _, count in groups),
         )
 
 
@@ -488,11 +505,27 @@ def build_execution_router(
             write_credential,
         )
         reconciliation = context.reconciliation.current(workspace_id)
+        current_run = preview.current_run
+        interrupted_load = (
+            current_run is not None
+            and getattr(current_run, "status", None) is ExecutionRunStatus.RUNNING
+        )
+        paused_load = (
+            interrupted_load and current_run is not None
+            and current_run.load_control is not None
+            and current_run.load_control.state is LoadControlState.PAUSED
+        )
         fallout_detail_available = False
         fallout_groups = ()
         fallout_detail_page = None
         reconciliation_summary = None
-        if reconciliation is not None:
+        if paused_load and current_run is not None:
+            load_rows = tuple(
+                row for row in current_run.rows
+                if row.status is ExecutionRowStatus.FAILED
+                or (row.status is ExecutionRowStatus.PARTIALLY_APPLIED and row.diagnostic is not None)
+            )
+        elif reconciliation is not None:
             load_rows = reconciliation.rows
             fallout_detail_available = (
                 context.reconciliation.current_detail_available(workspace_id)
@@ -617,11 +650,7 @@ def build_execution_router(
             fallout_groups=fallout_groups,
             fallout_detail_page=fallout_detail_page,
             reconciliation_summary=reconciliation_summary,
-            interrupted_load=(
-                preview.current_run is not None
-                and getattr(preview.current_run, "status", None)
-                is ExecutionRunStatus.RUNNING
-            ),
+            interrupted_load=interrupted_load,
             load_step=step,
             max_batch_rows=MAX_CREATE_BATCH_ROWS,
             load_row_page=load_row_page,

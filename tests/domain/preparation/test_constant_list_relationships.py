@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.execution.planner import plan_record_requests
 from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
     ConstantBusinessReference,
     ConstantReferenceComponent,
     DatasetMapping,
@@ -84,7 +85,7 @@ class ConstantListRelationshipTests(unittest.TestCase):
         self,
     ):
         definition, _plan, _prepared = self.inputs()
-        self.assertEqual(definition.contract_version, 22)
+        self.assertEqual(definition.contract_version, MAPPING_CONTRACT_VERSION)
         self.assertEqual(MappingDefinition.from_json(definition.to_json()), definition)
         for version in (15, 19, 20):
             with (

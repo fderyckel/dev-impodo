@@ -857,6 +857,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "constant_value",
                 "refresh",
                 "selection_refreshes",
+                "check_blank_default",
             },
         )
         try:
@@ -872,6 +873,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError("Choose one valid constant matching value")
             dataset_id = _text(form, "dataset_id")
             source_column_key = _text(form, "source_column_key")
+            target_model = _text(form, "target_model")
+            target_field = _text(form, "target_field")
 
             def load_source_choices():
                 _require_mapping_idle(context, workspace_id)
@@ -890,14 +893,29 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     and source_column_key not in {item.stable_key for item in source_dataset.columns}
                 ):
                     raise WorkspaceError("Choose one current source column")
+                use_saved_scope = kind == "relationship" and any(
+                    model.name == target_model and any(
+                        item.name == target_field and item.type == "many2one" and item.required
+                        for item in model.fields
+                    ) for model in schema.models
+                )
+                if use_saved_scope:
+                    draft = context.queries.get_mapping_working_draft(workspace_id)
+                    if draft and draft.definition.source_selection_hash == selection.content_hash:
+                        policy = next((item.row_inclusion for item in draft.definition.datasets
+                                       if item.dataset_id == dataset_id), None)
+                        if policy and policy.conditions:
+                            choices, blank_count = context.categorical_coverage.source_value_choices_and_blank_count(
+                                workspace_id, selection, dataset_id, source_column_key, policy,
+                            )
+                            return workspace_state, schema, governance, choices, blank_count
                 choices = () if kind == "constant_relationship" else _source_value_choices(
                     context, workspace_id, dataset_id, source_column_key,
                 )
-                return workspace_state, schema, governance, choices
+                blank_count = max(0, source_dataset.row_count - sum(int(str(choice["count"])) for choice in choices))
+                return workspace_state, schema, governance, choices, blank_count
 
-            workspace_state, schema, governance, source_choices = await run_local_operation(load_source_choices)
-            target_model = _text(form, "target_model")
-            target_field = _text(form, "target_field")
+            workspace_state, schema, governance, source_choices, blank_count = await run_local_operation(load_source_choices)
             model = next(
                 (item for item in schema.models if item.name == target_model),
                 None,
@@ -985,6 +1003,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     actor=actor,
                 )
                 target_checked_at = checked_at.isoformat()
+            blank_fallback_available = (
+                kind == "relationship" and field.type == "many2one"
+                and field.required and not field.readonly and blank_count > 0
+            )
+            if _text(form, "check_blank_default") == "1":
+                if not blank_fallback_available:
+                    raise WorkspaceError("Choose a required linked field with blank source values")
+                checked = await run_in_threadpool(
+                    _refresh_mapping_odoo_defaults, context, workspace_state, schema,
+                    ((target_model, (target_field,)),), actor=actor,
+                )
+                if checked.pending_refresh is not None:
+                    raise WorkspaceError("Review the changed Odoo fields before checking this default")
+                field = next(item for model in checked.models if model.name == target_model
+                             for item in model.fields if item.name == target_field)
             return JSONResponse(
                 {
                     "source_choices": source_choices,
@@ -994,6 +1027,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "target_choices_reused": target_choices_reused,
                     **selection_payload,
                     "allow_blank": kind == "relationship" and not field.required,
+                    "blank_source_count": blank_count if blank_fallback_available else 0,
+                    "blank_odoo_default_verified": (
+                        blank_fallback_available and field.create_default_present
+                        and type(field.create_default_value) is int and field.create_default_value > 0
+                    ),
                 }
             )
         except (

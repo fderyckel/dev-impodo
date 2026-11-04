@@ -1192,6 +1192,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         relationship_field_labels: tuple[str, ...] | None = None,
         connection_mode: OdooConnectionMode = OdooConnectionMode.LOCAL,
         odoo_major: int = 19,
+        additional_fields: tuple[SchemaField, ...] = (),
     ):
         context = self.app.state.context
         created = self.workspaces.create(
@@ -1416,6 +1417,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
                 relation_field=None,
                 selection=(),
             ),
+            *additional_fields,
             *(
                 SchemaField(
                     name=f"field_{index:04d}",

@@ -242,6 +242,7 @@ def compile_browser_mapping(
                 ),
                 resolve=relation_resolver,
                 value_source=item.value_source.value,
+                blank_create_values=item.blank_create_values,
                 constant_key_values=(
                     tuple(value.value for value in constant.key_values)
                     if constant is not None

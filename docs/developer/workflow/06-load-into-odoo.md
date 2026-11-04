@@ -752,19 +752,23 @@ retains safe operation context in `ExecutionRowAttempt`. The
 validates reported fields and batch ranges, classifies recognized errors, and
 fingerprints bounded server text without storing it. The executor attaches
 this evidence to `OdooWriteRejected`; the service persists it through the
-existing journal transaction. Direct writes, completion writes, and uncertain
-outcomes receive generic operation context when the adapter has no detail.
+existing journal transaction. The JSON-2 writer also records a failed
+request's HTTP status and any allowlisted Odoo exception name it can read.
+Direct writes, completion writes, and uncertain outcomes receive generic
+operation context when the adapter has no detail.
 The adapter recognizes Odoo's "does not seem to be valid" wording as
 `ODOO_VALUE_REJECTED`. It keeps the original fingerprint and trusts only an
 explicit, reviewed server field identifier; mentioning a tax number in free
 text does not establish a field binding. Historical journal evidence is not
 rewritten by this classification change.
 
-The browser separates written, rejected, and unattempted records. Its support
-projection emits aggregate safe codes and counts using the returned run, with
-no extra repository or Odoo call. The controlled outcome-route regression
-allows at most six physical connections and three schema checks. This is
-fixture evidence, not a live-workspace latency guarantee.
+The browser separates written, rejected, and unattempted records. On a paused
+load, **Review rejected records** links to a paginated view of the affected
+rows and their saved errors. The support projection groups attempts by safe
+reason and technical operation details using the returned run. These views
+use the existing evidence without an extra repository or Odoo call. The
+controlled outcome-route tests allow at most six physical connections and
+three schema checks in their fixtures.
 
 [`plan_generated_name_repairs`](../../../src/impodo/domain/execution/generated_name_repair.py)
 prepares reviewed name corrections from exact flat-list evidence and verified

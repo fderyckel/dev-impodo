@@ -29,12 +29,14 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
+from http.client import HTTPException
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
 from impodo.domain.odoo.company import (
     CompanyReferenceCheck,
@@ -1605,12 +1607,12 @@ def _urllib_transport(
     method: str,
     *,
     maximum_bytes: int = 8 * 1024 * 1024,
+    capture_write_error_type: bool = False,
 ) -> tuple[int, Any]:
     """Execute one JSON request without forwarding credentials on redirects.
 
-    HTTP error bodies are intentionally discarded.  Other network exceptions
-    propagate to :meth:`Json2ReadConnector._request_url`, which owns retry and
-    public error handling.
+    The writer can opt in to a bounded, allowlisted exception type. The
+    response body and arbitrary Odoo text never leave this transport on error.
     """
 
     request = Request(
@@ -1629,8 +1631,27 @@ def _urllib_transport(
                 )
             return response.status, json.loads(raw or b"null")
     except HTTPError as exc:
-        # Do not expose response bodies; they can contain data or internals.
-        return exc.code, None
+        with exc:
+            return exc.code, (
+                _odoo_write_error_type(exc)
+                if capture_write_error_type and 400 <= exc.code < 600
+                else None
+            )
+
+
+def _odoo_write_error_type(error: HTTPError) -> OdooWriteErrorType | None:
+    """Extract only a known exception name from a small JSON error body."""
+    maximum_bytes = 64 * 1024
+    try:
+        raw = error.read(maximum_bytes + 1)
+        if len(raw) > maximum_bytes:
+            return None
+        payload = json.loads(raw)
+        if isinstance(payload, dict):
+            return OdooWriteErrorType(payload.get("name"))
+    except (HTTPException, OSError, ValueError, RecursionError):
+        return None
+    return None
 
 
 class _NoRedirectHandler(HTTPRedirectHandler):

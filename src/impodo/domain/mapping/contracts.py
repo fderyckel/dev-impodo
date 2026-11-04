@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 22
+MAPPING_CONTRACT_VERSION = 23
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -703,6 +703,8 @@ class RelationshipMapping:
     blank_source_values: tuple[str, ...] = ()
     # Retained only to read and hash the exact historical v19 layout.
     blank_source_action: str = "source_rules"
+    # None keeps the source rule. An empty tuple uses the checked Odoo default.
+    blank_create_values: tuple[str, ...] | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
@@ -746,6 +748,21 @@ class RelationshipMapping:
             "value_source",
             RelationshipValueSource(self.value_source),
         )
+        if self.blank_create_values is not None:
+            values = tuple(self.blank_create_values)
+            width = len(self.resolver.key_mappings) + len(self.resolver.scope_mappings)
+            if (
+                self.kind != "many2one" or self.validate_only or self.required
+                or self.value_source is not RelationshipValueSource.SOURCE
+                or self.resolver.origin is not ResolverOrigin.TARGET_CATALOG
+                or len(self.source_column_keys) != 1 or self.blank_source_values
+                or (values and (len(values) != width or any(
+                    not isinstance(value, str) or not value.strip()
+                    or len(value) > MAX_VALUE_MAPPING_LENGTH for value in values
+                )))
+            ):
+                raise ValueError("A blank create fallback needs one source column and an existing Odoo record rule")
+            object.__setattr__(self, "blank_create_values", values)
         if self.categorical_policy is not None:
             object.__setattr__(
                 self,
@@ -1011,6 +1028,11 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 23 and any(
+            relation.blank_create_values is not None
+            for dataset in self.datasets for relation in dataset.relationships
+        ):
+            raise ValueError("Blank create fallbacks require mapping contract v23")
         if self.contract_version == 19 and any(
             relation.blank_source_action == "leave_blank" and (
                 relation.kind != "many2one"
@@ -1306,6 +1328,9 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 23:
+        for relationship in payload.get("relationships", ()):
+            relationship.pop("blank_create_values", None)
     if contract_version != 19:
         for relationship in payload.get("relationships", ()):
             relationship.pop("blank_source_action", None)
@@ -1685,6 +1710,8 @@ def _relationship_from_dict(
     contract_version: int,
 ) -> RelationshipMapping:
     expected_fields = _contract_fields(RelationshipMapping)
+    if contract_version < 23:
+        expected_fields.remove("blank_create_values")
     if contract_version != 19:
         expected_fields.remove("blank_source_action")
     if contract_version < 18:
@@ -1728,6 +1755,10 @@ def _relationship_from_dict(
         ),
         blank_source_values=payload.get("blank_source_values", ()),
         blank_source_action=str(payload.get("blank_source_action", "source_rules")),
+        blank_create_values=(
+            tuple(payload["blank_create_values"])
+            if payload.get("blank_create_values") is not None else None
+        ),
     )
 
 

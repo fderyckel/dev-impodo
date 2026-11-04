@@ -37,6 +37,7 @@ from impodo.domain.preparation.canonical import (
     values_equal,
 )
 from impodo.domain.preparation.company_references import check_company_references
+from impodo.domain.preparation.create_relationships import blank_create_reference
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -116,9 +117,11 @@ class PreflightEngine:
             with_metadata_issues,
             metadata_snapshot,
         )
-        resolved_records, resolution_evidence = _resolve_records(
+        resolved_records, resolved_evidence = _resolve_records(
             plan, with_selection_issues, catalog
         )
+        resolution_evidence = list(resolved_evidence)
+        captured_models = {model.name: model for model in captured_schema.models} if captured_schema else {}
 
         decisions: list[Decision] = []
         runtime_issues: list[Issue] = []
@@ -135,9 +138,19 @@ class PreflightEngine:
                     replace(record, issues=(*record.issues, *index_issues))
                     for record in dataset_records
                 ]
+            model = captured_models.get(dataset.target.model)
+            expected_defaults = {
+                field.name: default_value
+                for field in model.fields
+                if field.create_default_present
+                and type(default_value := field.create_default_value) is int
+            } if model else None
             for record in dataset_records:
                 decisions.append(
-                    _classify_record(plan, dataset, record, target_index, catalog)
+                    _classify_record(
+                        plan, dataset, record, target_index, catalog,
+                        metadata_snapshot, expected_defaults, resolution_evidence,
+                    )
                 )
 
         all_issues = [
@@ -919,6 +932,9 @@ def _classify_record(
         tuple[tuple[Any, ...], tuple[Any, ...]], tuple[TargetRecord, ...]
     ],
     catalog: TargetCatalog,
+    metadata: MetadataSnapshot,
+    expected_defaults: dict[str, int] | None,
+    resolution_evidence: list[ReferenceResolution],
 ) -> Decision:
     """Classify one prepared row against its canonical target matches.
 
@@ -965,7 +981,10 @@ def _classify_record(
             issues=(issue,),
         )
     if len(matches) == 0:
-        record_issues.extend(_required_on_create_issues(dataset, record))
+        record_issues.extend(_required_on_create_issues(
+            plan, dataset, record, catalog, metadata, expected_defaults,
+            resolution_evidence,
+        ))
         classification = (
             Classification.BLOCKED
             if any(issue.blocking for issue in record_issues)
@@ -1065,7 +1084,13 @@ def _classify_record(
 
 
 def _required_on_create_issues(
-    dataset: DatasetSpec, record: PreparedRecord
+    plan: CompiledMigrationPlan,
+    dataset: DatasetSpec,
+    record: PreparedRecord,
+    catalog: TargetCatalog,
+    metadata: MetadataSnapshot,
+    expected_defaults: dict[str, int] | None,
+    resolution_evidence: list[ReferenceResolution],
 ) -> list[Issue]:
     """Report mapped scalar/relation values required only for new records."""
 
@@ -1082,6 +1107,41 @@ def _required_on_create_issues(
                 )
             )
     for field_name, spec in dataset.relations.items():
+        if spec.blank_create_values is not None and record.references.get(field_name) is None:
+            reference = blank_create_reference(spec)
+            if reference is None:
+                value = metadata.create_defaults.get(record.target_model, {}).get(field_name)
+                if type(value) is int and value > 0 and (
+                    expected_defaults is None or expected_defaults.get(field_name) == value
+                ):
+                    continue
+                code = "BLANK_CREATE_DEFAULT_UNVERIFIED"
+                message = "Odoo's checked default changed or is unavailable. Review the blank value in Match data."
+            else:
+                matches = catalog.find_by_fields(
+                    str(reference.model), (*reference.target_fields, *reference.target_scope_fields),
+                    (*reference.key, *reference.scope),
+                )
+                if len(matches) == 1:
+                    if metadata.company_checks:
+                        checked = check_company_references(
+                            (replace(record, references={field_name: reference}, issues=()),),
+                            plan, catalog, metadata.company_checks,
+                        )[0]
+                        if checked.issues:
+                            issues.extend(checked.issues)
+                            continue
+                    resolution_evidence.append(ReferenceResolution(
+                        dataset=record.dataset, field=field_name, reference=reference,
+                        status="RESOLVED", match_count=1,
+                        target_binding_hash=target_record_binding_hash(matches[0].model, matches[0].odoo_id),
+                    ))
+                    continue
+                code = "BLANK_CREATE_RECORD_UNRESOLVED"
+                message = "The Odoo record chosen for blank values no longer matches uniquely. Review it in Match data."
+            issues.append(Issue(code=code, message=message, dataset=record.dataset,
+                                row=record.source_row, field=field_name))
+            continue
         if spec.required_on_create and not record.references.get(field_name):
             issues.append(
                 Issue(
@@ -1166,6 +1226,8 @@ def _compare_record(
         if not spec.compare or spec.validate_only:
             continue
         proposed = source.references.get(field_name)
+        if proposed is None and spec.blank_create_values is not None:
+            continue
         try:
             existing = _existing_relation(
                 plan,

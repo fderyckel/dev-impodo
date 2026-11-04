@@ -7,6 +7,8 @@ from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.execution.load_control import LoadControl, RejectionPolicy
+from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus
+from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
 from tests.integration.web import test_load_recovery as fixtures
 from tests.support.browser_scenarios import POST_HEADERS
 from tests.support.identity import resolve_local_actor
@@ -82,3 +84,42 @@ class LoadControlBrowserTests(unittest.TestCase):
             # that scope retains registry, workspace, engine and Data version.
             self.assertLessEqual(timings.connection_count, 6)
             self.assertLessEqual(timings.schema_check_count, 1)
+
+    def test_paused_outcome_pages_saved_rejections_without_loading_again(self):
+        fixture = self.fixture
+        control = LoadControl(policy=RejectionPolicy.CONTINUE).settle_many(
+            ("res.partner", "CREATE", True) for _ in range(21)
+        )
+        fixture.run.load_control = control
+        fixture.run.rejected_count = 21
+        row = ExecutionRowAttempt(
+            "contact", "customers", 2, "res.partner", "CREATE", ("name", "vat"),
+            "test.contact", status=ExecutionRowStatus.FAILED,
+            diagnostic=OdooWriteDiagnostic(
+                WriteFailureCode.VALIDATION, "res.partner", "load", fields=("vat",),
+            ),
+        )
+        fixture.run.rows = (
+            replace(row, dataset="payment terms", status=ExecutionRowStatus.COMMITTED,
+                    diagnostic=None, odoo_id=42),
+            *(replace(row, row_id=f"contact-{i}", source_row=i) for i in range(2, 23)),
+            replace(row, dataset="waiting customers", status=ExecutionRowStatus.PLANNED,
+                    diagnostic=None),
+        )
+        url = f"/workspaces/{fixture.workspace.workspace_id}/load/outcome"
+        for version in ("19.0", "20.0"):
+            with self.subTest(version=version), fixture.recovery_context() as mocks:
+                fixture.snapshot.target_odoo_version = version
+                with collect_duckdb_request_timings() as timings:
+                    page = fixture.client.get(url)
+                self.assertEqual(page.status_code, 200, page.text)
+                self.assertIn('href="#row-outcomes">Review rejected records', page.text)
+                self.assertIn("Odoo rejected a field value. Fields: vat.", page.text)
+                self.assertIn("Showing 1-20 of 21 records.", page.text)
+                self.assertNotIn("Payment Terms", page.text)
+                self.assertNotIn("Waiting Customers", page.text)
+                next_page = fixture.client.get(url, params={"rows_page": 2})
+                self.assertIn("Showing 21-21 of 21 records.", next_page.text)
+                mocks["writer"].assert_not_called()
+                self.assertLessEqual(timings.connection_count, 6)
+                self.assertLessEqual(timings.schema_check_count, 3)

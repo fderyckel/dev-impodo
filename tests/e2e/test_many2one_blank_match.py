@@ -142,7 +142,13 @@ class Many2oneBlankMatchBrowserTests(unittest.TestCase):
         expect(choice.locator("option:checked")).to_have_text(
             "Leave blank (no linked record)"
         )
+        match_capture = os.environ.get("IMPODO_MANY2ONE_MATCH_SCREENSHOT")
+        if match_capture:
+            self.page.screenshot(path=match_capture)
         dialog.get_by_role("button", name="Refresh Odoo values", exact=True).click()
+        expect(dialog.locator("[data-value-match-results]")).to_have_attribute(
+            "aria-busy", "false"
+        )
         expect(choice.locator("option:checked")).to_have_text(
             "Leave blank (no linked record)"
         )

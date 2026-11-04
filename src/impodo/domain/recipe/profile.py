@@ -236,6 +236,7 @@ class RelationSpec(StrictModel):
     constant_scope_values: tuple[str, ...] = ()
     blank_source_values: tuple[str, ...] = ()
     blank_source_action: Literal["source_rules", "leave_blank"] = "source_rules"
+    blank_create_values: tuple[str, ...] | None = None
     compare: bool = True
     validate_only: bool = False
     required: bool = False
@@ -257,6 +258,17 @@ class RelationSpec(StrictModel):
             raise ValueError("Leave blank requires an optional single-column many2one")
         if self.blank_source_values and self.null_policy == "ignore_source_null":
             raise ValueError("Leave blank requires a null policy that compares blanks")
+        if self.blank_create_values is not None and (
+            self.kind != "many2one" or self.validate_only or self.required
+            or self.value_source != "source" or self.resolve.origin != "target"
+            or self.blank_source_values or not self.resolve.target_model
+            or (self.blank_create_values and (
+                len(self.blank_create_values)
+                != len(self.resolve.target_fields) + len(self.resolve.target_scope_fields)
+                or any(not value.strip() for value in self.blank_create_values)
+            ))
+        ):
+            raise ValueError("Blank create fallback does not match the target relationship key")
         if self.value_source == "source":
             if not self.source_fields:
                 raise ValueError("source relations require source_fields")

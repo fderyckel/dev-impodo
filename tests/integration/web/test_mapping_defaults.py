@@ -10,6 +10,7 @@ from impodo.domain.mapping.contracts import (
     RelationshipValueSource,
     UnsupportedMappingContractError,
 )
+from impodo.domain.workspace.contracts import SchemaField
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     CategoricalCoveragePolicy,
@@ -44,6 +45,101 @@ from tests.support.identity import resolve_local_actor
 
 
 class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
+    def test_odoo_20_product_fields_warn_without_blocking_confirmation(self) -> None:
+        for major in (19, 20):
+            for connection in OdooConnectionMode:
+                with self.subTest(major=major, connection=connection):
+                    self._check_product_create_fields(major, connection)
+
+    def _check_product_create_fields(
+        self, major: int, connection: OdooConnectionMode
+    ) -> None:
+        tracking = SchemaField(
+            "tracking", "Tracking", "selection", True, False, None, None,
+            (("none", "No Tracking"),),
+            stored=True, create_default_present=True, create_default_value="none",
+        )
+        product_fields = tuple(
+            SchemaField(
+                name, label, kind, True, False, None, None, choices,
+                stored=stored,
+                computed=True if connection is OdooConnectionMode.LOCAL else None,
+            )
+            for name, label, kind, stored, choices in (
+                ("base_unit_count", "Reference Unit", "float", True, ()),
+                ("invoice_policy", "Invoicing Policy", "selection", True,
+                 (("order", "Ordered quantities"), ("delivery", "Delivered quantities"))),
+                ("service_tracking", "Create on Order", "selection", True,
+                 (("no", "Nothing"),)),
+                ("store_by", "Tracking", "selection", False,
+                 (("untracked", "None"), ("quantity", "By Quantity"))),
+            )
+        ) if major == 20 else (tracking,)
+        workspace_id, dataset, business_key = self._mapping_ready_workspace(
+            scalar_field_count=0,
+            target_model="product.template",
+            connection_mode=connection,
+            odoo_major=major,
+            additional_fields=(
+                SchemaField("name", "Name", "char", True, False, None, None, ()),
+                *product_fields,
+            ),
+        )
+        identity = dataset.columns[0].stable_key
+        path = f"/workspaces/{workspace_id}/mapping"
+        mapping = {
+            "csrf_token": self.csrf,
+            "editable_dataset_id": dataset.dataset_id,
+            "target_model_0": "product.template",
+            "mode_0": "upsert",
+            "on_existing_0": "block",
+            "source_identity_0": identity,
+            "business_key_0": business_key.key_id,
+            "identity_source_0_0": identity,
+            "visible_scalar_target_0": "name",
+            "scalar_value_source_0_1": "source",
+            "scalar_source_0_1": dataset.columns[1].stable_key,
+        }
+        checked = self.client.post(
+            path + "/save", data={**mapping, "action": "draft"},
+            headers=POST_HEADERS, follow_redirects=False,
+        )
+        self.assertEqual(checked.status_code, 303)
+        page = self.client.get(checked.headers["location"])
+        self.assertEqual(page.status_code, 200)
+        if major == 19:
+            self.assertIn("Review 1 Odoo default", page.text)
+            self.assertIn('id="next-step-blockers"', page.text)
+            return
+        self.assertIn("4 warnings", page.text)
+        self.assertIn("Odoo will supply these fields for new products", page.text)
+        self.assertIn("Odoo uses the company", page.text)
+        self.assertNotIn('id="next-step-blockers"', page.text)
+        self.assertNotIn('name="warning_acknowledgement"', page.text)
+        repository = self.app.state.context.mapping_workspace.mappings
+        validation = repository.get_mapping_validation(workspace_id, 1)
+        self.assertEqual(validation.status, MappingValidationStatus.VALID)
+        self.assertEqual({issue.severity for issue in validation.issues}, {"advisory"})
+        submitted = self.client.post(
+            path + "/save",
+            json={"entries": [
+                *mapping.items(),
+                ["action", "submit"],
+                ["expected_parent_version", "1"],
+                ["expected_working_draft_version", "1"],
+            ]},
+            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+        )
+        self.assertEqual(submitted.status_code, 200, submitted.text)
+        self.assertEqual(submitted.json()["status"], "committed")
+        self.assertEqual(
+            [field.target_field for field in repository.get_mapping_revision(
+                workspace_id
+            ).definition.datasets[0].fields],
+            ["name"],
+        )
+        self.assertEqual(repository.get_mapping_submission(workspace_id, 1).warning_acknowledgements, ())
+
     def test_readonly_field_matches_are_hidden_and_recovered_as_one_decision(
         self,
     ) -> None:

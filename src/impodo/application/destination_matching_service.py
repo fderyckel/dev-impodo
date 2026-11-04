@@ -1301,6 +1301,7 @@ def _create_field_defaults(
             relation=field.relation,
             relation_field=field.relation_field,
             selection=field.selection,
+            stored=field.stored,
             computed=field.computed,
             related=field.related,
             company_dependent=field.company_dependent,

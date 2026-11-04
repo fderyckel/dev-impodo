@@ -6,7 +6,6 @@ import unittest
 
 from tests.support.paths import REPOSITORY_ROOT
 
-
 STATIC_ROOT = REPOSITORY_ROOT / "src" / "impodo" / "web" / "static"
 TEMPLATE_ROOT = REPOSITORY_ROOT / "src" / "impodo" / "web" / "templates"
 
@@ -111,9 +110,11 @@ class StaticAssetOwnershipTests(unittest.TestCase):
 
     def test_page_templates_name_their_owned_scripts(self) -> None:
         expected_assets = {
-            "mapping/page.html": (
+            "mapping/page.html": ("mapping/_scripts.html",),
+            "mapping/_scripts.html": (
                 "/mapping-save-recovery.js",
                 "/mapping-source-columns.js",
+                "/mapping-value-match.js",
                 "/mapping-editor.js",
                 "/mapping-relation-row.js",
                 "/mapping-formula-validation.js",

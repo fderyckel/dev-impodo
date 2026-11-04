@@ -356,7 +356,8 @@
         <div>
           <p class="eyebrow">{{ 'Paused after repeated failures' if paused_load else 'Interrupted load' }}</p>
           {% if paused_load %}
-            <p>Odoo rejected {{ preview.current_run.rejected_count }} records. The {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} remaining records have not been attempted. Review the rejected rows below before continuing.</p>
+            <p>Impodo recorded {{ preview.current_run.rejected_count }} rejected records. The {{ preview.current_run.planned_count + preview.current_run.retry_ready_count }} remaining records have not been attempted.</p>
+            {% if load_row_page.total %}<p><a href="#row-outcomes">Review rejected records</a> before continuing.</p>{% endif %}
           {% endif %}
           <h2 id="load-recovery-title">{{ 'Recovery ready' if recovery_check else 'Reconnect and check recovery' }} {{ decision_help("load-recovery") }}</h2>
           <p><strong>{{ preview.current_run.committed_count }} accepted &middot;
@@ -637,9 +638,14 @@
           <button class="button primary" type="submit">Verify what happened in Odoo</button>
         </form>
       </section>
+    {% endif %}
 
+    {% if (paused_load and load_row_page.total) or (not interrupted_load and not reconciliation) %}
       <section class="form-card" id="row-outcomes" aria-labelledby="row-outcomes-title">
-        <h2 id="row-outcomes-title">Saved API receipt</h2>
+        <h2 id="row-outcomes-title">{{ 'Rejected records' if paused_load else 'Saved API receipt' }}</h2>
+        {% if paused_load %}
+          <p>A single failed request can mark several records as rejected. If the message gives no specific reason, ask your Odoo administrator to check the destination error at the time of the load.</p>
+        {% endif %}
         <p class="muted">Showing {{ load_row_page.first_row }}-{{ load_row_page.last_row }} of {{ load_row_page.total }} records.</p>
         <div class="table-scroll">
           <table class="data-table">
@@ -652,7 +658,11 @@
                   <td>{{ row.dataset.replace('_', ' ')|title }} &middot; row {{ row.source_row }}</td>
                   <td>{{ row.target_model }}{% if row.odoo_id %} &middot; {{ row.odoo_id }}{% endif %}</td>
                   <td>{{ row.operation|lower }}</td>
-                  <td>{{ row.status.value|replace('_', ' ')|lower }}{% if row.safe_error %}<small>{{ row.safe_error }}</small>{% endif %}</td>
+                  <td>
+                    {{ row.status.value|replace('_', ' ')|lower }}
+                    {% if row.safe_error %}<small>{{ row.safe_error }}</small>
+                    {% elif row.diagnostic %}<small>{{ row.diagnostic.summary }}</small>{% endif %}
+                  </td>
                 </tr>
               {% endfor %}
             </tbody>

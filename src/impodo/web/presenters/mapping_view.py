@@ -88,6 +88,7 @@ from ...domain.source_binding import (
     OdooSourceBinding,
     SourceOriginKind,
 )
+from ...domain.workspace.supporting_lookups import portable_supporting_value
 from ..constants import DEFAULT_MAPPING_FIELDS_PER_PAGE, MAPPING_FIELD_PAGE_SIZES
 from ..context import WebContext
 from ..diagnostics import set_diagnostic_working_draft_version
@@ -494,7 +495,7 @@ def _render_mapping(
     visible_validation_issues = tuple(
         item
         for item in (validation.issues if validation else ())
-        if item.code != "MAPPING_TARGET_FIELD_READONLY"
+        if item.code != "MAPPING_TARGET_FIELD_READONLY" and item.severity != "advisory"
     )
     validation_problem_count = len(visible_validation_issues) + (
         1 if readonly_field_recovery else 0
@@ -660,6 +661,9 @@ def _render_mapping(
         workflow_issue_summary=workflow_issue_summary,
         matching_order=matching_order_view,
         warning_issues=warning_issues,
+        advisory_issues=tuple(
+            item for item in issue_views if item["issue"].severity == "advisory"
+        ),
         readonly_field_recovery=readonly_field_recovery,
         visible_validation_issues=visible_validation_issues,
         validation_problem_count=validation_problem_count,
@@ -2697,6 +2701,10 @@ def _mapping_dataset_views(
                 "value_mappings_json": _value_mappings_json(
                     mapping.resolver.value_mappings if mapping else (),
                     mapping.blank_source_values if mapping else (),
+                ),
+                "blank_create_record": (
+                    portable_supporting_value(mapping.blank_create_values)
+                    if mapping and mapping.blank_create_values else ""
                 ),
                 "matched_choice_count": (
                     len(mapping.resolver.value_mappings) + len(mapping.blank_source_values)

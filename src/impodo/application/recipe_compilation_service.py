@@ -836,6 +836,8 @@ class RecipeCompiler:
                             portable(asdict(item)) for item in resolver.value_mappings
                         ],
                         "blank_source_values": list(relation.blank_source_values),
+                        **({"blank_create_values": list(relation.blank_create_values)}
+                           if relation.blank_create_values is not None else {}),
                     }
                 )
             result.append(

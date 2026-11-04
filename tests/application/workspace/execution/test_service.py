@@ -5,11 +5,12 @@ from tests.support.business_intent_assessment import assessment_for
 from dataclasses import replace
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from io import BytesIO
 import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import PropertyMock, patch
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
@@ -59,6 +60,8 @@ from impodo.domain.execution.odoo_write import (
     OdooWriteRejected,
 )
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
+from impodo.domain.execution.load_control import can_set_aside
+from impodo.domain.execution.write_diagnostics import OdooWriteErrorType, WriteFailureCode
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
@@ -3991,11 +3994,13 @@ class Json2WriteExecutorTests(unittest.TestCase):
                     self.scope,
                     transport=lambda *_args, status=status: (status, None),
                 )
-                with self.assertRaises(OdooWriteOutcomeUnknown):
+                with self.assertRaises(OdooWriteOutcomeUnknown) as caught:
                     server_error.create_rows(
                         "res.partner",
                         ({"name": "Contact"},),
                     )
+                self.assertEqual(caught.exception.diagnostic.http_status, status)
+                self.assertEqual(caught.exception.diagnostic.code, WriteFailureCode.UNKNOWN)
 
         invalid_receipt = Json2WriteExecutor(
             self.executor.config,
@@ -4007,6 +4012,41 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 "res.partner",
                 ({"name": "Contact"},),
             )
+
+    def test_http_write_rejection_retains_only_safe_response_context(self):
+        for mode, method in (("LOCAL", "create"), ("REMOTE", "load")):
+            with self.subTest(mode=mode):
+                executor = Json2WriteExecutor(
+                    replace(
+                        self.executor.config, connection_mode=mode,
+                        base_url="https://odoo.example.test" if mode == "REMOTE"
+                        else "http://127.0.0.1:8069",
+                    ),
+                    self.scope,
+                )
+                response = BytesIO(json.dumps({
+                    "name": "odoo.exceptions.ValidationError",
+                    "message": "private customer", "debug": "private traceback",
+                }).encode("utf-8"))
+                error = HTTPError("https://odoo.example.test", 422, "", {}, response)
+                with patch("impodo.adapters.odoo.connectors.build_opener") as opener:
+                    opener.return_value.open.side_effect = error
+                    with self.assertRaises(OdooWriteRejected) as caught:
+                        if method == "load":
+                            executor.load_create_rows(
+                                "res.partner", ({"name": "Contact"},), ("impodo.contact",),
+                            )
+                        else:
+                            executor.create_rows("res.partner", ({"name": "Contact"},))
+                diagnostic = caught.exception.diagnostic
+                self.assertIsNotNone(diagnostic)
+                self.assertEqual(diagnostic.http_status, 422)
+                self.assertEqual(diagnostic.method, method)
+                self.assertEqual(diagnostic.error_type, OdooWriteErrorType.VALIDATION)
+                self.assertNotIn("private", json.dumps(diagnostic.to_dict()))
+                self.assertIn("ValidationError", diagnostic.summary)
+                self.assertFalse(can_set_aside(caught.exception))
+                self.assertTrue(response.closed)
 
 
 class TargetWriterFactoryTests(unittest.TestCase):

@@ -898,7 +898,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("How must source choices be covered?", page.text)
         self.assertIn("French (France) — fr_FR", page.text)
         self.assertNotIn("datalist", page.text)
-        mapping_script = self.client.get("/static/mapping-editor.js")
+        mapping_script = self.client.get("/static/mapping-value-match.js")
         self.assertIn(
             'event.target.closest?.("[data-open-value-match]")',
             mapping_script.text,
@@ -1029,8 +1029,8 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertNotIn("Odoo API key", response.text)
 
-        script = self.client.get("/static/mapping-editor.js")
-        self.assertIn("payload.read_credential_required === true", script.text)
+        script = self.client.get("/static/mapping-value-match.js")
+        self.assertIn("payload?.read_credential_required === true", script.text)
         self.assertIn('"impodo:read-credential-saved"', script.text)
 
     def test_relationship_choices_are_read_once_without_exposing_odoo_ids(
@@ -1235,7 +1235,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             MappingForm(page.text).entries,
         )
         self.assertIn("data-refresh-value-match", page.text)
-        mapping_script = self.client.get("/static/mapping-editor.js")
+        mapping_script = self.client.get("/static/mapping-value-match.js")
         self.assertIn("Using saved Odoo values checked", mapping_script.text)
         self.assertIn(
             'body.set("refresh", refresh ? "1" : "0")',

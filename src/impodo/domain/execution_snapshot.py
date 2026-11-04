@@ -17,6 +17,7 @@ from dataclasses import field as dataclass_field
 from hashlib import sha256
 from typing import Any
 
+from impodo.domain.preparation.create_relationships import blank_create_reference
 from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
 from impodo.domain.relationship_dependencies import (
     DependencyStrength,
@@ -545,7 +546,7 @@ def build_execution_snapshot(
             raise ValueError("Preflight decision row is missing from frozen input")
         dataset = frozen.plan.dataset(decision.dataset)
         execution_record = (
-            _resolved_create_record(record, target_resolutions)
+            _resolved_create_record(record, dataset, target_resolutions)
             if decision.classification is Classification.CREATE
             else record
         )
@@ -902,6 +903,7 @@ def _incoming_update_resolution_index(
 
 def _resolved_create_record(
     record: PreparedRecord,
+    dataset: DatasetSpec,
     target_resolutions: Mapping[tuple[str, bytes], tuple[str, int, BusinessReference | None]],
 ) -> PreparedRecord:
     """Use reviewed target matches while preserving incoming dependencies.
@@ -959,7 +961,7 @@ def _resolved_create_record(
         ),
         target_scope=tuple(resolved_value(value) for value in record.target_scope),
         references={
-            field: resolved_value(value)
+            field: resolved_value(value if value is not None else blank_create_reference(dataset.relations[field]))
             for field, value in record.references.items()
         },
     )
@@ -1075,6 +1077,8 @@ def _create_intents(
         )
     for field, spec in dataset.relations.items():
         if spec.validate_only:
+            continue
+        if spec.blank_create_values == () and record.references.get(field) is None:
             continue
         intentions[field] = _intent(
             field,

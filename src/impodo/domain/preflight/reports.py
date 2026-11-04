@@ -900,6 +900,14 @@ def plain_readiness_guidance(
             "Odoo needs another value to create this record.",
             "Map or provide the required value.",
         ),
+        "BLANK_CREATE_DEFAULT_UNVERIFIED": (
+            "The checked Odoo default changed or is unavailable.",
+            "Check the default again in Match values or choose an existing record.",
+        ),
+        "BLANK_CREATE_RECORD_UNRESOLVED": (
+            "The Odoo record chosen for blank source cells no longer matches uniquely.",
+            "Choose a current Odoo record in Match values.",
+        ),
         "CREATE_IDENTITY_EXISTS": (
             "This create-only key already exists in Odoo.",
             "Review the create-only policy.",

@@ -1306,7 +1306,7 @@ class MappingWorkspaceService:
             if any(item.severity == "error" for item in issues)
             else (
                 MappingValidationStatus.VALID_WITH_WARNINGS
-                if issues
+                if any(item.severity == "warning" for item in issues)
                 else MappingValidationStatus.VALID
             )
         )

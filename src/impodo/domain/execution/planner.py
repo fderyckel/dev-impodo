@@ -22,6 +22,7 @@ from typing import Any
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from impodo.domain.preparation.create_relationships import blank_create_reference
 from impodo.domain.recipe.profile import DatasetSpec, ResolveSpec
 from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.shared.models import (
@@ -246,6 +247,11 @@ def plan_preflight_requirements(
                 )
                 if reference.origin in {"target", "target_then_incoming"}
             ]
+            fallback = blank_create_reference(relation)
+            if fallback is not None and any(
+                record.references.get(target_field) is None for record in dataset_records
+            ):
+                references.append(fallback)
             if not references:
                 continue
             fields[resolve.target_model].update(resolve.target_fields)

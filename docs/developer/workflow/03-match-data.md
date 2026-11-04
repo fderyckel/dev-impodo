@@ -282,6 +282,22 @@ values in both the Python evaluator and native Polars execution. Supporting
 reads use the selected component tuples, and DuckDB projections and correction
 intents retain the separate company column.
 
+The [Match values controller](../../../src/impodo/web/static/mapping-value-match.js)
+opens the dialog once the field has the required inputs. A single status region
+reports loading, a pending response after five seconds, and the result. The
+browser stops waiting after 150 seconds. It keeps the current rows and draft
+choices visible during refresh and retries the original action after a failure
+or a saved read key. Request ownership guards the dialog from late responses
+after closing or retrying. The stage-level save and check actions use their
+existing recovery flow.
+
+The [company filter](../../../src/impodo/web/static/mapping-value-match-company.js)
+appears when the selected matching rule uses company and the available choices
+contain at least two named companies. It narrows the displayed options while
+keeping selected matches visible. The
+[dialog browser regressions](../../../tests/e2e/test_value_match_visibility.py)
+exercise the status, recovery, and filter transitions.
+
 The normal mapping save repairs the earlier form's missing company rule only
 when every saved selection belongs to the current target-bound name/company
 lookup. A current unscoped choice that treats the encoded text as a literal
@@ -1183,6 +1199,21 @@ stays immutable; a new checked mapping and preparation replace current
 derived evidence through the normal lifecycle. Existing v21 and earlier
 mappings retain their original zero and blank meanings.
 
+Mapping contract v23 carries blank create fallbacks from **Match values** into
+the checked mapping and any published Recipe. The value-choices route counts
+blank cells in the saved row scope while retaining the populated choices. The
+explicit default check reuses the existing read-only, target-bound default
+capture for Odoo 19 and 20. The execution planner adds a bounded lookup for a
+selected existing fallback through
+[`blank_create_reference`](../../../src/impodo/domain/preparation/create_relationships.py).
+Preflight decides whether a row creates a record before it applies the fallback.
+The execution snapshot either writes the reviewed relationship or omits the
+field so Odoo can use its verified default. The
+[Stage 3 regression](../../../tests/integration/web/test_blank_create_relationships.py)
+checks saving and reopening the decision. The
+[preflight and execution regression](../../../tests/domain/preparation/test_blank_create_relationships.py)
+checks the saved rule for creates, updates, and Recipe rebinding.
+
 [`incoming_parent_coverage.py`](../../../src/impodo/application/workspace/mapping/incoming_parent_coverage.py)
 checks physical incoming scope references during mapping validation. It uses
 one narrow projection per participating table, applies each table's row
@@ -1525,11 +1556,11 @@ a new launcher creates a new secret and rejects the earlier cookie.
 
 `server-recovery.js` starts a same-origin, no-store health request every four
 seconds and gives each request a four-second timeout. A known action still in
-progress after 20 seconds produces **Impodo is still working**. Its **Got it**
-button hides only that notice for the current action. The script shows
-**Connection to Impodo was interrupted** after at least 45 seconds without a
-server response and a recent failed or timed-out connection check. It then
-dispatches `impodo:server-disconnected`, which
+progress after 20 seconds produces **Impodo is still working** once per action.
+The notice disappears after two seconds. **Got it** dismisses it sooner. The
+script shows **Connection to Impodo was interrupted** after at least 45 seconds
+without a server response and a recent failed or timed-out connection check.
+It then dispatches `impodo:server-disconnected`, which
 clears shared single-submit state and makes an in-flight Match data action show
 an unknown outcome beside its action buttons. It never repeats the mutation. A
 successful later health check shows **Impodo is responding again** and

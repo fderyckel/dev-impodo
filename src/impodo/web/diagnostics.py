@@ -38,6 +38,7 @@ from impodo.adapters.odoo.connectors import (
 )
 from impodo.application.shared.build_contract import ApplicationBuildContract
 from impodo.domain.execution.load_control import FailureWindow, LoadControl
+from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.mutations import MappingMutationAction
 from impodo.web.supporting_diagnostics import sanitize_supporting_failure
 
@@ -464,6 +465,11 @@ class LocalDiagnosticRecorder:
         pass_number: int | None = None,
         total_record_types: int | None = None,
         new_record_types: int | None = None,
+        odoo_model: str | None = None,
+        json2_method: str | None = None,
+        odoo_fields: tuple[str, ...] = (),
+        odoo_status_code: int | None = None,
+        odoo_error_type: OdooWriteErrorType | None = None,
     ) -> None:
         """Record one bounded application stage without business identifiers."""
 
@@ -498,6 +504,14 @@ class LocalDiagnosticRecorder:
             payload["new_record_types"] = max(
                 0, min(10_000, int(new_record_types))
             )
+        if operation == "odoo_load" and stage == "write_result":
+            payload.update(_safe_write_result({
+                "odoo_model": odoo_model,
+                "json2_method": json2_method,
+                "odoo_fields": list(odoo_fields),
+                "odoo_status_code": odoo_status_code,
+                "odoo_error_type": odoo_error_type,
+            }))
         self._write(payload)
 
     def record_load_control(self, control: LoadControl) -> None:
@@ -717,6 +731,8 @@ def create_diagnostic_bundle(
         or item.get("exception_class")
         or item.get("event") == "odoo_json2_read_failed"
         or (item.get("event") == "odoo_load_control" and item.get("state") in {"PAUSED", "STOPPED"})
+        or (item.get("event") == "operation_stage_completed"
+            and item.get("operation") == "odoo_load" and item.get("stage") == "write_result")
         or (isinstance(item.get("status_code"), int) and item["status_code"] >= 400)
     ][-100:]
     records = records[-max_records:]
@@ -971,6 +987,13 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
     }
     if event == "odoo_load_control":
         safe.update(_sanitize_load_control(value))
+    write_result = (
+        event == "operation_stage_completed"
+        and value.get("operation") == "odoo_load"
+        and value.get("stage") == "write_result"
+    )
+    if write_result:
+        safe.update(_safe_write_result(value))
     integer_fields = {
         "process_id": (1, 2_147_483_647),
         "child_process_id": (1, 2_147_483_647),
@@ -1004,7 +1027,7 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "json2_method",
         "failure_category",
     ):
-        if field in value:
+        if field in value and not (write_result and field in {"odoo_model", "json2_method"}):
             candidate = _safe_name(str(value[field]), fallback="")
             if candidate:
                 safe[field] = candidate
@@ -1036,6 +1059,32 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         if safe_timings:
             safe["server_timings_ms"] = safe_timings
     return safe
+
+
+def _safe_write_result(value: dict[str, Any]) -> dict[str, object]:
+    """Keep bounded Odoo write metadata at both recording and export."""
+    result: dict[str, object] = {}
+    model = value.get("odoo_model")
+    if isinstance(model, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]{0,127}", model):
+        result["odoo_model"] = model
+    method = value.get("json2_method")
+    if isinstance(method, str) and method in {"load", "create", "write", "search_read", "completion"}:
+        result["json2_method"] = method
+    fields = value.get("odoo_fields")
+    if isinstance(fields, list):
+        safe_fields = [
+            field for field in fields[:20]
+            if isinstance(field, str) and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,127}", field)
+        ]
+        if safe_fields:
+            result["odoo_fields"] = safe_fields
+    status = _bounded_int(value.get("odoo_status_code"), 100, 599)
+    if status is not None:
+        result["odoo_status_code"] = status
+    error_type = value.get("odoo_error_type")
+    if isinstance(error_type, str) and error_type in {item.value for item in OdooWriteErrorType}:
+        result["odoo_error_type"] = error_type
+    return result
 
 
 def _sanitize_load_control(value: dict[str, Any]) -> dict[str, Any]:

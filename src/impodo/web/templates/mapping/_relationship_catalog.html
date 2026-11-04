@@ -247,6 +247,16 @@
                         value="{{ row.value_mappings_json }}"
                         data-value-match-storage
                       >
+                      {% set blank_values = mapping.blank_create_values if mapping else none %}
+                      {% if blank_values == () %}
+                        {% set blank_choice = {'default': true} %}
+                      {% elif blank_values %}
+                        {% set blank_choice = {'key': row.selected_key.key_id, 'record': row.blank_create_record} %}
+                      {% else %}
+                        {% set blank_choice = none %}
+                      {% endif %}
+                      <input type="hidden" name="relation_blank_create_{{ dataset_index }}_{{ relation_index }}"
+                        value="{{ blank_choice|tojson|forceescape if blank_choice else '' }}" data-blank-create-storage>
                       <div class="value-match-entry relationship-value-match-entry">
                         {% if row.related_keys %}
                         <button
@@ -259,6 +269,7 @@
                           data-target-field="{{ row.metadata.name }}"
                           data-target-label="{{ row.metadata.label }}"
                         >Match values</button>
+                        <button type="button" class="value-match-prerequisite" data-value-match-prerequisite hidden></button>
                         <small data-value-match-summary>
                           {% if row.matched_choice_count %}{{ row.matched_choice_count }} source choice(s) matched{% else %}Use when a source choice must explicitly reuse a differently named Odoo record{% endif %}
                         </small>

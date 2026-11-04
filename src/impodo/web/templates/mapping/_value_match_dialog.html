@@ -8,33 +8,51 @@
         <div>
           <p class="eyebrow">Match values</p>
           <h2 id="value-match-title" data-value-match-title>Match source choices to Odoo</h2>
-          <p>For each source choice, select the value already available in Odoo.</p>
         </div>
-        <button class="dialog-close" type="button" data-close-value-match aria-label="Close dialog">×</button>
+        <button class="dialog-close" type="button" data-close-value-match aria-label="Close dialog" autofocus>×</button>
       </div>
-      <div class="notice error" data-value-match-error role="alert" hidden></div>
-      <p class="muted" data-value-match-status role="status" aria-live="polite"></p>
-      <div class="value-match-freshness" data-value-match-freshness hidden>
+      <div class="value-match-toolbar">
+        <div class="value-match-message" role="status" aria-atomic="true">
+          <span class="activity-spinner" data-value-match-spinner aria-hidden="true" hidden></span>
+          <span data-value-match-status></span>
+        </div>
+        <button class="button secondary compact" type="button" data-refresh-value-match hidden>Refresh Odoo values</button>
+        <button class="button secondary compact" type="button" data-retry-value-match hidden>Try again</button>
+      </div>
+      <details data-value-match-support hidden>
+        <summary>Support details</summary>
+        <small data-value-match-error></small>
+      </details>
+      <details data-value-match-freshness hidden>
+        <summary>Odoo check details</summary>
         <small data-value-match-freshness-text></small>
-        <button class="button secondary compact" type="button" data-refresh-value-match>Refresh Odoo values</button>
+      </details>
+      <div data-value-match-results>
+        <label class="value-match-company-filter" data-value-match-company-filter hidden>
+          Filter Odoo choices by company
+          <select><option value="">All available choices</option></select>
+        </label>
+        <div class="table-scroll value-match-table-wrap" data-value-match-table-wrap hidden>
+          <table class="data-table value-match-table">
+            <thead>
+              <tr>
+                <th>Source choice</th>
+                <th>Rows</th>
+                <th>Odoo choice</th>
+              </tr>
+            </thead>
+            <tbody data-value-match-rows></tbody>
+          </table>
+        </div>
+        <div class="notice" data-blank-create-panel hidden>
+          <p data-blank-create-count></p>
+          <label>When the source is blank on a new record
+            <select data-blank-create-choice></select>
+          </label>
+          <button type="button" class="button secondary compact" data-check-blank-create-default>Check Odoo default</button>
+          <p>Blank source cells keep the current Odoo value on updates.</p>
+        </div>
       </div>
-      <label data-value-match-company-filter hidden>
-        Filter by company
-        <select><option value="">All companies</option></select>
-      </label>
-      <div class="table-scroll value-match-table-wrap" data-value-match-table-wrap hidden>
-        <table class="data-table value-match-table">
-          <thead>
-            <tr>
-              <th>Source choice</th>
-              <th>Rows</th>
-              <th>Odoo choice</th>
-            </tr>
-          </thead>
-          <tbody data-value-match-rows></tbody>
-        </table>
-      </div>
-      <p class="muted">Impodo will keep these choices with this mapping. It will not create or change Odoo records.</p>
       <div class="dialog-actions">
         <button class="button secondary" type="button" data-close-value-match>Cancel</button>
         <button class="button primary" type="button" data-use-value-matches disabled>Use matches</button>

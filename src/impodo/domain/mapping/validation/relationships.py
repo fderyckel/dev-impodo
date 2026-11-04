@@ -61,6 +61,17 @@ def _validate_relationship(
     if metadata is None:
         issues.append(_target_unknown(dataset, path, relation.target_field))
         return
+    if relation.blank_create_values == () and (
+        not metadata.create_default_present
+        or type(metadata.create_default_value) is not int
+        or metadata.create_default_value <= 0
+    ):
+        issues.append(_issue(
+            "MAPPING_BLANK_CREATE_DEFAULT_UNVERIFIED", path,
+            f"Odoo has no checked default for blank {relation.target_field} values.",
+            "Check the Odoo default in Match values or choose an existing record.",
+            dataset=dataset, target_field=relation.target_field,
+        ))
     if relation.blank_source_values and metadata.required:
         issues.append(
             _issue(

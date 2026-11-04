@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
-from impodo.domain.mapping.contracts import RelationshipValueSource
+from impodo.domain.mapping.contracts import MAPPING_CONTRACT_VERSION, RelationshipValueSource
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.workspace.contracts import SchemaField
 from impodo.domain.workspace.workbench import OdooConnectionMode
@@ -136,7 +136,7 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
                     self.assertEqual(response.status_code, 200, response.text)
                     draft = context.queries.get_mapping_working_draft(workspace_id)
                     relation = draft.definition.datasets[0].relationships[0]
-                    self.assertEqual(draft.definition.contract_version, 22)
+                    self.assertEqual(draft.definition.contract_version, MAPPING_CONTRACT_VERSION)
                     self.assertEqual(relation.kind, "many2many")
                     self.assertEqual(relation.source_column_keys, ())
                     self.assertIs(

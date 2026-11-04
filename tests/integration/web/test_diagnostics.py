@@ -46,7 +46,11 @@ from impodo.domain.odoo.contracts import (
     MetadataRequest,
 )
 from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus
-from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteDiagnostic,
+    OdooWriteErrorType,
+    WriteFailureCode,
+)
 from impodo.web.routers.execution import _record_write_diagnostics
 from impodo.web.app import create_local_app
 from impodo.web.diagnostics import (
@@ -287,25 +291,41 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
 
     def test_write_rejection_support_event_omits_business_context(self) -> None:
         diagnostic = OdooWriteDiagnostic(
-            WriteFailureCode.REQUIRED_VALUE, "x.private", "load", fields=("name",)
+            WriteFailureCode.REQUIRED_VALUE, "res.partner", "load", fields=("name",)
         )
         row = ExecutionRowAttempt(
-            "private-row", "private-dataset", 2, "x.private", "CREATE",
+            "private-row", "private-dataset", 2, "res.partner", "CREATE",
             ("name",), "private.external_id", status=ExecutionRowStatus.FAILED,
-            diagnostic=diagnostic,
+            diagnostic=diagnostic, safe_error="private Odoo message",
+        )
+        related = ExecutionRowAttempt(
+            "private-row-2", "private-dataset", 3, "x.related", "CREATE",
+            ("name",), "private.related", status=ExecutionRowStatus.FAILED,
+            diagnostic=OdooWriteDiagnostic(
+                WriteFailureCode.REJECTED, "x.related", "create",
+                http_status=422, error_type=OdooWriteErrorType.VALIDATION,
+            ),
         )
         with _diagnostic_test_directory("impodo-write-rejection") as directory:
             recorder = LocalDiagnosticRecorder(directory)
-            _record_write_diagnostics(recorder, (row, row))
+            _record_write_diagnostics(recorder, (row, row, related))
             recorder.close()
             payload = (directory / DIAGNOSTIC_LOG_NAME).read_text(encoding="utf-8")
-            record = json.loads(payload)
+            record, http_result = map(json.loads, payload.splitlines())
+            bundle = create_diagnostic_bundle(directory, build_contract=PROCESS_BUILD_CONTRACT)
+            with ZipFile(BytesIO(bundle)) as archive:
+                self.assertEqual(json.loads(archive.read("recent-failures.json")), [record, http_result])
         self.assertEqual(record["stage"], "write_result")
         self.assertEqual(record["outcome"], "rejected")
         self.assertEqual(record["reason"], "ODOO_REQUIRED_VALUE_MISSING")
         self.assertEqual(record["total_rows"], 2)
         self.assertNotIn("private", payload)
-        self.assertNotIn("fields", record)
+        self.assertEqual(record["odoo_model"], "res.partner")
+        self.assertEqual(record["json2_method"], "load")
+        self.assertEqual(record["odoo_fields"], ["name"])
+        self.assertEqual(http_result["odoo_model"], "x.related")
+        self.assertEqual(http_result["odoo_status_code"], 422)
+        self.assertEqual(http_result["odoo_error_type"], "odoo.exceptions.ValidationError")
 
     def test_operation_stage_records_bounded_related_data_pass_counts(
         self,

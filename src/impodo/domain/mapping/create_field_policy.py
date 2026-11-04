@@ -44,7 +44,7 @@ CREATE_FIXED_VALUE_TYPES = frozenset(
 # Increment when the automatic-versus-review decision changes. Recipe
 # application bindings include this value so a policy revision cannot be
 # mistaken for the earlier assessment.
-CREATE_DEFAULT_DECISION_POLICY_VERSION = 2
+CREATE_DEFAULT_DECISION_POLICY_VERSION = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +77,31 @@ _ODOO_19_CREATE_HOOKS = {
     ),
 }
 
+# Odoo 20 addons product, sale and stock define these as computed fields.
+# Remote fields_get can report their storage and required flags without compute.
+_ODOO_20_PRODUCT_CREATE_FIELDS = {
+    "base_unit_count": (
+        "float",
+        True,
+        "Odoo starts at 0, which hides the reference price. Match this field if you need a price per reference unit.",
+    ),
+    "invoice_policy": (
+        "selection",
+        True,
+        "Odoo uses the company's invoicing policy for new products. Match this field if the products need a specific policy.",
+    ),
+    "service_tracking": (
+        "selection",
+        True,
+        "Odoo normally uses Nothing. Match this field for services that should create a task, project, or other record on order.",
+    ),
+    "store_by": (
+        "selection",
+        False,
+        "Odoo derives tracking from the product's inventory settings. It uses None when stock is unmanaged. Match this field to specify how to track stock.",
+    ),
+}
+
 
 class CreateFieldShape(Protocol):
     """Read-only field shape shared by captured and governed contracts."""
@@ -95,6 +120,9 @@ class CreateFieldShape(Protocol):
 
     @property
     def relation(self) -> str | None: ...
+
+    @property
+    def stored(self) -> bool | None: ...
 
     @property
     def computed(self) -> bool | None: ...
@@ -137,6 +165,7 @@ class CreateFieldAssessment:
 
     coverage: CreateFieldCoverage
     default_value: bool | int | float | str | None = None
+    advisory: str | None = None
 
 
 class VerifiedCreateDefaultAction(StrEnum):
@@ -174,6 +203,14 @@ def evaluate_create_field(
         return CreateFieldAssessment(CreateFieldCoverage.PROVIDED)
     if not field.required:
         return CreateFieldAssessment(CreateFieldCoverage.OPTIONAL)
+    if handling is None and (
+        guidance := _odoo_product_create_field_guidance(
+            field, target_model=target_model, odoo_version=odoo_version
+        )
+    ) is not None:
+        return CreateFieldAssessment(
+            CreateFieldCoverage.ODOO_MANAGED_CONFIRMED, advisory=guidance
+        )
     if field.computed is True or field.related is True:
         return CreateFieldAssessment(CreateFieldCoverage.ODOO_MANAGED_CONFIRMED)
     if handling is TargetFieldHandling.ODOO_DEFAULT:
@@ -207,6 +244,30 @@ def evaluate_create_field(
             field.create_default_value,
         )
     return CreateFieldAssessment(CreateFieldCoverage.REQUIRED_VALUE_MISSING)
+
+
+def _odoo_product_create_field_guidance(
+    field: CreateFieldShape,
+    *,
+    target_model: str | None,
+    odoo_version: str | None,
+) -> str | None:
+    """Explain a standard Odoo 20 product field that Odoo can supply on create."""
+
+    expected = _ODOO_20_PRODUCT_CREATE_FIELDS.get(field.name)
+    if (
+        target_model != "product.template"
+        or not odoo_version
+        or expected is None
+        or not field.required
+        or field.readonly
+        or field.relation is not None
+        or field.computed is False
+        or (field.type, field.stored) != expected[:2]
+    ):
+        return None
+    decision = assess_odoo_operation(odoo_version, OdooOperation.WRITE)
+    return expected[2] if decision.allowed and decision.version.major == 20 else None
 
 
 def is_odoo_create_hook_field(
@@ -263,6 +324,9 @@ def is_odoo_managed_candidate(
         field.type in {"one2many", "many2many"}
         or field.computed is True
         or field.related is True
+        or _odoo_product_create_field_guidance(
+            field, target_model=target_model, odoo_version=odoo_version
+        ) is not None
         or is_odoo_create_hook_field(
             field,
             target_model=target_model,
