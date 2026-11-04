@@ -302,13 +302,16 @@ def _validate_scalar(
                 target_field=field_mapping.target_field,
             )
         )
-    if field_mapping.validate_only and field_mapping.compare:
+    if (
+        field_mapping.validate_only and field_mapping.compare
+        and (not metadata.readonly or metadata.stored is not True)
+    ):
         issues.append(
             _issue(
                 "MAPPING_FIELD_POLICY_INVALID",
                 path,
-                "A validate-only scalar cannot also be compared.",
-                "Disable comparison or validate-only.",
+                "Compare only requires a stored read-only Odoo field.",
+                "Choose a stored read-only field or change the field policy.",
                 dataset=dataset,
                 target_field=field_mapping.target_field,
             )

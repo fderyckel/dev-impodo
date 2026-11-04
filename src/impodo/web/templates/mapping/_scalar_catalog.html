@@ -17,7 +17,7 @@
                   {% set disposition = row.disposition %}
                   {% set formula_issue = formula_authoring_issues_by_dataset.get(view.source.dataset_id, {}).get(row.metadata.name) %}
                   {# A saved omission is a choice; only prefill recommendations for new mappings. #}
-                  {% set recommended_source = row.recommended_source_column if not disposition and not view.mapping else none %}
+                  {% set recommended_source = row.recommended_source_column if not disposition and not view.mapping and not row.metadata.readonly else none %}
                   {% set value_source = mapping.value_source.value if mapping else ('source' if recommended_source else '') %}
                   <tr id="scalar-{{ dataset_index }}-{{ row.metadata.name }}"
                     data-scalar-mapping-row
@@ -52,13 +52,13 @@
                         </div>
                       {% endif %}
                       <select name="scalar_value_source_{{ dataset_index }}_{{ field_index }}" data-value-source {% if disposition %}disabled{% endif %}>
-                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>Do not fill this field</option>
+                        <option value="" {% if not mapping and not recommended_source %}selected{% endif %}>{{ "Skip comparison" if row.metadata.readonly else "Do not fill this field" }}</option>
                         <option value="source" {% if value_source == 'source' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}Use or match one source column{% else %}Source value{% endif %}</option>
                         <option value="constant" {% if value_source == 'constant' %}selected{% endif %}>{% if row.metadata.type == 'selection' %}One choice for every row{% else %}Same value for every row{% endif %}</option>
                         {% if row.metadata.type != 'selection' or value_source == 'source_with_fallback' %}<option value="source_with_fallback" {% if value_source == 'source_with_fallback' %}selected{% endif %}>Source value, or backup when blank</option>{% endif %}
                         {% if row.metadata.type in ('char', 'text') or value_source == 'concatenate' %}<option value="concatenate" {% if value_source == 'concatenate' %}selected{% endif %}>Combine source columns</option>{% endif %}
                         {% if row.metadata.type == 'selection' %}<option value="conditional_rules" {% if value_source == 'conditional_rules' %}selected{% endif %}>Decide using rules</option>{% endif %}
-                        {% if not view.odoo_pinned and (row.metadata.create_default_present or value_source == 'odoo_default') %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
+                        {% if not view.odoo_pinned and not row.metadata.readonly and (row.metadata.create_default_present or value_source == 'odoo_default') %}<option value="odoo_default" {% if value_source == 'odoo_default' %}selected{% endif %}>Let Odoo choose</option>{% endif %}
                       </select>
                       <div class="provider-control" data-provider-source {% if value_source not in ('source', 'source_with_fallback') %}hidden{% endif %}>
                         <label>Use value from
@@ -543,6 +543,9 @@
                     </td>
                     <th data-target="{{ view.selected_model }}::{{ row.metadata.name }}">
                       {{ row.metadata.label }}
+                      {% if row.metadata.readonly and row.metadata.stored and not view.odoo_pinned %}
+                        <small>Compare only · Odoo controls this field</small>
+                      {% endif %}
                       {% if view.odoo_pinned %}
                         <label class="checkbox">
                           <input
@@ -576,21 +579,7 @@
                         <span data-preview-proposed></span>
                       {% endif %}
                     </td>
-                    <td class="policy-cell">
-                      <details class="technical-details">
-                      <summary>Support options</summary>
-                      <label><input type="checkbox" name="scalar_compare_{{ dataset_index }}_{{ field_index }}" value="1" data-scalar-compare {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
-                      <label><input type="checkbox" name="scalar_validate_only_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.validate_only %}checked{% endif %}> Check only; do not prepare</label>
-                      <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
-                      {% if not view.odoo_pinned %}<label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>{% endif %}
-                      <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
-                        {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
-                        {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
-                          <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
-                        {% endfor %}
-                      </select>
-                      </details>
-                    </td>
+                    {% include "mapping/_scalar_comparison_policy.html" %}
                   </tr>
                 {% endfor %}
               </tbody>

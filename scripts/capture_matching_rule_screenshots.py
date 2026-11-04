@@ -212,8 +212,12 @@ def capture_supporting_review(output_directory: Path, *, browser_channel: str) -
             browser_context = browser.new_context(viewport=VIEWPORT, device_scale_factor=1, locale="en-GB")
             browser_context.add_cookies([{"name": "impodo_session", "value": cookie, "url": base_url, "httpOnly": True, "sameSite": "Strict"}])
             page = browser_context.new_page()
-            page.goto(f"{base_url}/workspaces/{fixture.workspace_id}/schema", wait_until="networkidle")
+            page.goto(
+                f"{base_url}/workspaces/{fixture.workspace_id}/schema#supporting-data-review",
+                wait_until="networkidle",
+            )
             review = page.locator("#supporting-data-review")
+            expect(review).to_be_focused()
             choices = review.locator('select[name^="action_"]')
             expect(choices).to_have_count(2)
             for choice in choices.all():
@@ -224,8 +228,15 @@ def capture_supporting_review(output_directory: Path, *, browser_channel: str) -
             expect(choices.first).not_to_be_focused()
             save = review.get_by_role("button", name="Save choices", exact=True)
             save.focus()
+            position_before_save = page.evaluate("window.scrollY")
             save.press("Enter")
             expect(review).to_contain_text("Choices are saved")
+            expect(save).to_be_focused()
+            position_after_save = page.evaluate("window.scrollY")
+            if abs(position_after_save - position_before_save) > 2:
+                raise RuntimeError(
+                    "Saving supporting choices moved the operator away from the save position"
+                )
             expect(review.get_by_role("button", name="Check existing Odoo values")).to_be_visible()
             for choice in choices.all():
                 expect(choice).to_have_value("REUSE")

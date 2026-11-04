@@ -105,6 +105,8 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Choose where related values come from", page.text)
         self.assertIn("Why matching rules are waiting", page.text)
         self.assertIn('class="matching-rule-summary"', page.text)
+        self.assertIn("data-supporting-save-form", page.text)
+        self.assertIn("data-supporting-save", page.text)
         self.assertIn("matching-rules-blocked-reason", page.text)
         self.assertLessEqual(timings.connection_count, 6)
         self.assertLessEqual(timings.schema_check_count, 6)

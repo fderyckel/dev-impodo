@@ -137,6 +137,7 @@ class FieldSpec(StrictModel):
     required_on_create: bool = False
     compare: bool = True
     validate_only: bool = False
+    compare_only: bool | None = None
     normalize: NormalizationSpec = Field(default_factory=NormalizationSpec)
     null_policy: Literal["distinct", "equivalent", "ignore_source_null"] = "distinct"
 
@@ -146,6 +147,8 @@ class FieldSpec(StrictModel):
 
         if self.validate_only and self.compare:
             raise ValueError("validate_only fields cannot also set compare: true")
+        if self.compare_only and (not self.validate_only or self.compare):
+            raise ValueError("compare_only requires validate_only and compare: false")
         if self.type != "decimal" and self.normalize.decimal_places is not None:
             raise ValueError("normalize.decimal_places is only valid for decimal fields")
         return self

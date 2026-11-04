@@ -30,10 +30,16 @@ from openpyxl import Workbook
 from openpyxl.comments import Comment
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
+from openpyxl.worksheet.hyperlink import Hyperlink
 
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredScopePreview,
+)
+from impodo.domain.preflight.fields_set_aside import (
+    FieldSetAside,
+    FieldSetAsideReason,
+    preparation_field_reason,
 )
 from impodo.domain.preflight.reports import (
     ReviewWorkbookActionPriority,
@@ -284,6 +290,7 @@ def _build_workbook(
         name: workbook.create_sheet(name)
         for name in (
             "Needs attention",
+            "Fields set aside",
             "Records to load",
             "Changes to Odoo",
             "Evidence",
@@ -341,6 +348,11 @@ def _build_workbook(
         else "No action items - review the prepared records before loading"
     )
     _style_status_cells(sheets["Needs attention"], 1)
+
+    _write_fields_set_aside(
+        sheets["Fields set aside"], overview, manifest, decisions,
+        all_prepared_by_trace, review_evidence,
+    )
 
     _write_data_sheet(
         sheets["Records to load"],
@@ -440,6 +452,227 @@ def _build_workbook(
 
     if preview_directory is not None:
         _write_csv_previews(workbook, Path(preview_directory))
+
+
+_FIELD_REASON_STYLES = {
+    FieldSetAsideReason.INVALID: ("danger", "Correct the source value or its format."),
+    FieldSetAsideReason.MISSING: ("danger", "Supply the required value and prepare again."),
+    FieldSetAsideReason.UNRECOGNIZED: (
+        "warning", "Check the source value or review the match in Impodo.",
+    ),
+    FieldSetAsideReason.AMBIGUOUS: ("warning", "Choose the intended match in Impodo."),
+    FieldSetAsideReason.EXCLUDED: (
+        "prepared", "Review the mapping if the field should migrate.",
+    ),
+    FieldSetAsideReason.RULE: (
+        "prepared", "Review the saved rule if the value should be loaded.",
+    ),
+}
+
+
+def _comparison_field_findings(
+    decisions: Sequence[dict[str, Any]],
+    records: Mapping[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> Iterable[FieldSetAside]:
+    """Project saved comparison issues and proven uses of an omission rule."""
+
+    fields = evidence.fields_set_aside if evidence is not None else None
+    comparison_reasons = {
+        "REFERENCE_NOT_FOUND": FieldSetAsideReason.UNRECOGNIZED,
+        "REFERENCE_AMBIGUOUS": FieldSetAsideReason.AMBIGUOUS,
+        "REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED": FieldSetAsideReason.UNRECOGNIZED,
+        "REQUIRED_ON_CREATE_MISSING": FieldSetAsideReason.MISSING,
+    }
+    for decision in decisions:
+        dataset = str(decision["dataset"])
+        source_row = int(decision["source_row"])
+        classification = _decision_classification(decision)
+        record = records.get(str(decision.get("source_trace_id", "")))
+        for issue in decision.get("issues", ()):
+            if classification is not Classification.BLOCKED or not issue.get("field"):
+                continue
+            code = str(issue.get("code") or "")
+            reason = comparison_reasons.get(code)
+            target = str(issue["field"])
+            if fields is None and reason is None:
+                source_reason = preparation_field_reason(code)
+                if source_reason is not None:
+                    yield FieldSetAside(
+                        source_reason, dataset, source_row, (target,), "",
+                        str(issue["message"]),
+                    )
+                continue
+            if reason is None:
+                continue
+            yield FieldSetAside(
+                reason, dataset, source_row,
+                fields.source_keys.get((dataset, target), ()) if fields else (),
+                target, str(issue["message"]),
+            )
+
+        if fields is None or record is None or classification not in {
+            Classification.CREATE, Classification.UPDATE, Classification.UNCHANGED,
+        }:
+            continue
+        if classification is Classification.UNCHANGED and (
+            dataset not in fields.upsert_datasets
+            or decision.get("target_match_count") != 1
+            or any(
+                item.get("code") == "REFERENCE_TARGET_PRECEDENCE_REUSE"
+                for item in decision.get("issues", ())
+            )
+        ):
+            continue
+        for target in fields.null_omissions.get(dataset, ()):
+            if _prepared_field_is_null(record, target):
+                yield FieldSetAside(
+                    FieldSetAsideReason.RULE, dataset, source_row,
+                    fields.source_keys.get((dataset, target), ()), target,
+                    "The saved blank-value rule omits this field from the load.",
+                )
+
+
+def _prepared_field_is_null(record: PreparedRecord, field: str) -> bool:
+    """Distinguish an explicitly prepared null from an absent field."""
+
+    return (
+        (field in record.scalar_values and record.scalar_values[field] is None)
+        or (field in record.references and record.references[field] is None)
+    )
+
+
+def _write_fields_set_aside(
+    sheet,
+    overview,
+    manifest: dict[str, Any],
+    decisions: Sequence[dict[str, Any]],
+    records: Mapping[str, PreparedRecord],
+    evidence: ReviewWorkbookEvidence | None,
+) -> None:
+    """Write a filterable list with separate counts for cells and columns."""
+
+    fields = evidence.fields_set_aside if evidence is not None else None
+    protected_source = manifest.get("contract") == "odoo-pinned-comparison-v1"
+    findings = set(fields.findings if fields and not protected_source else ())
+    if not protected_source:
+        findings.update(_comparison_field_findings(decisions, records, evidence))
+    original_values: dict[tuple[str, int, str], str] = {}
+    if not protected_source and fields is not None and evidence is not None:
+        rule_coordinates = {
+            (item.dataset, item.source_row, item.target_field)
+            for item in findings
+            if item.reason is FieldSetAsideReason.RULE
+        }
+        for effect in evidence.cell_effects:
+            record = records[effect.source_trace_id]
+            coordinate = (effect.dataset, effect.source_row, effect.target_field)
+            original_values.setdefault(
+                coordinate, effect.before,
+            )
+            if (
+                coordinate not in rule_coordinates
+                and _prepared_field_is_null(record, effect.target_field)
+                and effect.after.strip() in {"", "—"}
+                and effect.before.strip() not in {"", "—"}
+            ):
+                findings.add(FieldSetAside(
+                    FieldSetAsideReason.RULE, effect.dataset, effect.source_row,
+                    fields.source_keys.get((effect.dataset, effect.target_field), ()),
+                    effect.target_field, effect.explanation, effect.before,
+                ))
+
+    cells = {
+        (item.dataset, item.source_row, key)
+        for item in findings
+        if fields is not None and item.source_row is not None and len(item.source_keys) == 1
+        for key in item.source_keys
+    }
+    columns = {
+        (item.dataset, key)
+        for item in findings
+        if item.source_row is None
+        for key in item.source_keys
+    }
+    reason_order = {reason: index for index, reason in enumerate(FieldSetAsideReason)}
+    ordered = sorted(
+        findings,
+        key=lambda item: (
+            reason_order[item.reason], item.dataset,
+            item.source_row or 0, item.source_keys, item.target_field,
+            item.detail, item.source_value or "",
+        ),
+    )
+    rows = []
+    for item in ordered:
+        model = fields.target_models.get(item.dataset, "") if fields else ""
+        target = _target_field_label(model, item.target_field, evidence) if item.target_field else ""
+        source = " + ".join(
+            fields.source_labels.get((item.dataset, key), key) if fields else key
+            for key in item.source_keys
+        )
+        original = item.source_value
+        if original is None and item.source_row is not None:
+            original = original_values.get((item.dataset, item.source_row, item.target_field))
+        display_original = original if original is not None else (
+            "Unavailable" if item.source_row is not None else ""
+        )
+        rows.append((
+            item.reason.value, _dataset_label(item.dataset, evidence),
+            item.source_row, source, display_original,
+            target, "Whole column" if item.source_row is None else (
+                "Source cell" if len(item.source_keys) == 1 else "Field finding"
+            ),
+            item.detail, _FIELD_REASON_STYLES[item.reason][1],
+        ))
+
+    coverage = (
+        "Odoo source values and field-level evidence are withheld in this export."
+        if protected_source else
+        "Some omissions and original values may be unavailable. "
+        "See Needs attention for comparison blockers and warnings."
+    )
+    _write_data_sheet(
+        sheet,
+        ("Reason", "Dataset", "Source row", "Source field", "Original value",
+         "Odoo field", "Scope", "What happened", "What to do"),
+        rows or [("No saved field omissions shown", "", None, "", "", "", "", coverage, "")],
+        _COLORS["charcoal"],
+        header_row=6,
+    )
+    sheet["A2"] = coverage
+    sheet["A2"].alignment = Alignment(vertical="center", wrap_text=True)
+    sheet.row_dimensions[2].height = 28
+    sheet.row_dimensions[3].height = 8
+    sheet.row_dimensions[4].height = 24
+    sheet.row_dimensions[5].height = 8
+    for span, value, style in (
+        ("A4:C4", f"{len(cells):,} identified source cell{'s' if len(cells) != 1 else ''}", "neutral"),
+        ("D4:F4", f"{len(columns):,} whole column{'s' if len(columns) != 1 else ''}", "prepared"),
+        ("G4:I4", f"{len(ordered):,} saved findings", "neutral"),
+    ):
+        sheet.merge_cells(span)
+        cell = sheet[span.split(":")[0]]
+        cell.value = value
+        cell.alignment = Alignment(vertical="center")
+        _style_status_cell(cell, style)
+    sheet.sheet_properties.tabColor = _COLORS["brand"]
+    for column, width in zip("ABCDEFGHI", (29, 20, 14, 23, 23, 20, 18, 42, 39), strict=True):
+        sheet.column_dimensions[column].width = width
+    for row_index, (item, row) in enumerate(zip(ordered, rows, strict=True), start=7):
+        _style_status_cell(sheet.cell(row_index, 1), _FIELD_REASON_STYLES[item.reason][0])
+        cell = sheet.cell(row_index, 5)
+        cell.value = row[4]
+        cell.data_type = "s"
+        sheet.row_dimensions[row_index].height = 42
+    overview.merge_cells("A25:H25")
+    link = overview["A25"]
+    link.value = f"Fields set aside · {len(ordered):,} saved findings. {coverage}"
+    link.hyperlink = Hyperlink(ref="A25", location="'Fields set aside'!A1")
+    link.style = "Hyperlink"
+    link.alignment = Alignment(wrap_text=True, vertical="center")
+    overview.row_dimensions[25].height = 30
+    overview.print_area = "A1:H25"
 
 
 def _write_review_overview(
@@ -1717,8 +1950,10 @@ def _write_data_sheet(
     headers: Sequence[str],
     rows: Sequence[Sequence[Any]],
     accent: str,
+    *,
+    header_row: int = 3,
 ) -> None:
-    if len(rows) > _EXCEL_MAX_ROW - 3:
+    if len(rows) > _EXCEL_MAX_ROW - header_row:
         raise ReportGenerationError(
             "Excel review workbook exceeds the supported rows on "
             f"the {sheet.title} sheet"
@@ -1735,10 +1970,10 @@ def _write_data_sheet(
         len(headers),
     )
     for column_index, header in enumerate(headers, start=1):
-        sheet.cell(row=3, column=column_index, value=header)
-    _style_header(sheet, 3, 1, len(headers), accent)
+        sheet.cell(row=header_row, column=column_index, value=header)
+    _style_header(sheet, header_row, 1, len(headers), accent)
 
-    for row_index, values in enumerate(rows, start=4):
+    for row_index, values in enumerate(rows, start=header_row + 1):
         for column_index, value in enumerate(values, start=1):
             cell = sheet.cell(
                 row=row_index,
@@ -1751,7 +1986,7 @@ def _write_data_sheet(
             cell.fill = _SURFACE_FILL if row_index % 2 == 0 else _PAPER_FILL
 
     if rows:
-        sheet.auto_filter.ref = f"A3:{get_column_letter(len(headers))}{len(rows) + 3}"
+        sheet.auto_filter.ref = f"A{header_row}:{get_column_letter(len(headers))}{len(rows) + header_row}"
 
     for column_index, header in enumerate(headers, start=1):
         lengths = [len(header)]
@@ -1764,12 +1999,12 @@ def _write_data_sheet(
             48,
             max(13, max(lengths) + 3),
         )
-    sheet.freeze_panes = "A4"
+    sheet.freeze_panes = f"A{header_row + 1}"
     sheet.sheet_properties.pageSetUpPr.fitToPage = True
     sheet.page_setup.orientation = "landscape" if len(headers) > 5 else "portrait"
     sheet.page_setup.fitToWidth = 1
     sheet.page_setup.fitToHeight = 0
-    sheet.print_title_rows = "1:3"
+    sheet.print_title_rows = f"1:{header_row}"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.tabColor = accent
 
@@ -1869,7 +2104,10 @@ def _write_csv_previews(workbook: Workbook, directory: Path) -> None:
         with target.open("w", encoding="utf-8-sig", newline="") as stream:
             writer = csv.writer(stream)
             for row in sheet.iter_rows(values_only=True):
-                writer.writerow(row)
+                if sheet.title == "Fields set aside":
+                    writer.writerow(_safe_cell(value) for value in row)
+                else:
+                    writer.writerow(row)
 
 
 def read_manifest(path: str | Path) -> dict[str, Any]:

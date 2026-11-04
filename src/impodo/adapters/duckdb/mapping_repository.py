@@ -432,7 +432,9 @@ class MappingRepository(DuckDbRepository):
                     publish_selection_refresh(connection, schema_refresh)
                     if schema_refresh.changed:
                         connection.execute("DELETE FROM mapping_current")
-                        self._invalidate_canonical_staging(connection, reason="ODOO_SELECTION_CHOICES_CHANGED")
+                        self._invalidate_canonical_staging(
+                            connection, reason=schema_refresh.invalidation_reason
+                        )
                 connection.execute(
                     """
                     INSERT OR REPLACE INTO mapping_working_draft

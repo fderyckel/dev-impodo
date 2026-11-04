@@ -28,6 +28,7 @@ from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..contracts import READINESS_CONTRACT_VERSION
 from ..staging.transformation_impact import _display_value
+from .fields_set_aside import FieldSetAsideEvidence
 from .frozen_input import (
     FrozenMappingRevisionEvidence,
     FrozenNormalizationEvidence,
@@ -181,6 +182,7 @@ class ReviewWorkbookEvidence:
     normalization_content_hash: str
     cell_effects: tuple[ReviewWorkbookCellEffect, ...]
     target_field_required: Mapping[tuple[str, str], bool]
+    fields_set_aside: FieldSetAsideEvidence | None = None
 
 
 def review_workbook_action_priority(
@@ -909,6 +911,10 @@ def plain_readiness_guidance(
         "TARGET_SELECTION_CHOICES_CHANGED": (
             "The available Odoo choices changed after mapping.",
             "Review this field match in Impodo and compare again if it changes.",
+        ),
+        "COMPARE_ONLY_FIELD_DIFFERS": (
+            "The source and Odoo values differ for this compare-only field.",
+            "Review the source and Odoo values in the support file.",
         ),
         "TARGET_SELECTION_FIELD_DRIFT": (
             "The Odoo field type changed after mapping.",

@@ -46,6 +46,7 @@ from ..compiler.contracts import CompiledMigrationPlan
 from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
 from ..resolution import EffectiveDataset
+from .fields_set_aside import FieldSetAsideEvidence, field_set_aside_evidence
 
 FROZEN_PREFLIGHT_INPUT_VERSION = 5
 
@@ -140,6 +141,7 @@ class FrozenPreflightInput:
     eligible_row_ids: tuple[str, ...]
     captured_schema: OdooSchemaCatalog | None = None
     contract_version: int = FROZEN_PREFLIGHT_INPUT_VERSION
+    fields_set_aside: FieldSetAsideEvidence | None = None
 
     @property
     def content_hash(self) -> str:
@@ -194,6 +196,7 @@ def build_frozen_preflight_input(
     source_field_labels: Mapping[tuple[str, str], str],
     effective: EffectiveDataset | None = None,
     captured_schema: OdooSchemaCatalog | None = None,
+    workbook_source_keys: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
 ) -> FrozenPreflightInput:
     """Validate current durable evidence and build the preflight envelope.
 
@@ -297,6 +300,11 @@ def build_frozen_preflight_input(
         source_field_labels=dict(source_field_labels),
         eligible_row_ids=eligible_row_ids,
         captured_schema=captured_schema,
+        fields_set_aside=(
+            field_set_aside_evidence(plan, rows, source_field_labels, workbook_source_keys)
+            if workbook_source_keys is not None
+            else None
+        ),
     )
     assert_no_numeric_odoo_ids(
         {

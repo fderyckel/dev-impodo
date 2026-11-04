@@ -1,5 +1,5 @@
 {% if supporting_review and (supporting_review.rows or supporting_review.error) %}
-<section class="supporting-review" id="supporting-data-review" aria-labelledby="supporting-review-title">
+<section class="supporting-review" id="supporting-data-review" tabindex="-1" aria-labelledby="supporting-review-title">
   <div class="page-heading compact">
     <div>
       <p class="eyebrow">Related Odoo values</p>
@@ -34,10 +34,10 @@
     <p class="notice success"><strong>Choices are saved.</strong> Match data will check the actual values later.</p>
   {% endif %}
   {% if supporting_review.rows %}
-  <form method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/save">
+  <form method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/save" data-supporting-save-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% include "_supporting_review_choices.html" %}
-    <div class="actions"><button class="button primary" type="submit">Save choices</button></div>
+    <div class="actions"><button class="button primary" type="submit" data-supporting-save>Save choices</button></div>
   </form>
   {% endif %}
   {% if supporting_review.current and supporting_review.has_reuse %}

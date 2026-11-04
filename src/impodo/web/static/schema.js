@@ -70,7 +70,70 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   const schemaLoadError = document.querySelector("[data-schema-load-error]");
-  schemaLoadError?.focus();
+  const supportingSaveForm = document.querySelector(
+    "[data-supporting-save-form]"
+  );
+  const supportingSavePositionKey = supportingSaveForm
+    ? `impodo:supporting-save-position:${supportingSaveForm.action}`
+    : "";
+  let savedSupportingPosition = null;
+  if (supportingSavePositionKey) {
+    try {
+      savedSupportingPosition = JSON.parse(
+        window.sessionStorage.getItem(supportingSavePositionKey) || "null"
+      );
+      window.sessionStorage.removeItem(supportingSavePositionKey);
+    } catch (_error) {
+      savedSupportingPosition = null;
+    }
+    supportingSaveForm.addEventListener("submit", () => {
+      try {
+        window.sessionStorage.setItem(
+          supportingSavePositionKey,
+          JSON.stringify({
+            left: window.scrollX,
+            top: window.scrollY,
+            savedAt: Date.now(),
+          })
+        );
+      } catch (_error) {
+        // Saving still works when private browser settings block session storage.
+      }
+    });
+  }
+  const savedPositionAge = savedSupportingPosition
+    ? Date.now() - savedSupportingPosition.savedAt
+    : -1;
+  const restoreSupportingPosition = Boolean(
+    savedSupportingPosition &&
+    Number.isFinite(savedSupportingPosition.left) &&
+    Number.isFinite(savedSupportingPosition.top) &&
+    savedPositionAge >= 0 &&
+    savedPositionAge < 60_000
+  );
+  const supportingReview = window.location.hash === "#supporting-data-review"
+    ? document.getElementById("supporting-data-review")
+    : null;
+  if (restoreSupportingPosition) {
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        window.scrollTo(
+          savedSupportingPosition.left,
+          savedSupportingPosition.top
+        );
+        supportingSaveForm
+          ?.querySelector("[data-supporting-save]")
+          ?.focus({ preventScroll: true });
+      });
+    });
+  } else if (supportingReview) {
+    window.requestAnimationFrame(() => {
+      supportingReview.scrollIntoView({ block: "start" });
+      supportingReview.focus({ preventScroll: true });
+    });
+  } else {
+    schemaLoadError?.focus();
+  }
 
   for (const decision of document.querySelectorAll("[data-key-decision]")) {
     const primaryKey = decision.querySelector("[data-primary-key-field]");

@@ -1043,7 +1043,7 @@ def _classify_record(
     if any(issue.blocking for issue in record_issues):
         classification = Classification.BLOCKED
         differences = ()
-    elif differences:
+    elif any(difference.material for difference in differences):
         classification = Classification.UPDATE
     else:
         classification = Classification.UNCHANGED
@@ -1106,14 +1106,14 @@ def _compare_record(
 
     Scalar target values are normalized with the same rules as their source
     values.  Relational target IDs are first converted to business references.
-    Fields marked ``validate_only`` or with comparison disabled are excluded.
+    Compare-only scalar differences are recorded without proposing updates.
     """
 
     differences: list[FieldDifference] = []
     issues: list[Issue] = []
     identity = tuple(source.target_identity)
     for field_name, spec in dataset.fields.items():
-        if not spec.compare or spec.validate_only:
+        if not (spec.compare or spec.compare_only):
             continue
         proposed = source.scalar_values.get(field_name)
         raw_existing = target.values.get(field_name)
@@ -1138,6 +1138,17 @@ def _compare_record(
             )
             continue
         if not values_equal(proposed, existing, spec.null_policy):
+            if spec.compare_only:
+                issues.append(
+                    Issue(
+                        code="COMPARE_ONLY_FIELD_DIFFERS",
+                        message=f"The source and Odoo values differ for {field_name}.",
+                        severity=Severity.WARNING,
+                        dataset=source.dataset,
+                        row=source.source_row,
+                        field=field_name,
+                    )
+                )
             differences.append(
                 FieldDifference(
                     dataset=source.dataset,
@@ -1147,6 +1158,7 @@ def _compare_record(
                     existing=existing,
                     proposed=proposed,
                     comparison_rule=_field_rule(spec),
+                    material=not spec.compare_only,
                 )
             )
 

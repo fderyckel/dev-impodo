@@ -15,6 +15,11 @@ from impodo.adapters.artifacts.reporting import (
     write_preflight_outputs,
     write_review_workbook,
 )
+from impodo.domain.preflight.fields_set_aside import (
+    FieldSetAside,
+    FieldSetAsideEvidence,
+    FieldSetAsideReason,
+)
 from impodo.domain.preflight.reports import (
     ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
@@ -290,14 +295,15 @@ class WorkbookIntegrationTests(unittest.TestCase):
             )
             for sheet in workbook.worksheets[1:]:
                 self.assertEqual(len(sheet.tables), 0)
-                if sheet.max_row > 3:
+                header_row = 6 if sheet.title == "Fields set aside" else 3
+                if sheet.max_row > header_row:
                     last_column = sheet.cell(
-                        3,
+                        header_row,
                         sheet.max_column,
                     ).column_letter
                     self.assertEqual(
                         sheet.auto_filter.ref,
-                        f"A3:{last_column}{sheet.max_row}",
+                        f"A{header_row}:{last_column}{sheet.max_row}",
                     )
                 else:
                     self.assertIsNone(sheet.auto_filter.ref)
@@ -412,6 +418,98 @@ class WorkbookIntegrationTests(unittest.TestCase):
             self.assertEqual(workbook["Review overview"]["B12"].value, 2)
             self.assertEqual(workbook["Review overview"]["B13"].value, 1)
             workbook.close()
+
+    def test_fields_set_aside_preserves_saved_reasons_and_source_text(self) -> None:
+        for major in (19, 20):
+            for connection_mode in ("local", "remote"):
+                with (
+                    self.subTest(major=major, connection_mode=connection_mode),
+                    tempfile.TemporaryDirectory() as directory,
+                ):
+                    result = golden_result()
+                    result = replace(result, fingerprint=replace(
+                        result.fingerprint, odoo_version=f"{major}.0",
+                        connection_mode=connection_mode,
+                    ))
+                    records = _prepared_records(result)
+                    record = records[0]
+                    record = replace(record, scalar_values={**record.scalar_values, "phone": None})
+                    records = (record, *records[1:])
+                    manifest_path, workbook_path = write_preflight_outputs(result, directory)
+                    fields = FieldSetAsideEvidence(
+                        findings=(
+                            FieldSetAside(
+                                FieldSetAsideReason.INVALID, record.dataset, 18,
+                                ("date",), "date", "The date could not be read.",
+                                "=1+2",
+                            ),
+                            FieldSetAside(
+                                FieldSetAsideReason.INVALID, record.dataset, 18,
+                                ("date",), "date_end", "The date could not be read.",
+                                "",
+                            ),
+                            FieldSetAside(
+                                FieldSetAsideReason.EXCLUDED, record.dataset, None,
+                                ("notes",), "comment", "Validation only.",
+                            ),
+                        ),
+                        source_labels={
+                            (record.dataset, "date"): "Start date",
+                            (record.dataset, "notes"): "Internal notes",
+                            (record.dataset, "phone"): "Phone",
+                        },
+                        source_keys={(record.dataset, "phone"): ("phone",)},
+                        null_omissions={record.dataset: ("phone",)},
+                        upsert_datasets=frozenset(),
+                        target_models={record.dataset: "res.partner"},
+                    )
+                    evidence = ReviewWorkbookEvidence(
+                        frozen_input_hash="", records=records, dataset_labels={},
+                        target_model_labels={}, target_field_labels={},
+                        normalization_content_hash="", cell_effects=(),
+                        target_field_required={}, fields_set_aside=fields,
+                    )
+                    previews = Path(directory) / "previews"
+                    write_review_workbook(
+                        manifest_path, workbook_path, review_evidence=evidence,
+                        preview_directory=previews,
+                    )
+
+                    workbook = load_workbook(workbook_path)
+                    self.addCleanup(workbook.close)
+                    sheet = workbook["Fields set aside"]
+                    self.assertEqual(workbook.sheetnames[1:3], ["Needs attention", sheet.title])
+                    self.assertEqual(sheet.freeze_panes, "A7")
+                    self.assertTrue(sheet.auto_filter.ref.startswith("A6:I"))
+                    self.assertEqual(sheet["A4"].value, "2 identified source cells")
+                    self.assertEqual(sheet["D4"].value, "1 whole column")
+                    self.assertEqual(sheet["D7"].value, "Start date")
+                    self.assertEqual(sheet["E7"].value, "=1+2")
+                    self.assertEqual(sheet["E7"].data_type, "s")
+                    self.assertIsNone(sheet["E8"].value)
+                    self.assertTrue(sheet["A7"].fill.fgColor.rgb.endswith("FCE8E7"))
+                    rule_cell = next(cell for cell in sheet["A"] if cell.value == "Skipped by rule")
+                    self.assertTrue(rule_cell.fill.fgColor.rgb.endswith("EAF2FB"))
+                    self.assertEqual(sheet.cell(rule_cell.row, 5).value, "Unavailable")
+                    self.assertIn("'=1+2", (previews / "fields-set-aside.csv").read_text())
+                    self.assertEqual(workbook["Review overview"]["A25"].hyperlink.location,
+                                     "'Fields set aside'!A1")
+
+    def test_fields_set_aside_explains_redacted_odoo_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            for major in (19, 20):
+                with self.subTest(major=major):
+                    manifest = Path(directory) / "manifest.json"
+                    manifest.write_text(json.dumps({
+                        "contract": "odoo-pinned-comparison-v1",
+                        "target": {"odoo_version": f"{major}.0"},
+                    }), encoding="utf-8")
+                    path = write_review_workbook(manifest, Path(directory) / "review.xlsx")
+                    workbook = load_workbook(path)
+                    self.addCleanup(workbook.close)
+                    sheet = workbook["Fields set aside"]
+                    self.assertIn("withheld", sheet["A2"].value)
+                    self.assertEqual(sheet["A7"].value, "No saved field omissions shown")
 
     def test_workbook_csv_previews_need_no_external_runtime(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

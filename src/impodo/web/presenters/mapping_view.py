@@ -18,6 +18,9 @@ from impodo.adapters.artifacts.mapping_review import (
     MappingReviewGenerationError,
     mapping_review_workbook_name,
 )
+from impodo.application.schema_workspace_service import (
+    can_carry_mapping_through_schema_refresh,
+)
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.workspace.mapping.incoming_dependencies import (
     repair_unambiguous_incoming_dependencies,
@@ -32,6 +35,7 @@ from impodo.domain.preparation.quality import (
     manager_quality_rule,
 )
 from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.contracts import SchemaOrigin
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
@@ -383,6 +387,7 @@ def _render_mapping(
             relation_query=relation_query,
             field_query=field_query,
             mapped_only=mapped_only,
+            show_compare_only=request.query_params.get("compare_only") == "1",
             scalar_target=request.query_params.get("scalar_target", "")[:200],
             relation_target=request.query_params.get("relation_target", "")[:200],
         )
@@ -666,6 +671,14 @@ def _render_mapping(
         quality_view=quality_view,
         recipe_application=None,
         correction_binding=correction_binding,
+        carry_mapping=can_carry_mapping_through_schema_refresh(
+            schema, governance, workspace_state.source_mode
+        ),
+        allow_field_refresh=(
+            schema is not None and schema.origin is SchemaOrigin.LIVE_API
+            and governance is not None and workspace_state.source_mode is SourceMode.FILE
+            and correction_binding is None
+        ),
         error=error,
         status_code=status_code,
     )
@@ -819,6 +832,7 @@ def _render_mapping_field_catalog(
         ),
         field_query=request.query_params.get("field_query", "").strip()[:128],
         mapped_only=request.query_params.get("mapped_only") == "1",
+        show_compare_only=request.query_params.get("compare_only") == "1",
         scalar_target=request.query_params.get("scalar_target", "")[:200],
         relation_target=request.query_params.get("relation_target", "")[:200],
         catalog_projection_cache=projection_cache,
@@ -1985,6 +1999,10 @@ def _build_dataset_catalog_projection(
         for field_index, field in enumerate(schema_scalar_fields)
         if (
             not field.readonly
+            or (field.stored is True and field.type in {
+                "char", "text", "boolean", "integer", "float", "monetary",
+                "date", "datetime", "selection",
+            })
             or (
                 field.name in scalar_by_target
                 and scalar_by_target[field.name].validate_only
@@ -2138,6 +2156,7 @@ def _mapping_dataset_views(
     relation_query="",
     field_query="",
     mapped_only=False,
+    show_compare_only=False,
     scalar_target="",
     relation_target="",
     catalog_projection_cache=None,
@@ -2452,7 +2471,15 @@ def _mapping_dataset_views(
             }
             for index in range(MAX_CONTROL_TOTALS_PER_DATASET)
         )
-        scalar_candidates = catalog_projection.scalar_candidates
+        scalar_candidates = tuple(
+            item for item in catalog_projection.scalar_candidates
+            if not item.field.readonly
+            or (show_compare_only and not odoo_pinned and not item.mapped)
+            or (
+                (mapped_scalar := scalar_by_target.get(item.field.name)) is not None
+                and mapped_scalar.validate_only
+            )
+        )
         normalized_query = field_query.casefold()
         matching_scalars = tuple(
             item
@@ -2768,6 +2795,7 @@ def _mapping_dataset_views(
                 "relation_page_size": relation_page_size,
                 "relation_query": relation_query,
                 "field_query": field_query,
+                "show_compare_only": show_compare_only,
                 "mapped_only": mapped_only,
                 "catalog_projection_cache_hit": (
                     catalog_projection_cache_hit

@@ -57,15 +57,19 @@ from ...application.run.recipe_run_jobs import (
     RecipeRunJobResult,
     RecipeRunJobStatus,
 )
+from ...application.schema_workspace_service import (
+    can_carry_mapping_through_schema_refresh,
+)
 from ...domain.recipe.models import RecipeError
 from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import (
     _checked,
+    _optional_int,
     _revision,
     _secure_form,
     _submitted_model_scope,
@@ -73,6 +77,7 @@ from ..forms import (
 )
 from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import _business_key_id, _comma_values
+from ..presenters.mapping_impact import _mapping_return_url
 from ..presenters.schema import _manual_schema_models, _render_schema
 from ..presenters.summary import _require_local_stack_access
 from ..request_identity import request_identity
@@ -903,9 +908,10 @@ def build_schema_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "return_to_sources"},
+            {"csrf_token", "return_to_sources", "return_to_mapping"},
         )
         return_to_sources = _checked(form, "return_to_sources")
+        return_to_mapping = _checked(form, "return_to_mapping")
         actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.run_setups.setup_binding_for_workspace(
@@ -919,6 +925,14 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         current = context.queries.get_odoo_schema_catalog(workspace_id)
+        mapping_location = f"{_mapping_return_url(request, workspace_id)}#odoo-field-refresh"
+        if return_to_mapping and (
+            workspace_state.source_mode is not SourceMode.FILE
+            or current is None
+            or current.origin is not SchemaOrigin.LIVE_API
+        ):
+            request.session["mapping_error"] = "Check the Odoo field list from Odoo data first."
+            return RedirectResponse(mapping_location, status_code=303)
         try:
             schema = (
                 await _check_selected_schema(
@@ -939,6 +953,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            if return_to_mapping:
+                request.session["mapping_error"] = "Could not check Odoo fields. Check your connection and try again."
+                return RedirectResponse(mapping_location, status_code=303)
             read_failure = classify_odoo_read_failure(error)
             return _render_schema(
                 request,
@@ -965,6 +982,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
             )
         else:
             _flash(request, "Odoo data is ready.")
+        if return_to_mapping:
+            return RedirectResponse(mapping_location, status_code=303)
         if (
             return_to_sources
             and schema.pending_refresh is None
@@ -991,6 +1010,73 @@ def build_schema_router(context: WebContext) -> APIRouter:
             status_code=303,
         )
 
+    def carry_optional_fields(
+        workspace_id: str,
+        candidate_id: str,
+        working_version: int | None,
+        actor: Actor,
+    ) -> None:
+        """Carry the current draft through one verified schema update."""
+
+        migration = context.migration_workspaces.get(workspace_id, actor=actor)
+        if migration.recipe_application_id or context.corrections.binding_for_successor(workspace_id):
+            raise WorkspaceError("Check Odoo fields in the workspace that owns these field matches.")
+        refresh = context.schema_workspace.optional_field_refresh(
+            workspace_id, candidate_id=candidate_id,
+            working_version=working_version, actor=actor,
+        )
+        draft = context.queries.get_mapping_working_draft(workspace_id)
+        revision = context.queries.get_mapping_revision(workspace_id)
+        selection = context.queries.get_mapping_source_selection(workspace_id)
+        governance = refresh.previous_governance
+        if selection is None or governance is None:
+            raise WorkspaceError("Confirm matching rules before refreshing Odoo fields.")
+        definition = next(
+            (
+                item.definition for item in (draft, revision)
+                if item is not None
+                and item.definition.schema_hash == governance.content_hash
+                and item.definition.source_selection_hash == selection.content_hash
+            ),
+            None,
+        )
+        if (
+            (draft.version if draft else None) != working_version
+            or (draft is not None and definition is not draft.definition)
+            or (revision is not None and definition is None)
+        ):
+            raise WorkspaceError("The field matches changed. Review them and try again.")
+        context.mapping_workspace.save_working_draft(
+            workspace_id,
+            datasets=definition.datasets if definition else (),
+            expected_version=working_version,
+            schema_refresh=refresh,
+            actor=actor,
+        )
+
+    @router.post("/workspaces/{workspace_id}/mapping/odoo-fields/apply")
+    async def apply_optional_odoo_fields(request: Request, workspace_id: str):
+        """Carry current field matches forward with the reviewed optional fields."""
+
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "candidate_id", "working_version"})
+        actor = request_identity(request, context.identity_resolver).actor
+        candidate_id = _text(form, "candidate_id")
+
+        try:
+            await run_local_operation(
+                carry_optional_fields, workspace_id, candidate_id,
+                _optional_int(_text(form, "working_version")), actor,
+            )
+        except (WorkspaceStateError, WorkspaceError) as error:
+            request.session["mapping_error"] = str(error)
+        else:
+            _flash(request, "Added the new Odoo fields and kept your field matches and matching rules. Check field matches again before preparing data.")
+        return RedirectResponse(
+            f"{_mapping_return_url(request, workspace_id, scalar_page=1)}#odoo-field-refresh",
+            status_code=303,
+        )
+
     @router.post("/workspaces/{workspace_id}/schema/capture/confirm")
     async def confirm_workspace_schema_refresh(request: Request, workspace_id: str):
         """Promote one reviewed checked snapshot and invalidate dependents."""
@@ -1007,6 +1093,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 "candidate_id",
                 "candidate_semantic_hash",
                 "confirm_schema_refresh",
+                "working_version",
             },
         )
         if not _checked(form, "confirm_schema_refresh"):
@@ -1020,18 +1107,39 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 ),
                 status_code=422,
             )
-        try:
-            schema = context.schema_workspace.confirm_refresh(
+        def confirm_fields() -> OdooSchemaCatalog | None:
+            current = context.queries.get_odoo_schema_catalog(workspace_id)
+            governance = context.queries.get_schema_governance(workspace_id)
+            candidate_id = _text(form, "candidate_id")
+            current_hash = _text(form, "expected_current_content_hash")
+            semantic_hash = _text(form, "candidate_semantic_hash")
+            if can_carry_mapping_through_schema_refresh(
+                current, governance, workspace_state.source_mode
+            ):
+                pending = current.pending_refresh if current else None
+                if (
+                    pending is None
+                    or current_hash != pending.expected_current_content_hash
+                    or semantic_hash != pending.semantic_hash
+                ):
+                    raise WorkspaceError("Check for Odoo field changes again.")
+                carry_optional_fields(
+                    workspace_id, candidate_id,
+                    _optional_int(_text(form, "working_version")), actor,
+                )
+                return None
+            if "working_version" in form:
+                raise WorkspaceError("The Odoo field changes changed. Review them again.")
+            return context.schema_workspace.confirm_refresh(
                 workspace_id,
-                expected_current_content_hash=_text(
-                    form, "expected_current_content_hash"
-                ),
-                expected_candidate_id=_text(form, "candidate_id"),
-                expected_candidate_semantic_hash=_text(
-                    form, "candidate_semantic_hash"
-                ),
+                expected_current_content_hash=current_hash,
+                expected_candidate_id=candidate_id,
+                expected_candidate_semantic_hash=semantic_hash,
                 actor=actor,
             )
+
+        try:
+            schema = await run_local_operation(confirm_fields)
         except (WorkspaceStateError, WorkspaceError) as error:
             return _render_schema(
                 request,
@@ -1039,6 +1147,12 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 error=str(error),
                 status_code=422,
+            )
+        if schema is None:
+            _flash(request, "Added the new Odoo fields and kept your field matches and matching rules. Check field matches again before preparing data.")
+            return RedirectResponse(
+                f"/workspaces/{workspace_id}/mapping#odoo-field-refresh",
+                status_code=303,
             )
         _flash(
             request,

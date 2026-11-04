@@ -451,11 +451,18 @@
           <input type="hidden" name="expected_current_content_hash" value="{{ pending.expected_current_content_hash }}">
           <input type="hidden" name="candidate_id" value="{{ pending.candidate_id }}">
           <input type="hidden" name="candidate_semantic_hash" value="{{ pending.semantic_hash }}">
+          {% if carry_mapping %}
+          <input type="hidden" name="confirm_schema_refresh" value="1">
+          <input type="hidden" name="working_version" value="{{ refresh_draft.version if refresh_draft else '' }}">
+          <p>Apply these optional fields and keep your field matches and matching rules. Check your matches again before preparing data.</p>
+          <button class="button primary" type="submit">Apply new optional fields</button>
+          {% else %}
           <label class="checkbox">
             <input type="checkbox" name="confirm_schema_refresh" value="1" required>
             I understand that using these updated Odoo details retires matching and prepared work that depends on the current details
           </label>
           <button class="button primary" type="submit">Use updated Odoo details</button>
+          {% endif %}
         </form>
       </section>
     {% elif schema and schema.origin.value != 'LOCAL_MANUAL' %}

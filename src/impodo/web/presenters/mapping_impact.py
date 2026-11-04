@@ -251,6 +251,7 @@ def _mapping_return_url(
         "relation_query",
         "field_query",
         "mapped_only",
+        "compare_only",
         "scalar_target",
         "relation_target",
     }

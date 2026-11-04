@@ -210,7 +210,8 @@ def compile_browser_mapping(
                 required_on_create=(
                     field.required_on_create or field.target_field in hook_inputs
                 ),
-                compare=field.compare,
+                compare=field.compare and not field.validate_only,
+                compare_only=True if field.compare and field.validate_only else None,
                 validate_only=field.validate_only,
                 normalize=NormalizationSpec(empty_as_null=True),
                 null_policy=_null_policy(field.null_policy),

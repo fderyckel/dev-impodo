@@ -6,6 +6,11 @@ from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent, ExpectedCount
 from impodo.web.composition.page_reads import run_local_operation_sync
 from uuid import uuid4
+from io import BytesIO
+
+from openpyxl import load_workbook
+
+from impodo.adapters.artifacts.reporting import write_review_workbook
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     OdooConnectionMode,
@@ -1977,10 +1982,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "application/json",
             evidence.headers["content-type"],
         )
-        with patch("impodo.web.routers.preflight.write_review_workbook") as builder:
-            builder.side_effect = lambda _manifest, workbook, **_options: Path(
-                workbook
-            ).write_bytes(b"review package")
+        with patch(
+            "impodo.web.routers.preflight.write_review_workbook",
+            wraps=write_review_workbook,
+        ) as builder:
             packaged = self.client.post(
                 f"/workspaces/{workspace_id}/summary/package",
                 data={"csrf_token": self.csrf},
@@ -1989,6 +1994,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             )
             review_evidence = builder.call_args.kwargs["review_evidence"]
             self.assertIsNotNone(review_evidence)
+            self.assertIsNotNone(review_evidence.fields_set_aside)
             current_report = self.app.state.context.preflight.current_report(
                 workspace_id
             )
@@ -2025,6 +2031,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "spreadsheetml.sheet",
             workbook.headers["content-type"],
         )
+        downloaded = load_workbook(BytesIO(workbook.content))
+        self.addCleanup(downloaded.close)
+        self.assertEqual(downloaded["Fields set aside"].freeze_panes, "A7")
+        self.assertEqual(len(self.readiness_calls), 2)
 
         workspace_state = self.app.state.context.workspace_states.repository.get(workspace_id)
 

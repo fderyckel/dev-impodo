@@ -10,6 +10,19 @@ document.addEventListener("DOMContentLoaded", () => {
     restoreScalarRow,
   } = window.impodoMappingEditor;
 
+  const saveStatus = mappingForm?.querySelector("[data-mapping-save-status]");
+  for (const form of document.querySelectorAll("[data-odoo-field-refresh]")) {
+    form.addEventListener("submit", (event) => {
+      if (mappingForm.getAttribute("aria-busy") === "true" || saveStatus?.classList.contains("unsaved")) {
+        event.preventDefault();
+        if (saveStatus) {
+          saveStatus.textContent = "Save your field matches before checking or applying Odoo field changes.";
+          saveStatus.scrollIntoView({ block: "nearest" });
+        }
+      }
+    });
+  }
+
   const fieldCatalogSearchDelayMs = 350;
   const mappingCatalogEditorId =
     globalThis.crypto && typeof globalThis.crypto.randomUUID === "function"
@@ -25,6 +38,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const searchSubmit = catalog.querySelector("[data-field-search-submit]");
     const mappedOnly = catalog.querySelector("[data-show-mapped-scalars]");
     const count = catalog.querySelector("[data-scalar-field-count]");
+    const compareOnly = catalog.querySelector("[data-show-compare-only]");
     const topScroll = catalog.querySelector(
       "[data-scalar-table-scroll-top]"
     );
@@ -129,6 +143,11 @@ document.addEventListener("DOMContentLoaded", () => {
           url.searchParams.set("mapped_only", "1");
         } else {
           url.searchParams.delete("mapped_only");
+        }
+        if (compareOnly?.checked) {
+          url.searchParams.set("compare_only", "1");
+        } else {
+          url.searchParams.delete("compare_only");
         }
         url.searchParams.set("scalar_page", "1");
       }
@@ -277,6 +296,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     searchSubmit?.addEventListener("click", () => loadScalarCatalog());
     mappedOnly?.addEventListener("change", () => loadScalarCatalog());
+    compareOnly?.addEventListener("change", () => loadScalarCatalog());
     catalog.addEventListener("click", (event) => {
       const link = event.target.closest("[data-scalar-pagination] a");
       if (!link) {

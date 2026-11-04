@@ -211,6 +211,20 @@ coordinate, prepared records by trace, source-issue keys, and target models
 once before projecting rows. Workbook size therefore does not introduce a
 repository, Odoo, or repeated full-collection lookup for each action item.
 
+The **Fields set aside** tab combines saved field-level preparation findings,
+blocking comparison findings, and explicit rules that omit values. It also
+lists columns that a saved mapping uses for validation only. The export
+collects preparation findings from the verified effective rows, or the
+canonical staging rows when there is no effective overlay. The workbook
+counts an identified source cell once even when it contributes to more than
+one target field. An omission without a saved cause or a value without a
+saved original remains outside the corresponding count or value display.
+
+The package reuses the same local evidence reads. It keeps the omission
+projection outside the frozen input hash because it is derived from the
+evidence that hash already binds. Older manifests and redacted Odoo-source
+manifests show the coverage available to the export.
+
 Traceability uses the accepted logical dataset and source row. The current
 browser-compiled plan uses a synthetic contained source filename, so the
 workbook does not present that value as the operator's original uploaded file

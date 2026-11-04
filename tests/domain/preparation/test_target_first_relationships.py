@@ -300,6 +300,65 @@ def _frozen(plan: CompiledMigrationPlan, prepared):
 
 
 class TargetFirstRelationshipTests(unittest.TestCase):
+    def test_compare_only_scalar_is_reviewed_without_a_write_intent(self):
+        original = _plan()
+        products = original.dataset("products")
+        compare_field = "x_generated_reference"
+        products = products.model_copy(update={
+            "fields": {
+                **products.fields,
+                compare_field: FieldSpec(
+                    source="product_code", type="string", compare=False,
+                    validate_only=True, compare_only=True,
+                ),
+            },
+        })
+        plan = original.model_copy(update={"datasets": (original.dataset("sales_uoms"), products)})
+        prepared = _prepared(plan, "kg")
+        for major in (19, 20):
+            metadata, records = _snapshots(odoo_version=f"{major}.0")
+            model = metadata.models["product.template"]
+            metadata = replace(metadata, models={
+                **metadata.models,
+                model.model: replace(model, fields={
+                    **model.fields,
+                    compare_field: FieldMetadata(compare_field, "char", readonly=True, stored=True),
+                }),
+            })
+            requests = plan_record_requests(plan, prepared.records)
+            self.assertTrue(any(
+                request.model == model.model and compare_field in request.fields
+                for request in requests
+            ))
+            for name, classification in (
+                ("Product in kg", Classification.UNCHANGED),
+                ("Previous name", Classification.UPDATE),
+                (None, Classification.CREATE),
+            ):
+                with self.subTest(major=major, classification=classification):
+                    target_rows = () if name is None else (TargetRecord(model.model, 51, {
+                        "default_code": "P-kg", "name": name, "uom_id": 11,
+                        compare_field: "Odoo-generated",
+                    }),)
+                    observed = replace(records, records={**records.records, model.model: target_rows},
+                        requested_fields={
+                            **records.requested_fields,
+                            model.model: (*records.requested_fields[model.model], compare_field),
+                        })
+                    result = PreflightEngine().run(plan, prepared, metadata, observed)
+                    decision = next(row for row in result.decisions if row.dataset == "products")
+                    self.assertEqual(decision.classification, classification)
+                    if name is not None:
+                        difference = next(item for item in decision.differences if item.field == compare_field)
+                        self.assertEqual((difference.existing, difference.proposed), ("Odoo-generated", "P-kg"))
+                        self.assertFalse(difference.material)
+                        self.assertIn("COMPARE_ONLY_FIELD_DIFFERS", {item.code for item in decision.issues})
+                    execution = build_execution_snapshot(
+                        preflight_run_id=str(uuid4()), frozen=_frozen(plan, prepared), result=result,
+                    )
+                    for row in execution.rows:
+                        self.assertNotIn(compare_field, {intent.field for intent in row.fields})
+
     def test_browser_mapping_compiles_both_reference_origins(self) -> None:
         sales_dataset_id = "dataset:" + "a" * 24
         product_dataset_id = "dataset:" + "b" * 24

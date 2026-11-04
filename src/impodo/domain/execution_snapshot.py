@@ -1111,6 +1111,8 @@ def _update_intents(
 ) -> tuple[FieldIntent, ...]:
     intentions = []
     for difference in decision.differences:
+        if not difference.material:
+            continue
         relation = dataset.relations.get(difference.field)
         proposed = (
             _restore_update_incoming_references(

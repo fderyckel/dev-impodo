@@ -548,6 +548,7 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 prepared=SimpleNamespace(records=(record,)),
                 dataset_labels={"contacts": "Contacts"},
                 captured_schema=schema,
+                fields_set_aside=None,
                 normalization=SimpleNamespace(
                     run_id="normalization-run",
                     content_hash=normalization_hash,

@@ -1,0 +1,33 @@
+{% if allow_field_refresh and not (migration_workspace and migration_workspace.recipe_application_id) %}
+<div id="odoo-field-refresh">
+  <form method="post" id="check-odoo-fields" data-odoo-field-refresh action="/workspaces/{{ workspace_id }}/schema/capture{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to_mapping" value="1">
+  </form>
+  {% if schema.pending_refresh %}
+  <section class="notice" aria-label="Odoo field changes">
+    <strong>Odoo field changes</strong>
+    <ul>
+      {% for change in schema.pending_refresh.changes %}
+      <li>{{ change.model_label }}{% if change.field_label %} · {{ change.field_label }}{% endif %} — {{ change.description }}</li>
+      {% endfor %}
+    </ul>
+    {% if schema.pending_refresh.change_count > schema.pending_refresh.changes|length %}
+    <p>{{ schema.pending_refresh.change_count - schema.pending_refresh.changes|length }} more changes.</p>
+    {% endif %}
+    {% if carry_mapping %}
+    <form method="post" data-odoo-field-refresh action="/workspaces/{{ workspace_id }}/mapping/odoo-fields/apply{% if request.url.query %}?{{ request.url.query }}{% endif %}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="candidate_id" value="{{ schema.pending_refresh.candidate_id }}">
+      <input type="hidden" name="working_version" value="{{ working_draft.version if working_draft else '' }}">
+      <button class="button secondary" type="submit">Apply new optional fields</button>
+    </form>
+    <p>Applying new optional fields keeps your field matches and matching rules. Check your field matches and prepare data again.</p>
+    {% else %}
+    <p>These changes need review on Odoo data.</p>
+    <a href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes">Review Odoo changes</a>
+    {% endif %}
+  </section>
+  {% endif %}
+</div>
+{% endif %}

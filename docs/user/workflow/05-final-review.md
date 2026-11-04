@@ -171,6 +171,18 @@ Impodo** and **Added by Impodo** remain informational unless the comparison
 also records a warning or blocker. This keeps the worklist focused on decisions
 that need a data manager.
 
+Open **Fields set aside** from **Review overview** to see saved field
+omissions and their reasons. Red rows identify source values that need
+correction. Amber rows identify matches to review. Blue rows identify saved
+rules and choices, such as a source column used for validation only. Filter by
+reason, dataset, or source field to find the entries you need.
+
+The counts separate identified source cells from whole columns. If a finding
+covers several source columns or lacks a precise source coordinate, Impodo
+lists it as a field finding. Some saved evidence has a reason without the
+original value. The workbook labels that value **Unavailable**. **Deferred
+issues** explains why whole records were set aside.
+
 In **Records to load**, each prepared field keeps only the final value in the
 visible cell. The **Prepared value feedback** column identifies the affected
 field and uses these statuses:

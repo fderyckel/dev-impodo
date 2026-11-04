@@ -52,6 +52,7 @@ from impodo.domain.workspace.errors import (
     OdooModelCatalogRefreshRequired,
     WorkspaceError,
 )
+from impodo.domain.workspace.selection_choices import SelectionSchemaRefresh
 from impodo.domain.workspace.supporting_models import (
     unavailable_required_supporting_dependencies,
 )
@@ -948,6 +949,71 @@ class SchemaWorkspaceService:
         if recovered_count < 1:
             raise WorkspaceError("Odoo did not return a usable create default")
         return updated
+
+    def optional_field_refresh(
+        self,
+        workspace_id: str,
+        *,
+        candidate_id: str,
+        working_version: int | None,
+        actor: Actor,
+    ) -> SelectionSchemaRefresh:
+        """Stage an additive field refresh for the mapping save transaction."""
+
+        workspace, permitted = self._capture_context(workspace_id, actor=actor)
+        self.authorization.require(actor, Capability.SCHEMA_GOVERN, workspace_id=workspace_id)
+        if workspace.source_mode is not SourceMode.FILE:
+            raise WorkspaceError("This refresh requires a file source.")
+        current = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
+        if current is None or governance is None or governance.catalog_hash != current.content_hash:
+            raise WorkspaceError("Confirm matching rules before refreshing Odoo fields.")
+        pending = current.pending_refresh
+        if (
+            pending is None
+            or pending.candidate_id != candidate_id
+            or pending.expected_current_content_hash != current.content_hash
+            or pending.connection_target_hash != _target_identity_hash(workspace)
+            or pending.policy_hash != _live_source_policy_hash(pending.odoo_version)
+            or {model.name for model in pending.models} != permitted
+        ):
+            raise WorkspaceError("Check for Odoo field changes again.")
+        updated = replace(
+            current,
+            policy_hash=pending.policy_hash,
+            captured_at=pending.checked_at,
+            captured_by=pending.checked_by,
+            connection_mode=pending.connection_mode,
+            database=pending.database,
+            odoo_version=pending.odoo_version,
+            models=pending.models,
+            content_hash=pending.content_hash,
+            origin=pending.origin,
+            read_credential_binding_hash=pending.read_credential_binding_hash,
+            read_principal_hash=pending.read_principal_hash,
+            read_permission_hash=pending.read_permission_hash,
+            read_context_hash=pending.read_context_hash,
+            connection_target_hash=pending.connection_target_hash,
+            pending_refresh=None,
+        )
+        problem = _optional_field_refresh_problem(current, pending)
+        if problem:
+            raise WorkspaceError(problem)
+        return SelectionSchemaRefresh(
+            previous_schema=current,
+            previous_governance=governance,
+            schema=updated,
+            governance=replace(
+                governance,
+                version=governance.version + 1,
+                catalog_hash=updated.content_hash,
+                recorded_at=datetime.now(UTC),
+                recorded_by=actor.identity.display_name,
+            ),
+            workspace_revision=workspace.revision,
+            working_version=working_version,
+            invalidation_reason="ODOO_OPTIONAL_FIELDS_ADDED",
+        )
 
     def confirm_refresh(
         self,
@@ -1871,9 +1937,43 @@ def _schema_field_semantics(field: SchemaField) -> dict[str, object]:
     }
 
 
+def can_carry_mapping_through_schema_refresh(
+    schema: OdooSchemaCatalog | None,
+    governance: SchemaGovernance | None,
+    source_mode: SourceMode,
+) -> bool:
+    """Identify optional field additions to an already governed file workspace."""
+
+    return (
+        source_mode is SourceMode.FILE
+        and schema is not None
+        and schema.pending_refresh is not None
+        and governance is not None
+        and governance.catalog_hash == schema.content_hash
+        and not _optional_field_refresh_problem(schema, schema.pending_refresh)
+    )
+
+
+def _optional_field_refresh_problem(
+    current: OdooSchemaCatalog,
+    pending: OdooSchemaRefreshCandidate,
+) -> str:
+    changes = _schema_refresh_changes(current, pending)
+    if not changes or any(change.kind != "FIELD_ADDED" for change in changes):
+        return "Review these changes on Odoo data. This action applies only new optional fields."
+    added = {(change.model_name, change.field_name) for change in changes}
+    if any(
+        field.required and (model.name, field.name) in added
+        for model in pending.models
+        for field in model.fields
+    ):
+        return "Review the new required fields on Odoo data."
+    return ""
+
+
 def _schema_refresh_changes(
     current: OdooSchemaCatalog,
-    candidate: OdooSchemaCatalog,
+    candidate: OdooSchemaCatalog | OdooSchemaRefreshCandidate,
 ) -> tuple[OdooSchemaChange, ...]:
     """Describe semantic differences without treating translated labels as meaning."""
 
@@ -1954,7 +2054,11 @@ def _schema_refresh_changes(
             add(
                 "FIELD_ADDED",
                 observed_model,
-                "This field was added.",
+                (
+                    "This required field was added."
+                    if observed_fields[field_name].required
+                    else "This field was added."
+                ),
                 observed_fields[field_name],
             )
         for field_name in sorted(previous_fields.keys() & observed_fields.keys()):

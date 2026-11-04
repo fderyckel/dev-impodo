@@ -88,6 +88,7 @@ from ..domain.preflight.reports import (
     ReviewWorkbookEvidence,
     _readiness_report,
 )
+from ..domain.staging.evaluator import canonical_field_sources
 from .odoo_comparison_service import (
     ODOO_COMPARISON_ARTIFACT_NAME,
     OdooComparisonPreparation,
@@ -569,7 +570,7 @@ class PreflightService:
         workspace_state = self.workspaces.get(workspace_id)
         if getattr(workspace_state, "source_mode", SourceMode.FILE) is SourceMode.ODOO:
             return None
-        frozen = self._load_frozen_input(workspace_id)
+        frozen = self._load_frozen_input(workspace_id, include_workbook_findings=True)
         if frozen.content_hash != report.frozen_input_hash:
             raise ReadinessError(
                 "The prepared values no longer match the current comparison. "
@@ -616,6 +617,7 @@ class PreflightService:
         models = frozen.captured_schema.models if frozen.captured_schema else ()
         return ReviewWorkbookEvidence(
             frozen_input_hash=frozen.content_hash,
+            fields_set_aside=frozen.fields_set_aside,
             records=tuple(frozen.prepared.records),
             dataset_labels=dict(sorted(frozen.dataset_labels.items())),
             target_model_labels={
@@ -1608,7 +1610,9 @@ class PreflightService:
             raise
         return report
 
-    def _load_frozen_input(self, workspace_id: str) -> FrozenPreflightInput:
+    def _load_frozen_input(
+        self, workspace_id: str, *, include_workbook_findings: bool = False
+    ) -> FrozenPreflightInput:
         """Load version-checked durable evidence without source artifacts."""
 
         workspace_state = self.workspaces.get(workspace_id)
@@ -1746,6 +1750,17 @@ class PreflightService:
                 source_field_labels=source_field_labels,
                 effective=effective,
                 captured_schema=captured_schema,
+                workbook_source_keys=(
+                    {
+                        (dataset, field): keys
+                        for dataset, fields in canonical_field_sources(
+                            revision.definition, selection
+                        ).items()
+                        for field, keys in fields.items()
+                    }
+                    if include_workbook_findings
+                    else None
+                ),
             )
         except ReadinessError as error:
             raise OdooReadWorkflowError(

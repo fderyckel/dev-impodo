@@ -13,6 +13,9 @@ from starlette.datastructures import FormData
 from impodo.application.browser_queries import SourceReviewPage
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.run.setup_service import RunSetupPage
+from impodo.application.schema_workspace_service import (
+    can_carry_mapping_through_schema_refresh,
+)
 from impodo.application.workspace.issues import summarize_workflow_issues
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.business_keys import (
@@ -715,6 +718,12 @@ def _render_schema(
         )
     )
     governance = context.queries.get_schema_governance(workspace_id)
+    carry_mapping = can_carry_mapping_through_schema_refresh(
+        schema, governance, workspace_state.source_mode
+    )
+    refresh_draft = (
+        context.queries.get_mapping_working_draft(workspace_id) if carry_mapping else None
+    )
     governed_by_model = (
         {item.model: item for item in governance.business_keys} if governance else {}
     )
@@ -817,6 +826,8 @@ def _render_schema(
             else 0
         ),
         governance=governance,
+        carry_mapping=carry_mapping,
+        refresh_draft=refresh_draft,
         governed_by_model=governed_by_model,
         key_views=key_views,
         key_summary=key_summary,

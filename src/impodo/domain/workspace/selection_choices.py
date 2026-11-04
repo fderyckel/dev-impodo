@@ -42,6 +42,7 @@ class SelectionSchemaRefresh:
     governance: SchemaGovernance | None
     workspace_revision: int
     working_version: int | None
+    invalidation_reason: str = "ODOO_SELECTION_CHOICES_CHANGED"
 
     @property
     def changed(self) -> bool:

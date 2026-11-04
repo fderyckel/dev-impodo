@@ -50,7 +50,7 @@
     {% include "_workflow_issue_summary.html" %}
     {% include "mapping/_identity_health.html" %}
     {% include "mapping/_relationship_health.html" %}
-    {% include "mapping/_matching_order.html" %}
+    {% include "mapping/_matching_order.html" %}{% include "mapping/_odoo_field_refresh.html" %}
     <form
       method="post"
       action="/workspaces/{{ workspace_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
