@@ -53,6 +53,10 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarTransformationProgram,
 )
 from ..domain.correction import CorrectionValueKind
+from ..domain.mapping.scalar_values import (
+    EXCEL_TIMESTAMP_DATE_FORMAT,
+    EXCEL_TIMESTAMP_DATE_PATTERNS,
+)
 from ..domain.mapping.source_conditions import parse_source_text_list
 from ..domain.prepared_snapshot import PreparedSnapshot
 from ..domain.serialization import content_hash
@@ -1218,6 +1222,17 @@ def _conversion_expression(
         )
         return value, prepared.is_not_null() & ~(true_value | false_value)
     if operation is ColumnarOperationKind.PARSE_DATE:
+        if step.text == EXCEL_TIMESTAMP_DATE_FORMAT:
+            value = pl.coalesce(
+                [
+                    prepared.str.extract(f"^{pattern}$", 1).str.strptime(
+                        pl.Date, calendar_format, strict=False, exact=True
+                    )
+                    for pattern, calendar_format in EXCEL_TIMESTAMP_DATE_PATTERNS
+                ]
+            )
+            value = pl.when(value.dt.year() > 0).then(value)
+            return value, prepared.is_not_null() & value.is_null()
         formats = {
             "iso": "%Y-%m-%d",
             "dmy_slash": "%d/%m/%Y",

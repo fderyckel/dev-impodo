@@ -216,7 +216,7 @@ class MatchingExpectationsTests(HierarchyWorkflowFixture):
         # Four owners; the read-to-write transition reopens the engine and
         # audit owner. The number does not depend on rows, fields or models.
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertLessEqual(timings.schema_check_count, 6)
         self.assertEqual(timings.lock_retry_count, 0)
         revision = self.context.business_intents.get(workspace_id, actor=self.actor)
         chain = next(item for item in revision.intent.models if item.model == "x.chain")

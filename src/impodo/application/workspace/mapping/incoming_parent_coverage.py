@@ -9,11 +9,16 @@ tests/integration/web/test_same_table_hierarchy.py.
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Mapping
 
 from impodo.domain.mapping.contracts import (
     IdentityNullPolicy,
     MappingDefinition,
     ResolverOrigin,
+)
+from impodo.domain.mapping.row_inclusion import (
+    IncludedParentRows,
+    incoming_parent_links,
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationIssue
 from impodo.domain.workspace.contracts import SourceSelection
@@ -27,6 +32,7 @@ def incoming_parent_issues(
     workspace_id: str,
     definition: MappingDefinition,
     selection: SourceSelection,
+    included_parents: Mapping[str, IncludedParentRows],
 ) -> tuple[MappingValidationIssue, ...]:
     """Reject missing physical scope parents without guessing root markers."""
 
@@ -67,6 +73,7 @@ def incoming_parent_issues(
             dataset_id,
             keys,
             mappings[dataset_id].row_inclusion,
+            included_parent=included_parents.get(dataset_id),
         )
         for dataset_id, keys in sorted(columns.items())
     }
@@ -103,6 +110,22 @@ def incoming_parent_issues(
             and component.null_policy is IdentityNullPolicy.EXPLICIT_SCOPE_NULL
             and ("0",) in missing
         )
+        remediation = "Include the missing parent rows or correct the parent references, then check matches again."
+        if zero_root:
+            remediation = (
+                "If 0 marks your root, select 'A parent value of 0 means no parent'. "
+                "Otherwise include the missing parent or correct its source reference."
+            )
+        elif dataset.dataset_id != parent_id and any(
+            link.target_field == component.target_fields[0]
+            and link.dataset_id == parent_id
+            and len(link.source_keys) == len(mappings[parent_id].source_identity_column_keys)
+            for link in incoming_parent_links(dataset)
+        ):
+            remediation += (
+                " To skip rows whose parents are outside this import, choose "
+                "'Use only rows whose parent is included' in Rows to use."
+            )
         issues.append(
             MappingValidationIssue(
                 code="MAPPING_INCOMING_PARENT_MISSING",
@@ -113,12 +136,7 @@ def incoming_parent_issues(
                     f"missing from {names[parent_id]}."
                     + (" A parent value of 0 is not a blank root." if zero_root else "")
                 ),
-                remediation=(
-                    "If 0 marks your root, select 'A parent value of 0 means no parent'. "
-                    "Otherwise include the missing parent or correct its source reference."
-                    if zero_root
-                    else "Include the missing parent rows or correct the parent references, then check matches again."
-                ),
+                remediation=remediation,
                 dataset_id=dataset.dataset_id,
                 target_model=dataset.target_model,
                 target_field=component.target_fields[0],

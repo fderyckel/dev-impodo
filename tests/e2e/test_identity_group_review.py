@@ -71,6 +71,10 @@ class IdentityGroupJourneyTests(unittest.TestCase):
         review = card.get_by_role("link", name="Review repeated source identities")
         review.focus()
         review.press("Enter")
+        expect(page.get_by_role("dialog", name="Compare duplicate rows")).to_be_visible()
+        expect(page.get_by_role("dialog").get_by_role("alert")).to_contain_text("unique source identifier")
+        page.get_by_role("button", name="Close duplicate review").click()
+        page.goto(base + review.get_attribute("href"), wait_until="networkidle")
         expect(
             page.get_by_role("heading", name="Review duplicate identity groups")
         ).to_be_visible()

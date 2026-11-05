@@ -626,6 +626,8 @@ def _render_schema(
     ]
     | None = None,
     key_errors: Mapping[str, str] | None = None,
+    supporting_save_error: ValueError | WorkspaceError | None = None,
+    supporting_drafts: Mapping[str, tuple[str, str]] | None = None,
 ):
     actor = request_identity(request, context.identity_resolver).actor
     source_page = source_page or context.queries.get_source_page(workspace_id)
@@ -761,7 +763,12 @@ def _render_schema(
     supporting_review = None
     if (workspace_state.source_mode.value == "FILE" and odoo_check_plan is None
             and schema is not None and schema.origin is SchemaOrigin.LIVE_API and selection is not None):
-        supporting_review = supporting_review_view(context, workspace_state, selection, schema, governance, actor=actor)
+        supporting_review = supporting_review_view(
+            context, workspace_state, selection, schema, governance, actor=actor,
+            save_error=supporting_save_error, drafts=supporting_drafts,
+        )
+    elif supporting_save_error is not None:
+        error = str(supporting_save_error)
     issue_summary = summarize_workflow_issues((
         *supporting_model_plan["issue_summary"].issues,
         *(supporting_review["issues"] if supporting_review else ()),

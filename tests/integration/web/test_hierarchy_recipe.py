@@ -1,8 +1,15 @@
 """Reuse the complete hierarchy Recipe on another accepted, reordered delivery."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from impodo.domain.mapping.contracts import (
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
+    SelectionConditionOperator,
+)
 from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.integration.web.test_fresh_data_controls import field
 from tests.support.browser_scenarios import POST_HEADERS
@@ -52,11 +59,37 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
     def test_supplied_zero_root_odoo20_remote(self):
         self._reuse(20, "REMOTE", "supplied", zero_root=True)
 
-    def _reuse(self, major, mode, source_shape, *, zero_root=False):
+    def test_included_parent_rule_recomputes_on_odoo19_and_odoo20_deliveries(self):
+        for major in (19, 20):
+            for mode in ("LOCAL", "REMOTE"):
+                with self.subTest(major=major, mode=mode):
+                    self._reuse(major, mode, "supplied", follow_parent=True)
+
+    def _reuse(self, major, mode, source_shape, *, zero_root=False, follow_parent=False):
         context, actor = self.context, self.actor
         workspace_id, original = self.hierarchy(
             major=major, mode=mode, source_shape=source_shape, zero_root=zero_root,
         )
+        if follow_parent:
+            original = self.submit(
+                workspace_id,
+                tuple(
+                    replace(item, row_inclusion=RowInclusionPolicy(
+                        mode=RowInclusionMode.MATCHING_ROWS,
+                        included_parent_field="categ_id",
+                    ))
+                    if item.target_model == "product.template"
+                    else replace(item, row_inclusion=RowInclusionPolicy(
+                        mode=RowInclusionMode.MATCHING_ROWS,
+                        conditions=(RowInclusionCondition(
+                            str(uuid4()), item.source_identity_column_keys[0],
+                            SelectionConditionOperator.NOT_EQUALS, "C300",
+                        ),),
+                    ))
+                    for item in original.definition.datasets
+                ),
+                confirm_rows=True,
+            )
         self.prepare(workspace_id)
         owner = context.migration_workspaces.get(workspace_id, actor=actor)
         draft = context.recipe_publication.draft(
@@ -96,6 +129,7 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
             supplied_files(fresh_rows, categories=tuple(
                 (key, name, parent or "0") if zero_root else (key, name, parent)
                 for key, name, parent in reversed(CATEGORY_ROWS)
+                if not follow_parent or key != "C112"
             ))
             if source_shape == "supplied"
             else {"products": product_csv(fresh_rows)}
@@ -152,6 +186,17 @@ class HierarchyRecipeTests(HierarchyWorkflowFixture):
             actor=actor,
         )
         application = activated.applications[0]
+        if follow_parent:
+            self.assertEqual(application.status.value, "BLOCKED")
+            issues = context.run_planning.repository.list_issues(application.application_id)
+            self.assertIn("MAPPING_ROW_INCLUSION_CONFIRMATION_REQUIRED", {item.code for item in issues})
+            review, confirmation = context.row_inclusion_reviews.current(
+                application.workspace_id, actor=actor,
+            )
+            child = next(item for item in review.datasets if item.dataset_name == "products")
+            self.assertEqual((child.included_count, child.excluded_count), (4, 2))
+            self.assertIsNone(confirmation)
+            return
         self.assertEqual(
             application.status.value,
             "READY",

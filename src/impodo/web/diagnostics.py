@@ -40,6 +40,7 @@ from impodo.application.shared.build_contract import ApplicationBuildContract
 from impodo.domain.execution.load_control import FailureWindow, LoadControl
 from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.mutations import MappingMutationAction
+from impodo.web.supporting_access_diagnostics import sanitize_supporting_access
 from impodo.web.supporting_diagnostics import sanitize_supporting_failure
 
 DIAGNOSTIC_SCHEMA_VERSION = 1
@@ -363,6 +364,7 @@ class LocalDiagnosticRecorder:
         working_draft_version: int | None = None,
         mapping_operation_id: str | None = None,
         validation_failure: object = None,
+        supporting_access: object = None,
         mapping_action: str | None = None,
         server_timings_ms: dict[str, float] | None = None,
         database_connection_count: int | None = None,
@@ -398,6 +400,9 @@ class LocalDiagnosticRecorder:
         failure = sanitize_supporting_failure(validation_failure)
         if failure is not None:
             payload["validation_failure"] = failure
+        access = sanitize_supporting_access(supporting_access)
+        if access is not None:
+            payload["supporting_access"] = access
         if isinstance(mapping_action, str) and mapping_action in _MAPPING_ACTIONS:
             payload["mapping_action"] = mapping_action
         for name, value in (
@@ -659,6 +664,7 @@ class RequestDiagnosticsMiddleware:
                     ),
                     mapping_operation_id=state.get("diagnostic_mapping_operation_id"),
                     validation_failure=state.get("diagnostic_validation_failure"),
+                    supporting_access=state.get("diagnostic_supporting_access"),
                     mapping_action=state.get("diagnostic_mapping_action"),
                     server_timings_ms=server_timings_ms,
                     database_connection_count=(
@@ -725,9 +731,17 @@ def create_diagnostic_bundle(
             continue
 
     records.sort(key=lambda item: str(item.get("recorded_at", "")))
+    supporting_access_records = [
+        item for item in records
+        if item.get("supporting_access")
+        or item.get("validation_failure", {}).get("stage") == "supporting_review"
+    ][-100:]
     failure_records = [
         item for item in records
         if item.get("validation_failure")
+        or item.get("supporting_access", {}).get("outcome") in {
+            "REVIEW_REQUIRED", "SCHEMA_REVIEW_REQUIRED", "REFRESH_FAILED",
+        }
         or item.get("exception_class")
         or item.get("event") == "odoo_json2_read_failed"
         or (item.get("event") == "odoo_load_control" and item.get("state") in {"PAUSED", "STOPPED"})
@@ -769,6 +783,7 @@ def create_diagnostic_bundle(
         "record_count": len(records),
         "slow_record_count": len(slow_records),
         "failure_record_count": len(failure_records),
+        "supporting_access_record_count": len(supporting_access_records),
         "privacy": (
             "Operational and technical schema metadata only, including model and field identifiers. "
             "Source rows, formulas, credentials, "
@@ -782,6 +797,10 @@ def create_diagnostic_bundle(
     )
     buffer = BytesIO()
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "supporting-access.json",
+            json.dumps(supporting_access_records, ensure_ascii=True, sort_keys=True, indent=2),
+        )
         archive.writestr(
             "manifest.json",
             json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True)
@@ -1039,6 +1058,9 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
     failure = sanitize_supporting_failure(value.get("validation_failure"))
     if failure is not None:
         safe["validation_failure"] = failure
+    access = sanitize_supporting_access(value.get("supporting_access"))
+    if access is not None:
+        safe["supporting_access"] = access
     if isinstance(value.get("mapping_action"), str) and value["mapping_action"] in _MAPPING_ACTIONS:
         safe["mapping_action"] = value["mapping_action"]
     if "method" in value:

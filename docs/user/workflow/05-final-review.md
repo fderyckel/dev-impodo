@@ -16,6 +16,11 @@ Rows excluded by your confirmed **Rows to use** rule stay outside this
 comparison and the later load. Their source decisions remain available for
 review. Their absence never asks Odoo to delete an existing record.
 
+In the prepared-data **Set aside** list, **Excluded by filters** means that a
+row did not meet your **Rows to use** rule. Select **Review Rows to use** to
+open that table’s rule. **Set aside for a data issue** shows the saved finding
+and the owner responsible for correcting it.
+
 ## Before you start
 
 Prepared data must be complete for the current source, schema, and mapping.
@@ -62,12 +67,12 @@ again. Your older form cannot overwrite them silently.
 4. Review totals for **New in Odoo**, **Different from Odoo**, **Already
    matches**, **Needs attention**, and **Set aside**.
 5. Inspect field-level differences and relationship resolutions.
-6. When Impodo offers **Preview affected groups**, choose the root problems and
-   review the complete parent, child, and sibling records that would stay out
-   of this load.
-7. Select **Set aside affected groups for this load** only when the preview
-   leaves a safe remainder. Resolve any remaining or run-wide blocker upstream,
-   then prepare and compare again.
+6. Select **Preview all problem groups** to see which records would stay out
+   of this load. Select **Choose affected groups** to preview individual
+   problems. Both previews include the linked records that must stay together.
+7. Review the omitted records and **Writes remaining**. Select **Set aside
+   all problem groups** to confirm the bulk preview when safe writes remain.
+   Correct any problems that affect the whole comparison, then compare again.
 8. Download the workbook when you need to review the proposed load in Excel or
    keep a durable rehearsal record.
 
@@ -150,8 +155,12 @@ whether anything needs attention, and what you should do next. Use **Needs
 attention** before reviewing **Records to load**. For a file source, **Records
 to load** shows the prepared values that Impodo will use. **Changes to Odoo**
 shows the new value first and retains the current Odoo value as supporting
-evidence. After an affected-group decision, **Deferred issues** retains every
-omitted record with its source row and direct or inherited reason.
+evidence. **Excluded by filters** lists the rows left out by **Rows to use**
+and the rule that excluded them. **Deferred issues** lists rows set aside
+because of data problems, with their source rows, reasons, and the stage that
+set them aside. Final review entries also identify the affected group and
+whether the reason was direct or inherited. **Review overview** links to each
+sheet and shows its row count.
 
 The workbook uses status words as well as colours. A neutral blank is not a
 problem by itself; **Cannot proceed** identifies a record that Impodo will hold

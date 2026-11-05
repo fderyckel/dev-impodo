@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import ast
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -23,7 +23,7 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
     ScalarValueSource,
 )
-from impodo.domain.mapping.row_inclusion import row_is_included
+from impodo.domain.mapping.row_inclusion import IncludedParentRows, row_is_included
 from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
@@ -95,6 +95,7 @@ class NumericPrecisionCoverageService:
         definition: MappingDefinition,
         selection: SourceSelection,
         schema: OdooSchemaCatalog,
+        *, included_parents: Mapping[str, IncludedParentRows] | None = None,
     ) -> tuple[MappingValidationIssue, ...]:
         """Return aggregate, acknowledgement-required precision warnings.
 
@@ -161,7 +162,10 @@ class NumericPrecisionCoverageService:
         for dataset_id in sorted(fields_by_dataset):
             fields = fields_by_dataset[dataset_id]
             source = fields[0].source
+            gate = (included_parents or {}).get(dataset_id)
             source_keys = _required_source_keys(source, fields)
+            if gate is not None:
+                source_keys = tuple(dict.fromkeys((*source_keys, *gate.source_keys)))
             frame = self._scan_dataset(
                 workspace_id,
                 physical,
@@ -180,7 +184,7 @@ class NumericPrecisionCoverageService:
             }
             for row in frame.iter_rows(named=True):
                 try:
-                    if not row_is_included(fields[0].dataset.row_inclusion, row):
+                    if not row_is_included(fields[0].dataset.row_inclusion, row, gate):
                         continue
                 except SourceConditionValueError as error:
                     raise WorkspaceError(

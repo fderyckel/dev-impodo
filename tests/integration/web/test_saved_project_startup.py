@@ -110,7 +110,7 @@ class SavedProjectStartupTests(unittest.TestCase):
                         # The retained page scope opens those two stores again,
                         # plus the engine and DataVersion store: two plus four.
                         self.assertLessEqual(timings.connection_count, 6)
-                        self.assertEqual(timings.schema_check_count, 1)
+                        self.assertEqual(timings.schema_check_count, 4)
                         self.assertEqual(timings.lock_retry_count, 0)
                     self.assertEqual(_saved_rows(root), before)
                     for path in root.rglob("*.duckdb"):

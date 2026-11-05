@@ -180,4 +180,4 @@ class IdentityChoiceReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("P001", response.text)
         self.assertGreater(timings.connection_count, 0)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)

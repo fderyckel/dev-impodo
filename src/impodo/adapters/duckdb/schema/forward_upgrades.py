@@ -4,8 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from time import perf_counter
 
 import duckdb
+
+from ..request_timing import record_duckdb_schema_timing
+from ..unit_of_work import validate_schema_once_for_operation
 
 SCHEMA_MIGRATION_COLUMNS = (
     "from_version",
@@ -40,6 +44,44 @@ def create_schema_migration_ledger(
 
 
 def ensure_current_schema(
+    connection: duckdb.DuckDBPyConnection,
+    *,
+    expected_generation: str,
+    baseline_version: int,
+    target_version: int,
+    upgrades: Mapping[int, ForwardSchemaUpgrade],
+    validate_current: Callable[[], None],
+    compatibility_error: Callable[[], Exception],
+) -> None:
+    """Validate each store contract once in one synchronous operation.
+
+    The retained database owner and exact generation/version bind reuse. Failed
+    checks are never retained, and callers still verify each requested lineage.
+    Outside an operation every call performs the complete validation.
+    """
+
+    contract = f"{expected_generation}:{baseline_version}:{target_version}"
+    with validate_schema_once_for_operation(connection, contract) as required:
+        if not required:
+            return
+        started = perf_counter()
+        try:
+            _ensure_current_schema(
+                connection,
+                expected_generation=expected_generation,
+                baseline_version=baseline_version,
+                target_version=target_version,
+                upgrades=upgrades,
+                validate_current=validate_current,
+                compatibility_error=compatibility_error,
+            )
+        finally:
+            record_duckdb_schema_timing(
+                duration_ms=(perf_counter() - started) * 1000,
+            )
+
+
+def _ensure_current_schema(
     connection: duckdb.DuckDBPyConnection,
     *,
     expected_generation: str,

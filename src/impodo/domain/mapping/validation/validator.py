@@ -38,6 +38,7 @@ from ..create_field_policy import (
     evaluate_create_field,
     required_create_hook_inputs,
 )
+from ..row_inclusion import IncludedParentRuleError, included_parent_bindings
 from .common import _issue
 from .context import (
     SchemaCatalogView,
@@ -152,6 +153,28 @@ class MappingSemanticValidator:
                     "Confirm the permitted model scope and business keys.",
                 )
             )
+
+        try:
+            included_parent_bindings(
+                definition.datasets,
+                {
+                    item.dataset_id: frozenset(column.stable_key for column in item.columns)
+                    for item in source_selection.datasets
+                    if item.origin is not SourceOriginKind.DERIVED
+                },
+            )
+        except IncludedParentRuleError as error:
+            index, dataset = next(
+                (index, item) for index, item in enumerate(definition.datasets)
+                if item.dataset_id == error.dataset_id
+            )
+            issues.append(_issue(
+                "MAPPING_INCLUDED_PARENT_RULE_INVALID",
+                f"/datasets/{index}/row_inclusion/included_parent_field",
+                str(error),
+                "Review the linked field and Rows to use.",
+                dataset=dataset,
+            ))
 
         seen_dataset_ids: set[str] = set()
         for dataset_index, dataset in enumerate(definition.datasets):

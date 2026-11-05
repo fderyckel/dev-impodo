@@ -20,6 +20,7 @@ from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
 )
 from tests.support.identity import resolve_local_actor
+from tests.support.database_probe import count_duckdb_statements
 
 
 class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
@@ -592,7 +593,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         # and workspace engine. Publication also changes registry/linkage
         # connection modes for their writes. No owner spans the API call.
         self.assertLessEqual(len(set(physical_paths)), 4)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertLessEqual(timings.schema_check_count, 7)
         self.assertLessEqual(timings.connection_count, 10)
         self.assertEqual(timings.lock_retry_count, 0)
 
@@ -742,7 +743,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         context.schema_read_session_factory = None
         context.schema_reader = lambda _state, _key: metadata
         context.read_identity_probe = lambda _state, _key, _models: identity
-        with collect_duckdb_request_timings() as timings:
+        with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
             response = self._post(
                 f"/workspaces/{workspace_id}/mapping/company/refresh",
                 {
@@ -753,7 +754,12 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         self.assertEqual(response.status_code, 303, response.text[:1000])
         checked = context.queries.get_odoo_schema_catalog(workspace_id)
         self.assertLessEqual(timings.connection_count, 10)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        # Access and the local phases around remote reads validate all stores.
+        self.assertLessEqual(timings.schema_check_count, 7)
+        self.assertEqual(
+            sum("duckdb_columns()" in statement for statement in statements),
+            timings.schema_check_count,
+        )
         self.assertEqual(timings.lock_retry_count, 0)
         if changed_access:
             self.assertIsNotNone(checked.pending_refresh)

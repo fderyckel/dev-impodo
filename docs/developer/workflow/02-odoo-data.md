@@ -577,6 +577,20 @@ schema and saved choices.
 
 ## Odoo compatibility and performance
 
+Model selection and matching-key confirmation run their complete local command
+and recovery rendering through `run_local_operation`. Metadata capture and
+model discovery publish in bounded synchronous local phases that close before
+Odoo reads and before a retry. Capturing metadata still checks the same access,
+target, source, and stale-evidence bindings. Both Odoo 19 and Odoo 20 retain
+local and remote access coverage.
+
+The [stage performance regressions](../../../tests/integration/web/test_stage235_performance.py)
+exercise successful confirmation and rejected
+matching keys, including unchanged evidence after rejection. They bound SQL
+statements as well as physical opens. The shared schema counter now includes
+linkage and Data version store checks; earlier engine-only measurements below
+record the counter coverage of their original build.
+
 Opening `/workspaces/{workspace_id}/schema` renders saved evidence through
 `run_page_read`. The worker retains database handles for that page read and
 closes them before returning. This avoids repeated database opens and keeps

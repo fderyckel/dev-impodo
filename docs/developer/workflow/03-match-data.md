@@ -132,6 +132,9 @@ inputs. The shared choice partial preserves the Odoo data controls and their
 validation. The existing supporting-save endpoint also returns JSON for inline
 review, retaining its capability, CSRF, binding, optimistic-version, and
 idempotency checks. It saves inside one `run_local_operation` scope.
+The inline form places **Confirm choices and check matches** above the choice
+list and repeats it below. A blocked review opens the list so required controls
+are available. Unchanged selections need no individual confirmation badges.
 
 `mapping-supporting-review.js` replaces only the review fragment. After a
 confirmed choice save, it submits the current mapping form through the normal
@@ -400,6 +403,22 @@ preparation evaluator exclude matching values and fail closed on blank source
 values. Semantic validation rejects empty entries, duplicates, and nontext
 comparison types before a rule can be checked.
 
+**Use only rows whose parent is included** stores the target field of a
+direct incoming relationship in `RowInclusionPolicy`. Impodo binds the
+child’s ordered source reference columns to the parent’s source identity
+columns and projects only the keys and condition columns needed for row
+admission. A chain uses the admitted rows at each step. Validation rejects
+circular links and duplicate admitted parent identities. Match data and
+Prepare data share the admission evaluator. Recipe applications bind the
+same relationship to each delivery’s source columns and publish fresh row
+counts for confirmation.
+
+The [parent-rule tests](../../../tests/domain/mapping/test_included_parent_rows.py)
+cover composite keys and dependency chains. The
+[Match data integration tests](../../../tests/integration/web/test_included_parent_rows.py)
+verify saved choices, review counts, and preparation on Odoo 19 and 20 in both
+local and remote modes.
+
 After a semantically valid **Check matches**, `RowInclusionReviewService`
 uses the bounded direct reader, the reviewed-join reader, or the bounded
 browser staging oracle according to the accepted source shape. It publishes
@@ -599,8 +618,57 @@ columns and their lookup index through the 1→2 forward upgrade. It does not
 rewrite protected snapshots, mappings, Recipes, preparation, or approvals.
 The existing preparation duplicate-resolution service remains authoritative.
 
+[`duplicate_rows.py`](../../../src/impodo/web/routers/duplicate_rows.py) serves
+`GET /workspaces/{workspace_id}/mapping/duplicate-rows` for the protected
+comparison dialog. [`DuplicateRowReview`](../../../src/impodo/application/workspace/mapping/duplicate_rows.py)
+first requires mapping-edit and protected-evidence access, then validates the
+exact current identity check through `MatchingOrderService`. It reads frozen
+source rule and identifier columns in the checked included order, then reads
+complete values only for the at most 100 displayed duplicate
+members with their complete source values. The normal page projection does not
+read these values. The endpoint sets `Cache-Control: no-store` and performs no
+Odoo calls. Restricted data and fixed Recipe applications retain their manual
+or revised-Recipe correction paths.
+
+`POST` to the same endpoint accepts `preview` or `apply`. Preview accepts only
+members from the submitted current page. It builds or extends an exact text
+`not_in` condition on one nonblank, unique source identifier. It preserves
+existing conditions and list values, and evaluates the proposed rule against
+the current included rows to prove that it removes exactly the selected rows.
+An empty resulting population, an outdated check, parent or any-condition
+rules, unrepresentable identifiers, or an exhausted condition limit block the
+addition. Preview counts current direct incoming parent references and lists
+other incoming dependencies whose row effects need separate review. It does
+not silently cascade exclusions.
+
+Apply recomputes the preview and verifies its hash, which binds the check,
+mapping, Data version, selected positions, and relationship effects. It uses
+the existing mapping mutation receipt and optimistic draft version to save
+only the reviewed table's policy through `MappingWorkspaceService`. A replay
+returns the committed result without adding another rule or draft version.
+Source-readiness, authorization, preview and persistence remain inside one
+bounded local operation. After that scope closes, the browser starts the
+existing saved-identity check in a separate request. A failed check start leaves
+the saved exclusion visible and retryable. The ordinary checked row-selection
+confirmation still gates continuation. No mapping contract or Recipe compiler
+representation changes.
+
+The dialog preserves selections after preview or transport failures and
+refuses to overwrite unsaved form edits. Browser qualification covers keyboard
+entry, highlighting, preview retry, actual persistence, automatic identity
+checking, reopening, and a 390-pixel viewport. The isolated integration fixture
+covers Odoo 19 and 20 with local and remote access. Run
+`tests.e2e.test_duplicate_row_exclusions` with Playwright and
+`IMPODO_DUPLICATE_ROWS_SCREENSHOT_DIRECTORY=docs/images/user` to reproduce the
+1440 by 1024 comparison screenshot. These tests use fictional Odoo reads and
+make no live-target compatibility or latency claim.
+Focused coverage lives in the [exclusion integration tests](../../../tests/integration/web/test_duplicate_row_exclusions.py)
+and [duplicate dialog journey](../../../tests/e2e/test_duplicate_row_exclusions.py).
+
 The isolated 105-member route fixture uses at most six physical connections,
-one schema check, and zero lock retries. It proves page navigation after the
+four schema checks, and zero lock retries. The schema counter covers two
+reference-store owners, the Data version store, and the workspace engine.
+It proves page navigation after the
 complete snapshot blob becomes undecodable, and after source-key reads are
 disabled. Browser qualification covers keyboard activation, group paging,
 preserved check identity, and a 390-pixel viewport. Run
@@ -856,6 +924,21 @@ A conflict names the parent field and points to Odoo data and its Match data
 rule. Saving an unchecked draft remains available. These metadata checks make
 no source-row scan or Odoo request.
 
+Formula authoring validation reads allowed names and parses the submitted
+expression in one `run_page_read` callback. Table-order commands keep local
+reads, writes, and rejected-form rendering in one `run_local_operation`.
+Live-check preparation ends its local operation before starting the Odoo
+worker. Rejected mapping saves read their current versions together off the
+event loop. These changes preserve formula restrictions, saved decisions,
+authorization, and stale-evidence checks.
+
+The [Stage 2, 3, and 5 regression fixtures](../../../tests/integration/web/test_stage235_performance.py)
+cover Odoo 19 and Odoo 20 with local
+and remote access. Their SQL budgets detect repeated catalogue validation even
+when the physical connection count stays bounded. Schema counts reported by
+the current diagnostic collector include all store contracts; earlier
+engine-only measurements in this document retain their original coverage.
+
 ## Contract invariants
 
 Each dataset declares one permitted target model and one operating mode:
@@ -969,6 +1052,13 @@ referenced source column in one dataset scan. The columnar compiler emits
 `CONDITIONAL_SELECTION`, and the Polars adapter evaluates ordered branches as
 native expressions without a Python UDF. None of these paths calls Odoo or
 queries a repository inside a source-row loop.
+
+For date fields, the `excel_timestamp` input format validates a timezone-free
+Excel timestamp and keeps its calendar date. The Python and native Polars
+evaluators share patterns for ISO timestamps and month-first text with a
+12-hour or 24-hour clock. The saved mapping carries the format in its scalar
+transform policy. Invalid timestamps produce `SOURCE_TYPE_INVALID` during
+preparation.
 
 The same scalar oracle joins concatenation parts before the existing whole
 value transformations. Null, empty, and whitespace-only parts are blank.

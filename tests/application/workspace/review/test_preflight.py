@@ -43,9 +43,14 @@ from impodo.domain.preflight.deferred_scope import (
     DeferredIssueGroup,
     DeferredIssueScope,
     DeferredOmittedRow,
+    DeferredScopeEvidenceError,
     DeferredScopePreview,
 )
+from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow, _workbook_omitted_rows
 from impodo.domain.preflight.reports import ReadinessReport
+from impodo.domain.mapping.contracts import RowInclusionMode, RowInclusionPolicy
+from impodo.domain.preparation.quality import QualityDisposition
+from impodo.domain.preparation.staging_contracts import StagingDisposition
 from impodo.domain.shared.access import (
     Actor,
     ActorIdentity,
@@ -67,6 +72,66 @@ from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
 
 
 class PreflightPublicationTests(unittest.TestCase):
+    def test_bulk_preview_includes_every_row_issue_and_keeps_run_blockers(self) -> None:
+        workspace_id = str(uuid4())
+        run_id = str(uuid4())
+        rows = tuple(
+            SimpleNamespace(
+                row_id="sha256:" + str(index) * 64,
+                dataset="bom_lines",
+                source_row=index,
+                source_trace_id=f"trace-{index}",
+                source_identity=(index,),
+                target_model="mrp.bom.line",
+                disposition=disposition,
+            )
+            for index, disposition in enumerate(("BLOCKED", "BLOCKED", "CREATE"), start=1)
+        )
+        issues = (
+            DeferredIssue("sha256:" + "4" * 64, "REFERENCE_NOT_FOUND", DeferredIssueScope.ROW, rows[0].row_id),
+            DeferredIssue("sha256:" + "5" * 64, "REFERENCE_NOT_FOUND", DeferredIssueScope.ROW, rows[1].row_id),
+            DeferredIssue("sha256:" + "6" * 64, "RUN_BLOCKER", DeferredIssueScope.RUN),
+        )
+        service = PreflightService(
+            staging=MagicMock(),
+            quality=MagicMock(),
+            normalization=MagicMock(),
+            mappings=MagicMock(),
+            workspaces=MagicMock(),
+            sources=MagicMock(),
+            preflight=MagicMock(),
+            artifacts=MagicMock(),
+            authorization=CapabilityAuthorizationPolicy(),
+        )
+        service.current_report = MagicMock(return_value=SimpleNamespace(
+            run_id=run_id, result_hash="sha256:" + "7" * 64,
+        ))
+        service._full_execution_snapshot = MagicMock(return_value=SimpleNamespace(
+            rows=rows, semantic_hash="sha256:" + "8" * 64,
+        ))
+        service._verified_manifest = MagicMock(return_value=({}, b""))
+        service._deferred_scope_acceptance = MagicMock(return_value=None)
+        service._deferred_issues = MagicMock(return_value=issues)
+        service._load_frozen_input = MagicMock(return_value=SimpleNamespace(
+            prepared=SimpleNamespace(records=()),
+            quality=SimpleNamespace(quarantined_count=0, excluded_count=0),
+        ))
+        with (
+            patch("impodo.application.preflight_service.portable_reference_resolutions", return_value=()),
+            patch("impodo.application.preflight_service.prepared_dependency_facts", return_value=()),
+        ):
+            review = service.deferred_scope_review(workspace_id, selected_issue_ids=None)
+            self.assertTrue(review.bulk_preview)
+            self.assertEqual(review.preview.selected_issue_ids, tuple(item.issue_id for item in issues[:2]))
+            self.assertEqual(review.preview.newly_set_aside_count, 2)
+            self.assertEqual(review.preview.remaining_write_count, 1)
+            self.assertEqual(review.preview.remaining_run_issue_count, 1)
+            self.assertFalse(review.preview.ready_with_records_set_aside)
+
+            service._deferred_issues.return_value = issues[:2]
+            review = service.deferred_scope_review(workspace_id, selected_issue_ids=None)
+            self.assertTrue(review.preview.ready_with_records_set_aside)
+
     def test_accepting_deferred_scope_publishes_local_reduced_evidence(self) -> None:
         workspace_id = str(uuid4())
         run_id = str(uuid4())
@@ -209,10 +274,22 @@ class PreflightPublicationTests(unittest.TestCase):
                 return_value=execution_review,
             ),
         ):
+            with self.assertRaisesRegex(DeferredScopeEvidenceError, "preview changed"):
+                service.accept_deferred_scope(
+                    workspace_id,
+                    selected_issue_ids=None,
+                    actor=actor,
+                    expected_comparison_id=run_id,
+                    expected_preview_hash="sha256:" + "f" * 64,
+                )
+            artifacts.write_report.assert_not_called()
+            reducer.assert_not_called()
             acceptance = service.accept_deferred_scope(
                 workspace_id,
-                selected_issue_ids=(issue_id,),
+                selected_issue_ids=None,
                 actor=actor,
+                expected_comparison_id=run_id,
+                expected_preview_hash=preview.semantic_hash,
             )
 
         self.assertEqual(acceptance.snapshot, reduced)
@@ -473,6 +550,38 @@ class PreflightPublicationTests(unittest.TestCase):
 
 
 class ReviewWorkbookEvidenceTests(unittest.TestCase):
+    def test_omission_evidence_distinguishes_source_filters_from_data_findings(self) -> None:
+        rows = (
+            SimpleNamespace(row_id="filtered", disposition=StagingDisposition.EXCLUDED),
+            SimpleNamespace(row_id="invalid", disposition=StagingDisposition.CANDIDATE),
+        )
+        quality = SimpleNamespace(
+            issues=(SimpleNamespace(issue_id="issue", message="Sequence must be a whole number."),),
+            row_results=(
+                SimpleNamespace(
+                    row_id="filtered", dataset="bom_lines", source_row=2,
+                    record_label="", effective_disposition=QualityDisposition.EXCLUDED, issue_ids=(),
+                ),
+                SimpleNamespace(
+                    row_id="invalid", dataset="bom_lines", source_row=3,
+                    record_label="LINE-3", effective_disposition=QualityDisposition.EXCLUDED,
+                    issue_ids=("issue",),
+                ),
+            ),
+        )
+        revision = SimpleNamespace(definition=SimpleNamespace(datasets=(
+            SimpleNamespace(dataset_id="lines", row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS, included_parent_field="bom_id",
+            )),
+        )))
+        selection = SimpleNamespace(datasets=(
+            SimpleNamespace(dataset_id="lines", name="bom_lines", columns=()),
+        ))
+        self.assertEqual(_workbook_omitted_rows(rows, quality, revision, selection), (
+            ReviewWorkbookOmittedRow("bom_lines", 2, "", True, "Use only rows whose linked parent is included."),
+            ReviewWorkbookOmittedRow("bom_lines", 3, "LINE-3", False, "Sequence must be a whole number."),
+        ))
+
     def _service(self, *, source_mode: SourceMode = SourceMode.FILE):
         repositories = [MagicMock() for _ in range(7)]
         repositories[4].get.return_value = SimpleNamespace(source_mode=source_mode)
@@ -549,6 +658,7 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 dataset_labels={"contacts": "Contacts"},
                 captured_schema=schema,
                 fields_set_aside=None,
+                workbook_omitted_rows=(),
                 normalization=SimpleNamespace(
                     run_id="normalization-run",
                     content_hash=normalization_hash,

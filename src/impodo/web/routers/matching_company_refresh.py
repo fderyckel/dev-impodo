@@ -15,6 +15,7 @@ from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.supporting_review import SupportingReview
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
 from impodo.web.composition.page_reads import run_local_operation, run_page_read
 from impodo.web.composition.target_readers import _selected_local_profile
@@ -24,6 +25,7 @@ from impodo.web.presenters.common import _flash
 from impodo.web.presenters.mapping_view import _render_mapping
 from impodo.web.request_identity import request_identity
 from impodo.web.security import require_session
+from impodo.web.supporting_access_diagnostics import record_supporting_access
 from impodo.web.target_credentials import (
     TargetCredential,
     TargetCredentialRole,
@@ -43,6 +45,7 @@ class PreparedMatchingAccess:
     needs_refresh: bool
     force: bool
     model_catalog: OdooModelCatalog | None = None
+    supporting_review: SupportingReview | None = None
 
 
 def prepare_matching_access(
@@ -116,6 +119,8 @@ def prepare_matching_access(
         context.queries.get_odoo_model_catalog(workspace_id)
         if force or stale
         else None,
+        context.schema_workspace.supporting.current(workspace_id, actor=actor)
+        if force or stale else None,
     )
 
 
@@ -135,10 +140,16 @@ async def check_matching_access(
     prepared: PreparedMatchingAccess,
     *,
     actor: Actor,
+    request: Request | None = None,
+    trigger: str = "CHECK_MATCHES",
 ) -> OdooSchemaCatalog:
     """Refresh stale access once, with no local database owner across the RPC."""
     if not prepared.needs_refresh:
         return prepared.schema
+    record_supporting_access(
+        request, trigger=trigger, previous=prepared.schema,
+        before=prepared.supporting_review, outcome="REFRESH_FAILED",
+    )
     state, profile, credential = (
         prepared.workspace,
         prepared.profile,
@@ -232,13 +243,26 @@ async def check_matching_access(
                 read_identity=model_identity,
                 actor=actor,
             )
-        return context.schema_workspace.check_refresh(
+        checked = context.schema_workspace.check_refresh(
             state.workspace_id,
             snapshot,
             read_credential_binding_hash=binding,
             read_identity=identity,
             actor=actor,
         )
+        after = context.schema_workspace.supporting.current(state.workspace_id, actor=actor)
+        outcome = (
+            "SCHEMA_REVIEW_REQUIRED" if checked.pending_refresh else
+            "NOT_REQUIRED" if after is None or not after.choices else
+            "REVALIDATED" if prepared.supporting_review and after.version > prepared.supporting_review.version else
+            "REVIEW_REQUIRED" if _access_binding(checked) != _access_binding(prepared.schema) else
+            "UNCHANGED"
+        )
+        record_supporting_access(
+            request, trigger=trigger, previous=prepared.schema, current=checked,
+            before=prepared.supporting_review, after=after, outcome=outcome,
+        )
+        return checked
 
     return await run_local_operation(publish)
 
@@ -263,7 +287,7 @@ def build_matching_company_refresh_router(context: WebContext) -> APIRouter:
                 expected_revision=_revision(form),
                 force=True,
             )
-            checked = await check_matching_access(context, prepared, actor=actor)
+            checked = await check_matching_access(context, prepared, actor=actor, request=request, trigger="COMPANY_REFRESH")
         except (WorkspaceError, ValueError, SecretStoreError, ConnectorError) as error:
             return await run_page_read(
                 _render_mapping,
@@ -293,7 +317,7 @@ def build_matching_company_refresh_router(context: WebContext) -> APIRouter:
             }
         _flash(
             request,
-            "Company-specific values checked. Review any related-data choices marked Needs confirmation, then check matches.",
+            "Company values checked. Confirm related-data choices to continue.",
         )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/mapping#related-data-review",

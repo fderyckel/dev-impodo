@@ -80,7 +80,7 @@ class TransferRowRuleRouteTests(unittest.TestCase):
         # Two request-binding reads precede four retained operation owners:
         # registry, project, workspace engine, and source-version database.
         self.assertLessEqual(confirmation_timings.connection_count, 6)
-        self.assertLessEqual(confirmation_timings.schema_check_count, 1)
+        self.assertLessEqual(confirmation_timings.schema_check_count, 4)
         self.assertTrue(
             self.context.queries.get(self.workspace_id).destination_match_plan.ready
         )

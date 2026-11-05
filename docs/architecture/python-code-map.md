@@ -391,6 +391,7 @@ Readiness uses accepted answers rather than a second editable form.
 | Source data | `SourceWorkspaceService`, `OdooCapturePublicationService`, `OdooCaptureJobManager` | `/workspaces/{workspace_id}/sources` |
 | Odoo data | `SchemaWorkspaceService` | `/workspaces/{workspace_id}/schema` |
 | Match data | `MappingWorkspaceService` | `/workspaces/{workspace_id}/mapping` |
+| Compare duplicate source rows and save exact exclusions | `application/workspace/mapping/duplicate_rows.py::DuplicateRowReview` uses the current identity index and frozen source values; `MappingWorkspaceService` saves the existing row-rule contract | `web/routers/duplicate_rows.py`, the mapping duplicate-row dialog, and its page-owned script and style; existing mapping receipts retain save recovery |
 | Prepare data | `PreparationService`, `PreparationJobManager` | `/workspaces/{workspace_id}/prepare` |
 | Final review | `PreflightService`, `PreflightJobManager` | `/workspaces/{workspace_id}/summary`, `/workspaces/{workspace_id}/preflight` |
 | Load and reconcile | `ExecutionService`, `TransferExecutionService`, `LoadJobManager`, `ReconciliationService` | `/workspaces/{workspace_id}/load`, `/workspaces/{workspace_id}/transfer-load` |

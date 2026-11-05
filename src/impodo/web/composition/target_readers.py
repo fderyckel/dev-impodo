@@ -377,15 +377,17 @@ def _refresh_model_catalog_sync(
 ) -> OdooModelCatalog:
     """Read and publish model discovery within one synchronous worker."""
 
-    local_profile = _selected_local_profile(context, workspace_state)
-    credential = get_target_credential(
-        context.secret_store,
-        context.target_credential_workspace(
-            workspace_state.workspace_id,
-            actor=actor,
-        ),
-        TargetCredentialRole.READ,
-    )
+    def read_access():
+        return (
+            _selected_local_profile(context, workspace_state),
+            get_target_credential(
+                context.secret_store,
+                context.target_credential_workspace(workspace_state.workspace_id, actor=actor),
+                TargetCredentialRole.READ,
+            ),
+        )
+
+    local_profile, credential = run_local_operation_sync(read_access)
     if local_profile is not None and credential is None:
         snapshot = context.local_odoo_reader.get_model_catalog(
             workspace_state,
@@ -406,7 +408,8 @@ def _refresh_model_catalog_sync(
             credential.secret,
         )
         read_credential_binding_hash = credential.binding_hash
-    catalog = context.schema_workspace.discover_models(
+    catalog = run_local_operation_sync(
+        context.schema_workspace.discover_models,
         workspace_state.workspace_id,
         snapshot,
         read_credential_binding_hash=read_credential_binding_hash,
@@ -1546,9 +1549,19 @@ def _capture_mapping_supporting_values(
     or the primary Odoo schema catalogue.
     """
 
-    requirements = plan_mapping_supporting_values(tuple(datasets), schema)
+    mappings = tuple(datasets)
+    requirements = plan_mapping_supporting_values(mappings, schema)
 
     def collect_targeted_values():
+        needs_parent_rows = any(
+            source.row_inclusion.included_parent_field
+            for requirement in requirements for source in requirement.sources
+        )
+        parents = (
+            context.categorical_coverage.included_parent_rows(
+                workspace_state.workspace_id, mappings
+            ) if needs_parent_rows else {}
+        )
         targeted: dict[
             tuple[str, tuple[str, ...], tuple[str, ...]],
             tuple[tuple[str, ...], ...],
@@ -1562,6 +1575,7 @@ def _capture_mapping_supporting_values(
                     source.dataset_id,
                     source.source_column_keys,
                     source.row_inclusion,
+                    included_parent=parents.get(source.dataset_id),
                 )
                 translations = {
                     item.source_value: item.target_value

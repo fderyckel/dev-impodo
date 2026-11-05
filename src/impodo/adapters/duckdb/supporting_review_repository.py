@@ -82,6 +82,27 @@ class SupportingReviewRecords(DuckDbRepository):
         actor: Actor,
     ) -> SupportingReview:
         """Append the next exact revision or return the same actor's exact retry."""
+        return self._save_supporting_review(
+            workspace_id, review, expected_version=expected_version, actor=actor,
+        )
+
+    def rebind_supporting_review(
+        self, workspace_id: str, review: SupportingReview, *,
+        previous: SupportingReview, actor: Actor,
+    ) -> SupportingReview:
+        """Publish unchanged decisions against verified access without retiring mapping."""
+        if previous.workspace_id != workspace_id or previous.choices != review.choices:
+            raise WorkspaceError("Access revalidation must preserve the exact reviewed choices")
+        return self._save_supporting_review(
+            workspace_id, review, expected_version=previous.version, actor=actor,
+            revalidated_from=previous,
+        )
+
+    def _save_supporting_review(
+        self, workspace_id: str, review: SupportingReview, *, expected_version: int,
+        actor: Actor, revalidated_from: SupportingReview | None = None,
+    ) -> SupportingReview:
+        """Keep revision comparison, evidence publication and audit in one transaction."""
         self._assert_workspace_mutable(workspace_id)
         if (review.actor_issuer, review.actor_subject, review.actor_display_name) != (
             actor.identity.issuer,
@@ -126,6 +147,12 @@ class SupportingReviewRecords(DuckDbRepository):
                     raise WorkspaceError(
                         "Supporting choices changed in another request; review them again"
                     )
+                if revalidated_from is not None:
+                    saved = connection.execute(
+                        "SELECT review_json FROM supporting_data_review ORDER BY version DESC LIMIT 1"
+                    ).fetchone()
+                    if saved is None or SupportingReview.from_json(str(saved[0])) != revalidated_from:
+                        raise WorkspaceError("Supporting access evidence changed; review it again")
                 connection.execute(
                     "INSERT INTO supporting_data_review VALUES (?, ?, ?, ?)",
                     [
@@ -140,7 +167,7 @@ class SupportingReviewRecords(DuckDbRepository):
                     "INSERT OR REPLACE INTO supporting_review_projection VALUES (TRUE, ?)",
                     [summary.to_json()],
                 )
-                if actual is None or str(actual[1]) != review.request_hash:
+                if revalidated_from is None and (actual is None or str(actual[1]) != review.request_hash):
                     connection.execute("DELETE FROM mapping_current")
                     self._invalidate_canonical_staging(
                         connection, reason="SUPPORTING_CHOICES_CHANGED"
@@ -148,7 +175,7 @@ class SupportingReviewRecords(DuckDbRepository):
                 self._insert_workspace_audit(
                     connection,
                     revision=self._workspace_revision(connection),
-                    event_type="SUPPORTING_DATA_REVIEWED",
+                    event_type="SUPPORTING_ACCESS_REVALIDATED" if revalidated_from else "SUPPORTING_DATA_REVIEWED",
                     detail=f"revision {review.version}: {len(review.choices)} relationships",
                     actor=actor,
                 )

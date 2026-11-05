@@ -54,7 +54,7 @@ class IdentityGroupReviewBrowserTests(HierarchyWorkflowFixture):
         self.assertEqual(response.text.count("<td>Included source position"), 100)
         self.assertNotIn("92100001", response.text)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
         next_url = unescape(
             re.search(r'href="([^"]+)"[^>]*>Next 100', response.text).group(1)

@@ -567,6 +567,7 @@ def preflight_deferred_issues(
     issues: dict[str, DeferredIssue] = {}
     matched_row_ids: set[str] = set()
     represented_blockers: set[tuple[str, str, int | None, str]] = set()
+    represented_groups: dict[tuple[str, str, str, str], set[int]] = defaultdict(set)
 
     for decision in result.decisions:
         row = _decision_row(decision, row_by_trace, row_by_coordinate)
@@ -589,7 +590,10 @@ def preflight_deferred_issues(
                 "A blocked comparison row has no saved root issue"
             )
         for issue in blocking:
-            represented_blockers.add(_issue_signature(issue))
+            signature = _issue_signature(issue)
+            represented_blockers.add(signature)
+            if signature[2] is not None:
+                represented_groups[_issue_group_signature(issue)].add(signature[2])
             projected = _deferred_issue(
                 comparison_id,
                 str(issue.code),
@@ -605,6 +609,17 @@ def preflight_deferred_issues(
 
     for issue in result.issues:
         if not issue.blocking or _issue_signature(issue) in represented_blockers:
+            continue
+        # The engine drops the row coordinate when it groups an identical
+        # finding across multiple rows. Prove the complete grouped count is
+        # represented before treating that summary as a duplicate row finding.
+        grouped_rows = represented_groups.get(_issue_group_signature(issue), set())
+        if (
+            issue.row is None
+            and issue.dataset
+            and len(grouped_rows) > 1
+            and getattr(issue, "affected_count", 1) == len(grouped_rows)
+        ):
             continue
         projected = _deferred_issue(
             comparison_id,
@@ -674,6 +689,9 @@ def portable_preflight_deferred_issues(
                         field=str(issue.get("field") or ""),
                         message=str(issue["message"]),
                         severity=str(issue["severity"]),
+                        affected_count=_portable_int(
+                            issue.get("affected_count", 1), "issue affected count"
+                        ),
                     )
                     for issue in _portable_mapping_sequence(
                         item.get("issues", ()), "decision issues"
@@ -694,6 +712,9 @@ def portable_preflight_deferred_issues(
                 field=str(item.get("field") or ""),
                 message=str(item["message"]),
                 severity=str(item["severity"]),
+                affected_count=_portable_int(
+                    item.get("affected_count", 1), "source issue affected count"
+                ),
             )
             for item in _portable_mapping_sequence(
                 manifest.get("source_issues", ()), "source issues"
@@ -969,7 +990,7 @@ def preview_deferred_scope(
         if fact.keeps_group_together:
             reverse_group[fact.owner_row_id].add(fact.dependency_row_id)
 
-    closure_by_issue: dict[str, frozenset[str]] = {}
+    causes_by_row: dict[str, list[str]] = defaultdict(list)
     groups = []
     for issue_id in selected:
         issue = issue_by_id[issue_id]
@@ -978,7 +999,8 @@ def preview_deferred_scope(
             forward=forward,
             reverse_group=reverse_group,
         )
-        closure_by_issue[issue_id] = closure
+        for row_id in closure:
+            causes_by_row[row_id].append(issue_id)
         closure_rows = tuple(
             sorted((row_by_id[item] for item in closure), key=_row_sort_key)
         )
@@ -1002,20 +1024,18 @@ def preview_deferred_scope(
             )
         )
 
-    omitted_ids = frozenset().union(*closure_by_issue.values())
+    omitted_ids = causes_by_row.keys()
     omitted_rows = []
     for row in sorted((row_by_id[item] for item in omitted_ids), key=_row_sort_key):
-        causes = tuple(
-            issue_id
-            for issue_id in selected
-            if row.row_id in closure_by_issue[issue_id]
-        )
+        causes = causes_by_row[row.row_id]
         direct = tuple(
             issue_id
             for issue_id in causes
             if issue_by_id[issue_id].row_id == row.row_id
         )
-        inherited = tuple(issue_id for issue_id in causes if issue_id not in direct)
+        inherited = tuple(
+            issue_id for issue_id in causes if issue_by_id[issue_id].row_id != row.row_id
+        )
         omitted_rows.append(
             DeferredOmittedRow(
                 row_id=row.row_id,
@@ -1081,6 +1101,7 @@ class _PortableIssue:
     field: str
     message: str
     severity: str
+    affected_count: int
 
     @property
     def blocking(self) -> bool:
@@ -1137,6 +1158,17 @@ def _issue_signature(issue: object) -> tuple[str, str, int | None, str]:
         str(getattr(issue, "dataset", "") or ""),
         int(row) if row is not None else None,
         str(getattr(issue, "field", "") or ""),
+    )
+
+
+def _issue_group_signature(issue: object) -> tuple[str, str, str, str]:
+    """Identify an engine summary without conflating different row findings."""
+
+    return (
+        str(getattr(issue, "code", "")),
+        str(getattr(issue, "dataset", "") or ""),
+        str(getattr(issue, "field", "") or ""),
+        str(getattr(issue, "message", "")),
     )
 
 
@@ -1327,13 +1359,14 @@ def _counts_by_dataset(
 
 
 def _validate_preview_shape(preview: DeferredScopePreview) -> None:
+    selected_ids = set(preview.selected_issue_ids)
     if (
         preview.contract_version != 1
         or not preview.comparison_id
         or _SHA256.fullmatch(preview.comparison_hash) is None
         or _SHA256.fullmatch(preview.execution_snapshot_hash) is None
         or not preview.selected_issue_ids
-        or preview.selected_issue_ids != tuple(sorted(set(preview.selected_issue_ids)))
+        or preview.selected_issue_ids != tuple(sorted(selected_ids))
         or preview.prepared_record_count < 1
         or preview.already_set_aside_count < 0
         or preview.original_write_count < 0
@@ -1356,7 +1389,7 @@ def _validate_preview_shape(preview: DeferredScopePreview) -> None:
             for row in preview.omitted_rows
         )
         or any(
-            issue_id not in preview.selected_issue_ids
+            issue_id not in selected_ids
             for row in preview.omitted_rows
             for issue_id in (*row.direct_issue_ids, *row.inherited_issue_ids)
         )
@@ -1367,7 +1400,7 @@ def _validate_preview_shape(preview: DeferredScopePreview) -> None:
     groups_by_issue = {item.issue_id: item for item in preview.groups}
     if (
         len(groups_by_issue) != len(preview.groups)
-        or set(groups_by_issue) != set(preview.selected_issue_ids)
+        or set(groups_by_issue) != selected_ids
         or any(not group.row_ids for group in preview.groups)
         or any(
             row_id not in omitted_by_id

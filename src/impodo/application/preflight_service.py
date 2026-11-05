@@ -171,6 +171,7 @@ class DeferredScopeReview:
     candidates: tuple[DeferredIssueCandidate, ...]
     preview: DeferredScopePreview | None
     decision: DeferredScopeDecision | None = None
+    bulk_preview: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -618,6 +619,7 @@ class PreflightService:
         return ReviewWorkbookEvidence(
             frozen_input_hash=frozen.content_hash,
             fields_set_aside=frozen.fields_set_aside,
+            omitted_rows=frozen.workbook_omitted_rows,
             records=tuple(frozen.prepared.records),
             dataset_labels=dict(sorted(frozen.dataset_labels.items())),
             target_model_labels={
@@ -740,9 +742,9 @@ class PreflightService:
         self,
         workspace_id: str,
         *,
-        selected_issue_ids: Iterable[str] = (),
+        selected_issue_ids: Iterable[str] | None = (),
     ) -> DeferredScopeReview | None:
-        """Build or load a bounded group preview without another Odoo read."""
+        """Preview selected issues, or every row issue when the selection is None."""
 
         report = self.current_report(workspace_id)
         if report is None or (
@@ -773,7 +775,11 @@ class PreflightService:
                 preview=acceptance.preview,
                 decision=acceptance.decision,
             )
-        selected = tuple(sorted(set(selected_issue_ids)))
+        selected = (
+            tuple(candidate.issue.issue_id for candidate in candidates if candidate.selectable)
+            if selected_issue_ids is None
+            else tuple(sorted(set(selected_issue_ids)))
+        )
         preview = None
         if selected:
             frozen = self._load_frozen_input(workspace_id)
@@ -800,14 +806,17 @@ class PreflightService:
             issues=issues,
             candidates=candidates,
             preview=preview,
+            bulk_preview=selected_issue_ids is None and preview is not None,
         )
 
     def accept_deferred_scope(
         self,
         workspace_id: str,
         *,
-        selected_issue_ids: Iterable[str],
+        selected_issue_ids: Iterable[str] | None,
         actor: Actor,
+        expected_comparison_id: str | None = None,
+        expected_preview_hash: str | None = None,
     ) -> DeferredScopeAcceptance:
         """Persist one reviewed safe remainder; this performs no target read."""
 
@@ -827,6 +836,16 @@ class PreflightService:
         if review.decision is not None:
             raise DeferredScopeEvidenceError(
                 "The current comparison already has a reviewed set-aside decision"
+            )
+        if (
+            expected_comparison_id is not None
+            and expected_comparison_id != review.comparison_id
+        ) or (
+            expected_preview_hash is not None
+            and expected_preview_hash != review.preview.semantic_hash
+        ):
+            raise DeferredScopeEvidenceError(
+                "The group preview changed. Review it again before accepting."
             )
         full_snapshot = self._full_execution_snapshot(
             workspace_id,

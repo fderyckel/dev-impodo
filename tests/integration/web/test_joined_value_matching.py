@@ -174,7 +174,7 @@ class JoinedValueMatchingTests(TestCase):
         # Bound authorization, local source projection, and lookup publication
         # owners; the join adds one in-memory owner, never one per source row.
         self.assertLessEqual(timings.connection_count, 13)
-        self.assertLessEqual(timings.schema_check_count, 3)
+        self.assertLessEqual(timings.schema_check_count, 8)
         relation = RelationshipMapping(
             target_field="x_list_id",
             kind="many2one",
@@ -245,7 +245,7 @@ class JoinedValueMatchingTests(TestCase):
         self.assertEqual(multiple.status_code, 200, multiple.text)
         self.assertEqual(multiple.json()["source_choices"], response.json()["source_choices"])
         self.assertLessEqual(timings.connection_count, 13)
-        self.assertLessEqual(timings.schema_check_count, 3)
+        self.assertLessEqual(timings.schema_check_count, 8)
         checked = run_local_operation_sync(context.categorical_coverage.collect, workspace_id,
             replace(revision.definition, source_selection_hash=effective.content_hash), effective, schema)
         self.assertEqual(checked.issues, ())

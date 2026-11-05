@@ -48,6 +48,7 @@ from impodo.domain.mapping.mutations import (
     MappingVersionConflict,
 )
 from impodo.domain.mapping.validation.evidence import (
+    MappingValidationIssue,
     MappingValidationResult,
     MappingValidationStatus,
     mapping_issue_fingerprint,
@@ -1266,11 +1267,43 @@ class MappingWorkspaceService:
                 schema,
             ),
         )
+        has_parent_rules = any(
+            item.row_inclusion.included_parent_field for item in definition.datasets
+        )
+        if has_parent_rules and validation.status is MappingValidationStatus.INVALID:
+            return validation
+        included_parents = (
+            self.categorical_coverage.included_parent_rows(workspace_id, definition.datasets)
+            if has_parent_rules else {}
+        )
+        parent_ambiguities = tuple(
+            MappingValidationIssue(
+                code="MAPPING_INCLUDED_PARENT_AMBIGUOUS",
+                severity="error",
+                path=f"/datasets/{index}/row_inclusion/included_parent_field",
+                message="The included parent rows contain duplicate source identifiers.",
+                remediation="Keep one parent row per source identifier, then check matches again.",
+                dataset_id=dataset.dataset_id,
+                target_model=dataset.target_model,
+                target_field=dataset.row_inclusion.included_parent_field,
+            )
+            for index, dataset in enumerate(definition.datasets)
+            if (gate := included_parents.get(dataset.dataset_id)) is not None
+            and gate.duplicate_key_count
+        )
+        if parent_ambiguities:
+            return replace(
+                validation,
+                status=MappingValidationStatus.INVALID,
+                issues=(*validation.issues, *parent_ambiguities),
+            )
+        parent_options = {"included_parents": included_parents} if has_parent_rules else {}
         collected = self.categorical_coverage.collect(
             workspace_id,
             definition,
             selection,
             schema,
+            **parent_options,
         )
         precision_issues = (
             self.numeric_precision_coverage.collect(
@@ -1278,6 +1311,7 @@ class MappingWorkspaceService:
                 definition,
                 selection,
                 schema,
+                **parent_options,
             )
             if self.numeric_precision_coverage is not None
             and validation.status is not MappingValidationStatus.INVALID
@@ -1289,7 +1323,7 @@ class MappingWorkspaceService:
                 (
                     *validation.issues, *collected.issues, *precision_issues,
                     *(incoming_parent_issues(
-                        self.categorical_coverage, workspace_id, definition, selection,
+                        self.categorical_coverage, workspace_id, definition, selection, included_parents,
                     ) if validation.status is not MappingValidationStatus.INVALID
                     and not any(item.severity == "error" for item in collected.issues) else ()),
                 ),

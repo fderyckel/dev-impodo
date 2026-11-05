@@ -22,9 +22,7 @@ from tests.support.paths import REPOSITORY_ROOT
 
 class PageReadConnectionTests(unittest.TestCase):
     def setUp(self) -> None:
-        temporary_root = REPOSITORY_ROOT / ".tmp"
-        temporary_root.mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=temporary_root)
+        self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "page.duckdb"
         self.factory = DuckDbConnectionFactory()

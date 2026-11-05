@@ -20,6 +20,7 @@ from tests.support.browser_scenarios import (
     _browser_schema,
     _browser_model_catalog,
 )
+from tests.support.hierarchy_correction import MappingForm
 from tests.support.identity import resolve_local_actor
 
 
@@ -165,6 +166,60 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
                     operation_id=str(uuid4()), choices=committed.choices, actor=self.actor)
         self.assertEqual(service.current(self.workspace_id, actor=self.actor), committed)
         self.assertEqual(service.summary(self.workspace_id, actor=self.actor), committed_summary)
+
+    def test_rejected_save_keeps_the_form_and_identifies_the_choice_to_correct(self):
+        service = self.context.schema_workspace.supporting
+        model = self.schema.models[0]
+        fields = tuple(
+            replace(field, relation="res.partner")
+            if field.name == "birth_country_id" else field
+            for field in model.fields
+        )
+        for major in (19, 20):
+            with self.subTest(major=major):
+                schema = replace(
+                    self.schema, models=(replace(model, fields=fields),),
+                    odoo_version=f"{major}.0",
+                )
+                self.context.schema_workspace.schemas.save_odoo_schema_catalog(
+                    self.workspace_id, schema, actor=self.actor
+                )
+                before = service.current(self.workspace_id, actor=self.actor)
+                page, form = self.page_and_form()
+                self.assertEqual(form["edge_0"], "res.partner|birth_country_id")
+                with collect_duckdb_request_timings() as timings:
+                    rejected = self.save({**form, "action_0": "INCOMING", "dataset_0": "Wrong table"})
+                self.assertEqual(rejected.status_code, 422)
+                # Rejection uses a bounded command and a separate page render.
+                self.assertLessEqual(timings.connection_count, 10)
+                self.assertEqual(timings.lock_retry_count, 0)
+                self.assertEqual(service.current(self.workspace_id, actor=self.actor), before)
+                self.assertIn("Unsaved choices", rejected.text)
+                self.assertNotIn("Choices are saved", rejected.text)
+                view = rejected.context["supporting_review"]
+                self.assertIn("Choose a compatible accepted incoming table", view["rows"][0]["save_error"])
+                self.assertEqual(view["rows"][1]["save_error"], "")
+                self.assertIn('aria-invalid="true" aria-describedby="support-choice-error-0"', rejected.text)
+                restored = dict(MappingForm(rejected.text, form_attribute="data-supporting-save-form").entries)
+                self.assertEqual(restored["dataset_0"], "Wrong table")
+                self.assertEqual((restored["action_0"], restored["action_1"]), ("INCOMING", "REUSE"))
+                restored["dataset_0"] = page.context["supporting_review"]["datasets"][0].label
+                saved = self.save(restored)
+                self.assertEqual(saved.status_code, 303, saved.text)
+                reopened = self.client.get(saved.headers["location"])
+                self.assertLess(
+                    reopened.text.index("Choices are saved"),
+                    reopened.text.index('id="schema-governance"'),
+                )
+                self.assertTrue(reopened.context["supporting_review"]["current"])
+                self.assertEqual(reopened.context["supporting_review"]["rows"][0]["chosen"], "INCOMING")
+                committed = service.current(self.workspace_id, actor=self.actor)
+                retry = dict(MappingForm(reopened.text, form_attribute="data-supporting-save-form").entries)
+                blank = self.save({**retry, "dataset_0": ""})
+                self.assertEqual(blank.status_code, 422)
+                self.assertIn("Choose an accepted incoming table.", blank.text)
+                self.assertNotIn("Choices are saved", blank.text)
+                self.assertEqual(service.current(self.workspace_id, actor=self.actor), committed)
 
     def test_mapping_consumer_checks_choices_in_one_local_scope_before_scans(self):
         _page, form = self.page_and_form()

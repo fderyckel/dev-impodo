@@ -1,4 +1,4 @@
-{% if supporting_review and (supporting_review.rows or supporting_review.error) %}
+{% if supporting_review and (supporting_review.rows or supporting_review.error or supporting_review.save_error) %}
 <section class="supporting-review" id="supporting-data-review" tabindex="-1" aria-labelledby="supporting-review-title">
   <div class="page-heading compact">
     <div>
@@ -9,11 +9,20 @@
         Choose one source for each required relationship.
       </p>
     </div>
-    <span class="status {% if supporting_review.current %}complete{% else %}attention{% endif %}">
-      {% if supporting_review.current %}Choices saved{% else %}Action required{% endif %}
+    <span class="status {% if supporting_review.current and not supporting_review.save_error %}complete{% else %}attention{% endif %}">
+      {% if supporting_review.save_error %}Unsaved choices{% elif supporting_review.current %}Choices saved{% else %}Action required{% endif %}
     </span>
   </div>
-  {% if supporting_review.error %}
+  {% if supporting_review.save_error %}
+    <div class="notice error" role="alert" tabindex="-1" data-supporting-save-error>
+      <strong>Choices weren’t saved.</strong>
+      {% if supporting_review.has_field_errors %}
+        <span>Review the highlighted choices and save again.</span>
+      {% else %}
+        <span>{{ supporting_review.save_error }}</span>
+      {% endif %}
+    </div>
+  {% elif supporting_review.error %}
     <div class="notice warning supporting-review-blocker" role="alert">
       <strong>Why matching rules are waiting</strong>
       {% if supporting_review.rows %}
@@ -30,17 +39,20 @@
         <p>{{ supporting_review.error }}</p>
       </details>
     </div>
-  {% elif supporting_review.current %}
-    <p class="notice success"><strong>Choices are saved.</strong> Match data will check the actual values later.</p>
   {% endif %}
   {% if supporting_review.rows %}
   <form method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/save" data-supporting-save-form>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     {% include "_supporting_review_choices.html" %}
-    <div class="actions"><button class="button primary" type="submit" data-supporting-save>Save choices</button></div>
+    <div class="actions">
+      <button class="button primary" type="submit" data-supporting-save>Save choices</button>
+      {% if supporting_review.current and not supporting_review.save_error %}
+        <span class="status complete" role="status">Choices are saved</span>
+      {% endif %}
+    </div>
   </form>
   {% endif %}
-  {% if supporting_review.current and supporting_review.has_reuse %}
+  {% if supporting_review.current and supporting_review.has_reuse and not supporting_review.save_error %}
   <form class="supporting-review-check" method="post" action="/workspaces/{{ workspace_state.workspace_id }}/schema/supporting/check">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="binding_hash" value="{{ supporting_review.binding_hash }}">

@@ -756,6 +756,13 @@ def _render_summary(
         normalization=normalization,
         resolution=resolution,
         quality_review_page=quality_page,
+        quality_rows_to_use_urls={
+            dataset.name: (
+                f"/workspaces/{workspace_id}/mapping?mapping_dataset={index}"
+                f"#rows-to-use-{index}"
+            )
+            for index, dataset in enumerate(effective_selection.datasets if effective_selection else ())
+        },
         workflow_issue_summary=workflow_issue_summary,
         quality_issue_field_labels=quality_issue_field_labels,
         quality_review_row_start=quality_row_start,

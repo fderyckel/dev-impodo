@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
+    included_parent_rows_from_snapshots,
     validate_snapshot_for_dataset,
 )
 from impodo.application.shared.artifacts import (
@@ -60,6 +61,7 @@ from impodo.domain.staging.evaluator import (
     canonical_field_sources,
     compile_browser_row_transformer,
     compile_reference_indexes,
+    row_inclusion_source_keys,
 )
 from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
@@ -545,6 +547,9 @@ def prepare_bounded_grouped_exact_join_session(
         raise ReadinessError("Reference data belongs to another workspace")
     mappings = {item.dataset_id: item for item in definition.datasets}
     physical_by_id = {dataset.dataset_id: dataset for dataset in physical_selection.datasets}
+    included_parents = included_parent_rows_from_snapshots(
+        definition.datasets, physical_selection, snapshots, artifacts,
+    )
 
     compiled_plan = compile_browser_mapping(
         definition, effective_selection, derived_plan_hash=derived_plan_hash,
@@ -616,6 +621,7 @@ def prepare_bounded_grouped_exact_join_session(
                     effective, effective, mapping, None, "source",
                     lookup_bindings=lookup_bindings,
                     reference_indexes=reference_indexes,
+                    included_parent=included_parents.get(mapping.dataset_id),
                 )
                 preparer = CompiledPreparedRowTransformer.compile(
                     compiled_dataset, transformer.headers,
@@ -660,10 +666,7 @@ def prepare_bounded_grouped_exact_join_session(
                                     mapping_hash=mapping_hash,
                                     schema_hash=schema_hash,
                                     derived_plan_hash=derived_plan_hash,
-                                    source_column_keys=tuple(
-                                        condition.source_column_key
-                                        for condition in mapping.row_inclusion.conditions
-                                    ),
+                                    source_column_keys=row_inclusion_source_keys(mapping),
                                     primary_dataset_id=producer.primary_dataset_id,
                                     physical_sources=physical_sources,
                                 )
@@ -683,10 +686,7 @@ def prepare_bounded_grouped_exact_join_session(
                                     mapping_hash=mapping_hash,
                                     schema_hash=schema_hash,
                                     derived_plan_hash=derived_plan_hash,
-                                    source_column_keys=tuple(
-                                        condition.source_column_key
-                                        for condition in mapping.row_inclusion.conditions
-                                    ),
+                                    source_column_keys=row_inclusion_source_keys(mapping),
                                     primary_dataset_id=producer.primary_dataset_id,
                                     physical_sources=physical_sources,
                                 )

@@ -67,9 +67,10 @@ the Odoo owner to change the field precision and refresh Odoo evidence.
 
 ## Reviewed decision and execution
 
-The browser calculates a preview only after the data manager selects root
-issues. Acceptance requires the comparison identifier and preview semantic
-hash submitted by that page. `PreflightService.accept_deferred_scope` then:
+The browser requests a preview after the data manager selects individual root
+issues or chooses all selectable issues. Acceptance requires the comparison
+identifier and preview semantic hash submitted by that page.
+`PreflightService.accept_deferred_scope` then:
 
 1. Rebuilds the preview from current saved evidence.
 2. Removes only the reviewed row closure.
@@ -97,12 +98,15 @@ still apply.
 The review workbook uses the full saved comparison as historical evidence and
 the accepted reduced scope as its active projection. **Records to load**,
 **Changes to Odoo**, and **Needs attention** exclude omitted rows. **Review
-overview** shows prepared, already set aside, newly set aside, ready-to-write,
-and still-blocked counts.
+overview** shows counts for the prepared rows, omissions, remaining writes,
+and unresolved issues.
 
-**Deferred issues** contains every omitted prepared record once. It retains the
-source dataset and row, portable source identity, affected group, direct or
-inherited reason, root issue, correction guidance, and comparison identifier.
+**Excluded by filters** lists source rows left out by **Rows to use**.
+**Deferred issues** lists records held back by data checks in preparation or
+by the accepted Final review decision. Final review entries retain the
+affected group, direct or inherited reason, root issue, correction guidance,
+and comparison identifier. The preparation entries use the verified frozen
+staging and quality evidence.
 Workbook cells cannot change the saved decision or authorize a load.
 
 ## Authorization, invalidation, and performance

@@ -342,5 +342,5 @@ class ScopedRelationshipMatchBrowserTests(ProjectSetupBrowserTestCase):
         # Begin/read, supporting capture/publication, checked revision and response
         # each own a bounded local operation; the Odoo reader runs between them.
         self.assertLessEqual(timings.connection_count, 30)
-        self.assertLessEqual(timings.schema_check_count, 8)
+        self.assertLessEqual(timings.schema_check_count, 16)
         self.assertEqual(timings.lock_retry_count, 0)

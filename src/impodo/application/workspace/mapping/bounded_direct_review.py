@@ -10,6 +10,9 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable, Iterator
 
 from impodo.application.data_version.inspection import SourceFileCatalog
+from impodo.application.data_version.source_snapshots import (
+    included_parent_rows_from_snapshots,
+)
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     GovernedArtifactStores,
@@ -120,6 +123,9 @@ def _direct_batches(
         raise ReadinessError("Bounded review datasets are incomplete or duplicated")
     snapshots = tuple(source_snapshots)
     snapshot_by_id = {item.dataset_id: item for item in snapshots}
+    included_parents = included_parent_rows_from_snapshots(
+        definition.datasets, physical_selection, snapshots, artifacts,
+    )
     if len(snapshot_by_id) != len(snapshots) or set(snapshot_by_id) != set(physical_by_id):
         raise ReadinessError("Frozen source snapshots are incomplete")
     catalog_by_file = {item.file_id: item for item in catalogs}
@@ -151,7 +157,8 @@ def _direct_batches(
         elif physical.origin is not SourceOriginKind.ODOO:
             raise ReadinessError("Frozen source evidence is incomplete")
         transformer = compile_browser_row_transformer(
-            effective, physical, mapping, None, "source"
+            effective, physical, mapping, None, "source",
+            included_parent=included_parents.get(mapping.dataset_id),
         )
         count = 0
         try:

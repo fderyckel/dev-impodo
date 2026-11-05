@@ -84,7 +84,7 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         self.assertIn("No count expectation", response.text)
         self.assertIn("Within expectations", review.text)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
         self.assertEqual(self.target.writes, [])
 
@@ -103,7 +103,7 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
                     response = self.client.get(self.base + route)
                 self.assertEqual(response.status_code, 200, response.text)
                 self.assertLessEqual(timings.connection_count, 6)
-                self.assertLessEqual(timings.schema_check_count, 1)
+                self.assertLessEqual(timings.schema_check_count, 4)
                 self.assertEqual(timings.lock_retry_count, 0)
         self.assertEqual(len(self.target.requests), remote)
 
@@ -124,7 +124,7 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         # Route authorization opens two stores before the command scope;
         # saving and reassessing retain four distinct database owners.
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 2)
+        self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
         review = self.review()
         self.assertFalse(review.ready)

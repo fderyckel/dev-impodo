@@ -43,6 +43,25 @@ _DATETIME_FORMATS = {
     "mdy_slash": "%m/%d/%Y %H:%M:%S",
     "dmy_dot": "%d.%m.%Y %H:%M:%S",
 }
+EXCEL_TIMESTAMP_DATE_FORMAT = "excel_timestamp"
+_CLOCK_MINUTES_SECONDS = r":[0-5][0-9](?::[0-5][0-9])?"
+EXCEL_TIMESTAMP_DATE_PATTERNS = (
+    (
+        (
+            r"([0-9]{4}-[0-9]{2}-[0-9]{2})[T ]"
+            r"(?:[01][0-9]|2[0-3]):[0-5][0-9](?::[0-5][0-9](?:\.[0-9]{1,6})?)?"
+        ),
+        _DATE_FORMATS["iso"],
+    ),
+    (
+        (
+            r"([0-9]{1,2}/[0-9]{1,2}/[0-9]{4})[ \t]+"
+            rf"(?:(?:0?[1-9]|1[0-2]){_CLOCK_MINUTES_SECONDS}[ \t]+[AaPp][Mm]"
+            rf"|(?:[01]?[0-9]|2[0-3]){_CLOCK_MINUTES_SECONDS})"
+        ),
+        _DATE_FORMATS["mdy_slash"],
+    ),
+)
 
 
 class ScalarValueError(ValueError):
@@ -232,10 +251,7 @@ def canonicalize_scalar_value(
             else:
                 raise ValueError
         elif mapping.value_type == "date":
-            result = datetime.strptime(
-                prepared,
-                _DATE_FORMATS[mapping.transform.date_format],
-            ).date()
+            result = _parse_date(prepared, mapping.transform.date_format)
         elif mapping.value_type == "datetime":
             date_format = _DATETIME_FORMATS[mapping.transform.date_format]
             parsed = (
@@ -261,6 +277,15 @@ def canonicalize_scalar_value(
     except ScalarRuleError as error:
         raise ScalarValueRuleError(error.code, str(error)) from error
     return result
+
+
+def _parse_date(value: str, date_format: str) -> date:
+    if date_format == EXCEL_TIMESTAMP_DATE_FORMAT:
+        for pattern, calendar_format in EXCEL_TIMESTAMP_DATE_PATTERNS:
+            if match := re.fullmatch(pattern, value):
+                return datetime.strptime(match[1], calendar_format).date()
+        raise ValueError("Expected an Excel date and time")
+    return datetime.strptime(value, _DATE_FORMATS[date_format]).date()
 
 
 def _evaluate_selection_rules(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from uuid import uuid4
 
@@ -20,15 +21,26 @@ from impodo.domain.workspace.supporting_models import (
 )
 from impodo.domain.workspace.supporting_review import (
     SupportingChoiceAction,
+    SupportingChoiceValidationError,
     SupportingReviewProblem,
     SupportingReviewRequiredError,
     eligible_supporting_fields,
 )
 from impodo.domain.workspace.workbench import SourceMode
 
+_SOURCE_LABELS: dict[str, str] = {
+    SupportingChoiceAction.ODOO_MANAGED: "Handled by Odoo",
+    SupportingChoiceAction.REUSE: "Reuse existing Odoo records",
+    SupportingChoiceAction.CHECKED_DEFAULT: "Use the checked Odoo default",
+    SupportingChoiceAction.INCOMING: "Use an accepted incoming table",
+    SupportingChoiceAction.SKIP_OPTIONAL: "Leave this optional relationship empty",
+}
+
 
 def supporting_review_view(
-    context, workspace, selection, schema, governance, *, actor, packet=None
+    context, workspace, selection, schema, governance, *, actor, packet=None,
+    save_error: ValueError | WorkspaceError | None = None,
+    drafts: Mapping[str, tuple[str, str]] | None = None,
 ):
     """Reuse the page's evidence and read rules/review once for all fields."""
     service = context.schema_workspace.supporting
@@ -53,6 +65,7 @@ def supporting_review_view(
             "version": 0,
             "operation_id": "",
             "error": error,
+            "save_error": str(save_error) if save_error is not None else "",
             "current": False,
             "has_reuse": False,
             "issues": (_review_issue(workspace.workspace_id, error),),
@@ -74,6 +87,11 @@ def supporting_review_view(
     )
     labels = {model.name: model.label for model in schema.models}
     rows = []
+    field_errors = (
+        {edge: save_error.field_message for edge in save_error.relationships if edge in fields}
+        if isinstance(save_error, SupportingChoiceValidationError)
+        else {}
+    )
     descriptor_by_id = {item.dataset_id: item for item in packet.descriptors}
     for (model, name), field in sorted(
         fields.items(), key=lambda item: (not item[1].required, item[0])
@@ -81,41 +99,31 @@ def supporting_review_view(
         role = supporting_model_role(
             field, source_model=model, odoo_version=schema.odoo_version
         )
-        actions = []
+        actions: list[SupportingChoiceAction] = []
         if role is SupportingModelRole.ODOO_MANAGED:
-            actions.append(
-                (SupportingChoiceAction.ODOO_MANAGED.value, "Handled by Odoo")
-            )
+            actions.append(SupportingChoiceAction.ODOO_MANAGED)
         if (
             role is not SupportingModelRole.ODOO_MANAGED
             or supporting_model_role(field) is not SupportingModelRole.ODOO_MANAGED
         ):
             if field.type != "one2many":
-                actions.append(
-                    (SupportingChoiceAction.REUSE.value, "Reuse existing Odoo records")
-                )
+                actions.append(SupportingChoiceAction.REUSE)
             if field.create_default_present:
-                actions.append(
-                    (
-                        SupportingChoiceAction.CHECKED_DEFAULT.value,
-                        "Use the checked Odoo default",
-                    )
-                )
+                actions.append(SupportingChoiceAction.CHECKED_DEFAULT)
             if field.relation in workspace.intended_models:
-                actions.append(
-                    (
-                        SupportingChoiceAction.INCOMING.value,
-                        "Use an accepted incoming table",
-                    )
-                )
+                actions.append(SupportingChoiceAction.INCOMING)
             if not field.required:
-                actions.append(
-                    (
-                        SupportingChoiceAction.SKIP_OPTIONAL.value,
-                        "Leave this optional relationship empty",
-                    )
-                )
+                actions.append(SupportingChoiceAction.SKIP_OPTIONAL)
         choice = saved.get((model, name))
+        draft = drafts.get(f"{model}|{name}") if drafts is not None else None
+        chosen = choice.action.value if choice else ""
+        dataset_label = (
+            descriptor_by_id[choice.dataset_id].label
+            if choice and choice.dataset_id in descriptor_by_id
+            else ""
+        )
+        if draft is not None:
+            chosen, dataset_label = draft
         rows.append(
             {
                 "model": model,
@@ -125,18 +133,22 @@ def supporting_review_view(
                 "related_model": field.relation,
                 "required": field.required,
                 "managed": role is SupportingModelRole.ODOO_MANAGED and len(actions) == 1,
-                "actions": tuple(actions),
-                "chosen": choice.action.value if choice else "",
+                "actions": tuple((action.value, _SOURCE_LABELS[action]) for action in actions),
+                "chosen": chosen,
+                "unavailable_draft": (
+                    _SOURCE_LABELS.get(chosen, "Unknown source")
+                    if draft is not None and chosen and chosen not in actions
+                    else ""
+                ),
+                "save_error": field_errors.get((model, name), ""),
                 "dataset_id": choice.dataset_id if choice else "",
-                "dataset_label": descriptor_by_id[choice.dataset_id].label
-                if choice and choice.dataset_id in descriptor_by_id
-                else "",
+                "dataset_label": dataset_label,
                 "read_key": ", ".join((*choice.key_fields, *choice.scope_fields))
-                if choice
+                if choice and draft is None
                 else "",
                 "incoming_available": field.relation in workspace.intended_models,
                 "needs_change": bool(
-                    choice and choice.action.value not in {value for value, _ in actions}
+                    choice and choice.action not in actions
                     or field.required and choice is None
                 ),
             }
@@ -161,6 +173,8 @@ def supporting_review_view(
         "version": review.version if review else 0,
         "operation_id": str(uuid4()),
         "error": error,
+        "save_error": str(save_error) if save_error is not None else "",
+        "has_field_errors": bool(field_errors),
         "problem": problem,
         "current": review is not None and not error,
         "has_reuse": bool(
@@ -223,9 +237,9 @@ def mapping_supporting_review_view(
     if mapping_conflict:
         message = "A related-data choice does not match its linked-field rule. Review the linked fields, then check matches again."
     elif refreshed and workspace.odoo_company is not None:
-        message = f"Odoo access was refreshed for {workspace.odoo_company.name}. Confirm your related-data choices again before checking matches."
+        message = f"Odoo access changed for {workspace.odoo_company.name}. Keep these choices if they are still correct."
     elif view.get("problem") == SupportingReviewProblem.STALE:
-        message = "Your source or Odoo details changed. Confirm your related-data choices again before checking matches."
+        message = "Your source or Odoo details changed. Keep these choices if they are still correct."
     elif not view.get("error"):
         message = "Your related-data choices are saved. Check matches to continue."
     else:

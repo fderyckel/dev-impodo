@@ -114,7 +114,15 @@ document.addEventListener("DOMContentLoaded", () => {
   const supportingReview = window.location.hash === "#supporting-data-review"
     ? document.getElementById("supporting-data-review")
     : null;
-  if (restoreSupportingPosition) {
+  const supportingSaveError = document.querySelector("[data-supporting-save-error]");
+  if (supportingSaveError) {
+    const correction = supportingSaveForm?.querySelector('[aria-invalid="true"]')
+      || supportingSaveError;
+    window.requestAnimationFrame(() => {
+      correction.scrollIntoView({ block: "center" });
+      correction.focus({ preventScroll: true });
+    });
+  } else if (restoreSupportingPosition) {
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
         window.scrollTo(

@@ -271,6 +271,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"approved_write_field_{dataset_index}",
                 f"row_inclusion_mode_{dataset_index}",
                 f"row_inclusion_join_{dataset_index}",
+                f"row_inclusion_parent_{dataset_index}",
             }
         )
         for condition_index in range(MAX_ROW_INCLUSION_CONDITIONS):
@@ -1513,9 +1514,10 @@ def _row_inclusion_from_form(
 ) -> RowInclusionPolicy:
     """Read one strictly allowlisted, bounded source-row rule."""
 
+    submitted_mode = _text(form, f"row_inclusion_mode_{dataset_index}")
     mode = RowInclusionMode(
-        _text(form, f"row_inclusion_mode_{dataset_index}")
-        or RowInclusionMode.ALL_ROWS.value
+        RowInclusionMode.MATCHING_ROWS.value if submitted_mode == "included_parent"
+        else submitted_mode or RowInclusionMode.ALL_ROWS.value
     )
     populated_slots = tuple(
         condition_index
@@ -1525,6 +1527,13 @@ def _row_inclusion_from_form(
             f"row_inclusion_source_{dataset_index}_{condition_index}",
         )
     )
+    parent_field = _text(form, f"row_inclusion_parent_{dataset_index}")
+    if submitted_mode == "included_parent":
+        if not parent_field or populated_slots:
+            raise WorkspaceError("Choose one incoming parent field in Rows to use")
+        return RowInclusionPolicy(mode=mode, included_parent_field=parent_field)
+    if parent_field:
+        raise WorkspaceError("Choose the included-parent mode to use a parent field")
     if mode is RowInclusionMode.ALL_ROWS:
         if populated_slots:
             raise WorkspaceError(

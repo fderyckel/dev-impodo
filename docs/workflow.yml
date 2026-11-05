@@ -13,9 +13,11 @@ shared:
     - src/impodo/web/composition/page_reads.py::run_local_operation
     - src/impodo/web/composition/page_reads.py::run_local_operation_sync
     - src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation
+    - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
   tests:
     - tests/integration/web/test_page_reads.py
     - tests/integration/duckdb/test_page_read_connections.py
+    - tests/integration/duckdb/test_scoped_store_validation.py
   router_modules:
     - src/impodo/web/routers/lifecycle.py
     - src/impodo/web/routers/concepts.py
@@ -422,6 +424,7 @@ stages:
       - scripts/capture_matching_rule_screenshots.py::capture_supporting_review
       - scripts/capture_product_supporting_review.py::capture
     tests:
+      - tests/integration/web/test_stage235_performance.py
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
       - tests/domain/odoo/test_company_domains.py
@@ -479,6 +482,7 @@ stages:
       - src/impodo/web/routers/matching_expectations.py
       - src/impodo/web/routers/relationship_choice_review.py
       - src/impodo/web/routers/required_values.py
+      - src/impodo/web/routers/duplicate_rows.py
       - src/impodo/web/routers/quality.py
     templates:
       - src/impodo/web/templates/mapping/page.html
@@ -514,6 +518,8 @@ stages:
       - src/impodo/adapters/duckdb/relationship_choice_review.py::published_relationship_choices
       - src/impodo/adapters/duckdb/relationship_choice_review.py::relationship_choice_page
       - src/impodo/application/workspace/mapping/identity_group_review.py::identity_duplicate_choices
+      - src/impodo/application/workspace/mapping/duplicate_rows.py::DuplicateRowReview
+      - src/impodo/web/routers/duplicate_rows.py::build_duplicate_rows_router
       - src/impodo/domain/matching_order.py::MatchingIdentityKeyIndex
       - src/impodo/domain/matching_order.py::index_matching_identity_keys
       - src/impodo/adapters/duckdb/matching_order_repository.py::MatchingOrderRepository
@@ -531,6 +537,7 @@ stages:
       - src/impodo/domain/mapping/contracts.py::SelectionRuleSet
       - src/impodo/domain/mapping/contracts.py::RowInclusionPolicy
       - src/impodo/domain/mapping/row_inclusion.py::row_is_included
+      - src/impodo/domain/mapping/row_inclusion.py::compile_included_parent_rows
       - src/impodo/domain/mapping/row_inclusion_review.py::RowInclusionReviewSnapshot
       - src/impodo/application/workspace/mapping/row_inclusion_review.py::RowInclusionReviewService
       - src/impodo/application/workspace/mapping/bounded_join_review.py::joined_row_inclusion_review
@@ -590,8 +597,11 @@ stages:
       - src/impodo/web/presenters/matching_health_issues.py::matching_health_workflow_issue_summary
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
+      - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_mapping_forms.py
       - tests/integration/web/test_same_table_hierarchy.py
+      - tests/integration/web/test_included_parent_rows.py
+      - tests/domain/mapping/test_included_parent_rows.py
       - tests/integration/web/test_parent_root_feedback.py
       - tests/e2e/test_same_table_hierarchy.py
       - tests/domain/mapping/test_validation.py
@@ -635,6 +645,8 @@ stages:
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_identity_group_review.py
+      - tests/integration/web/test_duplicate_row_exclusions.py
+      - tests/e2e/test_duplicate_row_exclusions.py
       - tests/e2e/test_identity_group_review.py
       - tests/application/workspace/mapping/test_identity_group_review.py
       - tests/integration/duckdb/test_identity_group_publication.py
@@ -815,6 +827,7 @@ stages:
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
+      - tests/integration/web/test_final_review_performance.py
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py
@@ -832,6 +845,7 @@ stages:
       - tests/integration/web/test_summary_presenter.py
       - tests/integration/web/test_deferred_scope_presenter.py
       - tests/integration/web/test_deferred_scope_routes.py
+      - tests/integration/web/test_bulk_deferred_workflow.py
       - tests/integration/duckdb/test_preflight_repository.py
       - tests/integration/duckdb/test_preflight_attempts.py
       - tests/integration/duckdb/test_forward_upgrades.py

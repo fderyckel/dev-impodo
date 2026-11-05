@@ -186,7 +186,7 @@ class AccountCompanySupportingTests(ProjectSetupBrowserTestCase):
                     # Request access opens two owners; the bounded local page
                     # or save operation opens four lineage/evidence owners.
                     self.assertLessEqual(page_timings.connection_count, 6)
-                    self.assertLessEqual(page_timings.schema_check_count, 1)
+                    self.assertLessEqual(page_timings.schema_check_count, 4)
                     with patch.object(
                         context,
                         "readiness_reader",
@@ -196,7 +196,7 @@ class AccountCompanySupportingTests(ProjectSetupBrowserTestCase):
                             saved = self.post(workspace_id, "save", form)
                     self.assertEqual(saved.status_code, 303, saved.text)
                     self.assertLessEqual(save_timings.connection_count, 6)
-                    self.assertLessEqual(save_timings.schema_check_count, 1)
+                    self.assertLessEqual(save_timings.schema_check_count, 4)
                     reopened, _form = self.review_form(workspace_id)
                     view = reopened.context["supporting_review"]
                     self.assertTrue(view["current"])
@@ -274,7 +274,7 @@ class AccountCompanySupportingTests(ProjectSetupBrowserTestCase):
                     self.assertLessEqual(
                         check_timings.connection_count, connection_limit
                     )
-                    self.assertLessEqual(check_timings.schema_check_count, 2)
+                    self.assertLessEqual(check_timings.schema_check_count, 6)
                     self.assertEqual(check_timings.lock_retry_count, 0)
                     if mode is OdooConnectionMode.LOCAL:
                         local.assert_called_once()

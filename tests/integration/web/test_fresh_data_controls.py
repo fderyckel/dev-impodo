@@ -134,7 +134,7 @@ class FreshDataControlBrowserTests(TestCase):
         }
         ceilings = {
             "initial_page": (4, 3),
-            "upload": (8, 4),
+            "upload": (8, 6),
             "uploaded_page": (4, 3),
             "register": (8, 7),
             "registered_page": (4, 3),

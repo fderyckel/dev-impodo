@@ -1,6 +1,7 @@
 {% from "_user_help.html" import decision_help with context %}
 {% set policy = view.row_inclusion_policy if view.row_inclusion_policy is defined else (view.mapping.row_inclusion if view.mapping else none) %}
-{% set policy_mode = policy.mode.value if policy else 'all_rows' %}
+{% set parent_field = policy.included_parent_field if policy else none %}
+{% set policy_mode = 'included_parent' if parent_field else (policy.mode.value if policy else 'all_rows') %}
 <section class="mapping-row-inclusion" aria-labelledby="rows-to-use-{{ dataset_index }}" data-row-inclusion-editor>
   <div class="page-heading compact">
     <div>
@@ -8,7 +9,7 @@
       <h3 id="rows-to-use-{{ dataset_index }}">Rows to use {{ decision_help("rows-to-use") }}</h3>
       <p class="muted">Choose which source rows belong to this migration. Your accepted Data version remains unchanged.</p>
     </div>
-    {% if not view.active and policy_mode == 'matching_rows' %}<span class="status needs_review">Rule saved</span>{% endif %}
+    {% if not view.active and policy_mode != 'all_rows' %}<span class="status needs_review">Rule saved</span>{% endif %}
   </div>
 
   {% if collision_draft and view.active %}
@@ -29,7 +30,28 @@
         <input type="radio" name="row_inclusion_mode_{{ dataset_index }}" value="matching_rows" {% if policy_mode == 'matching_rows' %}checked{% endif %} data-row-inclusion-mode>
         Use only rows that match
       </label>
+      {% if view.row_inclusion_parents or parent_field %}
+        <label>
+          <input type="radio" name="row_inclusion_mode_{{ dataset_index }}" value="included_parent" {% if parent_field %}checked{% endif %} data-row-inclusion-mode>
+          Use only rows whose parent is included
+        </label>
+      {% endif %}
     </fieldset>
+
+    {% if view.row_inclusion_parents or parent_field %}
+      <div data-row-inclusion-parent {% if not parent_field %}hidden{% endif %}>
+        <label>
+          Incoming parent field
+          <select name="row_inclusion_parent_{{ dataset_index }}" {% if not parent_field %}disabled{% endif %}>
+            <option value="">Choose a linked field</option>
+            {% for parent in view.row_inclusion_parents %}
+              <option value="{{ parent.field }}" {% if parent.field == parent_field %}selected{% endif %}>{{ parent.label }} · {{ parent.table }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <p class="muted">Keep a row when its linked record is included in the parent table’s Rows to use.</p>
+      </div>
+    {% endif %}
 
     <div class="row-inclusion-builder" data-row-inclusion-builder {% if policy_mode != 'matching_rows' %}hidden{% endif %}>
       <div class="row-inclusion-join" data-row-inclusion-join {% if not policy or policy.conditions|length < 2 %}hidden{% endif %}>
@@ -106,6 +128,8 @@
       <button class="button secondary compact" type="button" data-add-row-inclusion-condition>Add another condition</button>
       <p class="muted">Text is the safest choice for status codes because leading zeroes remain meaningful.</p>
     </div>
+  {% elif policy_mode == 'included_parent' %}
+    <p><strong>Use only rows whose parent is included.</strong></p>
   {% elif policy_mode == 'matching_rows' %}
     <p><strong>{{ policy.conditions|length }} saved condition{{ 's' if policy.conditions|length != 1 else '' }}.</strong> Open this table to change which rows are used.</p>
   {% else %}

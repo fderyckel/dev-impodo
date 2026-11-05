@@ -98,6 +98,20 @@ and removes only the new attempt's artifacts.
 Tests may disable the manager and exercise the synchronous compatibility path.
 Both paths call the same comparison service and publication transaction.
 
+Preparation intake resolves current source readiness, ownership, schema,
+governance, and row counts in one bounded local operation. It releases every
+DuckDB owner before dispatching or retrying a preparation worker. Opening
+`summary/deferred-groups` authorizes the reader, verifies saved evidence, and
+renders the response inside one `run_page_read` callback. Rejected acceptance
+forms also recover and render inside a bounded read scope.
+
+The [action-rich Final review regression](../../../tests/integration/web/test_final_review_performance.py)
+covers both supported Odoo majors and
+local and remote access. It asserts unchanged comparison evidence, zero Odoo
+writes, no additional target reads, SQL budgets, and owner release at job
+dispatch. Current schema diagnostics include all store contracts; older
+engine-only counts describe the measurement coverage of their original build.
+
 The compare route resolves the authorized Workspace, current evidence
 bindings, and read credential inside one `run_local_operation` callback. It
 closes that scope before enqueueing the background attempt. The worker uses
@@ -279,6 +293,12 @@ reopen uploaded files.
 
 ### Reviewed deferred record groups
 
+The prepared-data list labels issue-free `EXCLUDED` quality rows as
+**Excluded by filters** and links to the table’s **Rows to use** section.
+Excluded or quarantined rows with saved findings show **Set aside for a data
+issue** and retain those findings and their correction owner. The summary
+presenter builds the links from the already-loaded effective source selection.
+
 For a file-source report with isolatable blockers,
 `PreflightService.deferred_scope_review` derives root issues and complete
 affected-record closure from the saved manifest, full execution snapshot, and
@@ -289,19 +309,21 @@ are calculated against the intended write rows and captured Odoo digits; the
 path never rounds a value implicitly.
 
 The browser renders the local preview through
-`workspace_deferred_scope.html`. Acceptance posts the comparison identifier,
-preview hash, and selected issue identifiers. The route recalculates the
-preview before `PreflightService.accept_deferred_scope` publishes a compact
-decision, reduced execution snapshot, and compact execution projection. A
-stale comparison or changed preview is rejected. Preview, acceptance,
-navigation, and workbook generation make no Odoo request.
+`workspace_deferred_scope.html`. The bulk action selects every row issue on
+the server. Acceptance posts the comparison identifier, preview hash, and
+either the bulk choice or individual issue identifiers.
+`PreflightService.accept_deferred_scope` recalculates and verifies the preview
+before publishing the decision and the reduced execution evidence. Preview,
+acceptance, navigation, and workbook generation make no Odoo request.
 
 `reduce_execution_snapshot` removes only the reviewed closure and rebuilds the
 remaining relationship schedule. The result is loadable only when no blocker
 remains and at least one safe write remains. The full comparison stays
-immutable. The workbook's **Deferred issues** sheet projects every omitted
-prepared row with its direct or inherited cause. The detailed invariants are
-defined by the [reviewed deferred record groups contract](../contracts/deferred-record-groups.md).
+immutable. The workbook uses frozen staging evidence to identify source
+filters and saved quality findings to explain preparation omissions.
+It lists source filters under **Excluded by filters** and data problems under
+**Deferred issues**, alongside records omitted in Final review. The detailed
+invariants are defined by the [reviewed deferred record groups contract](../contracts/deferred-record-groups.md).
 
 ## Code references
 
@@ -490,6 +512,7 @@ contact Odoo while writing them.
 - [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
 - [`tests/integration/web/test_deferred_scope_presenter.py`](../../../tests/integration/web/test_deferred_scope_presenter.py)
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
+- [Bulk selection and Excel export](../../../tests/integration/web/test_bulk_deferred_workflow.py)
 - [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)

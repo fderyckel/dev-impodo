@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections import Counter, defaultdict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from threading import RLock, Thread
@@ -37,6 +37,7 @@ from impodo.domain.mapping.contracts import (
     relationship_input_columns,
     relationship_target_fields,
 )
+from impodo.domain.mapping.row_inclusion import IncludedParentRows
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
     MatchingIdentityChoice,
@@ -231,6 +232,12 @@ class MatchingOrderPreferenceRepository(Protocol):
 class MatchingOrderSourceKeys(Protocol):
     """Read exact frozen source key tuples without publishing them."""
 
+    def included_parent_rows(
+        self, workspace_id: str, datasets: tuple[DatasetMapping, ...],
+    ) -> dict[str, IncludedParentRows]:
+        """Read the source parent scope for an explicitly linked row rule."""
+        ...
+
     def source_key_tuples(
         self,
         workspace_id: str,
@@ -246,6 +253,7 @@ class MatchingOrderSourceKeys(Protocol):
         dataset_id: str,
         source_column_keys: tuple[str, ...],
         row_inclusion: RowInclusionPolicy,
+        *, included_parent: IncludedParentRows | None = None,
     ) -> tuple[tuple[str | None, ...], ...]:
         """Read identity keys subject to the mapping's row-inclusion policy."""
         ...
@@ -256,6 +264,7 @@ class MatchingOrderSourceKeys(Protocol):
         dataset_id: str,
         source_column_keys: tuple[str, ...],
         row_inclusion: RowInclusionPolicy,
+        *, included_parent: IncludedParentRows | None = None,
     ) -> tuple[tuple[str | None, ...], ...]:
         """Read relationship keys subject to the mapping's row-inclusion policy."""
         ...
@@ -335,8 +344,11 @@ class _SourceTupleCacheEntry:
 class _MatchingSourceTupleCache:
     """Reuse one broader source projection for narrower Stage 3 checks."""
 
-    def __init__(self, reader: MatchingOrderSourceKeys) -> None:
+    def __init__(
+        self, reader: MatchingOrderSourceKeys, parents: Mapping[str, IncludedParentRows],
+    ) -> None:
         self._reader = reader
+        self._parents = parents
         self._entries: list[_SourceTupleCacheEntry] = []
 
     def read(
@@ -361,20 +373,17 @@ class _MatchingSourceTupleCache:
             return tuple(
                 tuple(row[index] for index in indexes) for row in entry.rows
             )
-        rows = (
-            self._reader.source_identity_key_tuples(
-                workspace_id,
-                dataset_id,
-                columns,
-                row_inclusion,
-            )
-            if identity
-            else self._reader.source_included_key_tuples(
-                workspace_id,
-                dataset_id,
-                columns,
-                row_inclusion,
-            )
+        reader = (
+            self._reader.source_identity_key_tuples if identity
+            else self._reader.source_included_key_tuples
+        )
+        gate = self._parents.get(dataset_id)
+        rows = reader(
+            workspace_id,
+            dataset_id,
+            columns,
+            row_inclusion,
+            **({"included_parent": gate} if gate is not None else {}),
         )
         self._entries.append(
             _SourceTupleCacheEntry(
@@ -695,7 +704,12 @@ class MatchingOrderService:
             if item.status is BusinessKeyStatus.CONFIRMED
         }
         schema_by_model = {item.name: item for item in schema.models}
-        source_cache = _MatchingSourceTupleCache(self._source_keys)
+        parents = (
+            self._source_keys.included_parent_rows(workspace_id, draft.definition.datasets)
+            if any(item.row_inclusion.included_parent_field for item in draft.definition.datasets)
+            else {}
+        )
+        source_cache = _MatchingSourceTupleCache(self._source_keys, parents)
         identity_probes: list[MatchingIdentityLiveProbe] = []
         identity_results: list[MatchingIdentityResult] = []
         for dataset in draft.definition.datasets:

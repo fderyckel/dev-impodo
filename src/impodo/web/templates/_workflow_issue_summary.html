@@ -50,7 +50,7 @@
             <p><strong>Your saved work:</strong> {{ issue.preserved_work }}</p>
             <p><strong>Then:</strong> {{ issue.recheck }}</p>
             <div class="actions">
-              <a class="button primary" href="{{ issue.correction_route }}">{{ issue.correction_label }}</a>
+              <a class="button primary" href="{{ issue.correction_route }}" {% if 'cause=repeated_source' in issue.correction_route %}data-duplicate-rows-url="{{ issue.correction_route|replace('/identity-choices?', '/duplicate-rows?') }}"{% endif %}>{{ issue.correction_label }}</a>
               {% if issue.secondary_correction_route %}
                 <a class="button secondary" href="{{ issue.secondary_correction_route }}">{{ issue.secondary_correction_label }}</a>
               {% endif %}

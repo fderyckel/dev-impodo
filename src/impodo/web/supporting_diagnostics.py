@@ -12,7 +12,11 @@ from fastapi import Request
 
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
 from impodo.domain.workspace.supporting_plan import SupportingPlanGap
-from impodo.domain.workspace.supporting_review import SupportingChoiceAction
+from impodo.domain.workspace.supporting_review import (
+    SupportingChoiceAction,
+    SupportingReviewProblem,
+    SupportingReviewRequiredError,
+)
 
 MAX_SUPPORTING_DIAGNOSTIC_ISSUES = 20
 _MODEL = re.compile(r"[a-z_][a-z0-9_]*(?:\.[a-z_][a-z0-9_]*)*")
@@ -30,6 +34,13 @@ _TRIGGERS = {
 
 def sanitize_supporting_failure(value: object) -> dict[str, object] | None:
     """Reject unknown codes and discard all fields outside the bounded schema."""
+    if isinstance(value, dict) and isinstance(value.get("failure_code"), str) and value.get("failure_code") in {
+        "SUPPORTING_REVIEW_REQUIRED", "SUPPORTING_MAPPING_CONFLICT",
+    }:
+        problem = value.get("problem")
+        if isinstance(problem, str) and problem in {item.value for item in SupportingReviewProblem}:
+            return {"failure_code": value["failure_code"], "stage": "supporting_review", "problem": problem}
+        return None
     if (
         not isinstance(value, dict)
         or value.get("failure_code") != "SUPPORTING_PLAN_INCOMPLETE"
@@ -92,9 +103,14 @@ def sanitize_supporting_failure(value: object) -> dict[str, object] | None:
 
 
 def set_diagnostic_supporting_failure(
-    request: Request, error: SupportingPlanIncompleteError
+    request: Request, error: SupportingPlanIncompleteError | SupportingReviewRequiredError
 ) -> None:
     """Attach already-loaded causes to the terminal request record, without I/O."""
+    if isinstance(error, SupportingReviewRequiredError):
+        request.state.diagnostic_validation_failure = sanitize_supporting_failure({
+            "failure_code": error.failure_code, "problem": error.problem.value,
+        })
+        return
     request.state.diagnostic_validation_failure = sanitize_supporting_failure(
         {
             "failure_code": error.failure_code,

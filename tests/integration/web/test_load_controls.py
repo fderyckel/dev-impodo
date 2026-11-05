@@ -83,7 +83,7 @@ class LoadControlBrowserTests(unittest.TestCase):
             # Two navigation-guard owners precede one local command scope;
             # that scope retains registry, workspace, engine and Data version.
             self.assertLessEqual(timings.connection_count, 6)
-            self.assertLessEqual(timings.schema_check_count, 1)
+            self.assertLessEqual(timings.schema_check_count, 4)
 
     def test_paused_outcome_pages_saved_rejections_without_loading_again(self):
         fixture = self.fixture
@@ -122,4 +122,4 @@ class LoadControlBrowserTests(unittest.TestCase):
                 self.assertIn("Showing 21-21 of 21 records.", next_page.text)
                 mocks["writer"].assert_not_called()
                 self.assertLessEqual(timings.connection_count, 6)
-                self.assertLessEqual(timings.schema_check_count, 3)
+                self.assertLessEqual(timings.schema_check_count, 4)

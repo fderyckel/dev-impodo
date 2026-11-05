@@ -1,0 +1,30 @@
+.duplicate-rows-dialog {
+  width: min(96vw, 1440px);
+  max-width: 96vw;
+  max-height: 92vh;
+  padding: 1.5rem;
+  border: 1px solid var(--border, #d4d4ce);
+  border-radius: 12px;
+}
+.duplicate-rows-dialog::backdrop { background: rgb(20 24 22 / 45%); }
+.duplicate-rows-dialog [hidden] { display: none !important; }
+.duplicate-rows-dialog .dialog-heading { display: flex; justify-content: space-between; gap: 1rem; }
+.duplicate-rows-dialog .dialog-actions {
+  display: flex; flex-wrap: wrap; gap: .75rem; justify-content: flex-end;
+  position: sticky; bottom: -1.5rem; background: var(--surface, #fff); padding: 1rem 0;
+}
+.duplicate-row-group { margin: 1.5rem 0; }
+.duplicate-row-group h3 { overflow-wrap: anywhere; }
+.duplicate-row-group .table-scroll { max-height: 38vh; overflow: auto; }
+.duplicate-row-group th, .duplicate-row-group td { padding: .55rem .7rem; }
+.duplicate-row-group td { white-space: pre-wrap; min-width: 9rem; max-width: 24rem; overflow-wrap: anywhere; }
+.duplicate-row-group td.duplicate-value-differs { background: #fff0bd; color: #352600; }
+.duplicate-row-group tr[data-excluded="true"] td:first-child { background: #fff1f0; }
+.duplicate-row-group td:first-child { min-width: 8rem; }
+.duplicate-row-group td label { display: flex; gap: .5rem; align-items: center; white-space: nowrap; margin: 0; }
+.duplicate-row-group input[type="checkbox"] { width: 1rem; height: 1rem; flex: 0 0 1rem; margin: 0; padding: 0; }
+.duplicate-rows-dialog [data-duplicate-error] { white-space: pre-wrap; }
+@media (max-width: 600px) {
+  .duplicate-rows-dialog { padding: .8rem; width: 96vw; }
+  .duplicate-rows-dialog .dialog-actions { bottom: -.8rem; }
+}

@@ -644,6 +644,11 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     )
     async def review_deferred_groups(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(read_deferred_groups, request, workspace_id)
+
+    def read_deferred_groups(request: Request, workspace_id: str):
+        """Authorize, verify and render saved groups in one bounded worker."""
+
         actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
@@ -651,10 +656,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
             capability=Capability.PROTECTED_EVIDENCE_READ,
         )
         try:
-            review = await run_in_threadpool(
-                context.preflight.deferred_scope_review,
-                workspace_id,
-            )
+            review = context.preflight.deferred_scope_review(workspace_id)
         except (
             ArtifactStoreError,
             DeferredScopeEvidenceError,
@@ -691,45 +693,45 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     )
     async def preview_deferred_groups(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token", "issue_id"})
+        _secure_form(request, form, {"csrf_token", "issue_id", "select_all"})
         actor = request_identity(request, context.identity_resolver).actor
-        context.workspace_access.resolve(
-            workspace_id,
-            actor=actor,
-            capability=Capability.PROTECTED_EVIDENCE_READ,
+        selected = (
+            None if _text(form, "select_all") == "1"
+            else tuple(str(item) for item in form.getlist("issue_id"))
         )
-        selected = tuple(str(item) for item in form.getlist("issue_id"))
-        try:
-            review = await run_in_threadpool(
-                context.preflight.deferred_scope_review,
+        def read_preview():
+            context.workspace_access.resolve(
                 workspace_id,
-                selected_issue_ids=selected,
+                actor=actor,
+                capability=Capability.PROTECTED_EVIDENCE_READ,
             )
-        except (
-            ArtifactStoreError,
-            DeferredScopeEvidenceError,
-            ReadinessError,
-            WorkspaceError,
-        ) as error:
-            review = await run_in_threadpool(
-                _recover_deferred_scope_review,
-                context,
-                workspace_id,
-            )
+            try:
+                review = context.preflight.deferred_scope_review(
+                    workspace_id,
+                    selected_issue_ids=selected,
+                )
+            except (
+                ArtifactStoreError,
+                DeferredScopeEvidenceError,
+                ReadinessError,
+                WorkspaceError,
+            ) as error:
+                review = _recover_deferred_scope_review(context, workspace_id)
+                return _render_deferred_scope(
+                    request,
+                    context,
+                    workspace_id,
+                    review=review,
+                    error=str(error),
+                    status_code=422,
+                )
             return _render_deferred_scope(
                 request,
                 context,
                 workspace_id,
                 review=review,
-                error=str(error),
-                status_code=422,
             )
-        return _render_deferred_scope(
-            request,
-            context,
-            workspace_id,
-            review=review,
-        )
+        return await run_page_read(read_preview)
 
     @router.post(
         "/workspaces/{workspace_id}/summary/deferred-groups/accept"
@@ -739,55 +741,46 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         _secure_form(
             request,
             form,
-            {"csrf_token", "issue_id", "comparison_id", "preview_hash"},
+            {"csrf_token", "issue_id", "select_all", "comparison_id", "preview_hash"},
         )
         actor = request_identity(request, context.identity_resolver).actor
-        context.workspace_access.resolve(
-            workspace_id,
-            actor=actor,
-            capability=Capability.PREFLIGHT_RUN,
+        selected = (
+            None if _text(form, "select_all") == "1"
+            else tuple(str(item) for item in form.getlist("issue_id"))
         )
-        selected = tuple(str(item) for item in form.getlist("issue_id"))
-        try:
-            review = await run_in_threadpool(
-                context.preflight.deferred_scope_review,
+        comparison_id = _text(form, "comparison_id")
+        preview_hash = _text(form, "preview_hash")
+
+        def accept_scope():
+            context.workspace_access.resolve(
                 workspace_id,
-                selected_issue_ids=selected,
+                actor=actor,
+                capability=Capability.PREFLIGHT_RUN,
             )
-            if (
-                review is None
-                or review.preview is None
-                or _text(form, "comparison_id") != review.comparison_id
-                or _text(form, "preview_hash") != review.preview.semantic_hash
-            ):
-                raise DeferredScopeEvidenceError(
-                    "The group preview changed. Review it again before accepting."
-                )
-            acceptance = await run_in_threadpool(
-                context.preflight.accept_deferred_scope,
+            return context.preflight.accept_deferred_scope(
                 workspace_id,
                 selected_issue_ids=selected,
                 actor=actor,
+                expected_comparison_id=comparison_id,
+                expected_preview_hash=preview_hash,
             )
+
+        try:
+            acceptance = await run_local_operation(accept_scope)
         except (
             ArtifactStoreError,
             DeferredScopeEvidenceError,
             ReadinessError,
             WorkspaceError,
         ) as error:
-            current = await run_in_threadpool(
-                _recover_deferred_scope_review,
-                context,
-                workspace_id,
-            )
-            return _render_deferred_scope(
-                request,
-                context,
-                workspace_id,
-                review=current,
-                error=str(error),
-                status_code=422,
-            )
+            message = str(error)
+            def recover_review():
+                current = _recover_deferred_scope_review(context, workspace_id)
+                return _render_deferred_scope(
+                    request, context, workspace_id, review=current,
+                    error=message, status_code=422,
+                )
+            return await run_page_read(recover_review)
         _flash(
             request,
             f"Set aside {acceptance.preview.newly_set_aside_count} affected "
@@ -1029,6 +1022,10 @@ def _render_deferred_scope(
         "workspace_deferred_scope.html",
         workspace_state=context.queries.get(workspace_id),
         deferred_review=review,
+        selected_issue_ids=(
+            frozenset(review.preview.selected_issue_ids)
+            if review is not None and review.preview is not None else frozenset()
+        ),
         error=error,
         status_code=status_code,
     )

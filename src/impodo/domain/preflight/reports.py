@@ -34,6 +34,7 @@ from .frozen_input import (
     FrozenNormalizationEvidence,
     FrozenQualityEvidence,
     FrozenStagingEvidence,
+    ReviewWorkbookOmittedRow,
 )
 
 
@@ -183,6 +184,7 @@ class ReviewWorkbookEvidence:
     cell_effects: tuple[ReviewWorkbookCellEffect, ...]
     target_field_required: Mapping[tuple[str, str], bool]
     fields_set_aside: FieldSetAsideEvidence | None = None
+    omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
 
 
 def review_workbook_action_priority(

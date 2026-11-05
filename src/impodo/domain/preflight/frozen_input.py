@@ -22,16 +22,22 @@ from hashlib import sha256
 from typing import Protocol
 
 from impodo.domain.cutover.governance import DryRun, DryRunStatus
+from impodo.domain.mapping.row_inclusion_review import describe_row_inclusion_policy
 from impodo.domain.preparation.normalization import (
     NormalizationRunSummary,
     canonical_eligible_dataset_hash,
 )
-from impodo.domain.preparation.quality import QualityRun, QualityRunSummary
+from impodo.domain.preparation.quality import (
+    QualityDisposition,
+    QualityRun,
+    QualityRunSummary,
+)
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.preparation.staging_contracts import (
     CanonicalRow,
     CanonicalStagingRun,
+    StagingDisposition,
 )
 from impodo.domain.shared.models import (
     Issue,
@@ -120,6 +126,17 @@ class FrozenNormalizationEvidence(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class ReviewWorkbookOmittedRow:
+    """One row kept out during source filtering or preparation."""
+
+    dataset: str
+    source_row: int
+    record_label: str
+    excluded_by_filter: bool
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class FrozenPreflightInput:
     """Hold exact approved rows plus every source-side evidence binding.
 
@@ -142,6 +159,7 @@ class FrozenPreflightInput:
     captured_schema: OdooSchemaCatalog | None = None
     contract_version: int = FROZEN_PREFLIGHT_INPUT_VERSION
     fields_set_aside: FieldSetAsideEvidence | None = None
+    workbook_omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
 
     @property
     def content_hash(self) -> str:
@@ -305,6 +323,10 @@ def build_frozen_preflight_input(
             if workbook_source_keys is not None
             else None
         ),
+        workbook_omitted_rows=(
+            _workbook_omitted_rows(rows, quality, revision, selection)
+            if workbook_source_keys is not None else ()
+        ),
     )
     assert_no_numeric_odoo_ids(
         {
@@ -314,6 +336,44 @@ def build_frozen_preflight_input(
         }
     )
     return result
+
+
+def _workbook_omitted_rows(
+    rows: tuple[CanonicalRow, ...],
+    quality: QualityRun,
+    revision: MappingRevision,
+    selection: SourceSelection,
+) -> tuple[ReviewWorkbookOmittedRow, ...]:
+    by_id = {row.row_id: row for row in rows}
+    issues = {issue.issue_id: issue.message for issue in quality.issues}
+    policies = {mapping.dataset_id: mapping.row_inclusion for mapping in revision.definition.datasets}
+    filters = {
+        dataset.name: describe_row_inclusion_policy(
+            policies[dataset.dataset_id],
+            {column.stable_key: column.source_name for column in dataset.columns},
+        )
+        for dataset in selection.datasets
+        if dataset.dataset_id in policies
+    }
+    omitted = []
+    for result in quality.row_results:
+        if result.effective_disposition not in {
+            QualityDisposition.EXCLUDED, QualityDisposition.QUARANTINED,
+        }:
+            continue
+        excluded_by_filter = by_id[result.row_id].disposition is StagingDisposition.EXCLUDED
+        if excluded_by_filter:
+            reason = filters.get(result.dataset, "The row did not meet the source filter.")
+        else:
+            reason = " · ".join(dict.fromkeys(issues[key] for key in result.issue_ids))
+        omitted.append(ReviewWorkbookOmittedRow(
+            dataset=result.dataset,
+            source_row=result.source_row,
+            record_label=result.record_label,
+            excluded_by_filter=excluded_by_filter,
+            reason=reason or "Preparation kept this row out after checking the data.",
+        ))
+    return tuple(omitted)
 
 
 def canonical_rows_to_prepared_bundle(

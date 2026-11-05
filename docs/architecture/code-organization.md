@@ -214,11 +214,18 @@ object. Do not split one page into several `run_page_read` calls merely to wrap
 individual queries; doing so recreates connection churn and can observe an
 inconsistent page state.
 
-The first repository that opens a retained Workspace engine validates or
-upgrades its exact schema. Later repositories call
+The first repository that opens a retained store validates or upgrades its
+exact schema through
+[`ensure_current_schema`](../../src/impodo/adapters/duckdb/schema/forward_upgrades.py).
+This applies to the registry, Data version, Workspace linkage, and Workspace
+engine stores. The shared boundary calls
 [`validate_schema_once_for_operation`](../../src/impodo/adapters/duckdb/unit_of_work.py)
-to reuse the successful validation for the same database and schema contract
-inside that synchronous scope.
+to reuse successful structural validation for the same database, generation,
+and schema version inside that synchronous scope. Each access still checks its
+requested Workspace or Data version lineage. Failed checks are never reused.
+The request diagnostic counter includes every store contract checked, rather
+than only the Workspace engine. Older engine-only counts are not directly
+comparable with this complete counter.
 The marker is scoped to that database path and configuration, is recorded only
 after success, and is discarded with the retained owner. A different database,
 contract, request, or unscoped call validates independently. This rule never
@@ -227,11 +234,17 @@ acts as a process-wide schema or connection cache.
 For every new or materially changed database-backed browser route:
 
 1. Measure a representative request's elapsed time, physical DuckDB opens,
-   connection time, schema checks, and lock retries before claiming a gain.
+   connection time, SQL statement count, schema checks, and lock retries before
+   claiming a gain. Count repeated table and column catalogue reads as well as
+   physical opens; retained owners alone do not bound query work.
 2. Add a focused integration test that proves the callback runs off the event
    loop on one worker, covers the complete read-and-render or command boundary,
    and enforces a connection ceiling derived from the fixture's expected
-   database-path and configuration owners.
+   database-path and configuration owners. Cover successful actions and
+   rejected-form recovery alongside page reads. Assert the saved business
+   result, unchanged evidence on rejection, and a SQL budget for the measured
+   path. The test-only `count_duckdb_statements` helper preserves retained
+   cursor identity so that measuring queries does not disable validation reuse.
 3. Run the shared worker and real-DuckDB lifecycle tests in
    `tests/integration/web/test_page_reads.py` and
    `tests/integration/duckdb/test_page_read_connections.py`.

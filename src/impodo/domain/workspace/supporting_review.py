@@ -48,6 +48,20 @@ class SupportingReviewRequiredError(WorkspaceError):
         super().__init__(detail)
 
 
+class SupportingChoiceValidationError(WorkspaceError):
+    """Identify the relationships an operator can correct after a rejected save."""
+
+    def __init__(
+        self,
+        detail: str,
+        *relationships: tuple[str, str],
+        field_message: str = "",
+    ) -> None:
+        super().__init__(detail)
+        self.relationships = relationships
+        self.field_message = field_message or detail
+
+
 class SupportingChoiceAction(StrEnum):
     """Closed business choices for one captured relationship edge."""
 

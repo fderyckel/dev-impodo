@@ -5,20 +5,130 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import _read_databases
 from impodo.domain.mapping.contracts import MAPPING_CONTRACT_VERSION, RelationshipValueSource
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
+from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.contracts import SchemaField
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.presenters.mapping_forms import _related_business_keys
 from impodo.web.presenters.mapping_view import _mapping_dataset_views
 from impodo.web.presenters.user_help import DECISION_HELP_BY_ID
+from impodo.web.target_credentials import local_read_credential_binding_hash
 from tests.integration.web import test_account_company_supporting as fixtures
 from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
 from tests.support.identity import resolve_local_actor
+from tests.support.recipe_lifecycle import metadata_for_schema
 
 
 class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
+    def test_bom_company_choices_recheck_the_selected_company_before_lookup(self):
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        field = SchemaField(
+            "company_id", "Company", "many2one", False, False, "res.company", None, (),
+        )
+        for major in (19, 20):
+            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                with self.subTest(major=major, mode=mode):
+                    workspace_id, dataset, key = self._mapping_ready_workspace(
+                        scalar_field_count=1, target_model="mrp.bom",
+                        additional_fields=(field,), connection_mode=mode, odoo_major=major,
+                    )
+                    workspace = context.queries.get(workspace_id)
+                    original = context.queries.get_odoo_schema_catalog(workspace_id)
+                    metadata = metadata_for_schema(original)
+                    identity = OdooReadIdentity(
+                        original.connection_target_hash, original.read_principal_hash,
+                        original.read_permission_hash, original.read_context_hash,
+                        ("mrp.bom",), "2026-10-31T00:00:00Z",
+                    )
+                    remote = mode is OdooConnectionMode.REMOTE
+                    binding = (
+                        original.read_credential_binding_hash if remote
+                        else local_read_credential_binding_hash(workspace)
+                    )
+                    schema = context.schema_workspace.capture(
+                        workspace_id, metadata, read_credential_binding_hash=binding,
+                        read_identity=identity if remote else None, actor=actor,
+                    )
+                    context.schema_workspace.govern(
+                        workspace_id, business_keys=(key,), actor=actor,
+                    )
+                    selected = context.workspace_states.select_odoo_company(
+                        workspace_id, actor=actor, expected_revision=context.queries.get(workspace_id).revision,
+                        selection=OdooCompanySelection(schema.connection_target_hash, 105, "Example"),
+                    )
+                    company_hash = selected.odoo_company.context_hash
+                    self.assertNotEqual(schema.read_context_hash, company_hash)
+                    events = []
+
+                    def read_schema(state, _credential_or_profile, *_models):
+                        self.assertFalse(getattr(_read_databases, "connections", None))
+                        self.assertEqual(state.odoo_company.context_hash, company_hash)
+                        events.append("fields")
+                        return metadata
+
+                    def read_company(state, metadata_requests, record_requests):
+                        self.assertFalse(getattr(_read_databases, "connections", None))
+                        self.assertEqual(state.odoo_company.context_hash, company_hash)
+                        self.assertEqual(metadata_requests[0].model, "res.company")
+                        self.assertEqual(record_requests[0].domain, (("name", "=", "Example"),))
+                        events.append("choices")
+                        return fixtures.AccountCompanySupportingTests.snapshots(self, state, schema)
+
+                    company_key = _related_business_keys((), "res.company")[0]
+                    payload = {
+                        "csrf_token": self.csrf, "kind": "constant_relationship",
+                        "dataset_id": dataset.dataset_id, "source_column_key": "",
+                        "target_model": "mrp.bom", "target_field": "company_id",
+                        "business_key_id": company_key.key_id, "constant_value": "Example",
+                    }
+                    url = f"/workspaces/{workspace_id}/mapping/value-choices"
+                    with (
+                        patch.object(context, "schema_read_session_factory", None),
+                        patch.object(context, "schema_reader", side_effect=read_schema),
+                        patch.object(
+                            context, "read_identity_probe",
+                            return_value=replace(identity, context_hash=company_hash),
+                        ) as probe,
+                        patch.object(context.local_odoo_reader, "get_model_metadata", side_effect=read_schema),
+                        patch("impodo.web.routers.matching_company_refresh._selected_local_profile",
+                              return_value=None if remote else object()),
+                        patch.object(context, "readiness_reader", side_effect=read_company),
+                    ):
+                        with collect_duckdb_request_timings() as timings:
+                            response = self.client.post(url, data=payload, headers=POST_HEADERS)
+                        self.assertEqual(response.status_code, 200, response.text)
+                        checked = context.queries.get_odoo_schema_catalog(workspace_id)
+                        self.assertEqual(checked.read_context_hash, company_hash)
+                        self.assertEqual(checked.content_hash, schema.content_hash)
+                        self.assertLessEqual(timings.connection_count, 16)
+                        self.assertEqual(timings.lock_retry_count, 0)
+                        self.assertEqual(events, ["fields", "choices"])
+                        if remote:
+                            next_company = context.workspace_states.select_odoo_company(
+                                workspace_id, actor=actor, expected_revision=selected.revision,
+                                selection=OdooCompanySelection(schema.connection_target_hash, 106, "Other"),
+                            )
+                            company_hash = next_company.odoo_company.context_hash
+                            probe.return_value = replace(
+                                identity, context_hash=company_hash,
+                                permission_hash="sha256:" + "8" * 64,
+                            )
+                            review = self.client.post(url, data=payload, headers=POST_HEADERS)
+                            self.assertEqual(review.status_code, 422, review.text)
+                            self.assertTrue(review.json()["review_odoo_details"])
+                            self.assertEqual(events, ["fields", "choices", "fields"])
+                            pending = context.queries.get_odoo_schema_catalog(workspace_id)
+                            self.assertIsNotNone(pending.pending_refresh)
+                            self.assertEqual(pending.content_hash, schema.content_hash)
+                    self.assertEqual(
+                        response.json()["target_choices"], [{"value": "Example", "label": "Example"}],
+                    )
+
     def test_choose_save_and_reopen_single_company_without_source_column(self):
         context = self.app.state.context
         actor = resolve_local_actor(context)

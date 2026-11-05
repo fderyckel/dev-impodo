@@ -57,6 +57,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const choice = chooser?.querySelector("[data-constant-existing-choice]");
     const search = chooser?.querySelector("[data-constant-choice-search]");
     const status = chooser?.querySelector("[data-constant-choice-status]");
+    const schemaReview = chooser?.querySelector("[data-constant-schema-review]");
     let loadedChoices = [];
 
     const syncProvider = () => {
@@ -107,7 +108,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (label && active) label.textContent = fields[slot];
       }
     };
-    const renderScopeChoices = () => {
+    const renderScopeChoices = (preserveSelection = false) => {
       for (const component of row.querySelectorAll("[data-constant-component-row]")) {
         const select = component.querySelector("[data-constant-scope-choice]");
         if (!select || select.disabled) continue;
@@ -134,8 +135,14 @@ document.addEventListener("DOMContentLoaded", () => {
             option.textContent = value;
             return option;
           });
+        if (preserveSelection && selected && !values.has(selected)) {
+          const previous = document.createElement("option");
+          previous.value = selected;
+          previous.textContent = `${selected} (check Odoo)`;
+          options.push(previous);
+        }
         select.replaceChildren(placeholder, ...options);
-        select.value = values.has(selected) ? selected : "";
+        select.value = preserveSelection || values.has(selected) ? selected : "";
       }
     };
     const renderChoices = () => {
@@ -194,6 +201,7 @@ document.addEventListener("DOMContentLoaded", () => {
       syncComponents();
       renderScopeChoices();
       renderChoices();
+      if (schemaReview) schemaReview.hidden = true;
       if (status) status.textContent = "Check this record to load available Odoo choices.";
     });
     search?.addEventListener("input", renderChoices);
@@ -255,6 +263,7 @@ document.addEventListener("DOMContentLoaded", () => {
         )?.value.trim() || "";
         data.set("constant_value", matchingValue);
         data.set("refresh", "0");
+        if (schemaReview) schemaReview.hidden = true;
         if (status) status.textContent = matchingValue
           ? "Checking this matching value in Odoo…"
           : "Loading existing Odoo choices…";
@@ -266,6 +275,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
           const payload = await response.json();
           if (!response.ok) {
+            if (schemaReview) schemaReview.hidden = payload.review_odoo_details !== true;
             throw new Error(payload.detail || "The record could not be checked.");
           }
           loadedChoices = Array.isArray(payload.target_choices)
@@ -284,7 +294,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         } catch (error) {
           loadedChoices = [];
-          renderScopeChoices();
+          renderScopeChoices(true);
           renderChoices();
           if (status) {
             status.textContent =

@@ -35,7 +35,7 @@ class SameTableHierarchyTests(HierarchyWorkflowFixture):
                     # Access, preparation and rendering retain the existing eight-owner
                     # ceiling; offering this table performs no additional database reads.
                     self.assertLessEqual(timings.connection_count, 8)
-                    self.assertLessEqual(timings.schema_check_count, 2)
+                    self.assertLessEqual(timings.schema_check_count, 6)
                     self.assertEqual(timings.lock_retry_count, 0)
                     revision = self.context.queries.get_mapping_revision(workspace_id)
                     mapping = revision.definition.datasets[0]

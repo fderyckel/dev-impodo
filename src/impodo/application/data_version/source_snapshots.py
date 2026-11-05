@@ -14,7 +14,7 @@ Preview and mappings outside the columnar capability set use the bounded
 from __future__ import annotations
 
 import shutil
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from hashlib import sha256
@@ -36,7 +36,17 @@ from impodo.application.data_version.source_files import (
     SelectedSourceBatchStream,
     open_selected_source_batches,
 )
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
+from impodo.domain.mapping.contracts import DatasetMapping
+from impodo.domain.mapping.row_inclusion import (
+    IncludedParentRows,
+    IncludedParentRuleError,
+    compile_included_parent_rows,
+)
+from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.preparation.source import SourceLoadError, SourceRow, SourceTable
 from impodo.domain.source_binding import require_file_source
 from impodo.domain.source_snapshot import (
@@ -50,6 +60,7 @@ from impodo.domain.source_snapshot import (
     SourceSnapshotSchema,
 )
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceFile, WorkspaceState
 
 SOURCE_SNAPSHOT_TARGET_BATCH_ROWS = 5_000
@@ -589,6 +600,67 @@ def _validate_snapshot_candidate(
             count += 1
     if count != expected_row_count:
         raise SourceLoadError("Parquet snapshot row count is invalid")
+
+
+def included_parent_rows_from_snapshots(
+    datasets: tuple[DatasetMapping, ...],
+    selection: SourceSelection,
+    snapshots: Iterable[SourceSnapshot],
+    artifacts: DataVersionSourceArtifactStore,
+) -> dict[str, IncludedParentRows]:
+    """Build operation-local parent key sets from narrow frozen projections."""
+
+    if not any(item.row_inclusion.included_parent_field for item in datasets):
+        return {}
+    sources = {item.dataset_id: item for item in selection.datasets}
+    by_id = {item.dataset_id: item for item in snapshots}
+
+    def read_rows(dataset_id: str, keys: tuple[str, ...]) -> Iterator[Mapping[str, object]]:
+        dataset = sources[dataset_id]
+        snapshot = by_id.get(dataset_id)
+        if snapshot is None:
+            raise SourceLoadError("The parent source snapshot is missing")
+        validate_snapshot_for_dataset(selection, dataset, snapshot)
+        by_key = {item.stable_key: item.value_column for item in snapshot.schema.columns}
+        if any(key not in by_key for key in keys):
+            raise SourceLoadError("The parent source projection is incomplete")
+        count = 0
+        with artifacts.materialize_source_snapshot(
+            selection.data_version_id,
+            snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        ) as path:
+            for batch in (
+                pl.scan_parquet(validate_source_snapshot_path(path, snapshot), glob=False)
+                .select(pl.col(by_key[key]).alias(key) for key in keys)
+                .collect_batches(
+                    chunk_size=SOURCE_SNAPSHOT_TARGET_BATCH_ROWS,
+                    maintain_order=True,
+                    engine="streaming",
+                )
+            ):
+                count += batch.height
+                if count > snapshot.row_count:
+                    raise SourceLoadError("The parent source row count changed")
+                yield from batch.iter_rows(named=True)
+        if count != snapshot.row_count:
+            raise SourceLoadError("The parent source row count changed")
+
+    try:
+        return compile_included_parent_rows(
+            datasets,
+            {
+                item.dataset_id: frozenset(column.stable_key for column in item.columns)
+                for item in selection.datasets
+            },
+            read_rows,
+        )
+    except IncludedParentRuleError as error:
+        raise WorkspaceError(str(error)) from error
+    except SourceConditionValueError as error:
+        raise WorkspaceError("The parent table's rows-to-use rule could not be checked.") from error
+    except (ArtifactStoreError, OSError, SourceLoadError, pl.exceptions.PolarsError) as error:
+        raise WorkspaceError("The frozen parent source could not be verified.") from error
 
 
 def _snapshot_rows(

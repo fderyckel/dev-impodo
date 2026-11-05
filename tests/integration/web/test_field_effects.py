@@ -47,7 +47,7 @@ class FieldEffectsBrowserTests(ProjectSetupBrowserTestCase):
                     self.assertNotIn("Private original", page.text)
                     self.assertNotIn("Private prepared", page.text)
                     self.assertLessEqual(timing.connection_count, 8)
-                    self.assertLessEqual(timing.schema_check_count, 2)
+                    self.assertLessEqual(timing.schema_check_count, 6)
                     self.assertEqual(timing.lock_retry_count, 0)
                     for index, counts in enumerate(snapshot.report.field_impacts):
                         row = re.search(
@@ -122,7 +122,7 @@ class FieldEffectsBrowserTests(ProjectSetupBrowserTestCase):
                     page.text.count('data-field-effects-state="Current"'), size
                 )
                 self.assertLessEqual(timing.connection_count, 8)
-                self.assertLessEqual(timing.schema_check_count, 2)
+                self.assertLessEqual(timing.schema_check_count, 6)
                 self.assertEqual(timing.lock_retry_count, 0)
 
     def test_injected_worker_projection_does_not_read_local_impact_payloads(self):

@@ -18,7 +18,7 @@
       {% elif deferred_scope and deferred_scope.decision %}
         <p>The current Odoo comparison is retained in full. Your reviewed decision keeps complete affected groups out of this load and leaves a safe remainder.</p>
       {% elif readiness %}
-        <p>Every source row is accounted for. Eligible records were checked against Odoo; unsafe records remain visible but set aside.</p>
+        {# The status and review results below carry the readiness message. #}
       {% elif normalization and normalization.frozen %}
         <p>Your prepared data is approved. Compare it with Odoo when you are ready.</p>
       {% elif normalization %}
@@ -125,7 +125,7 @@
       <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?quality_status=quarantined#quality-rows" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
         <span>Set aside</span>
         <strong>{{ quality.quarantined_count + quality.excluded_count }}</strong>
-        <small>Kept out of the Odoo check</small>
+        <small>Excluded by filters or held back by data checks</small>
       </a>
       <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?quality_status=blocked#quality-rows" {% if quality_status == 'blocked' %}aria-current="true"{% endif %}>
         <span>Needs correction</span>
@@ -158,27 +158,42 @@
             <tbody>
               {% for item in quality_review_page.items %}
                 {% set row = item.row %}
+                {% set excluded_by_filter = row.effective_disposition.value == 'EXCLUDED' and not item.issues %}
                 <tr data-quality-row>
                   <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                   <td>{{ row.source_row }}</td>
                   <th>{{ row.record_label }}</th>
                   <td>
-                    {% for issue in item.issues %}
-                      <p>
-                        {{ issue.message }}
-                        {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
-                        {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
-                      </p>
+                    {% if excluded_by_filter %}
+                      <strong>Excluded by filters</strong>
+                      <small class="row-field">This row did not meet your Rows to use rule.</small>
                     {% else %}
-                      No target-independent problem was found.
-                    {% endfor %}
+                      {% if row.effective_disposition.value in ['QUARANTINED', 'EXCLUDED'] %}
+                        <strong>Set aside for a data issue</strong>
+                      {% endif %}
+                      {% for issue in item.issues %}
+                        <p>
+                          {{ issue.message }}
+                          {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
+                          {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
+                        </p>
+                      {% else %}
+                        {% if row.effective_disposition.value in ['CANDIDATE', 'REFERENCE'] %}
+                          Included for prepared-data review.
+                        {% else %}
+                          This row needs a preparation review.
+                        {% endif %}
+                      {% endfor %}
+                    {% endif %}
                   </td>
                   <td>
-                    {% if item.issues %}
+                    {% if excluded_by_filter %}
+                      <a href="{{ quality_rows_to_use_urls.get(row.dataset, '/workspaces/' ~ workspace_id ~ '/mapping') }}">Review Rows to use</a>
+                    {% elif item.issues %}
                       <strong>{{ item.issues[0].owner_label }}</strong>
                       <small class="row-field">{{ item.correction_route or "Review the source or guided data check, then check all rows again." }}</small>
                     {% else %}
-                      No action needed
+                      <a href="/workspaces/{{ workspace_id }}/normalization">Review prepared data</a>
                     {% endif %}
                     <details class="technical-details">
                       <summary>Support details</summary>
@@ -290,7 +305,11 @@
         {% elif odoo_source and readiness.blocked_count %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Refresh Odoo records</a>
         {% elif deferred_scope_available %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Preview affected groups</a>
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit" name="select_all" value="1">Preview all problem groups</button>
+          </form>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose affected groups</a>
           {% if readiness.blocked_count %}<a class="button secondary" href="?status=blocked#readiness-rows">Show rows to fix</a>{% endif %}
         {% elif readiness.blocked_count %}
           <a class="button primary" href="?status=blocked#readiness-rows">Show rows to fix</a>

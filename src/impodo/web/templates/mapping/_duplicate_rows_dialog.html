@@ -1,0 +1,26 @@
+<dialog class="duplicate-rows-dialog" data-duplicate-rows-dialog aria-labelledby="duplicate-rows-title"
+  data-endpoint="/workspaces/{{ workspace_id }}/mapping/duplicate-rows"
+  data-check-url="/workspaces/{{ workspace_id }}/mapping/order/check">
+  <div class="dialog-heading">
+    <div><p class="eyebrow">Repeated source identities</p><h2 id="duplicate-rows-title">Compare duplicate rows</h2></div>
+    <button type="button" class="dialog-close" data-close-duplicate-rows aria-label="Close duplicate review" autofocus>×</button>
+  </div>
+  <p>Compare rows with the same Odoo matching identity. Select only the rows you want to exclude from this migration. If both records belong, review the matching rule instead.</p>
+  <p class="muted">Highlighted values differ among the rows shown in each group. Included source positions belong to this check, rather than physical file row numbers.</p>
+  <p role="status" aria-live="polite" data-duplicate-status></p>
+  <div class="notice warning" role="alert" data-duplicate-error hidden></div>
+  <div data-duplicate-groups></div>
+  <div class="actions" data-duplicate-pages hidden>
+    <button type="button" class="button secondary" data-duplicate-previous>Previous 100</button>
+    <button type="button" class="button secondary" data-duplicate-next>Next 100</button>
+    <small>Selections apply to this page. Review and apply them before changing pages.</small>
+  </div>
+  <section class="notice" data-duplicate-preview hidden aria-label="Exclusion preview"></section>
+  <p class="muted">Applying adds the selected unique source identifiers to Rows to use. You can restore a row by removing its identifier there. These rules may carry into a published Recipe; review exclusions for each new Data version.</p>
+  <div class="dialog-actions">
+    <button type="button" class="button secondary" data-close-duplicate-rows>Cancel</button>
+    <button type="button" class="button secondary" data-duplicate-retry hidden>Try again</button>
+    <button type="button" class="button primary" data-duplicate-review disabled>Review exclusions</button>
+    <button type="button" class="button primary" data-duplicate-apply hidden>Apply exclusions and check identities</button>
+  </div>
+</dialog>

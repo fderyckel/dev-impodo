@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
+    included_parent_rows_from_snapshots,
     validate_snapshot_for_dataset,
     validate_source_snapshot_path,
 )
@@ -30,7 +31,7 @@ from impodo.domain.mapping.contracts import (
     ScalarValueSource,
     relationship_target_fields,
 )
-from impodo.domain.mapping.row_inclusion import row_is_included
+from impodo.domain.mapping.row_inclusion import IncludedParentRows, row_is_included
 from impodo.domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
@@ -176,6 +177,20 @@ class CategoricalCoverageService:
         self.artifacts = artifacts
         self.logical_values = logical_values
 
+    def included_parent_rows(
+        self, workspace_id: str, datasets: tuple[DatasetMapping, ...],
+    ) -> dict[str, IncludedParentRows]:
+        """Read parent keys only when a mapping explicitly follows a parent."""
+
+        if not any(item.row_inclusion.included_parent_field for item in datasets):
+            return {}
+        selection = self.sources.get_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen parent source evidence is incomplete")
+        return included_parent_rows_from_snapshots(
+            datasets, selection, self.sources.get_current_source_snapshots(workspace_id), self.artifacts,
+        )
+
     def source_value_choices(
         self,
         workspace_id: str,
@@ -220,19 +235,22 @@ class CategoricalCoverageService:
     def source_value_choices_and_blank_count(
         self, workspace_id: str, selection: SourceSelection, dataset_id: str, source_column_key: str,
         row_inclusion: RowInclusionPolicy,
+        *, included_parent: IncludedParentRows | None = None,
     ) -> tuple[tuple[dict[str, object], ...], int]:
         """Keep complete populated choices and count blanks in the saved row scope."""
 
         keys = tuple(dict.fromkeys((source_column_key, *(
             condition.source_column_key for condition in row_inclusion.conditions
-        ))))
+        ), *(included_parent.source_keys if included_parent else ()))))
         frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
+        if included_parent is not None:
+            frame = _parent_scoped_frame(frame, row_inclusion, included_parent)
         counts = _single_column_counts(frame, source_column_key)
         blank_count = 0
         try:
             for row in frame.iter_rows(named=True):
                 raw = row[source_column_key]
-                if (raw is None or not str(raw).strip()) and row_is_included(row_inclusion, row):
+                if (raw is None or not str(raw).strip()) and row_is_included(row_inclusion, row, included_parent):
                     blank_count += 1
         except SourceConditionValueError as error:
             raise WorkspaceError(
@@ -399,6 +417,35 @@ class CategoricalCoverageService:
         frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
         return tuple(frame.select(keys).iter_rows())
 
+    def source_condition_rows_at_positions(
+        self, workspace_id: str, dataset_id: str,
+        source_column_keys: Sequence[str], positions: Sequence[int],
+    ) -> tuple[tuple[object, ...], ...]:
+        """Read complete values for at most 100 frozen zero-based positions.
+
+        Keep wide comparison rows out of the full-population Python projection.
+        The positions come from an authorized current identity review, never
+        from a portable row rule. Preserve the requested group/member order.
+        """
+        selected = tuple(positions)
+        if len(selected) > 100 or any(type(position) is not int or position < 0 for position in selected):
+            raise WorkspaceError("Choose at most 100 current source positions")
+        if not selected:
+            return ()
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        dataset = next((item for item in selection.datasets if item.dataset_id == dataset_id), None)
+        keys = tuple(source_column_keys)
+        if dataset is None or not keys or not set(keys).issubset(item.stable_key for item in dataset.columns):
+            raise WorkspaceError("Choose current source comparison columns")
+        ordered = tuple(sorted(set(selected)))
+        frame = self._scan_dataset(workspace_id, selection, dataset_id, keys, source_positions=ordered)
+        if frame.height != len(ordered):
+            raise WorkspaceError("Source positions no longer agree with this check")
+        rows = dict(zip(ordered, frame.select(keys).iter_rows(), strict=True))
+        return tuple(rows[position] for position in selected)
+
     def source_identity_issue_rows(
         self,
         workspace_id: str,
@@ -529,6 +576,7 @@ class CategoricalCoverageService:
         dataset_id: str,
         source_column_keys: Sequence[str],
         row_inclusion: RowInclusionPolicy,
+        *, included_parent: IncludedParentRows | None = None,
     ) -> tuple[tuple[str | None, ...], ...]:
         """Return identity keys for the rows included by the saved mapping.
 
@@ -546,6 +594,7 @@ class CategoricalCoverageService:
             dataset_id,
             keys,
             row_inclusion,
+            included_parent=included_parent,
         )
 
     def source_included_key_tuples(
@@ -554,6 +603,7 @@ class CategoricalCoverageService:
         dataset_id: str,
         source_column_keys: Sequence[str],
         row_inclusion: RowInclusionPolicy,
+        *, included_parent: IncludedParentRows | None = None,
     ) -> tuple[tuple[str | None, ...], ...]:
         """Return row-aligned keys after applying the saved row selection.
 
@@ -584,7 +634,7 @@ class CategoricalCoverageService:
                 for condition in row_inclusion.conditions
             )
         )
-        projected = tuple(dict.fromkeys((*keys, *condition_keys)))
+        projected = tuple(dict.fromkeys((*keys, *condition_keys, *(included_parent.source_keys if included_parent else ()))))
         if dataset is None or any(key not in available for key in projected):
             raise WorkspaceError(
                 "Choose current source matching columns"
@@ -603,7 +653,7 @@ class CategoricalCoverageService:
         result: list[tuple[str | None, ...]] = []
         for row in frame.select(scan_keys).iter_rows(named=True):
             try:
-                if not row_is_included(row_inclusion, row):
+                if not row_is_included(row_inclusion, row, included_parent):
                     continue
             except SourceConditionValueError as error:
                 raise WorkspaceError(
@@ -628,8 +678,11 @@ class CategoricalCoverageService:
         definition: MappingDefinition,
         selection: SourceSelection,
         schema: OdooSchemaCatalog,
+        *, included_parents: Mapping[str, IncludedParentRows] | None = None,
     ) -> CategoricalCoverageCollection:
         """Build hash-bound evidence and blocking issues for the current mapping."""
+        if included_parents is None:
+            included_parents = self.included_parent_rows(workspace_id, definition.datasets)
         fields = _coverage_fields(definition, schema)
         by_dataset: dict[str, list[_CoverageField]] = {}
         for item in fields:
@@ -721,12 +774,17 @@ class CategoricalCoverageService:
                 raise WorkspaceError(
                     "Categorical coverage requires a physical source selection"
                 )
+            gate = included_parents.get(dataset_id)
+            if gate is not None:
+                source_keys = tuple(dict.fromkeys((*source_keys, *gate.source_keys)))
             frame = self._scan_dataset(
                 workspace_id,
                 selection if joined_values_supported else physical_selection,
                 dataset_id,
                 source_keys,
             )
+            if gate is not None:
+                frame = _parent_scoped_frame(frame, dataset_fields[0].dataset.row_inclusion, gate)
             for item in scan_fields:
                 result, issue = _evaluate_field(item, frame)
                 results.append(result)
@@ -753,7 +811,7 @@ class CategoricalCoverageService:
                     "parquet_sha256": item.parquet_sha256,
                 }
                 for item in snapshots
-                if item.dataset_id in by_dataset or has_joined_values
+                if item.dataset_id in by_dataset or has_joined_values or included_parents
             ),
             scan_contract_hash=CATEGORICAL_SCAN_CONTRACT_HASH,
             provider_and_normalization_semantics_hash=(
@@ -783,6 +841,7 @@ class CategoricalCoverageService:
         selection: SourceSelection,
         dataset_id: str,
         source_column_keys: Sequence[str],
+        *, source_positions: Sequence[int] | None = None,
     ) -> pl.DataFrame:
         physical = self.sources.get_source_selection(workspace_id)
         if (
@@ -790,9 +849,10 @@ class CategoricalCoverageService:
             and physical is not None
             and dataset_id not in {item.dataset_id for item in physical.datasets}
         ):
-            return self.logical_values.project(
+            frame = self.logical_values.project(
                 workspace_id, selection, dataset_id, source_column_keys,
             )
+            return _select_source_positions(frame, source_positions) if source_positions is not None else frame
         if physical is not None:
             selection = physical
         dataset = next(
@@ -823,18 +883,34 @@ class CategoricalCoverageService:
                 expected_sha256=snapshot.parquet_sha256,
             ) as path:
                 snapshot_path = validate_source_snapshot_path(path, snapshot)
-                return (
+                query = (
                     pl.scan_parquet(snapshot_path)
                     .select(
                         pl.col(value_columns[key]).alias(key)
                         for key in source_column_keys
                     )
-                    .collect(engine="streaming")
                 )
+                if source_positions is not None:
+                    query = _select_source_positions(query, source_positions)
+                return query.collect(engine="streaming")
         except (ArtifactStoreError, OSError, SourceLoadError, pl.exceptions.PolarsError) as error:
             raise WorkspaceError(
                 "The frozen source snapshot could not be verified"
             ) from error
+
+
+def _select_source_positions[T: (pl.DataFrame, pl.LazyFrame)](frame: T, positions: Sequence[int]) -> T:
+    """Filter before collection so wide rows remain bounded by the review page."""
+    return frame.filter(pl.int_range(0, pl.len()).is_in(list(positions)))
+
+
+def _parent_scoped_frame(
+    frame: pl.DataFrame, policy: RowInclusionPolicy, gate: IncludedParentRows,
+) -> pl.DataFrame:
+    return frame.filter(pl.Series(
+        [row_is_included(policy, row, gate) for row in frame.select(gate.source_keys).iter_rows(named=True)],
+        dtype=pl.Boolean,
+    ))
 
 
 def _coverage_fields(

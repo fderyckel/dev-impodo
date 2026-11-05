@@ -63,6 +63,9 @@ class DeferredScopeRouteTests(unittest.TestCase):
         )
 
     def test_changed_preview_is_not_accepted(self) -> None:
+        self.context.preflight.accept_deferred_scope.side_effect = (
+            DeferredScopeEvidenceError("The group preview changed.")
+        )
         with patch(
             "impodo.web.routers.preflight._render_deferred_scope",
             return_value=PlainTextResponse("changed", status_code=422),
@@ -83,7 +86,13 @@ class DeferredScopeRouteTests(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 422)
-        self.context.preflight.accept_deferred_scope.assert_not_called()
+        self.context.preflight.accept_deferred_scope.assert_called_once_with(
+            self.workspace_id,
+            selected_issue_ids=(self.issue_id,),
+            actor=LOCAL_ACTOR,
+            expected_comparison_id=self.review.comparison_id,
+            expected_preview_hash="sha256:" + "9" * 64,
+        )
 
     def test_broken_saved_evidence_renders_original_preview_error(self) -> None:
         self.context.preflight.deferred_scope_review.side_effect = (
@@ -110,10 +119,30 @@ class DeferredScopeRouteTests(unittest.TestCase):
             "Saved comparison evidence is invalid",
         )
 
-    def test_current_preview_acceptance_redirects_to_final_review(self) -> None:
+    def test_bulk_preview_and_confirmation_use_no_individual_issue_fields(self) -> None:
         self.context.preflight.accept_deferred_scope.return_value = SimpleNamespace(
             preview=self.preview
         )
+
+        with patch(
+            "impodo.web.routers.preflight._render_deferred_scope",
+            return_value=PlainTextResponse("preview"),
+        ):
+            preview = asyncio.run(
+                _endpoint(self.router, "preview_deferred_groups")(
+                    _request(
+                        "/summary/deferred-groups/preview",
+                        (("csrf_token", "csrf"), ("select_all", "1")),
+                    ),
+                    self.workspace_id,
+                )
+            )
+        self.assertEqual(preview.status_code, 200)
+        self.context.preflight.deferred_scope_review.assert_called_once_with(
+            self.workspace_id, selected_issue_ids=None,
+        )
+        self.context.preflight.accept_deferred_scope.assert_not_called()
+        self.context.workspace_access.resolve.reset_mock()
 
         response = asyncio.run(
             _endpoint(self.router, "accept_deferred_groups")(
@@ -121,7 +150,7 @@ class DeferredScopeRouteTests(unittest.TestCase):
                     "/summary/deferred-groups/accept",
                     (
                         ("csrf_token", "csrf"),
-                        ("issue_id", self.issue_id),
+                        ("select_all", "1"),
                         ("comparison_id", self.review.comparison_id),
                         ("preview_hash", self.preview.semantic_hash),
                     ),
@@ -137,8 +166,10 @@ class DeferredScopeRouteTests(unittest.TestCase):
         )
         self.context.preflight.accept_deferred_scope.assert_called_once_with(
             self.workspace_id,
-            selected_issue_ids=(self.issue_id,),
+            selected_issue_ids=None,
             actor=LOCAL_ACTOR,
+            expected_comparison_id=self.review.comparison_id,
+            expected_preview_hash=self.preview.semantic_hash,
         )
         self.context.workspace_access.resolve.assert_called_once_with(
             self.workspace_id,

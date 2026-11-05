@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.odoo.local_stack import LocalStackError
@@ -65,7 +65,11 @@ from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ..composition.page_reads import run_local_operation, run_page_read
+from ..composition.page_reads import (
+    run_local_operation,
+    run_local_operation_sync,
+    run_page_read,
+)
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -175,17 +179,24 @@ def _load_selected_schema_sync(
         if check_for_changes
         else context.schema_workspace.capture
     )
+    def publish(snapshot, credential_binding, read_identity, local_profile):
+        schema = save_schema(
+            workspace_state.workspace_id,
+            snapshot,
+            read_credential_binding_hash=credential_binding,
+            read_identity=read_identity,
+            actor=actor,
+        )
+        _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
+        return schema
+
     for attempt in range(2):
         snapshot, credential_binding, read_identity, local_profile = (
             _read_selected_schema_sync(context, workspace_state)
         )
         try:
-            schema = save_schema(
-                workspace_state.workspace_id,
-                snapshot,
-                read_credential_binding_hash=credential_binding,
-                read_identity=read_identity,
-                actor=actor,
+            schema = run_local_operation_sync(
+                publish, snapshot, credential_binding, read_identity, local_profile,
             )
         except OdooModelCatalogRefreshRequired as error:
             if attempt:
@@ -199,7 +210,6 @@ def _load_selected_schema_sync(
                 actor=actor,
             )
         else:
-            _mark_local_metadata_ready(context, workspace_state, schema, local_profile)
             return schema
     raise AssertionError("Schema capture must succeed or fail within two attempts")
 
@@ -764,7 +774,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         actor = request_identity(request, context.identity_resolver).actor
-        workspace_state = context.queries.get(workspace_id)
+        workspace_state = await run_page_read(context.queries.get, workspace_id)
         try:
             catalog = await _refresh_model_catalog(
                 context,
@@ -778,7 +788,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
             WorkspaceError,
         ) as error:
             read_failure = classify_odoo_read_failure(error)
-            return _render_schema(
+            return await run_page_read(
+                _render_schema,
                 request,
                 context,
                 workspace_id,
@@ -806,6 +817,42 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def update_workspace_schema_scope(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "permitted_models"})
+        prepared = await run_local_operation(prepare_schema_scope, request, workspace_id, form)
+        if isinstance(prepared, Response):
+            return prepared
+        saved_workspace_state, needs_capture = prepared
+        actor = request_identity(request, context.identity_resolver).actor
+        if needs_capture:
+            try:
+                await _capture_selected_schema(context, saved_workspace_state, actor=actor)
+            except (
+                ConnectorError, WorkspaceStateError, SecretStoreError, WorkspaceError,
+            ) as error:
+                read_failure = classify_odoo_read_failure(error)
+                return await run_page_read(
+                    _render_schema, request, context, workspace_id,
+                    support_error=str(error), schema_load_failed=True,
+                    read_credential_required=read_failure.asks_for_read_credential,
+                    read_credential_resume="submit",
+                    read_credential_resume_action=f"/workspaces/{workspace_id}/schema/capture",
+                    status_code=422,
+                )
+        _flash(request, "Odoo data is ready.")
+        if saved_workspace_state.source_mode is SourceMode.ODOO:
+            def capture_location():
+                schema = context.queries.get_odoo_schema_catalog(workspace_id)
+                return (
+                    _odoo_source_capture_location(context, saved_workspace_state, schema)
+                    if schema is not None else None
+                )
+            location = await run_page_read(capture_location)
+            if location is not None:
+                return RedirectResponse(location, status_code=303)
+        return RedirectResponse(f"/workspaces/{workspace_id}/schema#odoo-details", status_code=303)
+
+    def prepare_schema_scope(request: Request, workspace_id: str, form):
+        """Validate and save model choices before the separate Odoo read."""
+
         actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
         test_setup = context.run_setups.setup_binding_for_workspace(
@@ -854,51 +901,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             or existing_schema is None
             or existing_schema.origin is not SchemaOrigin.LIVE_API
         )
-        if needs_capture:
-            try:
-                await _capture_selected_schema(
-                    context,
-                    saved_workspace_state,
-                    actor=actor,
-                )
-            except (
-                ConnectorError,
-                WorkspaceStateError,
-                SecretStoreError,
-                WorkspaceError,
-            ) as error:
-                read_failure = classify_odoo_read_failure(error)
-                return _render_schema(
-                    request,
-                    context,
-                    workspace_id,
-                    support_error=str(error),
-                    schema_load_failed=True,
-                    read_credential_required=(
-                        read_failure.asks_for_read_credential
-                    ),
-                    read_credential_resume="submit",
-                    read_credential_resume_action=(
-                        f"/workspaces/{workspace_id}/schema/capture"
-                    ),
-                    status_code=422,
-                )
-        _flash(request, "Odoo data is ready.")
-        if saved_workspace_state.source_mode is SourceMode.ODOO:
-            schema = context.queries.get_odoo_schema_catalog(workspace_id)
-            if schema is not None:
-                return RedirectResponse(
-                    _odoo_source_capture_location(
-                        context,
-                        saved_workspace_state,
-                        schema,
-                    ),
-                    status_code=303,
-                )
-        return RedirectResponse(
-            f"/workspaces/{workspace_id}/schema#odoo-details",
-            status_code=303,
-        )
+        return saved_workspace_state, needs_capture
 
     @router.post("/workspaces/{workspace_id}/schema/capture")
     async def capture_workspace_schema(request: Request, workspace_id: str):
@@ -913,18 +916,20 @@ def build_schema_router(context: WebContext) -> APIRouter:
         return_to_sources = _checked(form, "return_to_sources")
         return_to_mapping = _checked(form, "return_to_mapping")
         actor = request_identity(request, context.identity_resolver).actor
-        workspace_state = context.queries.get(workspace_id)
-        test_setup = context.run_setups.setup_binding_for_workspace(
-            workspace_id,
-            actor=actor,
-        )
+        def read_capture_inputs():
+            workspace = context.queries.get(workspace_id)
+            setup = context.run_setups.setup_binding_for_workspace(workspace_id, actor=actor)
+            return (
+                workspace, setup,
+                context.queries.get_odoo_schema_catalog(workspace_id) if setup is None else None,
+            )
+        workspace_state, test_setup, current = await run_page_read(read_capture_inputs)
         if test_setup is not None:
             return RedirectResponse(
                 f"/projects/{test_setup.project_id}/runs/"
                 f"{test_setup.migration_run_id}/odoo",
                 status_code=303,
             )
-        current = context.queries.get_odoo_schema_catalog(workspace_id)
         mapping_location = f"{_mapping_return_url(request, workspace_id)}#odoo-field-refresh"
         if return_to_mapping and (
             workspace_state.source_mode is not SourceMode.FILE
@@ -957,7 +962,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 request.session["mapping_error"] = "Could not check Odoo fields. Check your connection and try again."
                 return RedirectResponse(mapping_location, status_code=303)
             read_failure = classify_odoo_read_failure(error)
-            return _render_schema(
+            return await run_page_read(
+                _render_schema,
                 request,
                 context,
                 workspace_id,
@@ -990,7 +996,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             and workspace_state.source_mode is SourceMode.ODOO
         ):
             return RedirectResponse(
-                _odoo_source_capture_location(context, workspace_state, schema),
+                await run_page_read(_odoo_source_capture_location, context, workspace_state, schema),
                 status_code=303,
             )
         if (
@@ -1002,7 +1008,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
             and workspace_state.source_mode is SourceMode.ODOO
         ):
             return RedirectResponse(
-                _odoo_source_capture_location(context, workspace_state, schema),
+                await run_page_read(_odoo_source_capture_location, context, workspace_state, schema),
                 status_code=303,
             )
         return RedirectResponse(
@@ -1220,6 +1226,11 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Confirm business-key definitions against the current schema."""
 
         form = await request.form()
+        return await run_local_operation(govern_schema, request, workspace_id, form)
+
+    def govern_schema(request: Request, workspace_id: str, form):
+        """Confirm keys and render any local recovery within one operation."""
+
         actor = request_identity(request, context.identity_resolver).actor
         schema = context.queries.get_odoo_schema_catalog(workspace_id)
         if schema is None:

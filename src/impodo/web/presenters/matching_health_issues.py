@@ -194,6 +194,8 @@ def _identity_issue(
     )
     correction_label = f"Review {dataset_name} identity"
     correction_route = str(card.get("edit_url", ""))
+    if _count(card, "source_repeated_row_count") and card.get("repeated_source_url"):
+        correction_route = str(card["repeated_source_url"])
     recheck = "Save the correction, then run Check current data again."
     if schema_changed:
         correction_label = "Review Odoo fields"

@@ -68,6 +68,7 @@ from ...domain.mapping.create_field_policy import (
     is_odoo_managed_candidate,
     supports_create_default_capture,
 )
+from ...domain.mapping.row_inclusion import incoming_parent_links
 from ...domain.mapping.scalar_values import (
     ScalarValueError,
     evaluate_scalar_mapping_value,
@@ -2174,6 +2175,12 @@ def _mapping_dataset_views(
         governance,
     ).datasets
     existing_by_id = {item.dataset_id: item for item in existing_datasets}
+    physical_sources = {
+        item.dataset_id: item
+        for item in selection.datasets
+        if item.origin is not SourceOriginKind.DERIVED
+    }
+
     models = {item.name: item for item in schema.models}
     keys = tuple(governance.business_keys) if governance else ()
     confirmed = tuple(
@@ -2763,6 +2770,23 @@ def _mapping_dataset_views(
                 },
                 "source_samples": source_samples,
                 "mapping": existing,
+                "row_inclusion_parents": tuple(
+                    {
+                        "field": link.target_field,
+                        "label": next(
+                            (field.label for field in model.fields if field.name == link.target_field),
+                            link.target_field,
+                        ) if model else link.target_field,
+                        "table": physical_sources[link.dataset_id].name,
+                    }
+                    for link in incoming_parent_links(existing)
+                    if link.dataset_id in physical_sources
+                    and link.dataset_id != source_dataset.dataset_id
+                    and link.dataset_id in existing_by_id
+                    and len(link.source_keys)
+                    == len(existing_by_id[link.dataset_id].source_identity_column_keys)
+                    and link.source_keys
+                ) if existing and source_dataset.dataset_id in physical_sources else (),
                 "row_inclusion_slots": _row_inclusion_slots(
                     source_dataset.dataset_id,
                     existing.row_inclusion if existing else RowInclusionPolicy(),
@@ -2965,7 +2989,8 @@ def _collision_exclusion_draft(
         return {}, unavailable
     policy = mapping.row_inclusion
     if policy.mode is RowInclusionMode.MATCHING_ROWS and (
-        policy.join is not RowInclusionJoin.ALL
+        policy.included_parent_field is not None
+        or policy.join is not RowInclusionJoin.ALL
         or len(policy.conditions) >= MAX_ROW_INCLUSION_CONDITIONS
     ):
         return {}, {
@@ -3107,7 +3132,8 @@ def _missing_parent_exclusion_draft(
         return {}, unavailable
     policy = mapping.row_inclusion
     if policy.mode is RowInclusionMode.MATCHING_ROWS and (
-        policy.join is not RowInclusionJoin.ALL
+        policy.included_parent_field is not None
+        or policy.join is not RowInclusionJoin.ALL
         or len(policy.conditions) >= MAX_ROW_INCLUSION_CONDITIONS
     ):
         return {}, {

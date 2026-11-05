@@ -264,7 +264,7 @@ class CombinedHierarchyTests(HierarchyWorkflowFixture):
         # Measured authenticated fixture: eight connections across the page's
         # foundation/workspace owners and its narrow in-memory joined-value read.
         self.assertLessEqual(timings.connection_count, 8)
-        self.assertLessEqual(timings.schema_check_count, 3)
+        self.assertLessEqual(timings.schema_check_count, 6)
         self.assertEqual(timings.lock_retry_count, 0)
         self.prepare(workspace_id)
         self.approve(workspace_id)

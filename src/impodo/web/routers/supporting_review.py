@@ -15,6 +15,7 @@ from impodo.domain.workspace.reference_keys import ReferenceReadPurpose
 from impodo.domain.workspace.supporting_review import (
     SupportingChoice,
     SupportingChoiceAction,
+    SupportingChoiceValidationError,
 )
 from impodo.web.composition.page_reads import (
     run_local_operation,
@@ -90,21 +91,37 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
         )
         _secure_form(request, form, allowed)
         actor = request_identity(request, context.identity_resolver).actor
+        submitted = tuple(
+            (
+                _text(form, f"edge_{index}"),
+                _text(form, f"action_{index}"),
+                _text(form, f"dataset_{index}"),
+            )
+            for index in range(count)
+        )
         try:
             choices = []
-            for index in range(count):
-                action = _text(form, f"action_{index}")
+            for edge, action, dataset in submitted:
                 if not action:
                     continue
-                model, field = _text(form, f"edge_{index}").split("|", 1)
-                choices.append(
-                    SupportingChoice(
+                model, field = edge.split("|", 1)
+                try:
+                    choice = SupportingChoice(
                         model,
                         field,
                         SupportingChoiceAction(action),
-                        _text(form, f"dataset_{index}") if action == "INCOMING" else "",
+                        dataset if action == "INCOMING" else "",
                     )
-                )
+                except ValueError as error:
+                    message = (
+                        "Choose an accepted incoming table."
+                        if action == "INCOMING" and not dataset
+                        else "Review the source and table for this relationship."
+                    )
+                    raise SupportingChoiceValidationError(
+                        str(error), (model, field), field_message=message
+                    ) from error
+                choices.append(choice)
 
             def save():
                 context.schema_workspace.authorization.require(
@@ -131,15 +148,12 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
                 request,
                 context,
                 workspace_id,
-                error=str(error),
+                supporting_save_error=error,
+                supporting_drafts={edge: (action, dataset) for edge, action, dataset in submitted},
                 status_code=422,
             )
         if json_request:
             return JSONResponse({"version": review.version, "binding_hash": review.binding_hash})
-        _flash(
-            request,
-            "Saved the current supporting-data choices. Your business scope is unchanged.",
-        )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#supporting-data-review", status_code=303
         )

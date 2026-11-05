@@ -13,6 +13,8 @@ document.addEventListener("DOMContentLoaded", () => {
       editor.querySelectorAll("[data-row-inclusion-mode]")
     );
     const builder = editor.querySelector("[data-row-inclusion-builder]");
+    const parent = editor.querySelector("[data-row-inclusion-parent]");
+    const parentField = parent?.querySelector("select");
     const rows = Array.from(
       editor.querySelectorAll("[data-row-inclusion-condition]")
     );
@@ -34,6 +36,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const sync = () => {
       const matching = selectedMode() === "matching_rows";
+      const followsParent = selectedMode() === "included_parent";
+      if (parent) parent.hidden = !followsParent;
+      if (parentField) parentField.disabled = !followsParent;
       if (builder) builder.hidden = !matching;
       const visibleRows = rows.filter((row) => !row.hidden);
       for (const row of rows) {

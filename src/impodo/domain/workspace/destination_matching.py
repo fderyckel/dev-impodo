@@ -629,6 +629,8 @@ class DestinationModelMatch:
             )
         ):
             raise ValueError("Destination excluded source rows are invalid")
+        if self.row_inclusion.included_parent_field is not None:
+            raise ValueError("Transfer row rules cannot depend on another mapping dataset")
         if self.row_inclusion.mode is RowInclusionMode.ALL_ROWS and (
             self.rule_excluded_source_row_numbers or self.rule_blocked_source_row_numbers
         ):
@@ -1101,7 +1103,7 @@ class DestinationMatchPlan:
             "datasets": [
                 {
                     "dataset_id": item.dataset_id,
-                    "row_inclusion": asdict(item.row_inclusion),
+                    "row_inclusion": _transfer_row_inclusion_payload(item.row_inclusion),
                     "source_rows": item.frozen_source_row_count,
                     "included_rows": item.source_row_count,
                     "rule_excluded": item.rule_excluded_source_row_numbers,
@@ -1176,7 +1178,10 @@ class DestinationMatchPlan:
             ),
             "model_matches": [
                 {
-                    name: value
+                    name: (
+                        _transfer_row_inclusion_payload(item.row_inclusion)
+                        if name == "row_inclusion" else value
+                    )
                     for name, value in asdict(item).items()
                     if (self.contract_version >= 3 or name != "destination_key_binding_hash")
                     and (
@@ -1365,7 +1370,7 @@ class DestinationMatchPlan:
                             item.get("minimum_create_relationship_fields", ())
                         ),
                         row_inclusion=row_inclusion_policy_from_dict(
-                            item.get("row_inclusion", asdict(RowInclusionPolicy()))
+                            item.get("row_inclusion", _transfer_row_inclusion_payload(RowInclusionPolicy()))
                         ),
                         rule_excluded_source_row_numbers=tuple(
                             item.get("rule_excluded_source_row_numbers", ())
@@ -1485,6 +1490,12 @@ class DestinationMatchPlan:
         if payload.get("content_hash") != result.content_hash:
             raise ValueError("Stored destination matching plan hash is invalid")
         return result
+
+
+def _transfer_row_inclusion_payload(policy: RowInclusionPolicy) -> dict[str, Any]:
+    payload = asdict(policy)
+    payload.pop("included_parent_field")
+    return payload
 
 
 def confirm_destination_row_inclusion(

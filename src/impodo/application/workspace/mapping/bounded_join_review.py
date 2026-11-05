@@ -8,6 +8,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator, Mapping
 
+from impodo.application.data_version.source_snapshots import (
+    included_parent_rows_from_snapshots,
+)
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
     GroupedExactJoinSourcePort,
@@ -190,6 +193,10 @@ def _joined_review_batches(
     )
     lookup_bindings = tuple(zip(lookups, derived_dataset_links(plan), strict=True))
     transformers: dict[str, CompiledBrowserRowTransformer] = {}
+    snapshots = tuple(snapshots)
+    included_parents = included_parent_rows_from_snapshots(
+        definition.datasets, physical, snapshots, artifacts,
+    )
     for dataset, batch in iter_bounded_preparation_source_batches(
         workspace,
         definition,
@@ -211,6 +218,7 @@ def _joined_review_batches(
                 None,
                 "source",
                 lookup_bindings=lookup_bindings,
+                included_parent=included_parents.get(mapping.dataset_id),
             )
             transformers[dataset.dataset_id] = transformer
         yield dataset, mapping, transformer, batch.rows

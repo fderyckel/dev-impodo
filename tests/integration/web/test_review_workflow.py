@@ -121,7 +121,8 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 # owners. Retention keeps repeated repository calls within
                 # those owners below this route-specific physical ceiling.
                 self.assertLessEqual(start_timings.connection_count, 6)
-                self.assertLessEqual(start_timings.schema_check_count, 3)
+                # Each phase now counts linkage-store and engine validation.
+                self.assertLessEqual(start_timings.schema_check_count, 4)
 
                 progress_page = self.client.get(started_response.headers["location"])
                 repeated = self.client.post(

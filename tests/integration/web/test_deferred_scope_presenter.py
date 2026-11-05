@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
@@ -78,7 +79,8 @@ class DeferredScopePresenterTests(unittest.TestCase):
             message="Missing <script>unsafe</script> component",
         )
 
-    def _render(self, *, decision=None) -> str:
+    def _render(self, *, decision=None, bulk=False, preview=None) -> str:
+        preview = self.preview if preview is None else preview
         review = SimpleNamespace(
             comparison_id=self.preview.comparison_id,
             issues=(self.issue,),
@@ -91,11 +93,13 @@ class DeferredScopePresenterTests(unittest.TestCase):
                     source_identity=("BOM-1", "LINE-1"),
                 ),
             ),
-            preview=self.preview,
+            preview=preview,
             decision=decision,
+            bulk_preview=bulk,
         )
         return self.templates.get_template("workspace_deferred_scope.html").render(
             deferred_review=review,
+            selected_issue_ids=frozenset(preview.selected_issue_ids),
             error=None,
             csrf_token="csrf",
             workspace_id="workspace-1",
@@ -108,6 +112,7 @@ class DeferredScopePresenterTests(unittest.TestCase):
         html = self._render()
 
         self.assertIn("Preview affected groups", html)
+        self.assertIn("Preview all problem groups", html)
         self.assertIn("Set aside affected groups for this load", html)
         self.assertIn(DECISION_HELP_BY_ID["affected-groups"].url, html)
         self.assertIn("<strong>4</strong>", html)
@@ -116,6 +121,18 @@ class DeferredScopePresenterTests(unittest.TestCase):
         self.assertIn("Direct problem", html)
         self.assertIn("Missing &lt;script&gt;unsafe&lt;/script&gt; component", html)
         self.assertNotIn("<script>unsafe</script>", html)
+
+    def test_bulk_preview_keeps_the_decision_small_and_disables_empty_loads(self) -> None:
+        html = self._render(bulk=True)
+        self.assertIn('name="select_all" value="1"', html)
+        self.assertIn("Set aside all problem groups", html)
+        self.assertIn("Deferred issues", html)
+        self.assertNotIn('name="issue_id"', html)
+
+        empty = replace(self.preview, original_write_count=0, remaining_write_count=0)
+        html = self._render(bulk=True, preview=empty)
+        self.assertIn("No writes remain", html)
+        self.assertNotIn("/deferred-groups/accept", html)
 
     def test_accepted_preview_is_read_only_and_names_reviewer(self) -> None:
         decision = DeferredScopeDecision.accept(

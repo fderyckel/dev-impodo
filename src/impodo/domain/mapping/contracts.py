@@ -283,11 +283,23 @@ class RowInclusionPolicy:
     mode: RowInclusionMode = RowInclusionMode.ALL_ROWS
     conditions: tuple[RowInclusionCondition, ...] = ()
     join: RowInclusionJoin = RowInclusionJoin.ALL
+    included_parent_field: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RowInclusionMode(self.mode))
         object.__setattr__(self, "conditions", tuple(self.conditions))
         object.__setattr__(self, "join", RowInclusionJoin(self.join))
+        if self.included_parent_field is not None:
+            if (
+                self.mode is not RowInclusionMode.MATCHING_ROWS
+                or self.conditions
+                or self.join is not RowInclusionJoin.ALL
+                or not isinstance(self.included_parent_field, str)
+                or not self.included_parent_field.strip()
+                or len(self.included_parent_field) > 200
+            ):
+                raise ValueError("Choose one incoming parent field for the rows-to-use rule")
+            return
         if self.mode is RowInclusionMode.ALL_ROWS:
             if self.conditions:
                 raise ValueError("Use-every-row mode cannot contain conditions")
@@ -1083,6 +1095,11 @@ class MappingDefinition:
                 f"Mapping contract v{self.contract_version} cannot contain "
                 "a constant many2many relationship"
             )
+        if self.contract_version < 23 and any(
+            dataset.row_inclusion.included_parent_field is not None
+            for dataset in self.datasets
+        ):
+            raise ValueError("Included-parent rules require mapping contract v23")
         if self.contract_version < 16 and any(
             dataset.row_inclusion != RowInclusionPolicy()
             for dataset in self.datasets
@@ -1343,6 +1360,8 @@ def _dataset_mapping_to_dict(
                 component.pop("null_policy", None)
     if contract_version < 16:
         payload.pop("row_inclusion", None)
+    elif mapping.row_inclusion.included_parent_field is None:
+        payload["row_inclusion"].pop("included_parent_field", None)
     if contract_version < 15:
         payload = _without_relationship_value_provider(payload)
     if contract_version < 14:
@@ -1359,7 +1378,8 @@ def row_inclusion_policy_from_dict(
 
     _require_contract_fields(
         payload,
-        _contract_fields(RowInclusionPolicy),
+        _contract_fields(RowInclusionPolicy)
+        - ({"included_parent_field"} if "included_parent_field" not in payload else set()),
         "Row-inclusion fields do not match the current mapping contract",
     )
     conditions_payload = payload.get("conditions", ())
@@ -1369,6 +1389,7 @@ def row_inclusion_policy_from_dict(
         mode=RowInclusionMode(
             payload.get("mode", RowInclusionMode.ALL_ROWS.value)
         ),
+        included_parent_field=payload.get("included_parent_field"),
         conditions=tuple(
             _row_inclusion_condition_from_dict(item)
             for item in conditions_payload

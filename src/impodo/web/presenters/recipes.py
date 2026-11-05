@@ -130,7 +130,9 @@ def _dataset_view(
         "target_model": str(dataset.get("target_model") or "Odoo record type"),
         "mode": _label(dataset.get("mode"), default="Saved behavior"),
         "row_selection": (
-            "All source rows"
+            "Rows whose linked parent is included"
+            if row_inclusion.get("included_parent_field")
+            else "All source rows"
             if row_inclusion.get("mode") in {None, "all_rows"}
             else (
                 f"Rows matching {row_condition_count} saved "

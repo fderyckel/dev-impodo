@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_files import open_selected_source_batches
 from impodo.application.data_version.source_snapshots import (
+    included_parent_rows_from_snapshots,
     open_source_snapshot_batches,
     validate_snapshot_for_dataset,
 )
@@ -75,6 +76,7 @@ from impodo.domain.staging.evaluator import (
     canonical_field_sources,
     compile_browser_row_transformer,
     compile_reference_indexes,
+    row_inclusion_source_keys,
 )
 from impodo.domain.staging.preparation_session import (
     CanonicalPreparedSessionRow,
@@ -283,6 +285,9 @@ def prepare_bounded_direct_session(
         effective_selection,
     )
     snapshot_by_dataset = {item.dataset_id: item for item in (source_snapshots or ())}
+    included_parents = included_parent_rows_from_snapshots(
+        definition.datasets, physical_selection, snapshot_by_dataset.values(), artifacts,
+    )
     if source_snapshots is not None and (
         len(snapshot_by_dataset) != len(physical_selection.datasets)
         or set(snapshot_by_dataset) != set(physical_by_id)
@@ -590,6 +595,7 @@ def prepare_bounded_direct_session(
                 None,
                 "source",
                 reference_indexes=reference_indexes,
+                included_parent=included_parents.get(mapping.dataset_id),
             )
             preparer = CompiledPreparedRowTransformer.compile(
                 compiled_by_name[effective.name],
@@ -648,11 +654,7 @@ def prepare_bounded_direct_session(
                                     source_selection_hash=source_selection_hash,
                                     mapping_hash=mapping_hash,
                                     schema_hash=schema_hash,
-                                    source_column_keys=tuple(
-                                        condition.source_column_key
-                                        for condition
-                                        in mapping.row_inclusion.conditions
-                                    ),
+                                    source_column_keys=row_inclusion_source_keys(mapping),
                                     physical_dataset_id=physical.dataset_id,
                                 )
                             )
@@ -670,11 +672,7 @@ def prepare_bounded_direct_session(
                                     source_selection_hash=source_selection_hash,
                                     mapping_hash=mapping_hash,
                                     schema_hash=schema_hash,
-                                    source_column_keys=tuple(
-                                        condition.source_column_key
-                                        for condition
-                                        in mapping.row_inclusion.conditions
-                                    ),
+                                    source_column_keys=row_inclusion_source_keys(mapping),
                                     physical_dataset_id=physical.dataset_id,
                                 )
                             )

@@ -80,6 +80,7 @@ class DocumentationQualityTests(unittest.TestCase):
                 "src/impodo/web/composition/page_reads.py::run_local_operation",
                 "src/impodo/web/composition/page_reads.py::run_local_operation_sync",
                 "src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation",
+                "src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema",
             ],
         )
         self.assertEqual(
@@ -87,6 +88,7 @@ class DocumentationQualityTests(unittest.TestCase):
             [
                 "tests/integration/web/test_page_reads.py",
                 "tests/integration/duckdb/test_page_read_connections.py",
+                "tests/integration/duckdb/test_scoped_store_validation.py",
             ],
         )
         self.assertIn(

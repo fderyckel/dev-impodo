@@ -5,26 +5,32 @@
     <input type="hidden" name="choice_count" value="{{ supporting_review.rows|length }}">
     <div class="supporting-review-list">
       {% for row in supporting_review.rows %}
-      <fieldset class="supporting-review-choice">
+      {% set choice_error_id = 'support-choice-error-' ~ loop.index0 %}
+      {% set table_error = row.save_error and row.chosen == 'INCOMING' and not row.unavailable_draft %}
+      <fieldset class="supporting-review-choice{% if row.save_error %} has-error{% endif %}">
         <legend>
           {{ row.model_label }} · {{ row.label }}
           <span class="status {% if row.required %}attention{% endif %}">{{ "Required" if row.required else "Optional" }}</span>
         </legend>
-        {% if inline_supporting_review %}<p class="status attention">{{ 'Choose a current source' if row.needs_change else 'Needs confirmation' }}</p>{% endif %}
+        {% if inline_supporting_review and row.needs_change %}<p class="status attention">Choose a current source</p>{% endif %}
         <input type="hidden" name="edge_{{ loop.index0 }}" value="{{ row.model }}|{{ row.field }}">
         <label for="support-action-{{ loop.index0 }}">
           Where should this value come from?
-          <select id="support-action-{{ loop.index0 }}" name="action_{{ loop.index0 }}" data-supporting-action {% if row.required %}required{% endif %}>
+          <select id="support-action-{{ loop.index0 }}" name="action_{{ loop.index0 }}" data-supporting-action {% if row.required %}required{% endif %}{% if row.save_error and not table_error %} aria-invalid="true" aria-describedby="{{ choice_error_id }}"{% endif %}>
             <option value="">Choose a source</option>
             {% for value, label in row.actions %}<option value="{{ value }}" {% if row.chosen == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
+            {% if row.unavailable_draft %}<option value="{{ row.chosen }}" selected>{{ row.unavailable_draft }} (unavailable)</option>{% endif %}
           </select>
         </label>
+        {% if row.unavailable_draft and row.chosen == 'INCOMING' %}
+          <p>Previously entered table: {{ row.dataset_label }}</p>
+        {% endif %}
         {% if row.managed %}
           <p>Odoo supplies this relationship. No incoming table is needed.</p>
         {% elif row.incoming_available %}
           <label class="supporting-review-dataset" for="support-table-{{ loop.index0 }}">
             Which incoming table?
-            <input id="support-table-{{ loop.index0 }}" name="dataset_{{ loop.index0 }}" list="supporting-table-choices" value="{{ row.dataset_label }}" placeholder="Choose an accepted table">
+            <input id="support-table-{{ loop.index0 }}" name="dataset_{{ loop.index0 }}" list="supporting-table-choices" value="{{ row.dataset_label }}" placeholder="Choose an accepted table"{% if table_error %} aria-invalid="true" aria-describedby="{{ choice_error_id }}"{% endif %}>
           </label>
         {% else %}
           <details class="technical-details">
@@ -32,6 +38,7 @@
             <p>First <a href="#odoo-data-choices">add the related records to this migration</a> and load their Odoo details.</p>
           </details>
         {% endif %}
+        {% if row.save_error %}<p class="notice error" id="{{ choice_error_id }}">{{ row.save_error }}</p>{% endif %}
         {% if row.read_key %}
           <details class="technical-details">
             <summary>Reviewed matching fields</summary>

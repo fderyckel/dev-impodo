@@ -311,6 +311,8 @@ def describe_row_inclusion_policy(
         )
         for condition in policy.conditions
     )
+    if policy.included_parent_field is not None:
+        return "Use only rows whose linked parent is included."
     if not condition_sentences:
         return "Use every row."
     joiner = " and " if policy.join is RowInclusionJoin.ALL else " or "

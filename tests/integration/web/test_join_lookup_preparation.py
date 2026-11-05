@@ -26,6 +26,7 @@ from impodo.domain.workspace.derived_entities import derived_dataset_links
 from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.integration.web import test_mixed_join_preparation as fixtures
 from tests.support.browser_scenarios import POST_HEADERS, _wait_for_preparation
+from tests.support.database_probe import count_duckdb_statements
 
 
 def delivery(row_counts=(4753, 44387, 16159), *, offset=0):
@@ -197,7 +198,7 @@ class JoinLookupPreparationTests(TestCase):
                 ),
             ),
         )
-        with collect_duckdb_request_timings() as timings:
+        with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
             revision, validation = run_local_operation_sync(
                 context.mapping_workspace.check_definition,
                 workspace_id,
@@ -207,7 +208,12 @@ class JoinLookupPreparationTests(TestCase):
                 actor=actor,
             )
         self.assertLessEqual(timings.connection_count, 5)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        # One local command validates workspace, Data version, and engine stores.
+        self.assertLessEqual(timings.schema_check_count, 3)
+        self.assertEqual(
+            sum("duckdb_columns()" in statement for statement in statements),
+            timings.schema_check_count,
+        )
         self.assertNotEqual(validation.status.value, "INVALID", validation.issues)
         draft = context.mapping_workspace.mappings.get_mapping_working_draft(
             workspace_id

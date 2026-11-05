@@ -12,6 +12,7 @@ from impodo.domain.mapping.contracts import (
     ScalarFieldMapping,
 )
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase, POST_HEADERS
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 from tests.support.required_values import required_values_workspace
 
@@ -62,7 +63,7 @@ class RequiredValuesBrowserTests(ProjectSetupBrowserTestCase):
         # reference owners; the operation retains one Data version and one engine.
         self.assertGreater(timings.connection_count, 0)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
         main = self.client.get(f"/workspaces/{workspace}/mapping")
         self.assertIn("Review required values", main.text)
@@ -140,7 +141,7 @@ class RequiredValuesBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("of 1006 required fields", response.text)
         self.assertEqual(response.text.count("data-required-field="), 100)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
         next_url = unescape(
             re.search(r'href="([^"]+)"[^>]*>Next 100', response.text).group(1)
@@ -153,11 +154,16 @@ class RequiredValuesBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("Showing 1001–1006", last.text)
         self.assertEqual(last.text.count("data-required-field="), 6)
-        with collect_duckdb_request_timings() as main_timings:
+        with count_duckdb_statements() as statements, collect_duckdb_request_timings() as main_timings:
             main = self.client.get(f"/workspaces/{workspace}/mapping")
         self.assertEqual(main.status_code, 200)
         self.assertLessEqual(main_timings.connection_count, 8)
-        self.assertLessEqual(main_timings.schema_check_count, 2)
+        # Count workspace and Data version checks as well as engine checks.
+        self.assertLessEqual(main_timings.schema_check_count, 6)
+        self.assertEqual(
+            sum("duckdb_columns()" in statement for statement in statements),
+            main_timings.schema_check_count,
+        )
 
     def test_changed_draft_schema_and_invalid_filters_do_not_claim_current_proof(self):
         workspace, _dataset, _revision, _validation = required_values_workspace(self)

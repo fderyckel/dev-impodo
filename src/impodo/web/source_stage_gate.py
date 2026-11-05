@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from fastapi import Request
 from fastapi.responses import RedirectResponse
-from starlette.concurrency import run_in_threadpool
 
 from impodo.application.workspace.source_readiness import (
     SourceStageIssue,
     SourceStageReadiness,
 )
 
+from .composition.page_reads import run_page_read
 from .context import WebContext
 from .presenters.common import _flash
 
@@ -22,7 +22,7 @@ async def source_stage_redirect(
 ) -> RedirectResponse | None:
     """Redirect a downstream browser request when source evidence is stale."""
 
-    readiness = await run_in_threadpool(
+    readiness = await run_page_read(
         context.navigation.get_source_readiness,
         workspace_id,
     )

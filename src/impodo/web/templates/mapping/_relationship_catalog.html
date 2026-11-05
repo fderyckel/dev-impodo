@@ -139,6 +139,7 @@
                         <small data-constant-choice-status role="status" aria-live="polite">
                           {% if row.constant_component_values %}{{ row.constant_component_values|join(' · ') }} will be used for all {{ view.source.row_count }} {{ view.source.name }} rows.{% else %}Impodo stores only the portable business key, never the Odoo database ID.{% endif %}
                         </small>
+                        <a href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes" data-constant-schema-review hidden>Review Odoo changes</a>
                       </div>
                     </div>
                   </div>

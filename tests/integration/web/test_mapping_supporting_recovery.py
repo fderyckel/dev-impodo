@@ -24,6 +24,7 @@ from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.presenters.supporting_review import mapping_supporting_review_view
 from tests.integration.web import test_account_company_supporting as accounts
 from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
+from tests.support.hierarchy_correction import MappingForm
 from tests.support.identity import resolve_local_actor
 
 
@@ -152,9 +153,11 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                 preparation=packet.preparation,
             )
 
-        self.assertIn("refreshed for Example Wiltz", view(packet.selection)["message"])
+        self.assertIn(
+            "Odoo access changed for Example Wiltz", view(packet.selection)["message"]
+        )
         changed = replace(packet.selection, content_hash="sha256:" + "a" * 64)
-        self.assertNotIn("refreshed for", view(changed)["message"])
+        self.assertNotIn("Odoo access changed for", view(changed)["message"])
         self.assertIn("source or Odoo details changed", view(changed)["message"])
 
     def test_stale_review_recovers_locally_for_both_majors_and_connection_modes(self):
@@ -175,10 +178,20 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                         page.context["related_data_review"]["problem"], "STALE"
                     )
                     self.assertIn("Review related-data choices", page.text)
-                    self.assertIn("Save choices and check matches", page.text)
+                    self.assertIn(
+                        "Keep these choices if they are still correct", page.text
+                    )
+                    self.assertNotIn("Needs confirmation", page.text)
+                    self.assertNotIn(
+                        "Your current field mappings stay on this page", page.text
+                    )
+                    self.assertLess(
+                        page.text.index("Confirm choices and check matches"),
+                        page.text.index("data-related-review-details"),
+                    )
                     # The rich page already opens eight owners across access and page scopes.
                     self.assertLessEqual(timings.connection_count, 8)
-                    self.assertLessEqual(timings.schema_check_count, 2)
+                    self.assertLessEqual(timings.schema_check_count, 6)
                     with collect_duckdb_request_timings() as timings:
                         fragment = self.client.get(
                             f"/workspaces/{workspace_id}/mapping/supporting-review"
@@ -187,7 +200,7 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                     self.assertEqual(fragment.headers["cache-control"], "no-store")
                     self.assertNotIn("data-mapping-form", fragment.text)
                     self.assertLessEqual(timings.connection_count, 6)
-                    self.assertLessEqual(timings.schema_check_count, 1)
+                    self.assertLessEqual(timings.schema_check_count, 4)
                     self.assertEqual(timings.lock_retry_count, 0)
                     draft = context.queries.get_mapping_working_draft(workspace_id)
                     operation = str(uuid4())
@@ -220,10 +233,11 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                     self.assertEqual(
                         receipt.json()["failure_code"], "SUPPORTING_REVIEW_REQUIRED"
                     )
-                    _, form = accounts.AccountCompanySupportingTests.review_form(
-                        self, workspace_id
+                    form = dict(
+                        MappingForm(
+                            fragment.text, form_attribute="data-related-review-form"
+                        ).entries
                     )
-                    form["action_1"] = "SKIP_OPTIONAL"
                     headers = {**POST_HEADERS, "Accept": "application/json"}
                     with collect_duckdb_request_timings() as timings:
                         saved = self.client.post(
@@ -233,7 +247,7 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                         )
                     self.assertEqual(saved.status_code, 200, saved.text)
                     self.assertLessEqual(timings.connection_count, 6)
-                    self.assertLessEqual(timings.schema_check_count, 1)
+                    self.assertLessEqual(timings.schema_check_count, 4)
                     retried = self.client.post(
                         f"/workspaces/{workspace_id}/schema/supporting/save",
                         data=form,
@@ -252,6 +266,15 @@ class MappingSupportingRecoveryTests(ProjectSetupBrowserTestCase):
                             packet, actor=actor
                         )
                     )
+                    checked_form = MappingForm(page.text)
+                    checked = self.client.post(
+                        checked_form.action,
+                        json={"entries": [*checked_form.entries, ["action", "draft"]]},
+                        headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+                    )
+                    self.assertEqual(checked.status_code, 200, checked.text)
+                    reopened = self.client.get(f"/workspaces/{workspace_id}/mapping")
+                    self.assertTrue(reopened.context["related_data_review"]["current"])
 
     def test_changed_evidence_rejects_inline_save_without_losing_the_mapping(self):
         workspace_id, _, _, schema = related_review_workspace(self)

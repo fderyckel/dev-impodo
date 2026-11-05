@@ -4,6 +4,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/supporting-review.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/mapping-duplicate-rows.css') }}">
 {% endblock %}
 {% block page_scripts %}
   {% include "mapping/_scripts.html" %}
@@ -74,6 +75,7 @@
     {% include "mapping/_matching_review_workbook.html" %}
     {% include "mapping/_quality.html" %}
     {% include "mapping/_value_match_dialog.html" %}
+    {% include "mapping/_duplicate_rows_dialog.html" %}
   {% else %}
     <section class="form-card">
       <div class="empty-state">

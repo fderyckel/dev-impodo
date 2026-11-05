@@ -6,7 +6,7 @@
     <div>
       <p class="eyebrow">Stage 5 of 6 · Final review</p>
       <h1>Review complete affected groups</h1>
-      <p>Choose root problems to set aside. Impodo keeps linked parents, children and sibling records together when their identity or load safety requires it.</p>
+      <p>Preview which problem records and linked records would stay out of this load.</p>
     </div>
     {% if deferred_review and deferred_review.decision %}
       <span class="status ready">Ready with records set aside</span>
@@ -34,18 +34,37 @@
         </div>
         <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Return to Final review</a>
       </section>
+    {% elif deferred_review.bulk_preview %}
+      <p><a href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose individual problems instead</a></p>
+      {% if preview.remaining_run_issue_count %}
+        <section class="notice warning" aria-label="Problems affecting the whole comparison">
+          <strong>Fix these problems before loading</strong>
+          <ul>
+            {% for candidate in deferred_review.candidates | rejectattr("selectable") %}
+              <li>{{ candidate.issue.message or candidate.issue.code.replace('_', ' ')|title }}</li>
+            {% endfor %}
+          </ul>
+        </section>
+      {% endif %}
     {% else %}
       <section class="form-card" aria-labelledby="root-problems-title">
         <p class="eyebrow">Root problems</p>
         <h2 id="root-problems-title">Choose the groups to preview {{ decision_help("affected-groups") }}</h2>
         <p>Run-wide failures cannot be set aside. Correct those failures and compare again.</p>
+        {% set has_selectable_problems = deferred_review.candidates | selectattr("selectable") | first %}
+        {% if has_selectable_problems %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit" name="select_all" value="1">Preview all problem groups</button>
+          </form>
+        {% endif %}
         <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="choice-grid">
             {% for candidate in deferred_review.candidates %}
               <label class="mode-card">
                 {% if candidate.selectable %}
-                  <input type="checkbox" name="issue_id" value="{{ candidate.issue.issue_id }}"{% if preview and candidate.issue.issue_id in preview.selected_issue_ids %} checked{% endif %}>
+                  <input type="checkbox" name="issue_id" value="{{ candidate.issue.issue_id }}"{% if candidate.issue.issue_id in selected_issue_ids %} checked{% endif %}>
                 {% endif %}
                 <span>
                   <strong>{{ candidate.issue.message or candidate.issue.code.replace('_', ' ')|title }}</strong>
@@ -67,9 +86,9 @@
               </div>
             {% endfor %}
           </div>
-          {% if deferred_review.candidates %}
+          {% if has_selectable_problems %}
             <div class="actions">
-              <button class="button primary" type="submit">Preview affected groups</button>
+              <button class="button secondary" type="submit">Preview affected groups</button>
               <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Cancel</a>
             </div>
           {% endif %}
@@ -99,7 +118,8 @@
             </tbody>
           </table>
         </div>
-        <h3>Record sample</h3>
+        <details{% if not deferred_review.bulk_preview %} open{% endif %}>
+        <summary>Review a sample of omitted records</summary>
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
             <thead><tr><th>Table</th><th>Source row</th><th>Reason</th><th>Load status</th></tr></thead>
@@ -116,6 +136,7 @@
           </table>
         </div>
         {% if preview.omitted_rows|length > 100 %}<p class="muted">Showing 100 of {{ preview.omitted_rows|length }} records. The review workbook retains every omitted record.</p>{% endif %}
+        </details>
       </section>
 
       {% if not deferred_review.decision %}
@@ -124,10 +145,13 @@
             <p class="eyebrow">Decision</p>
             {% if preview.ready_with_records_set_aside %}
               <h2 id="accept-scope-title">Set aside these complete groups</h2>
-              <p>This decision applies only to the current saved comparison. It does not change the source, matching rules or Odoo.</p>
+              <p>The Excel review lists each omitted record and its reason under <strong>Deferred issues</strong>.</p>
+            {% elif preview.remaining_write_count == 0 %}
+              <h2 id="accept-scope-title">No writes remain</h2>
+              <p>Resolve enough problems to leave records ready to load, then compare with Odoo again.</p>
             {% else %}
               <h2 id="accept-scope-title">The remainder is not safe yet</h2>
-              <p>Select every isolatable problem, or correct the remaining run-wide failure and compare again. At least one safe write must remain.</p>
+              <p>Review the remaining problems and compare with Odoo again after correcting any that affect the whole run.</p>
             {% endif %}
           </div>
           {% if preview.ready_with_records_set_aside %}
@@ -135,8 +159,12 @@
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="comparison_id" value="{{ deferred_review.comparison_id }}">
               <input type="hidden" name="preview_hash" value="{{ preview.semantic_hash }}">
-              {% for issue_id in preview.selected_issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
-              <button class="button primary" type="submit">Set aside affected groups for this load</button>
+              {% if deferred_review.bulk_preview %}
+                <input type="hidden" name="select_all" value="1">
+              {% else %}
+                {% for issue_id in preview.selected_issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
+              {% endif %}
+              <button class="button primary" type="submit">{% if deferred_review.bulk_preview %}Set aside all problem groups{% else %}Set aside affected groups for this load{% endif %}</button>
             </form>
           {% endif %}
         </section>

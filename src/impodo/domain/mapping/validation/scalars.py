@@ -33,6 +33,7 @@ from ..create_field_policy import (
 from ..scalar_values import (
     _DATE_FORMATS,
     _DECIMAL_LOCALES,
+    EXCEL_TIMESTAMP_DATE_FORMAT,
     ScalarValueError,
     canonicalize_scalar_value,
 )
@@ -839,13 +840,16 @@ def _validate_transform_policy(
                 target_field=field_mapping.target_field,
             )
         )
-    if policy.date_format not in _DATE_FORMATS:
+    if policy.date_format not in _DATE_FORMATS and not (
+        policy.date_format == EXCEL_TIMESTAMP_DATE_FORMAT
+        and field_mapping.value_type == "date"
+    ):
         issues.append(
             _issue(
                 "MAPPING_TRANSFORM_INVALID",
                 path,
-                "The date format is unsupported.",
-                "Choose one of the explicit date formats.",
+                "The input format is unsupported for this value type.",
+                "Choose an input format for the selected value type.",
                 dataset=dataset,
                 target_field=field_mapping.target_field,
             )

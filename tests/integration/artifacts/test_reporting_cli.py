@@ -20,6 +20,7 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideEvidence,
     FieldSetAsideReason,
 )
+from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow
 from impodo.domain.preflight.reports import (
     ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
@@ -132,6 +133,10 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 normalization_content_hash="",
                 cell_effects=(),
                 target_field_required={},
+                omitted_rows=(
+                    ReviewWorkbookOmittedRow("bom_lines", 20, "FILTERED", True, "Use active BoMs."),
+                    ReviewWorkbookOmittedRow("bom_lines", 21, "INVALID", False, "Invalid sequence."),
+                ),
             )
 
             write_review_workbook(
@@ -165,9 +170,22 @@ class WorkbookIntegrationTests(unittest.TestCase):
                 if cell.value is not None
             }
             self.assertNotIn("P-BLOCK", active_values)
+            self.assertNotIn("FILTERED", active_values)
+            self.assertNotIn("INVALID", active_values)
+            filters = workbook["Excluded by filters"]
+            self.assertEqual(
+                next(filters.iter_rows(min_row=4, values_only=True)),
+                ("bom_lines", 20, "FILTERED", "Use active BoMs."),
+            )
+            self.assertIn("Excluded by filters · 1 row", overview["A26"].value)
+            self.assertIn("Deferred issues · 2 rows", overview["A27"].value)
             deferred = workbook["Deferred issues"]
             headers = [cell.value for cell in deferred[3]]
-            deferred_row = next(deferred.iter_rows(min_row=4, values_only=True))
+            prep_row, deferred_row = deferred.iter_rows(min_row=4, values_only=True)
+            self.assertEqual(prep_row[headers.index("Record")], "INVALID")
+            self.assertEqual(prep_row[headers.index("Stage")], "Prepare data")
+            self.assertEqual(prep_row[headers.index("Details")], "Invalid sequence.")
+            self.assertEqual(deferred_row[headers.index("Stage")], "Final review")
             self.assertEqual(deferred_row[headers.index("Source row")], blocked.source_row)
             self.assertEqual(deferred_row[headers.index("Record")], "P-BLOCK")
             self.assertEqual(deferred_row[headers.index("Reason type")], "Direct")

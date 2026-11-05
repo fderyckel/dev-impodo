@@ -10,7 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from impodo.application.workspace.mapping.supporting_values import (
     MappingSupportingRelationship,
@@ -36,6 +36,7 @@ from impodo.domain.workspace.supporting_plan import SupportingSourceDescriptor
 from impodo.domain.workspace.supporting_review import (
     SupportingChoice,
     SupportingChoiceAction,
+    SupportingChoiceValidationError,
     SupportingReview,
     SupportingReviewProblem,
     SupportingReviewRequiredError,
@@ -68,6 +69,11 @@ class SupportingReviewRepository(Protocol):
         *,
         expected_version: int,
         actor: Actor,
+    ) -> SupportingReview: ...
+
+    def rebind_supporting_review(
+        self, workspace_id: str, review: SupportingReview, *,
+        previous: SupportingReview, actor: Actor,
     ) -> SupportingReview: ...
 
 
@@ -181,8 +187,8 @@ class SupportingReviewService:
             identity = (choice.source_model, choice.field_name)
             field = fields.get(identity)
             if field is None or identity in seen:
-                raise WorkspaceError(
-                    "The supporting relationship changed or was submitted twice"
+                raise SupportingChoiceValidationError(
+                    "The supporting relationship changed or was submitted twice", identity
                 )
             seen.add(identity)
             role = supporting_model_role(
@@ -192,28 +198,30 @@ class SupportingReviewService:
             )
             action = choice.action
             if action is SupportingChoiceAction.SKIP_OPTIONAL and field.required:
-                raise WorkspaceError(
-                    "A required supporting relationship cannot be left empty"
+                raise SupportingChoiceValidationError(
+                    "A required supporting relationship cannot be left empty", identity
                 )
             if (
                 role is SupportingModelRole.ODOO_MANAGED
                 and action is not SupportingChoiceAction.ODOO_MANAGED
                 and supporting_model_role(field) is SupportingModelRole.ODOO_MANAGED
             ):
-                raise WorkspaceError("This supporting relationship is managed by Odoo")
+                raise SupportingChoiceValidationError(
+                    "This supporting relationship is managed by Odoo", identity
+                )
             if (
                 action is SupportingChoiceAction.ODOO_MANAGED
                 and role is not SupportingModelRole.ODOO_MANAGED
             ):
-                raise WorkspaceError(
-                    "Odoo does not manage this supporting relationship"
+                raise SupportingChoiceValidationError(
+                    "Odoo does not manage this supporting relationship", identity
                 )
             if (
                 action is SupportingChoiceAction.CHECKED_DEFAULT
                 and not field.create_default_present
             ):
-                raise WorkspaceError(
-                    "Check an available Odoo default before choosing it"
+                raise SupportingChoiceValidationError(
+                    "Check an available Odoo default before choosing it", identity
                 )
             if action is SupportingChoiceAction.INCOMING:
                 candidate = descriptors.get(choice.dataset_id)
@@ -227,10 +235,13 @@ class SupportingReviewService:
                 if candidate is None or (
                     candidate.target_model and candidate.target_model != field.relation
                 ):
-                    raise WorkspaceError("Choose a compatible accepted incoming table")
+                    raise SupportingChoiceValidationError(
+                        "Choose a compatible accepted incoming table", identity
+                    )
                 if field.relation not in packet.workspace.intended_models:
-                    raise WorkspaceError(
-                        "Explicitly add the related business records to the write scope first"
+                    raise SupportingChoiceValidationError(
+                        "Explicitly add the related business records to the write scope first",
+                        identity,
                     )
                 choice = replace(choice, dataset_id=candidate.dataset_id)
             if action is SupportingChoiceAction.REUSE:
@@ -239,7 +250,10 @@ class SupportingReviewService:
                         packet.schema, packet.governance, choice
                     )
                 except ValueError as error:
-                    raise WorkspaceError(str(error)) from error
+                    raise SupportingChoiceValidationError(
+                        str(error), identity,
+                        field_message="Impodo could not use this choice to find existing Odoo records. Choose another source.",
+                    ) from error
                 display = supporting_read_display_field(packet.schema, request)
                 expected = (request.key_fields, request.scope_fields, display)
                 if (
@@ -249,8 +263,8 @@ class SupportingReviewService:
                     choice.scope_fields,
                     choice.display_field,
                 ) != expected:
-                    raise WorkspaceError(
-                        "The exact supporting read scope changed; review this choice again"
+                    raise SupportingChoiceValidationError(
+                        "The exact supporting read scope changed; review this choice again", identity
                     )
                 choice = replace(
                     choice,
@@ -259,14 +273,16 @@ class SupportingReviewService:
                     display_field=display,
                 )
             result.append(choice)
-        missing = [
-            field.label
+        missing = {
+            key: field.label
             for key, field in fields.items()
             if field.required and key not in seen
-        ]
+        }
         if missing:
-            raise WorkspaceError(
-                "Review required supporting data: " + ", ".join(sorted(missing))
+            raise SupportingChoiceValidationError(
+                "Review required supporting data: " + ", ".join(sorted(missing.values())),
+                *missing,
+                field_message="Choose a source for this required relationship.",
             )
         return tuple(sorted(result))
 
@@ -323,6 +339,50 @@ class SupportingReviewService:
         if review is None and read_if_missing:
             review = self.current(packet.workspace.workspace_id, actor=actor)
         return self.validate_review(packet, review)
+
+    def revalidate_access(
+        self, packet: SupportingReviewPacket, previous_schema: OdooSchemaCatalog,
+        review: SupportingReview, *, actor: Actor,
+    ) -> SupportingReview:
+        """Append verified key-only provenance while preserving business decisions.
+
+        The caller has freshly verified the Odoo schema and reader. Reconstruct
+        the exact old binding from current source inputs; unrelated staleness,
+        changed access, defaults, or matching keys still require explicit review.
+        """
+        self.authorization.require(
+            actor, Capability.SCHEMA_DISCOVER, workspace_id=packet.workspace.workspace_id
+        )
+        schema = packet.schema
+        if (
+            schema.pending_refresh is not None
+            or schema.read_credential_binding_hash == previous_schema.read_credential_binding_hash
+            or any(getattr(schema, name) != getattr(previous_schema, name) for name in (
+                "content_hash", "models", "policy_hash", "connection_target_hash",
+                "connection_mode", "database", "odoo_version", "origin",
+                "read_principal_hash", "read_permission_hash", "read_context_hash",
+            ))
+        ):
+            return review
+        previous = supporting_review_packet(
+            packet.workspace, packet.selection, previous_schema,
+            packet.preparation, packet.governance,
+        )
+        try:
+            self.validate_review(previous, review)
+            if self.normalize(packet, review.choices) != review.choices:
+                return review
+        except WorkspaceError:
+            return review
+        rebound = replace(
+            review, version=review.version + 1, operation_id=str(uuid4()),
+            binding_hash=packet.binding_hash, recorded_at=datetime.now(UTC).isoformat(),
+            actor_issuer=actor.identity.issuer, actor_subject=actor.identity.subject_id,
+            actor_display_name=actor.identity.display_name,
+        )
+        return self.repository.rebind_supporting_review(
+            packet.workspace.workspace_id, rebound, previous=review, actor=actor,
+        )
 
     @staticmethod
     def validate_review(

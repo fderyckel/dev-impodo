@@ -566,6 +566,70 @@ class DeferredScopeTests(unittest.TestCase):
         self.assertEqual(issues[0].scope, DeferredIssueScope.ROW)
         self.assertEqual(resolutions, result.reference_resolutions)
 
+    def test_grouped_row_findings_do_not_become_run_blockers(self):
+        rows = (
+            _row("1", "lines", 2, ("A",), "BLOCKED"),
+            _row("2", "lines", 3, ("B",), "BLOCKED"),
+            _row("3", "lines", 4, ("C",), "CREATE"),
+        )
+        finding = Issue(
+            code="REFERENCE_NOT_FOUND",
+            dataset="lines",
+            row=2,
+            field="product_id",
+            message="product_id reference ('missing',) was not found",
+        )
+        summary = replace(finding, row=None, affected_count=2)
+        result = _result(tuple(
+            Decision(
+                row.dataset, row.source_row, row.source_identity, (),
+                Classification(row.disposition), 0,
+                source_trace_id=row.source_trace_id,
+                issues=(replace(finding, row=row.source_row),)
+                if row.disposition == "BLOCKED" else (),
+            )
+            for row in rows
+        ), issues=(summary,))
+
+        for portable in (False, True):
+            with self.subTest(portable=portable):
+                issues = (
+                    portable_preflight_deferred_issues(
+                        COMPARISON_ID, rows, result.to_portable_dict(),
+                    )
+                    if portable else preflight_deferred_issues(
+                        COMPARISON_ID, rows, result,
+                    )
+                )
+                self.assertEqual(len(issues), 2)
+                self.assertTrue(all(i.scope is DeferredIssueScope.ROW for i in issues))
+                preview = preview_deferred_scope(
+                    comparison_id=COMPARISON_ID,
+                    comparison_hash=HASH,
+                    execution_snapshot_hash=SNAPSHOT_HASH,
+                    rows=rows, issues=issues, dependencies=(),
+                    selected_issue_ids=tuple(i.issue_id for i in issues),
+                )
+                self.assertEqual(preview.remaining_run_issue_count, 0)
+                self.assertEqual(preview.remaining_write_count, 1)
+                self.assertTrue(preview.ready_with_records_set_aside)
+
+        # A different finding, dataset, or unaccounted affected count remains
+        # blocking even when its code and field resemble the selected rows.
+        for unmatched in (
+            replace(summary, message="Reference lookup was incomplete"),
+            replace(summary, affected_count=3),
+            replace(summary, dataset="other_lines"),
+        ):
+            with self.subTest(unmatched=unmatched):
+                issues = portable_preflight_deferred_issues(
+                    COMPARISON_ID, rows,
+                    replace(result, issues=(unmatched,)).to_portable_dict(),
+                )
+                self.assertEqual(
+                    sum(i.scope is DeferredIssueScope.RUN for i in issues), 1,
+                )
+
     def test_exact_numeric_precision_issue_names_only_intended_write(self):
         unchanged = replace(
             _row("1", "lines", 2, ("A",), "UNCHANGED"),

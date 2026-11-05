@@ -78,7 +78,7 @@ class SupportingMappingIntentBrowserTests(ProjectSetupBrowserTestCase):
                     self.assertEqual(checked.status_code, 200, checked.text)
                     self.assertEqual(timings.lock_retry_count, 0)
                     self.assertLessEqual(timings.connection_count, 35)
-                    self.assertLessEqual(timings.schema_check_count, 11)
+                    self.assertLessEqual(timings.schema_check_count, 14)
                     revision = context.queries.get_mapping_revision(workspace_id)
                     self.assertEqual(revision.definition.content_hash, draft.definition.content_hash)
                     self.assertEqual(context.queries.get_mapping_validation(workspace_id, revision.version).status.value, "VALID")

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import csv
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -296,7 +296,30 @@ def _build_workbook(
             "Evidence",
         )
     }
+    omitted_before_comparison = review_evidence.omitted_rows if review_evidence else ()
+    filtered_rows = [
+        (item.dataset, item.source_row, item.record_label, item.reason)
+        for item in omitted_before_comparison
+        if item.excluded_by_filter
+    ]
+    deferred_rows = [
+        [
+            item.dataset, item.source_row, item.record_label, "", "", "",
+            item.reason, "Review the saved preparation finding.", "", "Prepare data",
+        ]
+        for item in omitted_before_comparison
+        if not item.excluded_by_filter
+    ]
     if deferred_preview is not None:
+        deferred_rows.extend(
+            [*row, "Final review"]
+            for row in _deferred_issue_rows(
+                deferred_preview, deferred_issues, all_prepared_by_trace,
+            )
+        )
+    if filtered_rows:
+        sheets["Excluded by filters"] = workbook.create_sheet("Excluded by filters")
+    if deferred_rows:
         sheets["Deferred issues"] = workbook.create_sheet("Deferred issues")
 
     _write_review_overview(
@@ -417,7 +440,14 @@ def _build_workbook(
         _COLORS["brand"],
     )
 
-    if deferred_preview is not None:
+    if filtered_rows:
+        _write_data_sheet(
+            sheets["Excluded by filters"],
+            ["Source dataset", "Source row", "Record", "Rows to use rule"],
+            filtered_rows,
+            _COLORS["brand"],
+        )
+    if deferred_rows:
         _write_data_sheet(
             sheets["Deferred issues"],
             [
@@ -430,14 +460,22 @@ def _build_workbook(
                 "Details",
                 "Suggested correction",
                 "Comparison",
+                "Stage",
             ],
-            _deferred_issue_rows(
-                deferred_preview,
-                deferred_issues,
-                all_prepared_by_trace,
-            ),
+            deferred_rows,
             _COLORS["danger"],
         )
+    for row_index, title, count in (
+        (26, "Excluded by filters", len(filtered_rows)),
+        (27, "Deferred issues", len(deferred_rows)),
+    ):
+        if count:
+            overview.merge_cells(start_row=row_index, start_column=1, end_row=row_index, end_column=8)
+            label = f"{title} · {count:,} row{'s' if count != 1 else ''}"
+            link = overview.cell(row=row_index, column=1, value=label)
+            link.hyperlink = Hyperlink(ref=link.coordinate, location=f"'{title}'!A1")
+            link.style = "Hyperlink"
+            overview.print_area = f"A1:H{row_index}"
 
     temporary = workbook_path.with_name(f".{workbook_path.name}.partial")
     try:
@@ -786,7 +824,7 @@ def _write_review_overview(
             ("Reviewed load scope", ""),
             ("Status", review_status),
             ("Prepared", deferred_preview.prepared_record_count),
-            ("Already set aside", deferred_preview.already_set_aside_count),
+            ("Omitted before comparison", deferred_preview.already_set_aside_count),
             ("Newly set aside", deferred_preview.newly_set_aside_count),
             ("Ready to write", deferred_preview.remaining_write_count),
             (
@@ -1476,6 +1514,10 @@ def _deferred_issue_rows(
     if len(issue_by_id) != len(issues):
         raise ReportGenerationError("Deferred issue evidence is not unique")
     omitted_by_id = {item.row_id: item for item in preview.omitted_rows}
+    groups_by_row = defaultdict(list)
+    for group in preview.groups:
+        for row_id in group.row_ids:
+            groups_by_row[row_id].append(group)
     rows: list[list[Any]] = []
     for omitted in preview.omitted_rows:
         issue_ids = (*omitted.direct_issue_ids, *omitted.inherited_issue_ids)
@@ -1485,9 +1527,7 @@ def _deferred_issue_rows(
             raise ReportGenerationError(
                 "Deferred row evidence is missing its root issue"
             ) from error
-        groups = tuple(
-            group for group in preview.groups if omitted.row_id in group.row_ids
-        )
+        groups = groups_by_row.get(omitted.row_id, ())
         if not groups:
             raise ReportGenerationError(
                 "Deferred row evidence is missing its affected group"

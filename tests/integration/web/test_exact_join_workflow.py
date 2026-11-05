@@ -579,7 +579,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Edit columns and choices", reopened.text)
         self.assertIn("data-group-retained", reopened.text)
         self.assertLessEqual(timings.connection_count, 6)
-        self.assertLessEqual(timings.schema_check_count, 1)
+        self.assertLessEqual(timings.schema_check_count, 4)
         retained = reopened.context["join_group_form"]
         self.assertEqual(retained.group_id, form["group_id"])
         self.assertEqual(retained.projection_indexes, tuple(map(int, form["group_projection"])))

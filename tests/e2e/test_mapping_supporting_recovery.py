@@ -97,6 +97,10 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     ).to_have_attribute("open", "")
                     expect(literal).to_have_value("Unsaved account name")
                     expect(page.locator("[data-mapping-save-outcome]")).to_be_hidden()
+                    confirm = panel.get_by_role(
+                        "button", name="Confirm choices and check matches"
+                    ).first
+                    expect(confirm).to_be_in_viewport()
 
                     save_url = f"**/workspaces/{workspace_id}/schema/supporting/save"
                     page.route(
@@ -107,9 +111,7 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                             body='{"detail":"Odoo details changed; reload choices."}',
                         ),
                     )
-                    panel.get_by_role(
-                        "button", name="Save choices and check matches"
-                    ).click()
+                    confirm.click()
                     expect(
                         panel.locator("[data-related-review-error]")
                     ).to_contain_text("Odoo details changed")
@@ -124,6 +126,7 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     panel.get_by_role("button", name="Reload choices").click()
                     expect(panel.locator("[data-related-review-error]")).to_be_hidden()
                     expect(literal).to_have_value("Unsaved account name")
+                    expect(confirm).to_be_in_viewport()
 
                     if capture := os.environ.get("IMPODO_RELATED_REVIEW_SCREENSHOT"):
                         if major == 20:
@@ -141,9 +144,7 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     with page.expect_response(
                         lambda response: response.url.endswith("/mapping/save")
                     ) as checked:
-                        panel.get_by_role(
-                            "button", name="Save choices and check matches"
-                        ).click()
+                        confirm.click()
                     self.assertEqual(checked.value.status, 200)
                     revision = context.queries.get_mapping_revision(workspace_id)
                     self.assertEqual(

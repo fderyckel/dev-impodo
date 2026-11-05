@@ -857,6 +857,10 @@ class RecipeCompiler:
                     "row_inclusion": {
                         "mode": dataset.row_inclusion.mode.value,
                         "join": dataset.row_inclusion.join.value,
+                        **(
+                            {"included_parent_field": dataset.row_inclusion.included_parent_field}
+                            if dataset.row_inclusion.included_parent_field is not None else {}
+                        ),
                         "conditions": [
                             {
                                 "source_column_id": self._column(

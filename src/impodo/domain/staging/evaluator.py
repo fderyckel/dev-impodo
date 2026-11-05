@@ -68,7 +68,12 @@ from ..mapping.contracts import (
     relationship_input_columns,
 )
 from ..mapping.descriptions import transformation_rule_summary
-from ..mapping.row_inclusion import row_is_included
+from ..mapping.row_inclusion import (
+    IncludedParentRows,
+    compile_included_parent_rows,
+    incoming_parent_links,
+    row_is_included,
+)
 from ..mapping.row_inclusion_review import (
     RowInclusionDatasetReview,
     RowInclusionReviewIdentity,
@@ -278,6 +283,8 @@ class CompiledBrowserRowTransformer:
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ]
 
+    included_parent: IncludedParentRows | None = None
+
     def project(self, row: SourceRow) -> ProjectedBrowserRow:
         """Select stable columns and normalize governed related-row keys."""
 
@@ -368,6 +375,7 @@ class CompiledBrowserRowTransformer:
         return row_is_included(
             self.evaluation_plan.row_inclusion,
             projected.source_values,
+            self.included_parent,
         )
 
 
@@ -482,6 +490,23 @@ def evaluate_browser_mapping(
         if table.content_hash != physical.source_evidence_hash:
             raise ReadinessError("Stored source content changed after selection")
 
+    physical_names = {
+        item.dataset_id: {column.stable_key: column.source_name for column in item.columns}
+        for item in physical_selection.datasets
+    } if any(item.row_inclusion.included_parent_field for item in definition.datasets) else {}
+
+    def read_parent_rows(dataset_id: str, keys: tuple[str, ...]):
+        names = physical_names[dataset_id]
+        return (
+            {key: row.values.get(names[key]) for key in keys}
+            for row in loaded_tables[dataset_id].rows
+        )
+
+    included_parents = compile_included_parent_rows(
+        definition.datasets,
+        {dataset_id: frozenset(names) for dataset_id, names in physical_names.items()},
+        read_parent_rows,
+    )
     structural_rules = tuple(
         item
         for item in (plan.rules if plan else ())
@@ -640,6 +665,7 @@ def evaluate_browser_mapping(
                 rule,
                 role,
                 tuple(lookup_by_consumer.get(effective.dataset_id, ())),
+                included_parent=included_parents.get(mapping.dataset_id),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
             )
@@ -841,14 +867,25 @@ def _canonical_row_inclusion_decision(
         mapping_hash=mapping_hash,
         schema_hash=schema_hash,
         derived_plan_hash=derived_plan_hash,
-        source_column_keys=tuple(
-            condition.source_column_key
-            for condition in mapping.row_inclusion.conditions
-        ),
+        source_column_keys=row_inclusion_source_keys(mapping),
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=physical_source_rows,
         physical_sources=physical_sources,
     )
+
+
+def row_inclusion_source_keys(mapping: DatasetMapping) -> tuple[str, ...]:
+    """Return the ordered source columns used to decide row inclusion."""
+
+    field = mapping.row_inclusion.included_parent_field
+    if field is not None:
+        return next(
+            (link.source_keys for link in incoming_parent_links(mapping) if link.target_field == field),
+            (),
+        )
+    return tuple(dict.fromkeys(
+        condition.source_column_key for condition in mapping.row_inclusion.conditions
+    ))
 
 
 def row_inclusion_review_values(
@@ -859,12 +896,7 @@ def row_inclusion_review_values(
     """Project only the source values that explain the admission decision."""
 
     labels = {item.stable_key: item.source_name for item in effective.columns}
-    source_column_keys = tuple(
-        dict.fromkeys(
-            condition.source_column_key
-            for condition in mapping.row_inclusion.conditions
-        )
-    )
+    source_column_keys = row_inclusion_source_keys(mapping)
     return tuple(
         RowInclusionSourceValue(
             source_column_key=source_column_key,
@@ -1159,6 +1191,8 @@ def compile_browser_row_transformer(
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ]
     | None = None,
+    *,
+    included_parent: IncludedParentRows | None = None,
 ) -> CompiledBrowserRowTransformer:
     """Compile the row-local half of browser staging exactly once."""
 
@@ -1179,6 +1213,7 @@ def compile_browser_row_transformer(
         role=role,
         headers=headers,
         reference_indexes=reference_indexes or {},
+        included_parent=included_parent,
     )
 
 
@@ -1191,6 +1226,7 @@ def _stage_table(
     role: str,
     lookup_bindings: tuple[tuple[LookupRule, DerivedDatasetLink], ...] = (),
     *,
+    included_parent: IncludedParentRows | None = None,
     impact_collector: _TransformationImpactCollector | None = None,
     reference_indexes: Mapping[
         tuple[str, str],
@@ -1211,6 +1247,7 @@ def _stage_table(
         role,
         lookup_bindings,
         reference_indexes,
+        included_parent=included_parent,
     )
     staged_rows: list[SourceRow] = []
     issues: list[Issue] = []

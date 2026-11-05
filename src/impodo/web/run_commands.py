@@ -32,6 +32,8 @@ from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 
+from .composition.page_reads import run_local_operation_sync
+
 if TYPE_CHECKING:
     from .context import WebContext
 
@@ -50,6 +52,28 @@ def enqueue_preparation(
         raise WorkspaceError("Background preparation is unavailable")
     if retry_job_id is not None:
         manager.get(workspace_id, retry_job_id)
+    prepared = run_local_operation_sync(
+        _prepare_enqueue, context, workspace_id, actor=actor,
+    )
+    if isinstance(prepared, PreparationJob):
+        return prepared
+    workspace, total_rows, project_name = prepared
+    # Close every local database owner before the manager starts a worker.
+    if retry_job_id is not None:
+        return manager.retry(
+            workspace_id, retry_job_id, project_name, total_rows,
+            actor=actor, workspace=workspace,
+        )
+    return manager.enqueue(
+        workspace_id, project_name, total_rows, actor=actor, workspace=workspace,
+    )
+
+
+def _prepare_enqueue(
+    context: WebContext, workspace_id: str, *, actor: Actor,
+) -> PreparationJob | tuple[PreparationWorkspace, int, str]:
+    """Resolve current safe preparation inputs inside the caller's local scope."""
+
     source_readiness = context.navigation.get_source_readiness(workspace_id)
     if not source_readiness.ready:
         if source_readiness.issue is SourceStageIssue.CAPTURE_PLANS_INCOMPLETE:
@@ -76,29 +100,8 @@ def enqueue_preparation(
     )
     workspace = _with_target_float_precision(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
-    if retry_job_id is not None:
-        return manager.retry(
-            workspace_id,
-            retry_job_id,
-            _migration_project_name(
-                context,
-                workspace.project_id,
-                actor=actor,
-            ),
-            total_rows,
-            actor=actor,
-            workspace=workspace,
-        )
-    return manager.enqueue(
-        workspace_id,
-        _migration_project_name(
-            context,
-            workspace.project_id,
-            actor=actor,
-        ),
-        total_rows,
-        actor=actor,
-        workspace=workspace,
+    return workspace, total_rows, _migration_project_name(
+        context, workspace.project_id, actor=actor,
     )
 
 

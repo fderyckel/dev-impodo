@@ -39,7 +39,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
                 # Project access and its bounded local view share the small
                 # set of registry, project, data-version, and workspace owners.
                 self.assertLessEqual(timings.connection_count, 8)
-                self.assertLessEqual(timings.schema_check_count, 2)
+                self.assertLessEqual(timings.schema_check_count, 3)
                 self.assertEqual(timings.lock_retry_count, 0)
                 self.assertEqual(context.queries.get_odoo_schema_catalog(workspace_id), schema)
                 self.assertEqual(len(self.readiness_calls), calls)

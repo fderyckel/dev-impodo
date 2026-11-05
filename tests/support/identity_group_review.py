@@ -2,7 +2,10 @@
 
 from datetime import UTC, datetime
 
-from impodo.domain.mapping.contracts import DatasetMapping, IdentityComponentMapping
+from impodo.domain.mapping.contracts import (
+    DatasetMapping, IdentityComponentMapping, RelationshipMapping, RelationshipResolver,
+    ResolverOrigin, RowInclusionPolicy,
+)
 from impodo.domain.matching_order import (
     MatchingOrderCheckAttempt,
     MatchingOrderCheckPhase,
@@ -16,7 +19,8 @@ from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.support.recipe_lifecycle import metadata_for_schema
 
 
-def duplicate_identity_workspace(fixture, *, repeated_count=105):
+def duplicate_identity_workspace(fixture, *, repeated_count=105, unique_source_ids=False,
+    major=19, mode="LOCAL", children=False, policy_factory=None):
     rows = [("DUP", "BE")] * repeated_count + [
         ("DUP", "LU"),
         ("TARGET", "BE"),
@@ -24,7 +28,14 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105):
         ("", "BE"),
     ]
     data = "Reference,Site\n" + "\n".join(",".join(row) for row in rows) + "\n"
-    workspace_id = fixture.freeze_files({"products": data.encode()})
+    if unique_source_ids:
+        data = "SourceId,Reference,Site,Description\n" + "\n".join(
+            f"ROW-{index},{reference},{site},Version {index}" for index, (reference, site) in enumerate(rows, 1)
+        ) + "\n"
+    files = {"products": data.encode()}
+    if children:
+        files["lines"] = b"Line,Parent\nL-1,ROW-1\nL-2,ROW-1\nL-3,ROW-2\n"
+    workspace_id = fixture.freeze_files(files)
     model = SchemaModel(
         "x.product",
         "Product",
@@ -35,6 +46,8 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105):
     )
     schema = fixture.schema(
         workspace_id,
+        major=major,
+        mode=mode,
         extra_models=(model,),
         extra_keys=(
             BusinessKeyDefinition(
@@ -48,19 +61,26 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105):
     )
     context, actor = fixture.context, fixture.actor
     selection = context.queries.get_mapping_source_selection(workspace_id)
-    dataset = selection.datasets[0]
-    reference, site = (column.stable_key for column in dataset.columns)
+    dataset = next(item for item in selection.datasets if item.name == "products")
+    columns = {column.source_name: column.stable_key for column in dataset.columns}
+    reference, site = columns["Reference"], columns["Site"]
+    mappings = [DatasetMapping(
+        dataset.dataset_id, "x.product",
+        source_identity_column_keys=(columns["SourceId"],) if unique_source_ids else (reference, site),
+        target_identity=(IdentityComponentMapping((reference,), ("code",)),),
+        target_scope=(IdentityComponentMapping((site,), ("site",)),),
+        row_inclusion=policy_factory(columns) if policy_factory else RowInclusionPolicy(),
+    )]
+    if children:
+        child = next(item for item in selection.datasets if item.name == "lines")
+        line, parent = (column.stable_key for column in child.columns)
+        mappings.append(DatasetMapping(child.dataset_id, "x.product",
+            source_identity_column_keys=(line,),
+            relationships=(RelationshipMapping(target_field="parent_id", source_column_keys=(parent,), kind="many2one",
+                resolver=RelationshipResolver(origin=ResolverOrigin.DATASET, dataset_id=dataset.dataset_id)),)))
     draft = context.mapping_workspace.save_working_draft(
         workspace_id,
-        datasets=(
-            DatasetMapping(
-                dataset.dataset_id,
-                "x.product",
-                source_identity_column_keys=(reference, site),
-                target_identity=(IdentityComponentMapping((reference,), ("code",)),),
-                target_scope=(IdentityComponentMapping((site,), ("site",)),),
-            ),
-        ),
+        datasets=tuple(mappings),
         expected_version=None,
         actor=actor,
     )
@@ -122,6 +142,7 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105):
             {"x.product": ("code", "site")},
         )
 
+    fixture.identity_group_reader = reader
     service._run_live_check(prepared, reader)
     check = repository.get_current_check(workspace_id)
     fixture.assertIsNotNone(

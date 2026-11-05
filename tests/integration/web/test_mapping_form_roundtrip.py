@@ -9,7 +9,11 @@ from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
-from impodo.domain.mapping.contracts import MappingDefinition, RelationshipValueSource, RelationshipMapping
+from impodo.domain.mapping.contracts import (
+    MappingDefinition,
+    RelationshipMapping,
+    RelationshipValueSource,
+)
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.source_binding import FileSourceBinding
@@ -305,6 +309,57 @@ class MappingFormRoundTripTests(unittest.TestCase):
         self.assertEqual(category.fields[0].source_column_key, "category.name")
         self.assertEqual(category.relationships[0].target_field, "parent_id")
         self.assertEqual(category.relationships[0].source_column_keys, ("category.parent",))
+
+    def test_excel_timestamp_date_format_survives_authoring_and_reopening(self):
+        category, product = self.schema.models
+        category_source, product_source = self.selection.datasets
+        self.schema.models = (
+            category,
+            replace(product, fields=(
+                *product.fields,
+                SchemaField("x_valid_from", "Valid From", "date", False, False, None, None, ()),
+            )),
+        )
+        self.selection.datasets = (
+            category_source,
+            replace(product_source, columns=(
+                *product_source.columns,
+                SourceDatasetColumn(2, "modifiedDateTime", "product.modified", "datetime"),
+            )),
+        )
+        for version in ("19.0", "20.0"):
+            with self.subTest(odoo_version=version):
+                self.schema.odoo_version = version
+                views = _mapping_dataset_views(
+                    self.selection, self.schema, self.governance, self.definition.datasets,
+                    derived_links=self.links, active_dataset_index=1,
+                )
+                view = views[1]
+                field = next(
+                    row for row in view["scalar_rows"] if row["metadata"].name == "x_valid_from"
+                )
+                self.assertEqual(field["canonical_type"], "date")
+                html = self.template.render(
+                    view=view, workspace_id="workspace:test", formula_authoring_issues_by_dataset={},
+                )
+                self.assertIn("Excel date and time (keep date only)", html)
+                index = field["index"]
+                form = FormData((
+                    *self.saved_form.multi_items(),
+                    (f"scalar_value_source_1_{index}", "source"),
+                    (f"scalar_source_1_{index}", "product.modified"),
+                    (f"scalar_type_1_{index}", "date"),
+                    (f"scalar_date_format_1_{index}", "excel_timestamp"),
+                ))
+                definition = canonicalize_mapping_definition(
+                    replace(self.definition, datasets=self.parse(form))
+                )
+                saved_dataset = next(
+                    item for item in definition.datasets if item.dataset_id == product_source.dataset_id
+                )
+                saved = next(field for field in saved_dataset.fields if field.target_field == "x_valid_from")
+                self.assertEqual(saved.transform.date_format, "excel_timestamp")
+                self.assertEqual(self.roundtrip(definition, 1), definition)
 
     def test_saved_generated_name_and_parent_are_preserved(self):
         form = FormData((

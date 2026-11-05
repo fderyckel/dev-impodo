@@ -2,24 +2,26 @@
   {% if not related_data_review or not related_data_review.error %}hidden{% endif %}>
   <h2>Review related-data choices</h2>
   <p data-related-review-message>{{ related_data_review.message if related_data_review else '' }}</p>
-  <p>Your current field mappings stay on this page.</p>
   {% if related_data_review and related_data_review.mapping_conflict %}
     {% if related_data_review.account_companies %}<p>Choosing <strong>Company for this load</strong> does not fill <strong>Companies</strong>. In that linked field, choose <strong>The same existing Odoo record for every row</strong> or connect a source value to existing Odoo records.</p>{% endif %}
     <button class="button primary" type="button" data-review-related-mappings>Review linked fields</button>
   {% endif %}
   <p class="notice error" data-related-review-error role="alert" hidden></p>
   {% if related_data_review and related_data_review.rows and (related_data_review.error or related_review_requested) %}
-    <details data-related-review-details>
-      <summary>{% if related_data_review.error %}Review choices · {{ related_data_review.rows|length }} need confirmation{% else %}Review saved choices{% endif %}</summary>
-      {% set supporting_review = related_data_review %}
-      <form method="post" action="/workspaces/{{ workspace_id }}/schema/supporting/save" data-related-review-form>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    {% set supporting_review = related_data_review %}
+    <form method="post" action="/workspaces/{{ workspace_id }}/schema/supporting/save" data-related-review-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="actions">
+        <button class="button primary" type="submit">Confirm choices and check matches</button>
+      </div>
+      <details data-related-review-details{% if related_data_review.error %} open{% endif %}>
+        <summary>Review {{ related_data_review.rows|length }} choices</summary>
         {% include "_supporting_review_choices.html" %}
         <div class="actions">
-          <button class="button primary" type="submit">Save choices and check matches</button>
+          <button class="button primary" type="submit">Confirm choices and check matches</button>
         </div>
-      </form>
-    </details>
+      </details>
+    </form>
   {% endif %}
   <details class="technical-details">
     <summary>Support details</summary>

@@ -6,12 +6,13 @@ from html.parser import HTMLParser
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from tests.support.browser_scenarios import POST_HEADERS
+from tests.support.database_probe import count_duckdb_statements
 
 
 class MappingForm(HTMLParser):
     """Read successful form controls, preserving repeated names and selected options."""
 
-    def __init__(self, markup):
+    def __init__(self, markup, *, form_attribute="data-mapping-form"):
         super().__init__()
         self.active = False
         self.entries = []
@@ -19,13 +20,14 @@ class MappingForm(HTMLParser):
         self.select = None
         self.options = []
         self.textarea = None
+        self.form_attribute = form_attribute
         self.feed(markup)
-        assert self.action, "The Match data editor form must be rendered"
+        assert self.action, f"The form with {form_attribute} must be rendered"
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
         if tag == "form":
-            self.active = "data-mapping-form" in values
+            self.active = self.form_attribute in values
             if self.active:
                 self.action = values["action"]
         if not self.active or "disabled" in values:
@@ -83,13 +85,17 @@ class MappingForm(HTMLParser):
 def correct_bom_through_browser(fixture, workspace_id, columns, *, two_problems=False):
     """Follow the saved root-cause links, save new providers, and confirm matches."""
 
-    with collect_duckdb_request_timings() as timings:
+    with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
         summary = fixture.client.get(f"/workspaces/{workspace_id}/summary")
     fixture.assertEqual(summary.status_code, 200, summary.text)
     # The measured real summary includes authorization and foundation owners
     # before its retained workspace projection. Resolving a rule adds no owner.
     fixture.assertLessEqual(timings.connection_count, 6)
-    fixture.assertLessEqual(timings.schema_check_count, 1)
+    fixture.assertLessEqual(timings.schema_check_count, 4)
+    fixture.assertEqual(
+        sum("duckdb_columns()" in statement for statement in statements),
+        timings.schema_check_count,
+    )
     fixture.assertEqual(timings.lock_retry_count, 0)
     links = [unescape(value) for value in re.findall(r'href="([^"]+)"', summary.text)]
     corrections = [

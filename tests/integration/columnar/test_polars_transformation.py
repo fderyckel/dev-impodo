@@ -3,7 +3,7 @@ from __future__ import annotations
 from tests.support.paths import REPOSITORY_ROOT
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 import tempfile
@@ -12,6 +12,7 @@ import unittest
 from unittest.mock import patch
 
 import polars as pl
+from openpyxl import Workbook
 
 from impodo.adapters.polars_transformation import (
     POLARS_TRANSFORMATION_BATCH_ROWS,
@@ -20,6 +21,7 @@ from impodo.adapters.polars_transformation import (
     iter_polars_prepared_batches,
     write_polars_prepared_snapshot,
 )
+from impodo.application.data_version.source_files import load_selected_source_table
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,
@@ -174,6 +176,103 @@ class PolarsTransformationParityTests(unittest.TestCase):
                 )
                 self.assertTrue(observed_batch_sizes)
                 self.assertLessEqual(max(observed_batch_sizes), chunk_size)
+
+    def test_excel_timestamps_prepare_as_dates_in_both_engines(self) -> None:
+        cases = (
+            (datetime(2019, 10, 21, 17, 54, 30, 123000), date(2019, 10, 21)),
+            ("10/21/2019  5:54:30 PM", date(2019, 10, 21)),
+            ("10/21/2019 17:54", date(2019, 10, 21)),
+            ("2/9/2020 12:01 am", date(2020, 2, 9)),
+            ("2020-02-29T23:59:59.123456", date(2020, 2, 29)),
+            ("2/29/2019 5:54 PM", None),
+            ("10/21/2019 13:54 PM", None),
+            ("2019-10-21T17:60:30", None),
+            ("0000-01-01T17:54:30", None),
+            (None, None),
+        )
+        workbook_path = self.root / "bom.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        assert sheet is not None
+        sheet.title = "BoM"
+        sheet.append(("id", "modifiedDateTime"))
+        for index, (source_value, _) in enumerate(cases, 1):
+            sheet.append((f"BOM-{index}", source_value))
+        workbook.save(workbook_path)
+        workbook.close()
+        rows = load_selected_source_table(
+            workbook_path,
+            dataset="bom",
+            table_key="sheet:BoM",
+            encoding=None,
+            delimiter=None,
+            header_row=1,
+        ).rows
+        self.assertEqual(rows[0].values["modifiedDateTime"], cases[0][0])
+        source = SourceDataset(
+            dataset_id=DATASET_ID,
+            name="bom",
+            source=FileSourceBinding(
+                file_id="file-bom",
+                table_key="sheet:BoM",
+                source_sha256=HASH_A,
+                catalog_hash=HASH_B,
+                encoding=None,
+                delimiter=None,
+                header_row=1,
+            ),
+            row_count=len(rows),
+            columns=(
+                SourceDatasetColumn(1, "id", "bom.id", "string"),
+                SourceDatasetColumn(2, "modifiedDateTime", "bom.modified", "datetime"),
+            ),
+        )
+        selection = replace(self.selection, datasets=(source,))
+        mapping = DatasetMapping(
+            dataset_id=DATASET_ID,
+            target_model="mrp.bom",
+            source_identity_column_keys=("bom.id",),
+            target_identity=(
+                IdentityComponentMapping(source_column_keys=("bom.id",), target_fields=("code",)),
+            ),
+            fields=(
+                ScalarFieldMapping(
+                    target_field="date_start",
+                    source_column_key="bom.modified",
+                    value_type="date",
+                    transform=ScalarTransformPolicy(date_format="excel_timestamp"),
+                ),
+            ),
+        )
+        definition = canonicalize_mapping_definition(
+            replace(self.definition, datasets=(mapping,))
+        )
+        expected_records, _ = _python_oracle(definition, selection, rows)
+        self.assertEqual(
+            [record.scalar_values.get("date_start") for record in expected_records],
+            [expected for _, expected in cases],
+        )
+        self.assertEqual(
+            [
+                any(issue.code == "SOURCE_TYPE_INVALID" for issue in record.issues)
+                for record in expected_records
+            ],
+            [raw is not None and expected is None for raw, expected in cases],
+        )
+        decision = compile_columnar_transformation_program(definition, selection, DATASET_ID)
+        self.assertEqual(decision.support, ColumnarSupport.SUPPORTED)
+        assert decision.program is not None
+        source_path, snapshot = _write_snapshot(self.root, selection, rows)
+        destination, prepared = _write_prepared_snapshot(
+            self.root, source_path, snapshot, decision.program,
+        )
+        batches = iter_polars_prepared_batches(
+            destination, prepared, snapshot, decision.program, batch_size=3,
+        )
+        self.assertEqual(
+            tuple(record for batch in batches for record in batch.records),
+            expected_records,
+        )
 
     def test_maximum_value_mapping_cardinality_matches_python_oracle(self) -> None:
         dataset = self.definition.datasets[0]

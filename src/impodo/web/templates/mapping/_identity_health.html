@@ -59,7 +59,7 @@
           {% if item.review_choices_url %}
             <a class="button primary compact" href="{{ item.review_choices_url }}">Review unresolved identity choices</a>
           {% endif %}
-          {% if item.repeated_source_url %}<a class="button primary compact" href="{{ item.repeated_source_url }}">Review repeated source identities</a>{% endif %}
+          {% if item.repeated_source_url %}<a class="button primary compact" href="{{ item.repeated_source_url }}" data-duplicate-rows-url="{{ item.repeated_source_url|replace('/identity-choices?', '/duplicate-rows?') }}">Review repeated source identities</a>{% endif %}
           {% if item.ambiguous_target_url %}<a class="button primary compact" href="{{ item.ambiguous_target_url }}">Review ambiguous Odoo matches</a>{% endif %}
           <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
           </div>

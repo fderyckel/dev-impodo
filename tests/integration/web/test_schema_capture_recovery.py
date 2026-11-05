@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import _read_databases
 from impodo.domain.odoo.contracts import ConnectorTransportError
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired
@@ -216,15 +217,33 @@ class SelectedSchemaCaptureTests(unittest.TestCase):
                 )
                 schema = object()
                 save = getattr(context.schema_workspace, operation)
-                save.side_effect = [OdooModelCatalogRefreshRequired("stale"), schema]
+                results = iter([OdooModelCatalogRefreshRequired("stale"), schema])
+                reads = iter([
+                    ("old-fields", "old-binding", "old-identity", None),
+                    ("fresh-fields", "fresh-binding", "fresh-identity", None),
+                ])
+
+                def publish(*args, **kwargs):
+                    self.assertIsNotNone(getattr(_read_databases, "connections", None))
+                    result = next(results)
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
+
+                def read_fields(*args, **kwargs):
+                    self.assertIsNone(getattr(_read_databases, "connections", None))
+                    return next(reads)
+
+                def refresh_models(*args, **kwargs):
+                    self.assertIsNone(getattr(_read_databases, "connections", None))
+
+                save.side_effect = publish
                 with patch(
                     "impodo.web.routers.schema._read_selected_schema_sync",
-                    side_effect=[
-                        ("old-fields", "old-binding", "old-identity", None),
-                        ("fresh-fields", "fresh-binding", "fresh-identity", None),
-                    ],
+                    side_effect=read_fields,
                 ) as read, patch(
-                    "impodo.web.routers.schema._refresh_model_catalog_sync"
+                    "impodo.web.routers.schema._refresh_model_catalog_sync",
+                    side_effect=refresh_models,
                 ) as refresh:
                     self.assertIs(load(context, workspace, actor=actor), schema)
                 self.assertEqual(read.call_count, 2)

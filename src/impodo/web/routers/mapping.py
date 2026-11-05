@@ -172,6 +172,7 @@ from ..request_identity import request_identity
 from ..security import require_csrf, require_session
 from ..source_stage_gate import source_stage_redirect
 from ..supporting_diagnostics import set_diagnostic_supporting_failure
+from .duplicate_rows import build_duplicate_rows_router
 from .matching_company_refresh import (
     build_matching_company_refresh_router,
     check_matching_access,
@@ -301,6 +302,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     router = APIRouter()
     router.include_router(build_matching_expectations_router(context))
+    router.include_router(build_duplicate_rows_router(context))
     router.include_router(build_relationship_choice_review_router(context))
     router.include_router(build_required_values_router(context))
     router.include_router(build_matching_company_refresh_router(context))
@@ -353,6 +355,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Show one bounded, server-filtered page of checked row decisions."""
 
         require_session(request)
+        return await run_page_read(render_rows_to_use, request, workspace_id)
+
+    def render_rows_to_use(request: Request, workspace_id: str):
+        """Read checked rows and render their navigation in one local scope."""
+
         actor = request_identity(request, context.identity_resolver).actor
         active_url = _active_preparation_url(context, workspace_id)
         if active_url:
@@ -365,8 +372,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         after = _optional_nonnegative_query_int(request.query_params.get("after"))
         before = _optional_nonnegative_query_int(request.query_params.get("before"))
         try:
-            snapshot, filters, page = await run_in_threadpool(
-                context.row_inclusion_reviews.page,
+            snapshot, filters, page = context.row_inclusion_reviews.page(
                 workspace_id,
                 RowInclusionReviewFilter(
                     dataset_id=dataset_id,
@@ -517,7 +523,6 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         """Save or reset the isolated Stage 3 table display order."""
 
         require_session(request)
-        actor = request_identity(request, context.identity_resolver).actor
         _require_mapping_idle(context, workspace_id)
         form = await _mapping_request_form(request)
         _secure_form(
@@ -531,6 +536,12 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "active_dataset_id",
             },
         )
+        return await run_local_operation(save_matching_order, request, workspace_id, form)
+
+    def save_matching_order(request: Request, workspace_id: str, form):
+        """Read current order, save it and render recovery in one local scope."""
+
+        actor = request_identity(request, context.identity_resolver).actor
         selection = context.queries.get_mapping_source_selection(workspace_id)
         if selection is None or not selection.datasets:
             raise HTTPException(status_code=422, detail="Source selection missing")
@@ -539,8 +550,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         try:
             expected_version = _optional_int(_text(form, "expected_order_version"))
             if action == "reset":
-                await run_in_threadpool(
-                    context.matching_order.reset_preference,
+                context.matching_order.reset_preference(
                     workspace_id,
                     expected_version=expected_version,
                     actor=actor,
@@ -584,8 +594,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     )
                 elif action != "save":
                     raise WorkspaceError("Choose a supported table-order action")
-                await run_in_threadpool(
-                    context.matching_order.save_preference,
+                context.matching_order.save_preference(
                     workspace_id,
                     selection,
                     ordered_dataset_ids,
@@ -598,8 +607,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     else "Custom table order saved."
                 )
         except MatchingOrderVersionConflict as error:
-            return await run_in_threadpool(
-                _render_mapping,
+            return _render_mapping(
                 request,
                 context,
                 workspace_id,
@@ -607,8 +615,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 status_code=409,
             )
         except WorkspaceError as error:
-            return await run_in_threadpool(
-                _render_mapping,
+            return _render_mapping(
                 request,
                 context,
                 workspace_id,
@@ -646,7 +653,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         _require_mapping_idle(context, workspace_id)
         form = await _mapping_request_form(request)
         _secure_form(request, form, {"csrf_token"})
-        try:
+        def prepare_order_check():
             selection = context.queries.get_mapping_source_selection(workspace_id)
             schema = context.queries.get_odoo_schema_catalog(workspace_id)
             governance = context.queries.get_schema_governance(workspace_id)
@@ -673,8 +680,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 derived_links=derived_consumer_links(preparation_plan),
                 tie_break_order=tie_break_order,
             )
-            prepared = await run_in_threadpool(
-                context.matching_order.prepare_live_check,
+            prepared = context.matching_order.prepare_live_check(
                 workspace_id,
                 selection,
                 schema,
@@ -684,6 +690,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 tie_break_order=tie_break_order,
                 actor=actor,
             )
+            return prepared, state
+
+        try:
+            prepared, state = await run_local_operation(prepare_order_check)
             attempt = context.matching_order.start_live_check(
                 prepared,
                 lambda requirements: _read_readiness_snapshots(
@@ -694,7 +704,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 ),
             )
         except WorkspaceError as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_mapping,
                 request,
                 context,
@@ -730,7 +740,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
         try:
-            attempt = await run_in_threadpool(
+            attempt = await run_page_read(
                 context.matching_order.check_attempt,
                 workspace_id,
                 check_id,
@@ -893,6 +903,16 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     and source_column_key not in {item.stable_key for item in source_dataset.columns}
                 ):
                     raise WorkspaceError("Choose one current source column")
+                company_access = (
+                    prepare_matching_access(
+                        context, workspace_id, actor=actor, schema=schema,
+                        expected_revision=workspace_state.revision,
+                    )
+                    if kind == "constant_relationship"
+                    and workspace_state.odoo_company is not None
+                    and workspace_state.odoo_company.context_hash != schema.read_context_hash
+                    else None
+                )
                 use_saved_scope = kind == "relationship" and any(
                     model.name == target_model and any(
                         item.name == target_field and item.type == "many2one" and item.required
@@ -904,18 +924,27 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     if draft and draft.definition.source_selection_hash == selection.content_hash:
                         policy = next((item.row_inclusion for item in draft.definition.datasets
                                        if item.dataset_id == dataset_id), None)
-                        if policy and policy.conditions:
+                        if policy and (policy.conditions or policy.included_parent_field):
+                            parent = (
+                                context.categorical_coverage.included_parent_rows(
+                                    workspace_id, draft.definition.datasets,
+                                ).get(dataset_id)
+                                if policy.included_parent_field else None
+                            )
                             choices, blank_count = context.categorical_coverage.source_value_choices_and_blank_count(
                                 workspace_id, selection, dataset_id, source_column_key, policy,
+                                included_parent=parent,
                             )
-                            return workspace_state, schema, governance, choices, blank_count
+                            return workspace_state, schema, governance, choices, blank_count, company_access
                 choices = () if kind == "constant_relationship" else _source_value_choices(
                     context, workspace_id, dataset_id, source_column_key,
                 )
                 blank_count = max(0, source_dataset.row_count - sum(int(str(choice["count"])) for choice in choices))
-                return workspace_state, schema, governance, choices, blank_count
+                return workspace_state, schema, governance, choices, blank_count, company_access
 
-            workspace_state, schema, governance, source_choices, blank_count = await run_local_operation(load_source_choices)
+            (
+                workspace_state, schema, governance, source_choices, blank_count, company_access,
+            ) = await run_local_operation(load_source_choices)
             model = next(
                 (item for item in schema.models if item.name == target_model),
                 None,
@@ -985,6 +1014,21 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Choose how the related Odoo record is identified first"
                     )
+                if company_access is not None:
+                    schema = await check_matching_access(context, company_access, actor=actor, request=request, trigger="LINKED_VALUE_LOOKUP")
+                    if schema.pending_refresh is not None:
+                        return JSONResponse(
+                            {
+                                "detail": "Odoo access or fields changed. Save progress, then review the changes in Odoo data.",
+                                "review_odoo_details": True,
+                            },
+                            status_code=422,
+                        )
+                    company = workspace_state.odoo_company
+                    if company is None or schema.read_context_hash != company.context_hash:
+                        raise WorkspaceError(
+                            "Impodo could not verify the selected company. Check access under Company for this load."
+                        )
                 (
                     target_choices,
                     ambiguous_values,
@@ -1067,6 +1111,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         _require_mapping_idle(context, workspace_id)
         form = await _mapping_request_form(request)
         _secure_form(request, form, {"csrf_token", "dataset_id", "formula"})
+        return await run_page_read(validate_formula, form, workspace_id)
+
+    def validate_formula(form, workspace_id: str):
+        """Read allowed names and parse the formula off the event loop."""
+
         selection = context.queries.get_mapping_source_selection(workspace_id)
         if selection is None:
             raise HTTPException(status_code=422, detail="Source selection missing")
@@ -1229,9 +1278,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
         try:
-            evidence = _transformation_impact_evidence(context, workspace_id)
+            evidence = await run_page_read(_transformation_impact_evidence, context, workspace_id)
         except WorkspaceError as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_mapping,
                 request,
                 context,
@@ -1244,7 +1293,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
         try:
-            await run_in_threadpool(
+            await run_local_operation(
                 context.transformation_impacts.prepare_snapshot,
                 workspace_id,
                 actor=actor,
@@ -2072,7 +2121,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
             elif action == "draft":
                 if access_check is not None:
-                    schema = await check_matching_access(context, access_check, actor=actor)
+                    schema = await check_matching_access(context, access_check, actor=actor, request=request)
                     if schema.pending_refresh is not None:
                         raise WorkspaceError(
                             "Odoo fields or access changed and need review in Odoo data. "
@@ -2312,7 +2361,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             MigrationRunPlanningError,
             WorkspaceError,
         ) as error:
-            if isinstance(error, SupportingPlanIncompleteError):
+            if isinstance(error, (SupportingPlanIncompleteError, SupportingReviewRequiredError)):
                 set_diagnostic_supporting_failure(request, error)
             failure_code = (
                 _ROW_REVIEW_FAILURE_CODE
@@ -2344,10 +2393,12 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 return JSONResponse(payload)
             if json_request:
-                current_working = context.queries.get_mapping_working_draft(
-                    workspace_id
-                )
-                current_revision = context.queries.get_mapping_revision(workspace_id)
+                def read_rejected_versions():
+                    return (
+                        context.queries.get_mapping_working_draft(workspace_id),
+                        context.queries.get_mapping_revision(workspace_id),
+                    )
+                current_working, current_revision = await run_page_read(read_rejected_versions)
                 set_diagnostic_working_draft_version(
                     request,
                     current_working.version if current_working else None,
@@ -2419,7 +2470,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "rule_fingerprint"})
         try:
-            await run_in_threadpool(
+            await run_local_operation(
                 context.transformation_impacts.acknowledge_rule,
                 workspace_id,
                 _text(form, "rule_fingerprint"),
@@ -2539,7 +2590,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             OSError,
             WorkspaceError,
         ) as error:
-            return await run_in_threadpool(
+            return await run_page_read(
                 _render_mapping,
                 request,
                 context,

@@ -25,7 +25,8 @@
   padding: 1rem 1.1rem;
 }
 
-.supporting-review-choice:has(select:required) {
+.supporting-review-choice:has(select:required),
+.supporting-review-choice.has-error {
   border-left-color: var(--impodo-red);
 }
 

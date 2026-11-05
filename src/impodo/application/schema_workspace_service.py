@@ -798,7 +798,27 @@ class SchemaWorkspaceService:
             ),
             actor=actor,
         )
+        self._revalidate_supporting_access(workspace, current, checked, actor=actor)
         return checked
+
+    def _revalidate_supporting_access(
+        self, workspace: WorkspaceState, previous: OdooSchemaCatalog,
+        current: OdooSchemaCatalog, *, actor: Actor,
+    ) -> None:
+        """Recheck saved intent only after a key generation was freshly verified."""
+        if (
+            workspace.source_mode is not SourceMode.FILE
+            or current.pending_refresh is not None
+            or previous.read_credential_binding_hash == current.read_credential_binding_hash
+        ):
+            return
+        review = self.supporting.current(workspace.workspace_id, actor=actor)
+        if review is None or not review.choices:
+            return
+        packet = self.supporting_review_inputs(
+            workspace.workspace_id, actor=actor, schema=current, workspace=workspace,
+        )
+        self.supporting.revalidate_access(packet, previous, review, actor=actor)
 
     def refresh_create_defaults(
         self,
@@ -1292,6 +1312,7 @@ class SchemaWorkspaceService:
             ),
             actor=actor,
         )
+        self._revalidate_supporting_access(workspace_state, current, rebound, actor=actor)
         return rebound
 
     def capture_local_manual(

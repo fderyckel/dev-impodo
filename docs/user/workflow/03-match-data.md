@@ -75,8 +75,8 @@ Other changes require the normal schema review. Verify
 an active or uncertain load before changing its company.
 
 If a refresh makes your related-data choices outdated, **Review related-data
-choices** appears in Match data. Open **Review choices**, keep or correct the
-displayed selections, then select **Save choices and check matches**. Impodo
+choices** appears in Match data. Keep or correct the displayed selections,
+then select **Confirm choices and check matches** above or below the list. Impodo
 saves those choices before checking the field mappings currently on your page.
 If saving fails, your entered mappings remain visible. **Reload choices**
 reloads only the related-data controls.
@@ -195,14 +195,16 @@ record IDs to the browser.
 
 If a card says **Tested - needs attention**, use its review action to inspect
 the cause. Blank identities need a source value or a different row rule.
-**Review repeated source identities** opens the included rows that share a
-complete business key and scope. **Review ambiguous Odoo matches** opens the
+**Review repeated source identities** opens **Compare duplicate rows**. The
+identity issue's **Review [table] identity** action opens the same dialog when
+source identities repeat. **Review ambiguous Odoo matches** opens the
 source rows and matching Odoo records observed by this check. For example,
 `DUP` within Site `BE` remains a different identity from `DUP` within Site `LU`.
 
 ![Identity health shows separate review actions for repeated source identities and ambiguous observed Odoo matches.](../../images/user/11j-mapping-duplicate-actions.png)
 
-Select **Open complete group** to keep the review on one group. Pages show up
+On the read-only group page, select **Open complete group** to keep the review
+on one group. Pages show up
 to 100 members and retain that group while you move forward or back. An
 **Included source position** numbers a row within the included population of
 this check; it is not a physical file row number. An **Observed Odoo match**
@@ -211,8 +213,49 @@ record IDs or claim a complete inventory of the target database.
 
 ![The protected duplicate review shows a complete Reference within Site identity and the first 100 members of a 105-row group.](../../images/user/11k-identity-group-review.png)
 
-Repeated source identities need a stronger identifier, corrected source data,
-or a later decision in **Prepare data**. Ambiguous Odoo identities need a
+In **Compare duplicate rows**, review each group of source rows with the same
+complete business key and scope. The dialog shows every source column and
+highlights values that differ among the displayed members. Select **Exclude**
+beside each row you want to leave out, then select **Review exclusions**. The
+preview shows how many rows will remain, which displayed groups still need
+attention, and which incoming relationships may be affected. It counts direct
+parent links and identifies other linked fields that need separate review.
+Affected rows include records you may want to keep. The affected count is not
+a recommendation to exclude them all.
+
+Select **Apply exclusions and check identities** to add the selected unique
+source identifiers to **Rows to use** and start another saved-identity check.
+For example, when `ROW-1` and `ROW-2` share the same product reference, you can
+exclude `ROW-1` and keep `ROW-2`. Impodo excludes the unique source identifier,
+rather than every row with that product reference. The accepted source data
+remains available. To restore a row, remove its identifier from the exclusion
+list in **Rows to use**, then save and check again. Existing conditions and
+exclusion values are preserved.
+
+![The duplicate-row dialog compares fictional records, highlights differing values, and previews two selected exclusions.](../../images/user/11o-mapping-duplicate-exclusions.png)
+
+The dialog requires one nonblank, unique source identifier. It asks you to
+review the rule manually when a parent rule, an **any** condition, the condition
+limit, or an identifier that cannot fit an exact list prevents a safe addition.
+It rejects a selection that would exclude every row or affect unselected rows.
+Save unsaved matching choices and check current data before opening the review.
+Pages contain at most 100 duplicate members; apply a page's selections before
+moving to another page. Restricted data uses the manual source-key workflow.
+Recipe runs retain their fixed rules and require a revised Recipe to change
+exclusions.
+
+After applying, use **Check matches**, review the complete included and excluded
+population, and confirm **Rows to use** before continuing. Linked child rows
+remain included unless their own rule follows the parent's included rows.
+Their required relationships must still resolve. Exclusion rules can carry
+into a published Recipe, and each new Data version requires its own checked
+confirmation. If the new identity check cannot start, the dialog keeps the saved
+result and offers **Try again** and **Review saved Rows to use**.
+
+If both repeated records belong in the migration, review the matching rule or
+correct the source instead of excluding either record. The read-only group
+page remains available from the review link when JavaScript is unavailable.
+Ambiguous Odoo identities need a
 stronger governed Odoo matching rule. Opening a group does not merge rows,
 choose the first Odoo match, or approve a collision decision. Use **Review
 matching rule** for the correction and run **Check saved identities** again.
@@ -423,6 +466,13 @@ or save any field match.
 14. Select **Confirm field matches** for the exact checked revision. You can
     continue without the optional rule-effects preview.
 
+To fill an Odoo date field such as **Valid From** from an Excel timestamp,
+choose the source column and set **Value type** to **Date**. Under **Input
+format**, select **Excel date and time (keep date only)**. Impodo takes the
+calendar date from an Excel date-and-time cell or month-first timestamp text.
+For example, `10/21/2019 5:54:30 PM` becomes `2019-10-21`. Review the preview,
+select **Save progress**, and then select **Check matches**.
+
 ### Choose which source rows belong to the migration
 
 Use the question marks beside **Rows to use**, the source and Odoo identity
@@ -452,6 +502,15 @@ Data version, select the identifier column and **is not one of
 comma, and compare as **Text**. For example, `BOM-A, BOM-B` includes rows for
 other BoMs and excludes rows for those two. Blank identifiers are not included.
 Review the included and excluded counts before confirming the rule.
+
+When a child table should follow its parent table, save the linked field
+that points to the incoming parent. Open **Rows to use** for the child,
+select **Use only rows whose parent is included**, and choose the
+**Incoming parent field**. For example, keep active BoM headers in the
+header table, then choose **Parent BoM** in the BoM lines table. Impodo uses
+the header table’s current row selection to keep the matching lines and
+exclude lines with a blank, missing, or excluded parent. Review duplicate
+parent identifiers before checking again.
 
 Select **Save progress**, then **Check matches**. The checked result reports
 **Rows checked**, **Included**, **Excluded by rule**, and **Could not be

@@ -101,6 +101,14 @@ class RunAwareSchemaRepository:
             raise MigrationRunPlanningError("Review supporting choices in the owning authoring workspace")
         return self.local.save_supporting_review(workspace_id, review, expected_version=expected_version, actor=actor)
 
+    def rebind_supporting_review(self, workspace_id, review, *, previous, actor):
+        """Keep inherited Recipe choices owned by the Recipe, not a local review."""
+        if self.runs.get_workspace_target_schema(workspace_id) is not None:
+            return previous
+        return self.local.rebind_supporting_review(
+            workspace_id, review, previous=previous, actor=actor,
+        )
+
     def save_schema_governance(self, workspace_id, governance, *, actor):
         projection = self.runs.get_workspace_target_schema(workspace_id)
         if (

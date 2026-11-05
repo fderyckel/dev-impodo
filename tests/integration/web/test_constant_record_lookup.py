@@ -224,7 +224,7 @@ class ConstantRecordLookupTests(ProjectSetupBrowserTestCase):
                         # Access opens two owners; the bounded local input read
                         # opens four lineage owners. Exact results have no cache write.
                         self.assertLessEqual(timings.connection_count, 6)
-                        self.assertLessEqual(timings.schema_check_count, 1)
+                        self.assertLessEqual(timings.schema_check_count, 4)
                         self.assertEqual(timings.lock_retry_count, 0)
 
     def test_exact_lookup_does_not_replace_the_full_catalogue_cache(self):

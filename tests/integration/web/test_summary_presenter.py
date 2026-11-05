@@ -326,6 +326,20 @@ class PreparationLimitCopyTests(unittest.TestCase):
 
 
 class SummaryCardLinkContractTests(unittest.TestCase):
+    def test_ready_heading_does_not_repeat_row_accounting(self) -> None:
+        template_path = (
+            Path(__file__).resolve().parents[3]
+            / "src"
+            / "impodo"
+            / "web"
+            / "templates"
+            / "workspace_summary.html"
+        )
+        template = template_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("Every source row is accounted for.", template)
+        self.assertNotIn("unsafe records remain visible but set aside", template)
+
     def test_each_card_targets_its_matching_filtered_row_section(self) -> None:
         template_path = (
             Path(__file__).resolve().parents[3]

@@ -187,7 +187,7 @@ def plan_mapping_supporting_values(
             if metadata is None or resolver is None:
                 continue
             key_fields, scope_fields = relationship_target_fields(relationship)
-            constant_values = None
+            constant_values = relationship.blank_create_values or None
             if (
                 relationship.value_source
                 is RelationshipValueSource.CONSTANT_EXISTING

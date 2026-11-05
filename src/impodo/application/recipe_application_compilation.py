@@ -1483,6 +1483,7 @@ class RecipeApplicationCompiler:
         return RowInclusionPolicy(
             mode=mode,
             join=RowInclusionJoin(str(policy.get("join", "all"))),
+            included_parent_field=policy.get("included_parent_field"),
             conditions=conditions,
         )
 

@@ -423,6 +423,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                         "diagnostics.jsonl",
                         "manifest.json",
                         "slow-requests.json",
+                        "supporting-access.json",
                         "recent-failures.json",
                     },
                 )
