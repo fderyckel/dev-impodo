@@ -225,6 +225,56 @@ def parse_exact_join_form(form: FormData) -> ExactJoinFormSubmission:
     )
 
 
+def retain_exact_join_form(form: FormData) -> ExactJoinFormSubmission:
+    """Keep bounded inert pairwise choices when strict form parsing fails."""
+
+    raw_version = _text(form, "expected_parent_version")
+    try:
+        version = int(raw_version) if raw_version else None
+    except ValueError:
+        version = None
+    try:
+        rule_id = str(UUID(_text(form, "rule_id")))
+    except (ValueError, TypeError, AttributeError):
+        rule_id = str(uuid4())
+    indexes: list[int] = []
+    for value in form.getlist("projection")[:_MAX_PROJECTION_CANDIDATES]:
+        try:
+            index = int(str(value))
+        except ValueError:
+            continue
+        if 0 <= index < _MAX_PROJECTION_CANDIDATES and index not in indexes:
+            indexes.append(index)
+    return ExactJoinFormSubmission(
+        expected_parent_version=version,
+        rule_id=rule_id,
+        output_dataset_name=_text(form, "output_dataset_name"),
+        left_dataset_id=_text(form, "left_dataset_id"),
+        right_dataset_id=_text(form, "right_dataset_id"),
+        key_rows=tuple(
+            (
+                _text(form, f"key_left_{index}"),
+                _text(form, f"key_right_{index}"),
+                _text(form, f"key_type_{index}") or "string",
+            )
+            for index in range(1, 6)
+        ),
+        kind=_text(form, "kind") or JoinKind.LEFT.value,
+        require_all_right_rows=_checked(form, "require_all_right_rows"),
+        left_dataset_use=(
+            _text(form, "left_dataset_use") or SourceDatasetUse.PREPARATION_ONLY.value
+        ),
+        right_dataset_use=(
+            _text(form, "right_dataset_use") or SourceDatasetUse.PREPARATION_ONLY.value
+        ),
+        projection_indexes=tuple(indexes),
+        projection_names=tuple(
+            value if isinstance(value, str) else ""
+            for value in form.getlist("projection_name")[:_MAX_PROJECTION_CANDIDATES]
+        ),
+    )
+
+
 def parse_exact_join_group_form(form: FormData) -> ExactJoinGroupFormSubmission:
     """Parse one complete multi-table form outside the local database scope."""
 

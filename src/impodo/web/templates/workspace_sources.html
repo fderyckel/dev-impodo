@@ -10,7 +10,7 @@
       <h1>Check your source files</h1>
       <p>Confirm the tables and columns Impodo found in {{ migration_project.display_name }}.</p>
     </div>
-    <span class="status source-confirmation-status {% if workspace_state.source_files and configurations|length == workspace_state.source_files|length %}complete{% elif catalogs %}attention{% endif %}">
+    <span data-source-page-status class="status source-confirmation-status {% if workspace_state.source_files and configurations|length == workspace_state.source_files|length %}complete{% elif catalogs %}attention{% endif %}">
       {% if workspace_state.source_files and configurations|length == workspace_state.source_files|length %}{{ app_icon("check-circle-fill", "source-confirmation-icon") }}{% endif %}
       {{ configurations|length }} of {{ workspace_state.source_files|length }} file{% if workspace_state.source_files|length != 1 %}s{% endif %} confirmed
     </span>
@@ -339,6 +339,7 @@
             I reviewed the warnings shown for the selected tables.
           </label>
         {% endif %}
+        <p class="notice warning" data-source-confirmation-notice role="status" tabindex="-1" hidden>Confirm this file or discard its changes before continuing.</p>
         <div class="actions source-confirmation-actions">
           <span
             class="status source-confirmation-status {% if configuration %}complete{% else %}attention{% endif %}"
@@ -361,6 +362,18 @@
             data-source-confirmation-action
             {% if not source_state.has_usable_table %}disabled{% endif %}
           >{% if configuration %}Update confirmation{% else %}Confirm this file{% endif %}</button>
+          <button class="button secondary" type="button" data-source-discard-changes hidden>Discard changes</button>
+          {% if configuration and not selection %}
+            {% set next_file = namespace(catalog=none) %}
+            {% for remaining in catalogs %}
+              {% if not configurations.get(remaining.file_id) and next_file.catalog is none %}{% set next_file.catalog = remaining %}{% endif %}
+            {% endfor %}
+            {% if next_file.catalog %}
+              <a class="button primary" href="#source-{{ next_file.catalog.file_id }}" data-source-confirmation-next>Confirm next file</a>
+            {% else %}
+              <a class="button primary" href="#table-choices" data-source-confirmation-next>Name and save tables</a>
+            {% endif %}
+          {% endif %}
         </div>
         </fieldset>
       </form>

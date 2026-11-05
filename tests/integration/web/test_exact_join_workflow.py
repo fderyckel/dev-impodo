@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -19,6 +18,7 @@ from impodo.web.exact_join_forms import (
     parse_exact_join_group_form,
     resolve_exact_join_group_request,
 )
+from tests.support.source_forms import hidden_source_form_value
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
@@ -326,20 +326,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
 
     @staticmethod
     def _hidden_value(page: str, action: str, name: str) -> str:
-        form = re.search(
-            rf'<form method="post" action="{re.escape(action)}">(.*?)</form>',
-            page,
-            re.DOTALL,
-        )
-        if form is None:
-            raise AssertionError(f"Form {action} was not rendered")
-        value = re.search(
-            rf'name="{re.escape(name)}" value="([^"]*)"',
-            form.group(1),
-        )
-        if value is None:
-            raise AssertionError(f"Field {name} was not rendered")
-        return value.group(1)
+        return hidden_source_form_value(page, action, name)
 
     def test_customer_tables_preview_save_and_leave_only_the_logical_dataset_to_map(
         self,

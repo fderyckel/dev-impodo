@@ -56,10 +56,17 @@ multiple generated-table rules, and other materialized routes retain the
 
 Open **Source data**, then **Separate combined information**.
 
+Work on one change at a time. Review its result, then select **Use this table**
+to save it. The result appears under **Saved changes**. Use **Add another
+change** for the next source choice. From a ready review, **Save and add
+another** saves the result and opens those choices, while **Save and continue
+to Odoo data** saves it and leaves Stage 1. If you edit a reviewed choice,
+Impodo asks you to **Review result** again before saving it.
+
 The question mark beside **What does your source contain?** opens the choices
 and examples at the beginning of this guide in a new tab.
 
-![Source-organization choices with a question mark beside the decision heading.](../../images/user/06g-source-decision-help.png)
+![The four source choices remain available while you work on one change.](../../images/user/06i-stage1-choice.png)
 
 ## Combine partial views of the same records
 
@@ -125,8 +132,8 @@ To build the logical customer table:
    counter includes internal shared-key fields and stops review above the
    200-field limit. Impodo never combines same-named values automatically.
 6. Select **Review complete combination**. Check one reconciliation row per
-   added table, then select **Save combined table** only when the whole review
-   says **Complete**.
+   added table, then select **Use this table** only when the whole review says
+   **Ready to use**.
 
 The save creates one plan revision. Physical inputs default to **Preparation
 only**, intermediate execution tables stay private, and the final logical
@@ -140,15 +147,15 @@ needs one explicit pairwise step or a visible pairwise output. That editor
 retains the prior base/added controls and can still chain visible logical
 outputs.
 
-![The grouped review reconciles three fictional enrichment tables while preserving one output row per customer account.](../../images/user/06d-customer-combination.png)
+![The combination review and its save action stay together.](../../images/user/06j-stage1-combination-review.png)
 
-![The saved grouped summary distinguishes its primary and added physical inputs from the one map-visible logical output.](../../images/user/06e-customer-combination-saved.png)
+![Saved source changes appear as compact summaries beside the next action.](../../images/user/06l-stage1-saved-changes.png)
 
 ### Return to a saved combination
 
-When you reopen the project, each **Combined table prepared** card shows its
-**Saved columns**, including the source table, source column, and saved output
-name. Select **Edit columns and choices** on that card to reload its selected
+When you reopen the project, expand a combined table under **Saved changes**.
+Open **Saved columns** to see the source table, source column, and saved output
+name. Select **Edit columns and choices** to reload its selected
 columns, output names, tables, and shared keys. You can change those choices
 without selecting everything again.
 
@@ -162,8 +169,6 @@ again. If another source-preparation step uses the combined table, Impodo asks
 you to remove that later step before changing it. If someone saved another
 change while your form was open, reopen the editor to load the current choices.
 The advanced two-table editor also supports reopening and saving changes.
-
-![The reopened combination retains selected columns and a custom output name.](../../images/user/06h-customer-combination-edit.png)
 
 Do not use this choice to flatten one-to-many data. BoM lines and operations
 normally remain separate logical datasets linked to their header. Two partial
@@ -221,16 +226,16 @@ final level, **Use the deepest populated level** links the consumer to the last
 available ancestor. For an entirely blank path, Impodo can leave the
 relationship blank, use a fixed related value, stop, or set the row aside.
 
-![A fictional hierarchy setup uses Product family before Model code and supplies Default when the family is blank.](../../images/user/06a-hierarchy-setup.png)
+![The hierarchy editor shows the fields and missing-value choices for one source table.](../../images/user/06k-stage1-hierarchy.png)
 
 Select **Preview hierarchy records** and review the complete path keys, parent
 keys, missing-value outcomes, and affected sampled rows. Identically named
 children beneath different parents remain distinct because the complete path,
 not the final label, owns their identity.
 
-![The hierarchy preview shows each generated record, its complete path key, and its parent record.](../../images/user/06b-hierarchy-preview.png)
+![The hierarchy review stays in the current task before the result is saved.](../../images/user/06m-stage1-hierarchy-review.png)
 
-Select **Create this hierarchy table** only when the preview represents the
+Select **Use this table** only when the preview represents the
 intended business records.
 
 If this source also feeds a combined table, Impodo adds **Selected categories
@@ -289,12 +294,10 @@ Technical matching keys and External IDs remain available under **Support
 details and example records**. They support investigation; they are not the
 main decision the data manager needs to make.
 
-Select **Add related table to Match data** only when the summary represents the
+Select **Use this table** only when the summary represents the
 intended business records. This keeps the original table unchanged and makes
 the new table available beside it in **Match data**. It does not create or
 change records in Odoo.
-
-![The complete reusable-value review explains the resulting table before it is added to Match data.](../../images/user/06-related-lookup.png)
 
 ### Identity behavior
 
@@ -388,7 +391,8 @@ saved Recipe retains the split, the original-table choice, and the logical
 row filters, so a later data user applies the reviewed workflow instead of
 rebuilding it for every delivery.
 
-![Current parent-and-child table form for information repeated across source rows.](../../images/user/07-related-parent-child.png)
+Select **Preview the related tables** to check both results, then **Use these
+tables** to save the accepted pair.
 
 ### Mapping parent and child records
 

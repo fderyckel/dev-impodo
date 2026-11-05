@@ -1,0 +1,108 @@
+{% if pending_join %}
+  {% set pending_rule = pending_join.rule %}
+  {% set pending_review = pending_join.review %}
+  <section class="form-card exact-join-preview" id="join-preview" data-derived-entity-preview data-source-review tabindex="-1">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Complete-data review</p>
+        <h2>{{ pending_rule.output_dataset_name }}</h2>
+        <p>One output row represents one row from <strong>{{ pending_join.left.name }}</strong>.</p>
+      </div>
+      <span class="status {{ 'registered' if pending_review.can_save else 'attention' }}">{{ "Ready to use" if pending_review.can_save else "Needs attention" }}</span>
+    </div>
+
+    <div class="join-summary-flow">
+      <div>
+        <span>Base input</span>
+        <strong>{{ pending_join.left.name }}</strong>
+        <small>{{ pending_join.left_use_label }}</small>
+      </div>
+      <div class="relationship-connector" aria-hidden="true">combine</div>
+      <div>
+        <span>Added input</span>
+        <strong>{{ pending_join.right.name }}</strong>
+        <small>{{ pending_join.right_use_label }}</small>
+      </div>
+      <div class="relationship-connector" aria-hidden="true">creates</div>
+      <div class="logical-output-card">
+        <span>Mapped logical dataset</span>
+        <strong>{{ pending_rule.output_dataset_name }}</strong>
+        <small>Shown in Match data</small>
+      </div>
+    </div>
+
+    <div class="metric-grid exact-join-metrics">
+      <div><span>Base rows</span><strong>{{ pending_review.left_rows }}</strong></div>
+      <div><span>Added rows</span><strong>{{ pending_review.right_rows }}</strong></div>
+      <div><span>Matched base rows</span><strong>{{ pending_review.matched_left_rows }}</strong></div>
+      <div><span>Unmatched base rows</span><strong>{{ pending_review.unmatched_left_rows }}</strong></div>
+      <div><span>Unused added rows</span><strong>{{ pending_review.unmatched_right_rows }}</strong></div>
+      <div><span>Output rows</span><strong>{{ pending_review.actual_output_rows if pending_review.actual_output_rows is not none else "Blocked" }}</strong><small>Expected {{ pending_review.expected_output_rows }}</small></div>
+    </div>
+
+    {% for finding in pending_review.findings %}
+      <div class="notice error"><strong>Resolve before saving.</strong> <span>{{ finding }}</span></div>
+    {% endfor %}
+    {% if pending_review.can_save %}
+      <div class="notice success"><strong>The base grain is preserved.</strong> <span>Every output row has complete physical source lineage.</span></div>
+    {% endif %}
+
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th>Complete-data check</th><th>{{ pending_join.left.name }}</th><th>{{ pending_join.right.name }}</th></tr></thead>
+        <tbody>
+          <tr><th>Blank key rows</th><td>{{ pending_review.blank_left_key_rows }}</td><td>{{ pending_review.blank_right_key_rows }}</td></tr>
+          <tr><th>Invalid key rows</th><td>{{ pending_review.invalid_left_key_rows }}</td><td>{{ pending_review.invalid_right_key_rows }}</td></tr>
+          <tr><th>Repeated key groups</th><td>{{ pending_review.duplicate_left_key_groups }}</td><td>{{ pending_review.duplicate_right_key_groups }}</td></tr>
+          <tr><th>Rows in repeated groups</th><td>{{ pending_review.duplicate_left_key_rows }}</td><td>{{ pending_review.duplicate_right_key_rows }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if pending_review.examples %}
+      <details class="technical-details">
+        <summary>Reviewed row references</summary>
+        <p>These protected row numbers explain a small set of matches without copying customer values into the saved review.</p>
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Base row</th><th>Added row</th><th>Physical lineage</th></tr></thead>
+            <tbody>
+              {% for example in pending_review.examples %}
+                <tr>
+                  <td>{{ example.left_row_number }}</td>
+                  <td>{{ example.right_row_number or "No match" }}</td>
+                  <td>{% for reference in example.physical_lineage %}{{ reference.dataset_id }} rows {{ reference.row_numbers|join(', ') }}{% if not loop.last %}; {% endif %}{% endfor %}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </details>
+    {% endif %}
+
+    <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/save" data-source-save>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ source_form.get('return_to', '') if source_form is defined else '' }}">
+      <input type="hidden" name="expected_parent_version" value="{{ pending_join.expected_parent_version if pending_join.expected_parent_version is not none else '' }}">
+      <input type="hidden" name="rule_id" value="{{ join_form.rule_id }}">
+      <input type="hidden" name="output_dataset_name" value="{{ join_form.output_dataset_name }}">
+      <input type="hidden" name="left_dataset_id" value="{{ join_form.left_dataset_id }}">
+      <input type="hidden" name="right_dataset_id" value="{{ join_form.right_dataset_id }}">
+      <input type="hidden" name="kind" value="{{ join_form.kind }}">
+      {% if join_form.require_all_right_rows %}<input type="hidden" name="require_all_right_rows" value="1">{% endif %}
+      <input type="hidden" name="left_dataset_use" value="{{ join_form.left_dataset_use }}">
+      <input type="hidden" name="right_dataset_use" value="{{ join_form.right_dataset_use }}">
+      {% for key in join_form.key_rows %}
+        <input type="hidden" name="key_left_{{ loop.index }}" value="{{ key[0] }}">
+        <input type="hidden" name="key_right_{{ loop.index }}" value="{{ key[1] }}">
+        <input type="hidden" name="key_type_{{ loop.index }}" value="{{ key[2] }}">
+      {% endfor %}
+      {% for projection_index in join_form.projection_indexes %}<input type="hidden" name="projection" value="{{ projection_index }}">{% endfor %}
+      {% for projection_name in join_form.projection_names %}<input type="hidden" name="projection_name" value="{{ projection_name }}">{% endfor %}
+      <div class="actions">
+        <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
+        {% if pending_review.can_save %}<button class="button primary" type="submit">{{ "Save changes" if editing_join_pair else "Use this table" }}</button>{% endif %}
+      </div>
+    </form>
+  </section>
+{% endif %}

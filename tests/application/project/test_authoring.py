@@ -781,7 +781,13 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         self.assertEqual(overview.status_code, 200)
         self.assertNotIn("Prepare customers for Odoo 19", overview.text)
         self.assertIn("Data version 1", overview.text)
-        self.assertIn("Recipe needs attention", overview.text)
+        self.assertIn("Saving a Recipe is optional.", overview.text)
+        self.assertIn(
+            "You can continue working in your workspace without saving one.",
+            overview.text,
+        )
+        self.assertIn("Before saving a Recipe:", overview.text)
+        self.assertNotIn("Recipe needs attention", overview.text)
         self.assertIn("Review source data", overview.text)
         self.assertNotIn(
             "You can complete this migration once without saving a Recipe.",

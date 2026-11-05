@@ -412,9 +412,11 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "create-related-datasets",
         ):
             with self.subTest(section_id=section_id):
-                self.assertIn(
-                    f'id="{section_id}" data-derived-entity-section>',
+                self.assertRegex(
                     hierarchy_page.text,
+                    rf'<details\b(?=[^>]*\bid="{section_id}")'
+                    r'(?=[^>]*\bdata-derived-entity-section\b)'
+                    r'(?![^>]*\bopen\b)[^>]*>',
                 )
                 self.assertIn(
                     f'type="button" data-derived-entity-target="{section_id}"',

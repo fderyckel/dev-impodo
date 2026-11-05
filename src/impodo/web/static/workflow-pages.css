@@ -27,6 +27,10 @@
   align-items: center;
 }
 
+[data-source-review-card] [hidden] {
+  display: none !important;
+}
+
 .source-confirmation-actions .source-confirmation-status {
   margin-right: auto;
 }

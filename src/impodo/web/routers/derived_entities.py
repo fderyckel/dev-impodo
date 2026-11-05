@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import FormData
 
 from impodo.adapters.odoo.local_stack import LocalStackError
 from impodo.application.shared.secrets import SecretStoreError
@@ -42,6 +42,7 @@ from ..exact_join_forms import (
     parse_exact_join_group_form,
     resolve_exact_join_group_request,
     resolve_exact_join_request,
+    retain_exact_join_form,
     retain_exact_join_group_form,
     source_use_label,
 )
@@ -50,6 +51,31 @@ from ..presenters.common import _flash
 from ..presenters.schema import _render_derived_entities
 from ..request_identity import request_identity
 from ..security import require_session
+
+
+def _secure_source_form(
+    request: Request,
+    form: FormData,
+    fields: set[str],
+    operation: str,
+) -> None:
+    """Validate a source action and retain its inert choices for the response."""
+
+    _secure_form(request, form, fields | {"return_to"})
+    request.state.source_form = {
+        key: value
+        for key, value in form.multi_items()
+        if isinstance(value, str) and key != "csrf_token"
+    }
+    request.state.source_operation = operation
+
+
+def _saved_source_location(workspace_id: str, form: FormData, anchor: str) -> str:
+    """Leave Stage 1 only after a successful command and for one fixed target."""
+
+    if _text(form, "return_to") == "schema":
+        return f"/workspaces/{workspace_id}/schema"
+    return f"/workspaces/{workspace_id}/derived-entities#{anchor}"
 
 
 def _related_source_dataset_use(value: str) -> SourceDatasetUse:
@@ -128,7 +154,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/derived-entities/save")
     async def save_workspace_derived_entity(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(
+        _secure_source_form(
             request,
             form,
             {
@@ -142,62 +168,66 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 "parent_separator",
                 "blank_policy",
             },
+            "lookup-extraction",
         )
         actor = request_identity(request, context.identity_resolver).actor
-        source_binding = _text(form, "source_binding")
-        if "|" not in source_binding:
-            return _render_derived_entities(
+
+        def apply_source_action():
+            source_binding = _text(form, "source_binding")
+            if "|" not in source_binding:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error="Choose a frozen source column",
+                    status_code=422,
+                )
+            source_dataset_id, source_column_key = source_binding.split("|", 1)
+            try:
+                workspace_state = context.queries.get(workspace_id)
+                target_model = _existing_catalog_model(
+                    context,
+                    workspace_state,
+                    _text(form, "target_model"),
+                )
+                _plan, rule = context.derived_entities.save_rule(
+                    workspace_id,
+                    output_dataset_name=_text(form, "output_dataset_name"),
+                    source_dataset_id=source_dataset_id,
+                    source_column_key=source_column_key,
+                    target_model=target_model,
+                    target_name_field=_text(form, "target_name_field"),
+                    external_id_namespace=_text(form, "external_id_namespace"),
+                    parent_separator=_text(form, "parent_separator") or None,
+                    blank_policy=_text(form, "blank_policy"),
+                    expected_parent_version=_optional_int(
+                        _text(form, "expected_parent_version")
+                    ),
+                    actor=actor,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+            _flash(
                 request,
-                context,
-                workspace_id,
-                error="Choose a frozen source column",
-                status_code=422,
-            )
-        source_dataset_id, source_column_key = source_binding.split("|", 1)
-        try:
-            workspace_state = context.queries.get(workspace_id)
-            target_model = _existing_catalog_model(
-                context,
-                workspace_state,
-                _text(form, "target_model"),
-            )
-            _plan, rule = context.derived_entities.save_rule(
-                workspace_id,
-                output_dataset_name=_text(form, "output_dataset_name"),
-                source_dataset_id=source_dataset_id,
-                source_column_key=source_column_key,
-                target_model=target_model,
-                target_name_field=_text(form, "target_name_field"),
-                external_id_namespace=_text(form, "external_id_namespace"),
-                parent_separator=_text(form, "parent_separator") or None,
-                blank_policy=_text(form, "blank_policy"),
-                expected_parent_version=_optional_int(
-                    _text(form, "expected_parent_version")
+                (
+                    f"Added {rule.output_dataset_name} to Match data. "
+                    "No Odoo records were created."
                 ),
-                actor=actor,
             )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
+            return RedirectResponse(
+                _saved_source_location(
+                    workspace_id, form, f"lookup-rule-{rule.rule_id}"
+                ),
+                status_code=303,
             )
-        _flash(
-            request,
-            (
-                f"Added {rule.output_dataset_name} to Match data. "
-                "No Odoo records were created."
-            ),
-        )
-        return RedirectResponse(
-            (
-                f"/workspaces/{workspace_id}/derived-entities"
-                f"#lookup-rule-{rule.rule_id}"
-            ),
-            status_code=303,
-        )
+
+        return await run_local_operation(apply_source_action)
 
     @router.post("/workspaces/{workspace_id}/derived-entities/lookup/preview")
     async def preview_workspace_derived_entity(
@@ -216,57 +246,60 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "parent_separator",
             "blank_policy",
         }
-        _secure_form(request, form, fields)
-        source_binding = _text(form, "source_binding")
-        if "|" not in source_binding:
+        _secure_source_form(request, form, fields, "lookup-extraction")
+
+        def apply_source_action():
+            source_binding = _text(form, "source_binding")
+            if "|" not in source_binding:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error="Choose a frozen source column",
+                    status_code=422,
+                )
+            source_dataset_id, source_column_key = source_binding.split("|", 1)
+            try:
+                workspace_state = context.queries.get(workspace_id)
+                target_model = _existing_catalog_model(
+                    context,
+                    workspace_state,
+                    _text(form, "target_model"),
+                )
+                rule, preview = context.derived_entities.preview_lookup(
+                    workspace_id,
+                    output_dataset_name=_text(form, "output_dataset_name"),
+                    source_dataset_id=source_dataset_id,
+                    source_column_key=source_column_key,
+                    target_model=target_model,
+                    target_name_field=_text(form, "target_name_field"),
+                    external_id_namespace=_text(form, "external_id_namespace"),
+                    parent_separator=_text(form, "parent_separator") or None,
+                    blank_policy=_text(form, "blank_policy"),
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
             return _render_derived_entities(
                 request,
                 context,
                 workspace_id,
-                error="Choose a frozen source column",
-                status_code=422,
+                pending_lookup={"rule": rule, "preview": preview},
             )
-        source_dataset_id, source_column_key = source_binding.split("|", 1)
-        try:
-            workspace_state = context.queries.get(workspace_id)
-            target_model = _existing_catalog_model(
-                context,
-                workspace_state,
-                _text(form, "target_model"),
-            )
-            rule, preview = await run_in_threadpool(
-                context.derived_entities.preview_lookup,
-                workspace_id,
-                output_dataset_name=_text(form, "output_dataset_name"),
-                source_dataset_id=source_dataset_id,
-                source_column_key=source_column_key,
-                target_model=target_model,
-                target_name_field=_text(form, "target_name_field"),
-                external_id_namespace=_text(form, "external_id_namespace"),
-                parent_separator=_text(form, "parent_separator") or None,
-                blank_policy=_text(form, "blank_policy"),
-            )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
-        return _render_derived_entities(
-            request,
-            context,
-            workspace_id,
-            pending_lookup={"rule": rule, "preview": preview},
-        )
+
+        return await run_local_operation(apply_source_action)
 
     @router.post("/workspaces/{workspace_id}/derived-entities/join/preview")
     async def preview_workspace_exact_join(request: Request, workspace_id: str):
         """Review one exact enrichment over the complete accepted snapshots."""
 
         form = await request.form()
-        _secure_form(request, form, EXACT_JOIN_FORM_FIELDS)
+        _secure_source_form(request, form, EXACT_JOIN_FORM_FIELDS, "combine-two-tables")
         try:
             submission = parse_exact_join_form(form)
         except ValueError as error:
@@ -277,6 +310,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 error=str(error),
                 status_code=422,
+                join_form=retain_exact_join_form(form),
             )
 
         def review_join():
@@ -346,7 +380,9 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         """Review one primary table and every selected enrichment together."""
 
         form = await request.form()
-        _secure_form(request, form, EXACT_JOIN_GROUP_FORM_FIELDS)
+        _secure_source_form(
+            request, form, EXACT_JOIN_GROUP_FORM_FIELDS, "combine-source-tables"
+        )
         try:
             submission = parse_exact_join_group_form(form)
         except ValueError as error:
@@ -427,7 +463,9 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         """Recheck and atomically save one complete multi-table combination."""
 
         form = await request.form()
-        _secure_form(request, form, EXACT_JOIN_GROUP_FORM_FIELDS)
+        _secure_source_form(
+            request, form, EXACT_JOIN_GROUP_FORM_FIELDS, "combine-source-tables"
+        )
         actor = request_identity(request, context.identity_resolver).actor
         try:
             submission = parse_exact_join_group_form(form)
@@ -484,9 +522,8 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            (
-                f"/workspaces/{workspace_id}/derived-entities"
-                f"#join-rule-{preview.final_rule.rule_id}"
+            _saved_source_location(
+                workspace_id, form, f"join-rule-{preview.final_rule.rule_id}"
             ),
             status_code=303,
         )
@@ -496,7 +533,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         """Recheck and save one versioned exact-join decision."""
 
         form = await request.form()
-        _secure_form(request, form, EXACT_JOIN_FORM_FIELDS)
+        _secure_source_form(request, form, EXACT_JOIN_FORM_FIELDS, "combine-two-tables")
         actor = request_identity(request, context.identity_resolver).actor
         try:
             submission = parse_exact_join_form(form)
@@ -508,6 +545,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 workspace_id,
                 error=str(error),
                 status_code=422,
+                join_form=retain_exact_join_form(form),
             )
 
         def save_join():
@@ -558,10 +596,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            (
-                f"/workspaces/{workspace_id}/derived-entities"
-                f"#join-rule-{rule.rule_id}"
-            ),
+            _saved_source_location(workspace_id, form, f"join-rule-{rule.rule_id}"),
             status_code=303,
         )
 
@@ -618,73 +653,80 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/preview")
     async def preview_workspace_hierarchy(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(request, form, hierarchy_fields)
-        try:
-            values = hierarchy_values(form)
-            workspace_state = context.queries.get(workspace_id)
-            target_model = _existing_catalog_model(
-                context,
-                workspace_state,
-                _text(form, "target_model"),
-            )
-            rule, preview = context.derived_entities.preview_hierarchy(
-                workspace_id,
-                **values,
-                target_model=target_model,
-            )
-        except (WorkspaceError, ValueError) as error:
+        _secure_source_form(request, form, hierarchy_fields, "hierarchy-extraction")
+
+        def apply_source_action():
+            try:
+                values = hierarchy_values(form)
+                workspace_state = context.queries.get(workspace_id)
+                target_model = _existing_catalog_model(
+                    context,
+                    workspace_state,
+                    _text(form, "target_model"),
+                )
+                rule, preview = context.derived_entities.preview_hierarchy(
+                    workspace_id,
+                    **values,
+                    target_model=target_model,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
             return _render_derived_entities(
                 request,
                 context,
                 workspace_id,
-                error=str(error),
-                status_code=422,
+                pending_hierarchy={"rule": rule, "preview": preview},
             )
-        return _render_derived_entities(
-            request,
-            context,
-            workspace_id,
-            pending_hierarchy={"rule": rule, "preview": preview},
-        )
+
+        return await run_local_operation(apply_source_action)
 
     @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/save")
     async def save_workspace_hierarchy(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(request, form, hierarchy_fields)
+        _secure_source_form(request, form, hierarchy_fields, "hierarchy-extraction")
         actor = request_identity(request, context.identity_resolver).actor
-        try:
-            values = hierarchy_values(form)
-            workspace_state = context.queries.get(workspace_id)
-            target_model = _existing_catalog_model(
-                context,
-                workspace_state,
-                _text(form, "target_model"),
-            )
-            _plan, rule = context.derived_entities.save_hierarchy(
-                workspace_id,
-                **values,
-                target_model=target_model,
-                expected_parent_version=_optional_int(
-                    _text(form, "expected_parent_version")
+
+        def apply_source_action():
+            try:
+                values = hierarchy_values(form)
+                workspace_state = context.queries.get(workspace_id)
+                target_model = _existing_catalog_model(
+                    context,
+                    workspace_state,
+                    _text(form, "target_model"),
+                )
+                _plan, rule = context.derived_entities.save_hierarchy(
+                    workspace_id,
+                    **values,
+                    target_model=target_model,
+                    expected_parent_version=_optional_int(
+                        _text(form, "expected_parent_version")
+                    ),
+                    actor=actor,
+                )
+            except (WorkspaceError, ValueError) as error:
+                return _render_derived_entities(
+                    request,
+                    context,
+                    workspace_id,
+                    error=str(error),
+                    status_code=422,
+                )
+            _flash(request, f"Created the hierarchy table {rule.output_dataset_name}.")
+            return RedirectResponse(
+                _saved_source_location(
+                    workspace_id, form, f"hierarchy-rule-{rule.rule_id}"
                 ),
-                actor=actor,
+                status_code=303,
             )
-        except (WorkspaceError, ValueError) as error:
-            return _render_derived_entities(
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
-        _flash(request, f"Created the hierarchy table {rule.output_dataset_name}.")
-        return RedirectResponse(
-            (
-                f"/workspaces/{workspace_id}/derived-entities"
-                f"#lookup-rule-{rule.rule_id}"
-            ),
-            status_code=303,
-        )
+
+        return await run_local_operation(apply_source_action)
 
     @router.post("/workspaces/{workspace_id}/derived-entities/related/preview")
     async def preview_workspace_related_datasets(
@@ -704,7 +746,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "blank_policy",
             "source_dataset_use",
         }
-        _secure_form(request, form, fields)
+        _secure_source_form(request, form, fields, "create-related-datasets")
 
         def review_related_split():
             try:
@@ -760,7 +802,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             "blank_policy",
             "source_dataset_use",
         }
-        _secure_form(request, form, fields)
+        _secure_source_form(request, form, fields, "create-related-datasets")
         actor = request_identity(request, context.identity_resolver).actor
 
         def save_related_split():
@@ -803,10 +845,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         )
         return RedirectResponse(
-            (
-                f"/workspaces/{workspace_id}/derived-entities"
-                f"#related-rule-{rule.rule_id}"
-            ),
+            _saved_source_location(workspace_id, form, f"related-rule-{rule.rule_id}"),
             status_code=303,
         )
 

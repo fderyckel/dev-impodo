@@ -3,6 +3,7 @@
 from dataclasses import replace
 import os
 from pathlib import Path
+import re
 import unittest
 
 try:
@@ -81,6 +82,7 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                     page_errors = []
                     page.on("pageerror", lambda error: page_errors.append(str(error)))
                     mapping_path = f"/workspaces/{workspace_id}/mapping"
+                    mapping_location = re.compile(re.escape(f"{base}{mapping_path}") + r"(?:\?.*)?(?:#.*)?$")
                     schema_url = f"{base}/workspaces/{workspace_id}/schema"
                     page.goto(schema_url, wait_until="networkidle")
                     if suppress_referrer:
@@ -105,7 +107,7 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                         page.get_by_role(
                             "button", name="Confirm matching rules", exact=True
                         ).click()
-                    page.wait_for_url(f"{base}{mapping_path}")
+                    page.wait_for_url(mapping_location)
                     page.wait_for_load_state("networkidle")
                     if suppress_referrer:
                         self.assertEqual(page.evaluate("document.referrer"), "")
@@ -134,7 +136,10 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                             """({path, datasetId}) => {
                             sessionStorage.setItem(`impodo.mapping.position:${path}`, JSON.stringify({
                                 targetField: 'field_0000', datasetId, targetOffset: 180,
-                                scrollY: 2500, horizontal: [], focusName: '', focusValue: ''
+                                scrollY: 2500, horizontal: [],
+                                journeyStep: 'tables', journeyTask: 'fields',
+                                focusName: document.querySelector('[data-target-field="field_0000"] [data-value-source]').name,
+                                focusValue: ''
                             }));
                         }""",
                             {"path": mapping_path, "datasetId": dataset.dataset_id},
@@ -145,7 +150,7 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                     page.get_by_role(
                         "link", name="Continue to match data", exact=True
                     ).click()
-                    page.wait_for_url(f"{base}{mapping_path}")
+                    page.wait_for_url(mapping_location)
                     page.wait_for_timeout(150)
                     expect(
                         company.get_by_role("heading", name="Company for this load")
@@ -176,7 +181,11 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                     page.goto(f"{base}/projects", wait_until="networkidle")
                     page.goto(f"{base}{mapping_path}", wait_until="networkidle")
                     page.wait_for_timeout(150)
-                    self.assertGreater(page.evaluate("window.scrollY"), 500)
+                    expect(page.locator("[data-mapping-journey]")).to_have_attribute("data-step", "tables")
+                    expect(page.locator("[data-mapping-journey]")).to_have_attribute("data-task", "fields")
+                    field_control = page.locator('[data-target-field="field_0000"] [data-value-source]')
+                    expect(field_control).to_be_in_viewport()
+                    expect(field_control).to_be_focused()
                     self.assertEqual(page_errors, [])
                 finally:
                     browser.close()

@@ -2212,7 +2212,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 elif row_review is not None and row_review.excluded_count:
                     message = (
                         "Matches checked. Review and confirm "
-                        f"{row_review.included_count} rows to use."
+                        f"{row_review.included_count} "
+                        f"{'row' if row_review.included_count == 1 else 'rows'} to use."
                     )
                     mapping_return_url = (
                         f"{_mapping_return_url(request, workspace_id, step='confirm')}"

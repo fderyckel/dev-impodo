@@ -56,9 +56,10 @@ class Element {
 }
 
 function page({ url = "https://impodo.test/workspaces/one/mapping", company = false,
-  availableTasks = ["rows", "identity", "fields", "links"], inactiveTable = false } = {}) {
+  availableTasks = ["rows", "identity", "fields", "links"], inactiveTable = false,
+  tableIds = ["active"], activeId = tableIds[0], storage = new Map(), continuationUrl = "" } = {}) {
   const root = new Element({ mappingJourney: "", step: "tables", task: "rows",
-    companyRequired: String(company), activeDatasetIndex: "0" });
+    companyRequired: String(company), activeDatasetIndex: String(tableIds.indexOf(activeId)) });
   const heading = new Element({ mappingJourneyHeading: "", mappingStepTitle: "" }, "H2");
   root.append(heading);
   const panels = {};
@@ -71,6 +72,8 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
     mutationReceiptWaitMs: "0" });
   form.setAttribute("action", "/workspaces/one/mapping/save?mapping_dataset=0");
   root.append(form);
+  const continueButton = new Element({ mappingContinue: "", mappingContinuationUrl: continuationUrl }, "BUTTON");
+  form.append(continueButton);
   let inactiveHeading;
   if (inactiveTable) {
     const inactive = new Element({ mappingDataset: "inactive" });
@@ -81,8 +84,19 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
     inactive.append(panel);
     panels.tables.append(inactive);
   }
-  const active = new Element({ mappingActiveTable: "", mappingDataset: "active" });
-  panels.tables.append(active);
+  let active;
+  for (const [index, id] of tableIds.entries()) {
+    const table = new Element({ mappingDataset: id, ...(id === activeId ? { mappingActiveTable: "" } : {}) });
+    table.id = `mapping-dataset-${index}`;
+    if (id === activeId) active = table;
+    else {
+      table.hidden = true;
+      const link = new Element({ mappingTableLink: "" }, "A");
+      link.href = `https://impodo.test/workspaces/one/mapping?mapping_dataset=${index}`;
+      table.append(link);
+    }
+    panels.tables.append(table);
+  }
   const tasks = {};
   for (const task of availableTasks) {
     tasks[task] = new Element({ mappingTaskPanel: task });
@@ -101,6 +115,8 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
   const listeners = new Map();
   const window = { location, requestAnimationFrame: (callback) => callback(),
     queueMicrotask,
+    sessionStorage: { getItem: (key) => storage.get(key) || null,
+      setItem: (key, value) => storage.set(key, value) },
     addEventListener: (name, listener) => listeners.set(name, listener), setTimeout, clearTimeout,
     history: { state: null, pushState(_state, _title, value) { setUrl(value); },
       replaceState(_state, _title, value) { setUrl(value); } } };
@@ -114,9 +130,10 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
   vm.runInNewContext(source("mapping-journey"), context);
   const journey = window.impodoMappingJourney.create(root);
   Object.assign(window.impodoMappingJourney, journey);
-  const click = (target) => {
+  const click = (target, handled = false) => {
     let prevented = false;
-    documentListeners.get("click")({ target, button: 0, preventDefault() { prevented = true; } });
+    documentListeners.get("click")({ target, button: 0, defaultPrevented: handled,
+      preventDefault() { prevented = true; } });
     return prevented;
   };
   const recovery = ({ newerEdits = false } = {}) => {
@@ -132,7 +149,7 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
       } });
     return { recover, dirty: () => dirty };
   };
-  return { root, panels, tasks, heading, form, window, journey, click, navigations, recovery, inactiveHeading,
+  return { root, panels, tasks, heading, form, window, journey, click, navigations, recovery, inactiveHeading, continueButton,
     submit(target) {
       let prevented = false;
       documentListeners.get("submit")({ target, preventDefault() { prevented = true; } });
@@ -155,6 +172,18 @@ test("changing tasks keeps all field controls enabled and retains their edits", 
   assert.equal(fields.getAttribute("aria-current"), "step");
   assert.match(view.form.getAttribute("action"), /step=tables&task=fields/);
   assert.equal(view.tasks.fields.children[0].focused, true);
+  assert.equal(view.root.querySelector("[data-mapping-active-table]").scrolled, true);
+  assert.equal(view.tasks.fields.children[0].scrolled, undefined,
+    "keep the table and task navigation in view while focusing the task");
+});
+
+test("an inline recovery handler keeps control of its correction link and focus", () => {
+  const view = page();
+  const fields = view.root.querySelectorAll("[data-mapping-go-task]")
+    .find((item) => item.dataset.mappingGoTask === "fields");
+  view.click(fields, true);
+  assert.equal(view.root.dataset.task, "rows");
+  assert.equal(view.tasks.fields.children[0].focused, undefined);
 });
 
 test("missing company wins over a remembered task but an explicit field link wins", () => {
@@ -270,7 +299,7 @@ test("browser Back restores the panel and task from the URL", () => {
 });
 
 test("pinned tables skip absent identity and linked-record tasks", () => {
-  const view = page({ availableTasks: ["rows", "fields"],
+  const view = page({ availableTasks: ["rows", "fields"], tableIds: ["active", "other"],
     url: "https://impodo.test/workspaces/one/mapping?step=tables&task=identity" });
   assert.equal(view.root.dataset.task, "rows");
   const button = new Element({ mappingContinue: "", mappingContinuationUrl: "/workspaces/one/mapping?mapping_dataset=1" });
@@ -391,4 +420,145 @@ test("ordinary sibling posts keep unsaved matching edits on the current page", (
   const clean = new Element({}, "FORM");
   clean.setAttribute("action", "/workspaces/one/mapping/order/check");
   assert.equal(view.submit(clean), false, "a saved early check remains available");
+});
+
+const reviewedKey = "impodo.mapping.reviewedTables:/workspaces/one/mapping";
+
+test("final-task continuation wraps to an unreviewed table when the active table moved last", () => {
+  const storage = new Map();
+  const view = page({ tableIds: ["earlier", "active"], activeId: "active", storage });
+  view.journey.show({ task: "links" });
+  assert.equal(view.continueButton.textContent, "Save and match next table");
+  const operation = { action: "save_progress", journeyContinuation: view.journey.continuationFor(view.continueButton) };
+  assert.equal(storage.has(reviewedKey), false, "viewing the last task does not count as reviewing it");
+  view.recovery().recover.applyMutationOutcome({ status: "committed" }, operation);
+  assert.equal(new URL(view.navigations[0]).searchParams.get("mapping_dataset"), "0");
+  assert.deepEqual(JSON.parse(storage.get(reviewedKey)).reviewed, ["active"]);
+});
+
+test("successful final-task saves survive reload and reordered tables without revisiting reviewed work", () => {
+  const storage = new Map();
+  const first = page({ tableIds: ["products", "suppliers"], activeId: "products", storage,
+    continuationUrl: "/workspaces/one/mapping?mapping_dataset=1" });
+  first.journey.show({ task: "links" });
+  first.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: first.journey.continuationFor(first.continueButton),
+  });
+  assert.equal(first.navigations.length, 1);
+  assert.equal(new URL(first.navigations[0]).searchParams.has("mapping_reviewed"), false);
+  const second = page({ tableIds: ["suppliers", "products"], activeId: "suppliers", storage,
+    continuationUrl: "/workspaces/one/mapping?mapping_dataset=1" });
+  second.journey.show({ task: "links" });
+  assert.equal(second.continueButton.textContent, "Save and review matches");
+  second.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: second.journey.continuationFor(second.continueButton),
+  });
+  assert.equal(second.root.dataset.step, "check");
+  assert.deepEqual(second.navigations, []);
+  assert.deepEqual(JSON.parse(storage.get(reviewedKey)).reviewed.sort(), ["products", "suppliers"]);
+  const reloaded = page({ tableIds: ["products", "suppliers"], activeId: "products", storage });
+  reloaded.journey.show({ task: "links" });
+  assert.equal(reloaded.journey.continuationFor(reloaded.continueButton).step, "check");
+});
+
+test("a changed dataset-ID set resets only the optional traversal hints", () => {
+  const storage = new Map([[reviewedKey, JSON.stringify({
+    tableIds: JSON.stringify(["products", "suppliers"]), reviewed: ["products", "suppliers"],
+  })]]);
+  const view = page({ tableIds: ["products", "suppliers", "new"], activeId: "new", storage });
+  view.journey.show({ task: "links" });
+  assert.match(view.journey.continuationFor(view.continueButton).url, /mapping_dataset=0/);
+  assert.equal(view.root.dataset.step, "tables");
+});
+
+for (const outcome of [
+  { status: "rejected", failure_code: "VALIDATION_FAILED" },
+  { status: "rejected", failure_code: "MAPPING_VERSION_CONFLICT" },
+  { status: "pending" },
+]) {
+  test(`${outcome.failure_code || outcome.status} never marks a final task reviewed`, () => {
+    const storage = new Map();
+    const view = page({ tableIds: ["products", "suppliers"], storage });
+    view.journey.show({ task: "links" });
+    const operation = { action: "save_progress", journeyContinuation: view.journey.continuationFor(view.continueButton) };
+    view.recovery().recover.applyMutationOutcome(outcome, operation);
+    assert.equal(storage.has(reviewedKey), false);
+    assert.equal(view.root.dataset.task, "links");
+    assert.deepEqual(view.navigations, []);
+  });
+}
+
+test("ordinary saves, manual table jumps and newer edits never mark the final task reviewed", () => {
+  for (const kind of ["ordinary", "table-jump", "newer-edits", "canceled"]) {
+    const storage = new Map();
+    const view = page({ tableIds: ["products", "suppliers"], storage });
+    view.journey.show({ task: "links" });
+    const operation = { action: "save_progress" };
+    if (kind === "table-jump") operation.journeyContinuation = { url: "/workspaces/one/mapping?mapping_dataset=1" };
+    else if (kind !== "ordinary") operation.journeyContinuation = view.journey.continuationFor(view.continueButton);
+    if (kind === "canceled") view.journey.cancelContinuation(operation);
+    view.recovery({ newerEdits: kind === "newer-edits" }).recover.applyMutationOutcome({ status: "committed" }, operation);
+    assert.equal(storage.has(reviewedKey), false, kind);
+  }
+});
+
+test("denied browser storage leaves final-task traversal usable without claiming saved readiness", () => {
+  const storage = { get() { throw new Error("storage denied"); }, set() { throw new Error("storage denied"); } };
+  const view = page({ tableIds: ["earlier", "active"], activeId: "active", storage });
+  view.journey.show({ task: "links" });
+  view.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: view.journey.continuationFor(view.continueButton),
+  });
+  assert.equal(new URL(view.navigations[0]).searchParams.get("mapping_dataset"), "0");
+  assert.equal(view.root.dataset.step, "tables");
+});
+
+test("a full two-table journey terminates after reload when browser storage is denied", () => {
+  const storage = { get() { throw new Error("denied"); }, set() { throw new Error("denied"); } };
+  const first = page({ tableIds: ["products", "suppliers"], activeId: "products", storage });
+  first.journey.show({ task: "links" });
+  first.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: first.journey.continuationFor(first.continueButton),
+  });
+  const second = page({ url: first.navigations[0], tableIds: ["suppliers", "products"], activeId: "suppliers", storage });
+  second.journey.show({ task: "links" });
+  assert.equal(second.continueButton.textContent, "Save and review matches");
+  second.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: second.journey.continuationFor(second.continueButton),
+  });
+  assert.equal(second.root.dataset.step, "check");
+  assert.deepEqual(second.navigations, []);
+  const reloaded = page({ url: second.window.location.href, tableIds: ["products", "suppliers"], activeId: "suppliers", storage });
+  reloaded.journey.show({ step: "tables", task: "links" });
+  assert.equal(reloaded.journey.continuationFor(reloaded.continueButton).step, "check");
+});
+
+test("a handled recovery link during save cancels late automatic task navigation", () => {
+  const view = page();
+  const operation = { action: "save_progress", journeyContinuation: { step: "tables", task: "identity" } };
+  view.window.impodoMappingEditor = {
+    cancelPendingContinuation: () => view.journey.cancelContinuation(operation),
+  };
+  view.form.setAttribute("aria-busy", "true");
+  const link = new Element({ reviewRelatedField: "" }, "A");
+  link.href = "https://impodo.test/workspaces/one/mapping#relationship-0-category_id";
+  view.journey.show({ task: "links" }); // The recovery owner already revealed this field.
+  view.click(link, true);
+  view.recovery().recover.applyMutationOutcome({ status: "committed" }, operation);
+  assert.equal(view.root.dataset.task, "links");
+  assert.equal(operation.journeyContinuation, null);
+  assert.deepEqual(view.navigations, []);
+});
+
+test("a full storage quota does not let older stored hints erase progress carried by the URL", () => {
+  const prior = JSON.stringify({ tableIds: JSON.stringify(["products", "suppliers"]), reviewed: [] });
+  const storage = { get() { return prior; }, set() { throw new Error("quota exceeded"); } };
+  const first = page({ tableIds: ["products", "suppliers"], activeId: "products", storage });
+  first.journey.show({ task: "links" });
+  first.recovery().recover.applyMutationOutcome({ status: "committed" }, {
+    action: "save_progress", journeyContinuation: first.journey.continuationFor(first.continueButton),
+  });
+  const next = page({ url: first.navigations[0], tableIds: ["products", "suppliers"], activeId: "suppliers", storage });
+  next.journey.show({ task: "links" });
+  assert.equal(next.journey.continuationFor(next.continueButton).step, "check");
 });

@@ -1,10 +1,4 @@
 <section class="form-card mapping-table-queue" aria-label="Tables to match">
-  {% for view in dataset_views if view.active %}
-    <div class="mapping-table-current">
-      <span class="eyebrow">Table {{ view.display_position }} of {{ dataset_views|length }}</span>
-      <strong>{{ view.source.name }}</strong>
-    </div>
-  {% endfor %}
   {% if matching_order and matching_order.rows|length > 1 %}
     <details>
       <summary>Choose a table</summary>

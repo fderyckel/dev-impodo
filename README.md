@@ -3,9 +3,9 @@
 **Prepare clean data. Review every change. Import into Odoo with confidence.**
 
 Impodo is an open-source data transformation and import product built for
-**Odoo business analysts, Odoo developers, and Odoo data managers**. It brings
+**business analysts, developers, and data managers** working with **Odoo**. It brings
 source inspection, field mapping, data quality, relationship handling,
-reviewed loading, and result verification into one local browser application.
+reviewed loading, and result verification into a browser application.
 
 Turn CSV files, Excel workbooks, or supported Odoo source records into a
 repeatable migration workflow. Keep the original delivery intact, explain how

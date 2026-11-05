@@ -291,6 +291,11 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Use 1 Odoo default", page.text)
         self.assertRegex(
             page.text,
+            r'Field 0000:\s*<strong>Odoo default 0000</strong>\s*'
+            r'<a href="[^"]+">Match this field</a>',
+        )
+        self.assertRegex(
+            page.text,
             r'<button class="button primary"[^>]*disabled>'
             r"Confirm field matches</button>",
         )
@@ -639,7 +644,12 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertIn("Let Odoo decide for 2 required fields", page.text)
-        self.assertIn("read-only for this exact Odoo target", page.text)
+        self.assertIn("Check whether Odoo supplies a default", page.text)
+        for label in ("Field 0000", "Field 0001"):
+            self.assertRegex(
+                page.text,
+                rf'{label}\s*<a href="[^"]+">Match this field</a>',
+            )
         self.assertEqual(page.text.count('value="refresh_defaults"'), 1)
 
         decision = self.client.post(

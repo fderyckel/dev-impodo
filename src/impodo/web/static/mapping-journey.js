@@ -29,6 +29,68 @@
     const activeTable = root.querySelector("[data-mapping-active-table]");
     const taskPanels = Array.from((activeTable || root).querySelectorAll("[data-mapping-task-panel]"));
     const availableTasks = tasks.filter((item) => taskPanels.some((panel) => panel.dataset.mappingTaskPanel === item));
+    const tables = Array.from(root.querySelectorAll("[data-mapping-dataset]")).map((table) => {
+      const link = table.querySelector("[data-mapping-table-link]");
+      return {
+        id: table.dataset.mappingDataset,
+        index: table.id?.replace("mapping-dataset-", "") ||
+          (table === activeTable ? root.dataset.activeDatasetIndex : ""),
+        url: link?.href || "",
+      };
+    });
+    const currentTableId = activeTable?.dataset.mappingDataset;
+    const tableIds = JSON.stringify(tables.map((table) => table.id).sort());
+    const reviewedKey = `impodo.mapping.reviewedTables:${window.location.pathname}`;
+    const reviewedQuery = "mapping_reviewed";
+    let reviewedTables = new Set();
+    let storageAvailable = false;
+    let storedText = "";
+    try {
+      storedText = window.sessionStorage?.getItem(reviewedKey) || "";
+      storageAvailable = Boolean(window.sessionStorage);
+    } catch {
+      // A URL hint keeps traversal linear when this tab cannot use storage.
+    }
+    const hint = new URL(window.location.href).searchParams.get(reviewedQuery) || "";
+    for (const text of [storedText, hint]) {
+      try {
+        const stored = JSON.parse(text || "null");
+        if (stored?.tableIds === tableIds && Array.isArray(stored.reviewed)) {
+          for (const id of stored.reviewed) {
+            if (tables.some((table) => table.id === id)) reviewedTables.add(id);
+          }
+        }
+      } catch {
+        // These navigation hints are optional; saved matching evidence owns readiness.
+      }
+    }
+    const reviewedPacket = () => JSON.stringify({ tableIds, reviewed: Array.from(reviewedTables) });
+    const rememberReviewedTables = () => {
+      if (!reviewedTables.size) return;
+      try {
+        if (storageAvailable) window.sessionStorage.setItem(reviewedKey, reviewedPacket());
+      } catch {
+        storageAvailable = false;
+      }
+    };
+    rememberReviewedTables();
+    const traversalUrl = (value) => {
+      const url = new URL(value, window.location.href);
+      if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return url;
+      if (!storageAvailable && reviewedTables.size) url.searchParams.set(reviewedQuery, reviewedPacket());
+      else url.searchParams.delete(reviewedQuery);
+      return url;
+    };
+    const nextTableUrl = (preferred) => {
+      if (preferred) {
+        const url = new URL(preferred, window.location.href);
+        const next = tables.find((table) => table.index === url.searchParams.get("mapping_dataset"));
+        if (url.origin === window.location.origin && url.pathname === window.location.pathname &&
+            next && next.id !== currentTableId && !reviewedTables.has(next.id)) return url.href;
+      }
+      return tables.find((table) => table.id !== currentTableId &&
+        !reviewedTables.has(table.id) && table.url)?.url || "";
+    };
     let step = steps.includes(root.dataset.step) ? root.dataset.step : "tables";
     let task = tasks.includes(root.dataset.task) ? root.dataset.task : "rows";
     let continuationUsed = false;
@@ -59,7 +121,7 @@
       for (const button of root.querySelectorAll("[data-mapping-continue]")) {
         const lastTask = task === availableTasks[availableTasks.length - 1];
         button.textContent = !lastTask ? "Save and continue" :
-          button.dataset.mappingContinuationUrl ? "Save and match next table" : "Save and review matches";
+          nextTableUrl(button.dataset.mappingContinuationUrl) ? "Save and match next table" : "Save and review matches";
       }
       const title = root.querySelector("[data-mapping-step-title]");
       if (title) title.textContent = titles[step];
@@ -85,7 +147,8 @@
       if (!heading) return;
       heading.setAttribute("tabindex", "-1");
       window.requestAnimationFrame(() => {
-        heading.scrollIntoView({ block: "start", behavior: "auto" });
+        if (panel) (activeTable || panel).scrollIntoView({ block: "start", behavior: "auto" });
+        else window.scrollTo?.({ top: 0, behavior: "auto" });
         heading.focus({ preventScroll: true });
         window.impodoMappingPosition?.remember?.();
       });
@@ -100,7 +163,7 @@
         url.searchParams.set("task", task);
         url.hash = hash;
         window.history[history === "replace" ? "replaceState" : "pushState"](
-          window.history.state, "", url
+          window.history.state, "", traversalUrl(url)
         );
       }
       if (focus) focusHeading();
@@ -135,7 +198,8 @@
       if (step === "tables" && index < availableTasks.length - 1) {
         return { step: "tables", task: availableTasks[index + 1] };
       }
-      return url ? { url } : { step: "check" };
+      const next = nextTableUrl(url);
+      return { reviewedTable: currentTableId, ...(next ? { url: next } : { step: "check" }) };
     };
     const tableUrl = (value) => {
       const url = new URL(value, window.location.href);
@@ -154,9 +218,13 @@
       if (!continuation || operation.action !== "save_progress" || operation.journeyContinuationUsed) return false;
       operation.journeyContinuationUsed = true;
       continuationUsed = true;
+      if (continuation.reviewedTable === currentTableId && currentTableId) {
+        reviewedTables.add(currentTableId);
+      }
+      rememberReviewedTables();
       const url = continuation.url;
       if (url) {
-        window.location.assign(continuation.preserveFilters ? url : tableUrl(url));
+        window.location.assign(traversalUrl(continuation.preserveFilters ? url : tableUrl(url)));
       } else {
         show(continuation, { focus: true });
       }
@@ -191,6 +259,12 @@
       button.remove();
     };
     document.addEventListener("click", (event) => {
+      if (event.defaultPrevented) {
+        if (form?.getAttribute("aria-busy") === "true" && event.target?.closest?.("[data-review-related-field]")) {
+          window.impodoMappingEditor?.cancelPendingContinuation?.();
+        }
+        return;
+      }
       const target = event.target?.closest?.("[data-mapping-go-step], [data-mapping-go-task], [data-mapping-table-link], a[href]");
       if (!target || event.button > 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
       if (form?.getAttribute("aria-busy") === "true") {

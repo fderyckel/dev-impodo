@@ -1372,7 +1372,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
         _flash(
             request,
             (
-                f"Confirmed {len(governance.business_keys)} Odoo matching rule(s)."
+                f"Confirmed {len(governance.business_keys)} Odoo matching "
+                f"rule{'s' if len(governance.business_keys) != 1 else ''}."
             ),
         )
         return RedirectResponse(

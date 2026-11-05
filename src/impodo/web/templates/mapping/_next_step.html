@@ -31,6 +31,7 @@
                       <li>
                         {{ item.dataset_label }} &middot; {{ item.field_label }}:
                         <strong>{{ item.default_value_label }}</strong>
+                        {% if item.fix_url %}<a href="{{ item.fix_url }}">Match this field</a>{% endif %}
                       </li>
                     {% endfor %}
                   </ul>
@@ -38,7 +39,10 @@
                 {% if blocker.default_checks %}
                   <ul>
                     {% for item in blocker.default_checks %}
-                      <li>{{ item.dataset_label }} &middot; {{ item.field_label }}</li>
+                      <li>
+                        {{ item.dataset_label }} &middot; {{ item.field_label }}
+                        {% if item.fix_url %}<a href="{{ item.fix_url }}">Match this field</a>{% endif %}
+                      </li>
                     {% endfor %}
                   </ul>
                 {% endif %}

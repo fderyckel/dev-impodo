@@ -111,9 +111,9 @@
     </section>
   {% endif %}
 
-  <section class="overview-stage-list">
+  <section class="form-card project-overview-section" aria-labelledby="project-data-versions-title">
     <div class="section-heading">
-      <div><p class="eyebrow">Source deliveries</p><h2>Data versions</h2></div>
+      <div><p class="eyebrow">Source deliveries</p><h2 id="project-data-versions-title">Data versions</h2></div>
     </div>
     <ol class="overview-stages">
       {% for version in data_versions %}
@@ -125,8 +125,8 @@
     </ol>
   </section>
 
-  <section class="form-card" aria-labelledby="project-recipes-title">
-    <div class="page-heading compact">
+  <section class="form-card project-overview-section" aria-labelledby="project-recipes-title">
+    <div class="section-heading">
       <div>
         <p class="eyebrow">Optional reuse</p>
         <div class="heading-with-help">
@@ -184,9 +184,9 @@
       </form>
     {% elif recipe_draft and recipe_draft.issues %}
       <div class="notice">
-        <strong>Recipe needs attention.</strong>
-        {% if not recipes %}<p>No Recipe has been saved yet.</p>{% endif %}
-        <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+        <strong>Saving a Recipe is optional.</strong>
+        <p>{% if not recipes %}No Recipe has been saved yet. {% endif %}You can continue working in your workspace without saving one.</p>
+        <p><strong>Before saving a Recipe:</strong> {{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
         <a class="button secondary" href="{{ recipe_recovery.href }}">{{ recipe_recovery.label }}</a>
         {% if recipe_recovery.reference %}
           <details>

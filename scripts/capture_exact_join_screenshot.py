@@ -135,13 +135,15 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             page.evaluate("window.scrollBy(0, -80)")
             _capture(
                 page,
-                output_directory / "06d-customer-combination.png",
+                output_directory / "06j-stage1-combination-review.png",
             )
 
-            preview.get_by_role("button", name="Save combined table").click()
+            preview.get_by_role("button", name="Use this table").click()
             page.wait_for_load_state("networkidle")
             saved = page.locator(".exact-join-rule-card").first
             expect(saved).to_be_visible()
+            if not saved.evaluate("(element) => element.open"):
+                saved.locator(":scope > summary").click()
             expect(saved).to_contain_text("Combined table prepared")
             expect(saved).to_contain_text("Mapped logical dataset")
             saved.evaluate(
@@ -150,7 +152,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             page.evaluate("window.scrollBy(0, -80)")
             _capture(
                 page,
-                output_directory / "06e-customer-combination-saved.png",
+                output_directory / "06l-stage1-saved-changes.png",
             )
             saved.get_by_role("link", name="Edit columns and choices").click()
             page.wait_for_load_state("networkidle")
@@ -186,7 +188,6 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 "element => element.scrollIntoView({block: 'start'})"
             )
             page.evaluate("window.scrollBy(0, -140)")
-            _capture(page, output_directory / "06h-customer-combination-edit.png")
             browser_context.close()
             browser.close()
     finally:

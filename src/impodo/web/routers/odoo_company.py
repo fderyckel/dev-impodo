@@ -186,10 +186,17 @@ def build_odoo_company_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            "Odoo company saved. Check company-specific values and saved matches, then prepare and compare again. Your source data and mapping rules are kept.",
+            "Company saved. Continue matching your tables."
+            if state.source_mode is SourceMode.FILE
+            else "Destination company saved. Check the destination again.",
+        )
+        destination = (
+            f"/workspaces/{workspace_id}/mapping?step=tables&task=rows"
+            if state.source_mode is SourceMode.FILE
+            else f"/workspaces/{workspace_id}/transfer-destination#odoo-operation-company"
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/{'transfer-destination' if state.source_mode is SourceMode.ODOO else 'mapping'}#odoo-operation-company",
+            destination,
             status_code=303,
         )
 

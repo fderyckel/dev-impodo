@@ -803,7 +803,7 @@ def capture(
 
             preview.get_by_role(
                 "button",
-                name="Create this hierarchy table",
+                name="Use this table",
             ).click()
             page.wait_for_load_state("networkidle")
 

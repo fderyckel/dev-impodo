@@ -15,6 +15,18 @@
   margin-top: 1.25rem;
 }
 
+.form-card.project-overview-section {
+  margin-top: 2rem;
+}
+
+.project-overview-section > .section-heading {
+  margin-bottom: 1rem;
+}
+
+.project-overview-section > .section-heading h2 {
+  margin-bottom: 0;
+}
+
 .form-card.narrow {
   max-width: 760px;
   margin: 0 auto;

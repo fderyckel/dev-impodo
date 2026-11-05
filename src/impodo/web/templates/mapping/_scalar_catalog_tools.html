@@ -1,9 +1,11 @@
-            <div class="field-catalog-tools">
+            <div class="field-catalog-tools mapping-scalar-tools">
               <label>
                 Find a field
                 <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
               </label>
               <button class="button secondary" type="button" data-field-search-submit>Search</button>
+              <details class="mapping-field-options">
+              <summary>More field options</summary>
               <label class="checkbox">
                 <input type="checkbox" data-show-mapped-scalars {% if view.mapped_only %}checked{% endif %}>
                 Show only matched fields
@@ -17,6 +19,7 @@
               {% if allow_field_refresh and not (migration_workspace and migration_workspace.recipe_application_id) %}
               <button class="button secondary" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
               {% endif %}
+              </details>
               <p class="muted" data-scalar-field-count>
                 Showing {{ view.scalar_rows|length }} of {{ view.scalar_matching_total }} fields · {{ view.scalar_mapped_total }} matched
               </p>

@@ -1,0 +1,267 @@
+<div class="transform-cell">
+  {% set transform = mapping.transform if mapping else none %}
+  {% set validation_rule = mapping.validation if mapping else none %}
+  <details class="mapping-value-preparation" {% if formula_issue %}open{% endif %}>
+  <summary>Prepare values{% if mapping and (transform.text_steps or transform.case_mode != 'preserve' or transform.formula or transform.decimal_places is not none or validation_rule.configured) %} <small>Configured</small>{% endif %}</summary>
+  <div class="notice compact" data-selection-rules-transform-note hidden>
+    Choice rules return an exact Odoo value. No additional value change is needed.
+  </div>
+  <label class="compact-control">Value type
+  <select name="scalar_type_{{ dataset_index }}_{{ field_index }}" data-canonical-type>
+    {% set selected_type = mapping.value_type if mapping else row.canonical_type %}
+    {% for value_type, value_label in (('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Decimal number'), ('boolean', 'Yes or no'), ('date', 'Date'), ('datetime', 'Date and time')) %}
+      <option value="{{ value_type }}" {% if selected_type == value_type %}selected{% endif %}>{{ value_label }}</option>
+    {% endfor %}
+  </select>
+  </label>
+  <div class="transform-options">
+    <label><input type="checkbox" name="scalar_trim_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-trim {% if mapping and mapping.transform.trim %}checked{% endif %}> Remove outer spaces</label>
+    <label><input type="checkbox" name="scalar_collapse_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-collapse {% if mapping and mapping.transform.collapse_whitespace %}checked{% endif %}> Replace repeated spaces with one</label>
+    <label><input type="checkbox" name="scalar_empty_null_{{ dataset_index }}_{{ field_index }}" value="1" data-transform-empty-null {% if mapping and mapping.transform.empty_as_null %}checked{% endif %}> Treat blank values as empty</label>
+  </div>
+  <label class="compact-control" data-decimal-policy>
+    Number format
+    <select name="scalar_decimal_locale_{{ dataset_index }}_{{ field_index }}">
+      {% set decimal_locale = mapping.transform.decimal_locale if mapping else 'invariant' %}
+      {% for locale in ('invariant', 'en_US', 'de_DE', 'fr_FR') %}
+        <option value="{{ locale }}" {% if decimal_locale == locale %}selected{% endif %}>{% if locale == 'invariant' %}Automatic{% elif locale == 'en_US' %}1,234.56{% else %}1.234,56{% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
+  <label class="compact-control" data-date-policy>
+    Input format
+    <select name="scalar_date_format_{{ dataset_index }}_{{ field_index }}">
+      {% set date_format = mapping.transform.date_format if mapping else 'iso' %}
+      <option value="iso" {% if date_format == 'iso' %}selected{% endif %}>YYYY-MM-DD / ISO</option>
+      <option value="dmy_slash" {% if date_format == 'dmy_slash' %}selected{% endif %}>DD/MM/YYYY</option>
+      <option value="mdy_slash" {% if date_format == 'mdy_slash' %}selected{% endif %}>M/D/YYYY or MM/DD/YYYY</option>
+      <option value="dmy_dot" {% if date_format == 'dmy_dot' %}selected{% endif %}>DD.MM.YYYY</option>
+      {% if row.metadata.type == 'date' %}
+        <option value="excel_timestamp" {% if date_format == 'excel_timestamp' %}selected{% endif %} {% if selected_type != 'date' %}disabled hidden{% endif %}>Excel date and time (keep date only)</option>
+      {% endif %}
+    </select>
+  </label>
+  <label class="compact-control" data-timezone-policy>
+    Timezone
+    <select name="scalar_timezone_{{ dataset_index }}_{{ field_index }}">
+      <option value="UTC" selected>UTC</option>
+    </select>
+  </label>
+  <div class="compact-control" data-rounding-policy>
+    <span>Decimal rounding</span>
+    {% if row.metadata.type == 'float' and row.metadata.digits %}
+      <small>Odoo precision for this field: {{ row.metadata.digits[1] }} decimal place{{ '' if row.metadata.digits[1] == 1 else 's' }} ({{ row.metadata.digits[0] }} total digits).</small>
+      <button
+        type="button"
+        class="button secondary compact"
+        data-use-target-rounding
+        data-target-rounding-places="{{ row.metadata.digits[1] }}"
+        {% if row.metadata.digits[1] > 18 %}disabled{% endif %}
+      >Round to this Odoo precision</button>
+      {% if row.metadata.digits[1] > 18 %}
+        <small>Impodo's mapping rounding supports up to 18 places. This Odoo field reports {{ row.metadata.digits[1] }}; exact values can still be used without a rounding rule.</small>
+      {% endif %}
+      <small>This changes source numbers when they have more places. Review the effects before loading, especially values that could become zero.</small>
+    {% elif row.metadata.type == 'float' %}
+      <small>Odoo did not report a fixed decimal precision for this field.</small>
+    {% endif %}
+    <div class="rule-inline-fields">
+      <label>
+        Places
+        <input
+          type="number"
+          name="scalar_round_places_{{ dataset_index }}_{{ field_index }}"
+          min="0"
+          max="{{ [row.metadata.digits[1], 18]|min if row.metadata.type == 'float' and row.metadata.digits else 18 }}"
+          value="{{ transform.decimal_places if transform and transform.decimal_places is not none else '' }}"
+          placeholder="{{ 'Odoo: ' ~ row.metadata.digits[1] if row.metadata.type == 'float' and row.metadata.digits else 'No rounding' }}"
+          data-round-places
+        >
+      </label>
+      <label>
+        Method
+        {% set rounding_mode = transform.rounding_mode if transform else 'half_up' %}
+        <select name="scalar_round_mode_{{ dataset_index }}_{{ field_index }}" data-round-mode>
+          <option value="half_up" {% if rounding_mode == 'half_up' %}selected{% endif %}>Nearest; 5 rounds up</option>
+          <option value="half_even" {% if rounding_mode == 'half_even' %}selected{% endif %}>Nearest even</option>
+          <option value="up" {% if rounding_mode == 'up' %}selected{% endif %}>Away from zero</option>
+          <option value="down" {% if rounding_mode == 'down' %}selected{% endif %}>Toward zero</option>
+          <option value="ceiling" {% if rounding_mode == 'ceiling' %}selected{% endif %}>Toward positive</option>
+          <option value="floor" {% if rounding_mode == 'floor' %}selected{% endif %}>Toward negative</option>
+        </select>
+      </label>
+    </div>
+    <small>For money, confirm the currency precision before rounding.</small>
+  </div>
+  {% set value_rules_configured = mapping and (
+    transform.text_steps
+    or transform.case_mode != 'preserve'
+    or transform.formula
+    or transform.decimal_places is not none
+    or validation_rule.configured
+  ) %}
+  <details class="value-rule-builder" {% if formula_issue %}open{% endif %} data-value-rule-builder>
+    <summary>
+      <span>Prepare and check values</span>
+      <small>{{ "Configured" if value_rules_configured else "Optional" }}</small>
+    </summary>
+    <div class="value-rule-content">
+      <p class="muted rule-type-warning" data-text-rule-type-warning hidden>
+        Text changes and checks require the Text value type. Clear them here or change the value type back to Text.
+      </p>
+      <div data-text-rules>
+        <h4>Make the text consistent</h4>
+        <p class="muted">After the spacing options above, Impodo applies these steps from top to bottom. Your registered source stays unchanged.</p>
+        <input
+          type="hidden"
+          name="scalar_text_steps_{{ dataset_index }}_{{ field_index }}"
+          value="{{ row.text_steps_json }}"
+          data-text-step-storage
+        >
+        {% if row.show_phone_cleanup_quick_start %}
+          <div
+            class="text-step-quick-start"
+            data-phone-cleanup-quick-start
+            {% if transform and transform.text_steps %}hidden{% endif %}
+          >
+            <div class="text-step-quick-start-copy">
+              <strong>Suggested start for this phone field</strong>
+              <span>Change <code>00</code> at the beginning to <code>+</code>, then remove spaces, dots, hyphens and slashes only when they are between digits.</span>
+              <small>Example: <code>00352-621.23.45</code> becomes <code>+3526212345</code>. You can change every step before saving.</small>
+            </div>
+            <button class="button secondary compact" type="button" data-use-phone-cleanup>Use phone cleanup</button>
+          </div>
+        {% endif %}
+        <div class="text-step-list" data-text-step-list></div>
+        <p class="muted" data-text-step-empty {% if transform and transform.text_steps %}hidden{% endif %}>No cleanup steps added.</p>
+        <div class="text-step-add">
+          <label>
+            Add cleanup
+            <select data-new-text-step-kind>
+              <option value="literal">Replace text</option>
+              <option value="starts_with">Replace text at the beginning</option>
+              <option value="ends_with">Replace text at the end</option>
+              <option value="remove_separators_between_digits">Remove separators between numbers</option>
+              <option value="pattern">Advanced pattern</option>
+            </select>
+          </label>
+          <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
+        </div>
+        <p class="muted" data-text-step-limit role="status" aria-live="polite" hidden>You have reached the maximum of 20 cleanup steps for this field.</p>
+        <label class="compact-control">Capitalisation after cleanup
+          <select name="scalar_case_{{ dataset_index }}_{{ field_index }}" data-transform-case>
+            {% set case_mode = mapping.transform.case_mode if mapping else 'preserve' %}
+            <option value="preserve" {% if case_mode == 'preserve' %}selected{% endif %}>Keep as-is</option>
+            <option value="uppercase" {% if case_mode == 'uppercase' %}selected{% endif %}>ALL CAPITALS</option>
+            <option value="lowercase" {% if case_mode == 'lowercase' %}selected{% endif %}>all lowercase</option>
+            <option value="sentence" {% if case_mode == 'sentence' %}selected{% endif %}>Sentence case</option>
+            <option value="title" {% if case_mode == 'title' %}selected{% endif %}>Title Case</option>
+          </select>
+        </label>
+
+        <h4>Check the final text</h4>
+        <div class="rule-inline-fields">
+          <label>
+            Must be exactly
+            <span class="input-with-suffix">
+              <input
+                type="number"
+                name="scalar_exact_length_{{ dataset_index }}_{{ field_index }}"
+                min="1"
+                max="10000"
+                value="{{ validation_rule.exact_length if validation_rule and validation_rule.exact_length is not none else '' }}"
+                placeholder="Any"
+                data-rule-exact-length
+              >
+              <span>characters</span>
+            </span>
+          </label>
+          <label>
+            Characters to check
+            {% set segment_location = validation_rule.segment_location if validation_rule else 'none' %}
+            <select name="scalar_segment_location_{{ dataset_index }}_{{ field_index }}" data-rule-segment-location>
+              <option value="none" {% if segment_location == 'none' %}selected{% endif %}>No character check</option>
+              <option value="entire" {% if segment_location == 'entire' %}selected{% endif %}>The whole value</option>
+              <option value="first" {% if segment_location == 'first' %}selected{% endif %}>The first characters</option>
+              <option value="last" {% if segment_location == 'last' %}selected{% endif %}>The last characters</option>
+            </select>
+          </label>
+        </div>
+        <div class="rule-inline-fields" data-segment-options>
+          <label data-segment-length-control>
+            How many characters?
+            <input
+              type="number"
+              name="scalar_segment_length_{{ dataset_index }}_{{ field_index }}"
+              min="1"
+              max="10000"
+              value="{{ validation_rule.segment_length if validation_rule and validation_rule.segment_length is not none else '' }}"
+              placeholder="For first or last"
+              data-rule-segment-length
+            >
+          </label>
+          <label>
+            They must be
+            {% set character_class = validation_rule.character_class if validation_rule else 'none' %}
+            <select name="scalar_character_class_{{ dataset_index }}_{{ field_index }}" data-rule-character-class>
+              <option value="none" {% if character_class == 'none' %}selected{% endif %}>Choose a character type</option>
+              <option value="digits" {% if character_class == 'digits' %}selected{% endif %}>Digits 0–9</option>
+              <option value="uppercase" {% if character_class == 'uppercase' %}selected{% endif %}>Capital letters A–Z</option>
+              <option value="lowercase" {% if character_class == 'lowercase' %}selected{% endif %}>Lowercase letters a–z</option>
+            </select>
+          </label>
+        </div>
+
+        <details class="advanced-rule">
+          <summary>Advanced: custom pattern</summary>
+          <label>
+            The whole value must match
+            <input
+              name="scalar_pattern_{{ dataset_index }}_{{ field_index }}"
+              value="{{ validation_rule.pattern if validation_rule else '' }}"
+              maxlength="500"
+              placeholder="Example: [A-Z]{3}[0-9]{4}"
+              spellcheck="false"
+              data-rule-pattern
+            >
+          </label>
+          <small>Most users should use the guided checks above. Impodo validates advanced patterns before any row is checked.</small>
+        </details>
+      </div>
+      <details class="advanced-rule" {% if formula_issue %}open{% endif %} data-formula-control {% if value_source == 'concatenate' %}hidden{% endif %}>
+        <summary>Advanced: formula or custom calculation</summary>
+        <label>
+          Formula
+          <textarea
+            name="scalar_formula_{{ dataset_index }}_{{ field_index }}"
+            maxlength="1000"
+            rows="2"
+            placeholder="Example: column_2 * column_3"
+            spellcheck="false"
+            aria-invalid="{{ 'true' if formula_issue else 'false' }}"
+            aria-describedby="formula-help-{{ dataset_index }}-{{ field_index }} formula-feedback-{{ dataset_index }}-{{ field_index }}"
+            data-rule-formula
+            {% if value_source == 'concatenate' %}disabled{% endif %}
+          >{{ transform.formula if transform else '' }}</textarea>
+        </label>
+        <p
+          class="mapping-formula-feedback"
+          id="formula-feedback-{{ dataset_index }}-{{ field_index }}"
+          data-formula-feedback
+          role="status"
+          aria-live="polite"
+          {% if not formula_issue %}hidden{% endif %}
+        ><strong data-formula-feedback-prefix>Must fix:</strong> <span data-formula-feedback-message>{{ formula_issue.display_message if formula_issue else '' }}</span></p>
+        <small id="formula-help-{{ dataset_index }}-{{ field_index }}">
+          Safe formulas only—no files, network, Odoo access, loops, or imported code.
+          Available values:
+          <code>value</code> (this field)
+          {% for column in view.source.columns %}
+            · <code>column_{{ column.ordinal }}</code> ({{ column.source_name }})
+          {% endfor %}
+        </small>
+      </details>
+        </div>
+      </details>
+  </details>
+</div>

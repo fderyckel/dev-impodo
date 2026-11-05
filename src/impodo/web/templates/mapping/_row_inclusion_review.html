@@ -14,6 +14,8 @@
       {% endif %}
     </div>
 
+    <p>These counts cover tables with a row rule.</p>
+
     <div class="impact-cards" aria-label="Rows-to-use counts">
       <article class="impact-card unchanged"><span>Rows checked</span><strong>{{ row_inclusion_review.source_row_count }}</strong></article>
       <article class="impact-card provided"><span>Included</span><strong>{{ row_inclusion_review.included_count }}</strong></article>
@@ -31,9 +33,9 @@
     <div class="actions">
       <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Review rows</a>
       {% if row_inclusion_review.confirmable and row_inclusion_review.excluded_count and not row_inclusion_confirmation %}
-        <button class="button primary" type="submit" name="action" value="confirm_rows" data-confirm-row-inclusion>Confirm {{ row_inclusion_review.included_count }} rows to use</button>
+        <button class="button primary" type="submit" name="action" value="confirm_rows" data-confirm-row-inclusion>Confirm {{ row_inclusion_review.included_count }} {{ 'row' if row_inclusion_review.included_count == 1 else 'rows' }} to use</button>
       {% elif row_inclusion_confirmation %}
-        <span class="status ready">{{ row_inclusion_review.included_count }} rows confirmed</span>
+        <span class="status ready">{{ row_inclusion_review.included_count }} {{ 'row' if row_inclusion_review.included_count == 1 else 'rows' }} confirmed</span>
       {% elif row_inclusion_review.confirmable %}
         <span class="status ready">Every checked row is included</span>
       {% endif %}

@@ -1,0 +1,110 @@
+{% set submitted = source_form|default({}) if source_operation|default('') == 'create-related-datasets' else {} %}
+<details class="form-card secondary-preparation" id="create-related-datasets" data-derived-entity-section data-source-operation="create-related-datasets"{% if pending_related or source_operation|default('') == 'create-related-datasets' %} open{% endif %}>
+  <summary>
+    <span><strong>Create two related tables</strong><small>Use this when several source rows describe the same record.</small></span>
+  </summary>
+  <section class="nested-rule-card">
+    <p class="lead-instruction">Impodo will create one table with one row per group and another that keeps every source row.</p>
+
+    {% for source_view in related_source_views %}
+      {% set dataset = source_view.dataset %}
+      {% set values = submitted if submitted.get('source_dataset_id') == dataset.dataset_id|string else {} %}
+      <details class="source-preparation-choice" id="related-source-{{ dataset.dataset_id }}" {% if (loop.first and not source_view.has_split and not submitted) or values or (pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id) %}open{% endif %}>
+        <summary>
+          <span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows - {{ dataset.columns|length }} fields</small></span>
+          {% if source_view.has_split %}<span class="status registered">Complete</span>{% endif %}
+        </summary>
+        {% if source_view.has_split %}
+          <div class="notice success">This source already has a reviewed related-table setup. Remove that setup above before replacing it.</div>
+        {% else %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/related/preview" data-source-editor data-source-source-id="{{ dataset.dataset_id }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ values.get('expected_parent_version', plan.version if plan else '') }}">
+          <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
+
+          <div class="guided-step">
+            <span class="step-number">1</span>
+            <div>
+              <h3>Name the resulting tables</h3>
+              <p class="muted">Name each table after what one row in that table will represent.</p>
+              <div class="form-grid">
+                <label>
+                  Table with one row per group
+                  <input name="parent_dataset_name" value="{{ values.get('parent_dataset_name', pending_related.rule.parent_dataset_name if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else source_view.parent_name_default) }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                  <small>Name this table after what each group represents. For example, if each group represents a document, use <code>documents</code>.</small>
+                </label>
+                <label>
+                  Table that keeps every source row
+                  <input name="child_dataset_name" value="{{ values.get('child_dataset_name', pending_related.rule.child_dataset_name if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else source_view.child_name_default) }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+                  <small>Name this table after what each retained row represents. For example, use <code>document_rows</code> when each row belongs to a document.</small>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="guided-step">
+            <span class="step-number">2</span>
+            <div>
+              <h3>Define how rows belong together</h3>
+              <div class="form-grid">
+                <label>
+                  Which field groups rows together?
+                  <select name="parent_key_column_key" required>
+                    <option value="">Choose the grouping field</option>
+                    {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('parent_key_column_key', pending_related.rule.parent_key_column_key if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+                  </select>
+                  <small>Choose a field whose repeated value means the rows describe the same record. For example, rows with the same document reference belong together.</small>
+                </label>
+                <label>
+                  Should another field keep identical group values separate?
+                  <select name="scope_column_key">
+                    <option value="">No additional separation</option>
+                    {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('scope_column_key', pending_related.rule.scope_column_key if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+                  </select>
+                  <small>Use this only when the same group value can occur in different contexts. For example, two companies may use the same document reference.</small>
+                </label>
+                <label>
+                  Which field identifies each row within its group?
+                  <select name="child_key_column_key" required>
+                    <option value="">Choose the row identifier</option>
+                    {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('child_key_column_key', pending_related.rule.child_key_column_key if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+                  </select>
+                  <small>Choose a value that is unique inside each group. For example, a sequence number can distinguish the individual rows in one document.</small>
+                </label>
+                <label>
+                  If required identity information is missing
+                  <select name="blank_policy">
+                    <option value="block">Stop and ask me to correct them</option>
+                    <option value="quarantine"{% if values.get('blank_policy', pending_related.rule.blank_policy if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else 'block') == 'quarantine' %} selected{% endif %}>Set those rows aside for review</option>
+                  </select>
+                  <small>Choose whether Impodo should stop for correction or set the affected rows aside.</small>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="guided-step">
+            <span class="step-number">3</span>
+            <div>
+              <h3>Choose whether to keep the original table</h3>
+              <label>
+                Should Match data also show the original table?
+                <select name="source_dataset_use" required>
+                  <option value="preparation_only"{% if values.get('source_dataset_use', pending_related.source_dataset_use if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else 'preparation_only') == 'preparation_only' %} selected{% endif %}>No - use only the two resulting tables</option>
+                  <option value="map_and_prepare"{% if values.get('source_dataset_use', pending_related.source_dataset_use if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id else 'preparation_only') == 'map_and_prepare' %} selected{% endif %}>Yes - also keep the original table</option>
+                </select>
+                <small>Keep the default unless different rows from this same table need their own mapping. You can then use Rows to use in Match data to separate those rows.</small>
+              </label>
+            </div>
+          </div>
+
+          <div class="actions">
+            <button class="button primary" type="submit">Preview the related tables</button>
+          </div>
+          </form>
+          {% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id %}{% include "derived_entities/_related_review.html" %}{% endif %}
+        {% endif %}
+      </details>
+    {% endfor %}
+  </section>
+</details>

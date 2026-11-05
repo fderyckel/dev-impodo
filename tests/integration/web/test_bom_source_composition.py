@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 
 from impodo.domain.workspace.derived_entities import SourceDatasetUse
 from impodo.web.exact_join_forms import (
     available_exact_join_selection,
     exact_join_projection_candidates,
 )
+from tests.support.source_forms import hidden_source_form_value
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     ProjectSetupBrowserTestCase,
@@ -23,20 +23,7 @@ class BomSourceCompositionBrowserTests(ProjectSetupBrowserTestCase):
 
     @staticmethod
     def _hidden_value(page: str, action: str, name: str) -> str:
-        form = re.search(
-            rf'<form method="post" action="{re.escape(action)}">(.*?)</form>',
-            page,
-            re.DOTALL,
-        )
-        if form is None:
-            raise AssertionError(f"Form {action} was not rendered")
-        value = re.search(
-            rf'name="{re.escape(name)}" value="([^"]*)"',
-            form.group(1),
-        )
-        if value is None:
-            raise AssertionError(f"Field {name} was not rendered")
-        return value.group(1)
+        return hidden_source_form_value(page, action, name)
 
     def _frozen_bom_workspace(self):
         created = self._post(

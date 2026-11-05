@@ -59,20 +59,34 @@
   {% if selection %}
     <section class="form-card" id="tables-ready">
       <h2>Tables ready for the next step</h2>
-      <p>Your saved selection will stay linked to these exact source files.</p>
-      <div class="actions">
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
+      <div class="table-scroll">
+        <table class="data-table" data-saved-source-tables>
+          <thead><tr><th>Table</th><th>Rows</th><th>Columns</th><th>Status</th></tr></thead>
+          <tbody>
+            {% for dataset in selection.datasets %}
+              <tr>
+                <th>{{ dataset.name }}</th>
+                <td>{{ dataset.row_count }}</td>
+                <td>{{ dataset.columns|length }}</td>
+                <td><span class="status complete">Saved</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
       </div>
       <section class="optional-workflow" aria-labelledby="combined-information-title">
         <p class="eyebrow">Optional</p>
-        <h3 id="combined-information-title">Does one table combine different kinds of information?</h3>
-        <p>For example, an order table may contain both the order and its individual lines.</p>
+        <h3 id="combined-information-title">Organize source tables</h3>
+        <p>Combine tables, create a related table, or build a hierarchy.</p>
         <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
       </section>
       <details class="technical-evidence">
         <summary>Support details</summary>
         <code>{{ selection.content_hash }}</code>
       </details>
+      <div class="actions">
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
+      </div>
     </section>
   {% endif %}
 {% endblock %}

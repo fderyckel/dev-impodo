@@ -1,0 +1,125 @@
+{% if pending_lookup %}
+  {% set pending_rule = pending_lookup.rule %}
+  {% set pending_preview = pending_lookup.preview %}
+  <section class="nested-rule-card" id="lookup-preview" data-derived-entity-preview data-source-review tabindex="-1">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Review the resulting table</p>
+        <h2>{{ pending_rule.output_dataset_name }}</h2>
+      </div>
+      <span class="status registered">{{ "Needs attention" if pending_preview.needs_attention else "Ready to use" }}</span>
+    </div>
+
+    <div class="notice success">
+      The original <strong>{{ pending_preview.source_dataset_name }}</strong> table stays unchanged. After you confirm, Impodo adds <strong>{{ pending_rule.output_dataset_name }}</strong> to Match data. There, you can review how <strong>{{ pending_preview.source_column_name }}</strong> links to it.
+    </div>
+    <div class="metric-grid">
+      <div><span>Source rows checked</span><strong>{{ pending_preview.source_rows }}</strong></div>
+      <div><span>Rows with a related value</span><strong>{{ pending_preview.linked_source_rows }}</strong></div>
+      <div><span>Rows in the new related table</span><strong>{{ pending_preview.related_record_count }}</strong></div>
+      <div><span>Rows without a usable value</span><strong>{{ pending_preview.rows_without_usable_value }}</strong></div>
+    </div>
+
+    <div class="notice">
+      <strong>How Impodo reached this result</strong>
+      <span>
+        {{ pending_preview.direct_record_count }} different usable {{ "value becomes" if pending_preview.direct_record_count == 1 else "values become" }} rows in the related table.
+        {% if pending_preview.additional_parent_record_count %} Impodo also adds {{ pending_preview.additional_parent_record_count }} parent {{ "row" if pending_preview.additional_parent_record_count == 1 else "rows" }} from the levels separated by <code>{{ pending_rule.parent_separator }}</code>.{% endif %}
+        {% if pending_preview.repeated_source_rows %}{{ pending_preview.repeated_source_rows }} repeated source {{ "row points" if pending_preview.repeated_source_rows == 1 else "rows point" }} to an existing row in that table.{% else %}No source rows repeat a related value.{% endif %}
+      </span>
+    </div>
+
+    {% if pending_preview.blank_source_rows %}
+      <div class="notice warning">
+        <strong>{{ pending_preview.blank_source_rows }} source {{ "row has" if pending_preview.blank_source_rows == 1 else "rows have" }} no related value.</strong>
+        During Prepare data, Impodo will {% if pending_rule.blank_policy == 'quarantine' %}set those rows aside for review{% else %}stop and ask you to correct them{% endif %}.
+      </div>
+    {% endif %}
+    {% if pending_preview.invalid_path_source_rows %}
+      <div class="notice warning">
+        <strong>{{ pending_preview.invalid_path_source_rows }} source {{ "row contains" if pending_preview.invalid_path_source_rows == 1 else "rows contain" }} an empty level.</strong>
+        For example, a value such as <code>Furniture {{ pending_rule.parent_separator }} {{ pending_rule.parent_separator }} Chairs</code> cannot identify a complete related record. Prepare data will treat these rows like a blank related value.
+      </div>
+    {% endif %}
+    {% if pending_preview.values_to_review %}
+      <h3>Source spellings to review</h3>
+      <p>Impodo ignores capitalization and extra spacing when it decides whether values refer to the same related record. Check the values it will combine.</p>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Related record</th><th>Source values combined</th><th>Source rows</th><th>What will happen</th></tr></thead>
+          <tbody>
+            {% for candidate in pending_preview.values_to_review %}
+              <tr>
+                <th>{{ candidate.name }}</th>
+                <td>{{ candidate.aliases|join(', ') }}</td>
+                <td>{{ candidate.source_row_count }}</td>
+                <td>Use one related record</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% if pending_preview.combined_spelling_count > (pending_preview.values_to_review|length) %}
+        <p class="muted">Showing 10 of {{ pending_preview.combined_spelling_count }} related records that combine source spellings.</p>
+      {% endif %}
+    {% else %}
+      <div class="notice success">Impodo found no capitalization or spacing variations that would silently become the same related record.</div>
+    {% endif %}
+
+    {% if pending_preview.related_record_count == 0 %}
+      <div class="notice error">
+        <strong>There is no related table to add.</strong>
+        None of the accepted source rows contains a usable value in this field. Change the field or correct the source data before continuing.
+      </div>
+    {% elif not pending_preview.can_add %}
+      <div class="notice error">
+        <strong>This related table is larger than the currently supported limit.</strong>
+        It would contain {{ pending_preview.related_record_count }} records. Impodo currently supports up to {{ pending_preview.supported_record_limit }} records from this type of rule, so you cannot add it to Match data yet.
+      </div>
+    {% endif %}
+
+    <details class="technical-details">
+      <summary>Support details and example records</summary>
+      <p>This section shows a bounded set of technical identities from the complete review.</p>
+      {% if pending_preview.result_examples %}
+        <div class="table-scroll">
+          <table class="data-table">
+            <thead><tr><th>Related record</th><th>Matching key</th><th>External ID</th><th>Source rows</th></tr></thead>
+            <tbody>
+              {% for candidate in pending_preview.result_examples %}
+                <tr>
+                  <th>{{ candidate.name }}</th>
+                  <td><code>{{ candidate.canonical_key }}</code></td>
+                  <td><code>{{ candidate.odoo_external_id }}</code></td>
+                  <td>{{ candidate.source_row_count }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if pending_preview.related_record_count > (pending_preview.result_examples|length) %}
+          <p class="muted">Showing {{ pending_preview.result_examples|length }} of {{ pending_preview.related_record_count }} related records.</p>
+        {% endif %}
+      {% else %}
+        <p>No related records can be produced from this field.</p>
+      {% endif %}
+    </details>
+
+    <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/save" data-source-save>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="return_to" value="{{ source_form.get('return_to', '') if source_form is defined else '' }}">
+      <input type="hidden" name="expected_parent_version" value="{{ source_form.get('expected_parent_version', plan.version if plan else '') if source_form is defined else (plan.version if plan else '') }}">
+      <input type="hidden" name="source_binding" value="{{ pending_rule.source_dataset_id }}|{{ pending_rule.source_column_key }}">
+      <input type="hidden" name="output_dataset_name" value="{{ pending_rule.output_dataset_name }}">
+      <input type="hidden" name="target_model" value="{{ pending_rule.target_model }}">
+      <input type="hidden" name="target_name_field" value="{{ pending_rule.target_name_field }}">
+      <input type="hidden" name="external_id_namespace" value="{{ pending_rule.external_id_namespace }}">
+      <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
+      <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
+      <div class="actions">
+        <button class="button secondary" type="button" data-derived-entity-target="lookup-form">Change selections</button>
+        {% if pending_preview.can_add %}<button class="button primary" type="submit">Use this table</button>{% endif %}
+      </div>
+    </form>
+  </section>
+{% endif %}

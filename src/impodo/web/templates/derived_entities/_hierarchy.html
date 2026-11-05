@@ -1,0 +1,110 @@
+{% set submitted = source_form|default({}) if source_operation|default('') == 'hierarchy-extraction' else {} %}
+<details class="form-card secondary-preparation" id="hierarchy-extraction" data-derived-entity-section data-source-operation="hierarchy-extraction"{% if pending_hierarchy or source_operation|default('') == 'hierarchy-extraction' %} open{% endif %}>
+  <summary>
+    <span><strong>Build a hierarchy from separate fields</strong><small>Use this when one field contains the parent and another contains its child.</small></span>
+  </summary>
+
+  {% if model_catalog %}
+    {% for source_view in related_source_views %}
+      {% set dataset = source_view.dataset %}
+      {% set values = submitted if submitted.get('source_dataset_id') == dataset.dataset_id|string else {} %}
+      {% set edit_rule = pending_hierarchy.rule if pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id else none %}
+      <details class="source-preparation-choice" id="hierarchy-source-{{ dataset.dataset_id }}" {% if (loop.first and not submitted) or values or (pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id) %}open{% endif %}>
+        <summary><span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows · {{ dataset.columns|length }} fields</small></span></summary>
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview" data-source-editor data-source-source-id="{{ dataset.dataset_id }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ values.get('expected_parent_version', plan.version if plan else '') }}">
+          <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
+          <div class="form-grid">
+            {% for level in range(1, 6) %}
+              <label>
+                Hierarchy level {{ level }}{% if level > 2 %} (optional){% endif %}
+                <select name="hierarchy_level_{{ level }}" {% if level <= 2 %}required{% endif %}>
+                  <option value="">{% if level <= 2 %}Choose level {{ level }}{% else %}No further level{% endif %}</option>
+                  {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('hierarchy_level_' ~ level, edit_rule.source_level_column_keys[level - 1] if edit_rule and level <= (edit_rule.source_level_column_keys|length) else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+                </select>
+              </label>
+            {% endfor %}
+            <label>
+              Name shown in Impodo
+              <input name="output_dataset_name" value="{{ values.get('output_dataset_name', edit_rule.output_dataset_name if edit_rule else '') }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
+            </label>
+            <label>
+              Type of Odoo record
+              <input name="target_model" aria-label="Type of Odoo record" value="{{ values.get('target_model', edit_rule.target_model if edit_rule else '') }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
+            </label>
+            <label>
+              When a parent is blank but a later level is populated
+              <select name="missing_parent_mode">
+                <option value="block">Stop and ask me to correct it</option>
+                <option value="quarantine"{% if values.get('missing_parent_mode', edit_rule.missing_parent.mode if edit_rule else 'block') == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
+                <option value="fixed"{% if values.get('missing_parent_mode', edit_rule.missing_parent.mode if edit_rule else 'block') == 'fixed' %} selected{% endif %}>Use a fixed parent value</option>
+                <option value="promote"{% if values.get('missing_parent_mode', edit_rule.missing_parent.mode if edit_rule else 'block') == 'promote' %} selected{% endif %}>Make the next populated value top-level</option>
+              </select>
+            </label>
+            <label>
+              Fixed parent value
+              <input name="missing_parent_value" value="{{ values.get('missing_parent_value', (edit_rule.missing_parent.value or '') if edit_rule else '') }}" maxlength="500" placeholder="Default">
+              <small>This is required only when you choose a fixed parent. It creates or reuses a real incoming related record.</small>
+            </label>
+            <label>
+              When the final level is blank
+              <select name="missing_leaf">
+                <option value="use_deepest">Use the deepest populated level</option>
+                <option value="block"{% if values.get('missing_leaf', edit_rule.missing_leaf if edit_rule else 'use_deepest') == 'block' %} selected{% endif %}>Stop and ask me to correct it</option>
+                <option value="quarantine"{% if values.get('missing_leaf', edit_rule.missing_leaf if edit_rule else 'use_deepest') == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
+              </select>
+            </label>
+            <label>
+              When every selected level is blank
+              <select name="all_blank_mode">
+                <option value="emit_null_reference">Leave the related value blank</option>
+                <option value="fixed"{% if values.get('all_blank_mode', edit_rule.all_blank.mode if edit_rule else 'emit_null_reference') == 'fixed' %} selected{% endif %}>Use one fixed related value</option>
+                <option value="block"{% if values.get('all_blank_mode', edit_rule.all_blank.mode if edit_rule else 'emit_null_reference') == 'block' %} selected{% endif %}>Stop and ask me to correct it</option>
+                <option value="quarantine"{% if values.get('all_blank_mode', edit_rule.all_blank.mode if edit_rule else 'emit_null_reference') == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
+              </select>
+            </label>
+            <label>
+              Fixed related value
+              <input name="all_blank_value" value="{{ values.get('all_blank_value', (edit_rule.all_blank.value or '') if edit_rule else '') }}" maxlength="500">
+            </label>
+          </div>
+          <details class="technical-details">
+            <summary>Support options</summary>
+            <label>Odoo display field <input name="target_name_field" value="{{ values.get('target_name_field', edit_rule.target_name_field if edit_rule else 'name') }}" pattern="[a-z_][a-z0-9_.]{0,127}" required></label>
+            <label>Stable source-system namespace <input name="external_id_namespace" value="{{ values.get('external_id_namespace', edit_rule.external_id_namespace if edit_rule else namespace_default) }}" pattern="[a-z][a-z0-9_]{0,39}" required></label>
+          </details>
+          <div class="notice">
+            A blank parent cannot become an empty Odoo record. Choose a real fixed parent, make the populated value top-level, set the row aside, or stop for correction.
+          </div>
+          <div class="actions"><button class="button primary" type="submit">Preview hierarchy records</button></div>
+        </form>
+        {% if pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id %}{% include "derived_entities/_hierarchy_review.html" %}{% endif %}
+      </details>
+    {% endfor %}
+  {% else %}
+    <div class="notice warning">
+      <strong>Load the existing Odoo record types first.</strong>
+      Impodo checks this hierarchy against the available record types in the configured Odoo database.
+    </div>
+    <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="actions">
+        {% if not workspace_state.odoo_connection_mode %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Set up Odoo access</a>
+        {% elif read_credential_prompt and not read_credential_prompt.available %}
+          <button
+            class="button primary"
+            type="button"
+            data-open-read-credential
+            data-read-credential-resume="submit"
+            data-read-credential-resume-action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh?return_to=hierarchy"
+          >Enter key and show Odoo record types</button>
+        {% else %}
+          <button class="button primary" type="submit">Show available Odoo record types</button>
+        {% endif %}
+        {% if workspace_state.odoo_connection_mode %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Review Odoo access</a>{% endif %}
+      </div>
+    </form>
+  {% endif %}
+</details>

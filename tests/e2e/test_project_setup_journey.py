@@ -409,8 +409,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(related_preview.status_code, 200)
         self.assertIn("Review before creating", related_preview.text)
-        self.assertIn("Create these separate tables", related_preview.text)
-        self.assertIn('id="create-related-datasets" data-derived-entity-section open', related_preview.text)
+        self.assertIn("Use these tables", related_preview.text)
+        self.assertRegex(related_preview.text,
+            r'<details\b(?=[^>]*\bid="create-related-datasets")'
+            r'(?=[^>]*\bdata-derived-entity-section\b)(?=[^>]*\bopen\b)[^>]*>')
         self.assertIn(
             f'data-derived-entity-target="related-source-{product_dataset.dataset_id}">Change selections</button>',
             related_preview.text,
@@ -533,9 +535,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             headers=POST_HEADERS,
         )
         self.assertEqual(hierarchy_preview.status_code, 200, hierarchy_preview.text)
-        self.assertIn(
-            'id="hierarchy-extraction" data-derived-entity-section open',
+        self.assertRegex(
             hierarchy_preview.text,
+            r'<details\b(?=[^>]*\bid="hierarchy-extraction")'
+            r'(?=[^>]*\bdata-derived-entity-section\b)(?=[^>]*\bopen\b)[^>]*>',
         )
         self.assertIn(
             f'data-derived-entity-target="hierarchy-source-{product_dataset.dataset_id}">Change selections</button>',
@@ -574,8 +577,10 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Source rows checked", lookup_preview.text)
         self.assertIn("Rows in the new related table", lookup_preview.text)
         self.assertIn("Odoo stays unchanged", lookup_preview.text)
-        self.assertIn("Add related table to Match data", lookup_preview.text)
-        self.assertIn('id="lookup-extraction" data-derived-entity-section open', lookup_preview.text)
+        self.assertIn("Use this table", lookup_preview.text)
+        self.assertRegex(lookup_preview.text,
+            r'<details\b(?=[^>]*\bid="lookup-extraction")'
+            r'(?=[^>]*\bdata-derived-entity-section\b)(?=[^>]*\bopen\b)[^>]*>')
         self.assertIn('data-derived-entity-target="lookup-form">Change selections</button>', lookup_preview.text)
         self.assertIn('value="product_names"', lookup_preview.text)
         saved_derived = self.client.post(

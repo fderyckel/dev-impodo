@@ -4,6 +4,7 @@ import os
 from dataclasses import replace
 from pathlib import Path
 import unittest
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 try:
@@ -71,12 +72,12 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     page_errors = []
                     page.on("pageerror", lambda error: page_errors.append(str(error)))
                     page.goto(
-                        f"{base}/workspaces/{workspace_id}/mapping",
+                        f"{base}/workspaces/{workspace_id}/mapping?step=tables&task=fields",
                         wait_until="networkidle",
                     )
                     panel = page.locator("#related-data-review")
                     expect(panel).to_be_hidden()
-                    literal = page.locator("[data-literal-value]").first
+                    literal = page.locator('[data-scalar-mapping-row][data-target-field="field_0000"] [data-literal-value]')
                     literal.fill("Unsaved account name")
                     stale = replace(
                         review,
@@ -90,6 +91,7 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                         expected_version=review.version,
                         actor=actor,
                     )
+                    page.locator('.sidebar-subnav-link[href*="step=check"]').click()
                     page.locator("[data-check-mapping]").click()
                     expect(panel).to_be_visible()
                     expect(
@@ -97,9 +99,9 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     ).to_have_attribute("open", "")
                     expect(literal).to_have_value("Unsaved account name")
                     expect(page.locator("[data-mapping-save-outcome]")).to_be_hidden()
-                    confirm = panel.get_by_role(
+                    confirm = panel.locator("[data-related-review-form] > .actions").get_by_role(
                         "button", name="Confirm choices and check matches"
-                    ).first
+                    )
                     expect(confirm).to_be_in_viewport()
 
                     save_url = f"**/workspaces/{workspace_id}/schema/supporting/save"
@@ -128,12 +130,26 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     expect(literal).to_have_value("Unsaved account name")
                     expect(confirm).to_be_in_viewport()
 
-                    if capture := os.environ.get("IMPODO_RELATED_REVIEW_SCREENSHOT"):
+                    capture = os.environ.get("IMPODO_RELATED_REVIEW_SCREENSHOT")
+                    if not capture and (directory := os.environ.get("IMPODO_STAGE3_SCREENSHOT_DIR")):
+                        capture = str(Path(directory) / "11o-related-data-recovery.png")
+                    if capture:
                         if major == 20:
                             panel.scroll_into_view_if_needed()
                             page.evaluate("window.scrollBy(0, -70)")
                             Path(capture).parent.mkdir(parents=True, exist_ok=True)
-                            page.screenshot(path=capture)
+                            page.evaluate("""async () => {
+                                await document.fonts.ready;
+                                let previous = null, stable = 0;
+                                for (let frame = 0; frame < 120; frame += 1) {
+                                    await new Promise(requestAnimationFrame);
+                                    const current = `${scrollX}:${scrollY}`;
+                                    stable = current === previous ? stable + 1 : 0;
+                                    previous = current;
+                                    if (stable >= 4) return;
+                                }
+                            }""")
+                            page.screenshot(path=capture, animations="disabled")
                             page.set_viewport_size({"width": 390, "height": 844})
                             self.assertFalse(
                                 page.evaluate(
@@ -141,23 +157,31 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                                 )
                             )
                             page.set_viewport_size({"width": 1440, "height": 1024})
-                    with page.expect_response(
-                        lambda response: response.url.endswith("/mapping/save")
-                    ) as checked:
-                        confirm.click()
+                    with page.expect_navigation(wait_until="networkidle"):
+                        with page.expect_response(
+                            lambda response: urlsplit(response.url).path.endswith("/mapping/save")
+                            and response.request.method == "POST"
+                        ) as checked:
+                            confirm.click()
                     self.assertEqual(checked.value.status, 200)
                     revision = context.queries.get_mapping_revision(workspace_id)
                     self.assertEqual(
                         revision.definition.datasets[0].fields[0].literal_value,
                         "Unsaved account name",
                     )
-                    expect(page.locator("[data-literal-value]").first).to_have_value(
+                    expect(literal).to_have_value(
                         "Unsaved account name"
                     )
                     provider = page.locator(
                         '[data-relation-mapping-row][data-target-field="company_ids"] [data-relation-value-source]'
                     )
+                    page.locator('.sidebar-subnav-link[href*="step=tables"]').click()
+                    page.locator('[data-mapping-go-task="links"]').click()
+                    card = page.locator('[data-relation-mapping-row][data-target-field="company_ids"]')
+                    if not card.evaluate("element => element.open"):
+                        card.locator(":scope > summary").click()
                     provider.select_option("")
+                    page.locator('.sidebar-subnav-link[href*="step=check"]').click()
                     page.locator("[data-check-mapping]").click()
                     expect(panel).to_be_visible()
                     expect(panel).to_contain_text(

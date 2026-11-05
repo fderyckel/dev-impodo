@@ -177,7 +177,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(checked.status_code, 200, checked.text)
         self.assertEqual(checked.json()["status"], "committed")
-        self.assertIn("Review and confirm 1 rows to use", checked.json()["message"])
+        self.assertIn("Review and confirm 1 row to use", checked.json()["message"])
         receipt = context.mapping_workspace.get_mutation_receipt(
             workspace_id,
             operation_id,
@@ -195,7 +195,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(page.status_code, 200, page.text)
         self.assertIn("Rows to use", page.text)
         self.assertIn("1 included, 1 excluded", page.text)
-        self.assertIn("Confirm 1 rows to use", page.text)
+        self.assertIn("Confirm 1 row to use", page.text)
 
         review = self.client.get(
             f"/workspaces/{workspace_id}/mapping/rows-to-use?outcome=excluded"
@@ -240,7 +240,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(confirmed.status_code, 200, confirmed.text)
         self.assertEqual(confirmed.json()["message"], "Rows to use confirmed.")
         confirmed_page = self.client.get(f"/workspaces/{workspace_id}/mapping")
-        self.assertIn("1 rows confirmed", confirmed_page.text)
+        self.assertIn("1 row confirmed", confirmed_page.text)
 
     def test_failed_rows_check_preserves_the_saved_revision_for_retry(self) -> None:
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
@@ -522,7 +522,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match supporting tables first", page.text)
         self.assertIn("This page did not contact Odoo", page.text)
         self.assertIn("Starting order", page.text)
-        self.assertIn("Table 1 of 1", page.text)
+        self.assertIn("Current table", page.text)
         self.assertIn('aria-current="step"', page.text)
         self.assertIn("Ready now", page.text)
 

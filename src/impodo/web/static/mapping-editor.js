@@ -349,8 +349,11 @@ document.addEventListener("DOMContentLoaded", () => {
     if (saveStatus && savedAt) {
       const savedDate = new Date(savedAt);
       if (!Number.isNaN(savedDate.getTime())) {
-        saveStatus.textContent =
-          `Saved ${savedDate.toLocaleString()}. Check matches when ready.`;
+        const attention = saveStatus.textContent.includes("needs attention");
+        saveStatus.title = savedDate.toLocaleString();
+        saveStatus.textContent = `Saved ${savedDate.toLocaleTimeString([], {
+          hour: "2-digit", minute: "2-digit",
+        })}${attention ? " — needs attention." : "."}`;
       }
     }
 

@@ -2,6 +2,10 @@
 
 document.addEventListener("DOMContentLoaded", () => {
   const revealTarget = (id) => {
+    if (window.impodoSourceJourney) {
+      window.impodoSourceJourney.reveal(id);
+      return;
+    }
     const target = document.getElementById(id);
     if (!target) {
       return;

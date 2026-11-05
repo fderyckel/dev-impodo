@@ -1,0 +1,136 @@
+{% for view in join_rule_views %}
+  {% set rule = view.rule %}
+  {% set review = view.review %}
+  <details class="source-saved-card exact-join-rule-card" id="join-rule-{{ rule.rule_id }}" data-source-saved data-source-name="{{ view.output.name }}" data-source-kind="{{ 'combine-source-tables' if view.grouped else 'combine-two-tables' }}">
+    <summary><span><strong>{{ view.output.name }}</strong><small>Combined table · {{ rule.output_columns|length }} fields{% if review %} · {{ review.actual_output_rows }} rows{% endif %}</small></span><span class="status registered">Saved</span></summary>
+    <div class="source-saved-detail">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Combined table prepared</p>
+        <h2>{{ view.output.name }}</h2>
+        <p>One row represents one <strong>{{ view.left.name }}</strong> row.{% if not view.grouped %} This is structural preparation step {{ view.step }}.{% endif %}</p>
+      </div>
+      <div class="actions">
+        <span class="status registered">Complete</span>
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities?edit_join={{ rule.rule_id }}#{{ 'combine-source-tables' if rule.group_id else 'combine-two-tables' }}">Edit columns and choices</a>
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
+          <button class="button secondary" type="submit">Remove combination</button>
+        </form>
+      </div>
+    </div>
+    <div class="join-summary-flow">
+      <div><span>Primary input</span><strong>{{ view.left.name }}</strong><small>{{ view.left_use_label }}{% if view.left_use_label == 'Preparation only' %} - hidden from Match data{% endif %}</small></div>
+      <div class="relationship-connector" aria-hidden="true">combine</div>
+      <div><span>{{ "Added inputs" if view.grouped else "Added input" }}</span><strong>{% if view.grouped %}{% for input in view.inputs[1:] %}{{ input.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% else %}{{ view.right.name }}{% endif %}</strong><small>{% if view.grouped %}{{ view.inputs|length - 1 }} enrichments - hidden from Match data{% else %}{{ view.right_use_label }}{% if view.right_use_label == 'Preparation only' %} - hidden from Match data{% endif %}{% endif %}</small></div>
+      <div class="relationship-connector" aria-hidden="true">creates</div>
+      <div class="logical-output-card"><span>Mapped logical dataset</span><strong>{{ view.output.name }}</strong><small>Shown in Match data</small></div>
+    </div>
+    <div class="definition-list">
+      <div><dt>Join keys</dt><dd>{{ rule.keys|length }} exact typed pair(s)</dd></div>
+      <div><dt>Enrichment</dt><dd>{% if view.grouped %}{{ view.inputs|length - 1 }} added tables reviewed together{% else %}{{ "Required" if rule.kind.value == 'INNER' else "Optional" }}{% endif %}</dd></div>
+      <div><dt>Output fields</dt><dd>{{ rule.output_columns|length }} selected and named</dd></div>
+      <div><dt>Reconciliation</dt><dd>{% if review %}{{ review.actual_output_rows }} output rows from {{ review.left_rows }} base rows{% else %}Saved review unavailable{% endif %}</dd></div>
+    </div>
+    <details>
+      <summary>Saved columns ({{ view.columns|length }})</summary>
+      <div class="table-scroll"><table class="data-table">
+        <thead><tr><th>Source table</th><th>Source column</th><th>Saved output name</th></tr></thead>
+        <tbody>{% for source_table, source_column, output_name in view.columns %}<tr><td>{{ source_table }}</td><td>{{ source_column }}</td><td>{{ output_name }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+    </details>
+    </div>
+  </details>
+{% endfor %}
+
+{% for view in related_rule_views %}
+  {% set rule = view.rule %}
+  {% set preview = view.preview %}
+  <details class="source-saved-card related-rule-card" id="related-rule-{{ rule.rule_id }}" data-source-saved data-source-name="{{ rule.parent_dataset_name }}" data-source-kind="create-related-datasets">
+    <summary><span><strong>{{ rule.parent_dataset_name }} and {{ rule.child_dataset_name }}</strong><small>Two related tables{% if preview %} · {{ preview.child_rows }} source rows{% endif %}</small></span><span class="status registered">Saved</span></summary>
+    <div class="source-saved-detail">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Related tables prepared</p>
+        <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
+        <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
+      </div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
+        <button class="button secondary" type="submit">Remove split</button>
+      </form>
+    </div>
+
+    <div class="relationship-summary">
+      <div><span>One row per group</span><strong>{{ rule.parent_dataset_name }}</strong><small>repeated information kept once</small></div>
+      <div class="relationship-connector" aria-hidden="true">1 to many</div>
+      <div><span>Every source row</span><strong>{{ rule.child_dataset_name }}</strong><small>original row detail retained</small></div>
+    </div>
+
+    <div class="definition-list">
+      <div><dt>Group identifier</dt><dd>{{ rule.parent_key_column_key }}</dd></div>
+      <div><dt>Additional separation</dt><dd>{{ rule.scope_column_key or "Not used" }}</dd></div>
+      <div><dt>Row identifier</dt><dd>{{ rule.child_key_column_key }}</dd></div>
+      <div><dt>If information is missing</dt><dd>{% if rule.blank_policy == 'quarantine' %}Set rows aside{% else %}Stop and ask{% endif %}</dd></div>
+      <div><dt>Original table</dt><dd>{% if view.source_use_label == 'Map and prepare' %}Also available in Match data{% else %}Hidden from Match data{% endif %}</dd></div>
+    </div>
+    {% if view.preview_error %}
+      <div class="notice error">{{ view.preview_error }}</div>
+    {% elif preview %}
+      <p class="muted">
+        Impodo found {{ preview.parent_candidate_count }} possible group(s){% if not preview.parent_candidate_count_is_exact %} in the available preview{% endif %} and retained {{ preview.child_rows }} source row(s). These tables will be suggested when you match data to Odoo.
+      </p>
+    {% endif %}
+    </div>
+  </details>
+{% endfor %}
+
+  {% for view in rule_views %}
+    {% set rule = view.rule %}
+    {% set preview = view.preview %}
+    {% set is_hierarchy = rule.source_level_column_keys is defined %}
+    <details class="source-saved-card" id="{{ 'hierarchy' if is_hierarchy else 'lookup' }}-rule-{{ rule.rule_id }}" data-source-saved data-source-name="{{ rule.output_dataset_name }}" data-source-kind="{{ 'hierarchy-extraction' if is_hierarchy else 'lookup-extraction' }}">
+      <summary><span><strong>{{ rule.output_dataset_name }}</strong><small>{{ 'Hierarchy table' if is_hierarchy else 'Related table from one field' }} · {{ rule.target_model }}</small></span><span class="status registered">Saved</span></summary>
+      <div class="source-saved-detail">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">{{ "Hierarchy table saved" if is_hierarchy else "Related table saved" }}</p>
+          <h2>{{ rule.output_dataset_name }}</h2>
+          <p>This table is available in Match data. No Odoo records have been created.</p>
+        </div>
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
+          <button class="button secondary" type="submit">Remove rule</button>
+        </form>
+      </div>
+      {% if view.preview_error %}
+        <div class="notice error">{{ view.preview_error }}</div>
+      {% elif preview %}
+        <p>Impodo will build this table from <strong>{{ preview.source_column_name }}</strong> in <strong>{{ preview.source_dataset_name }}</strong>. The saved rule is available beside the original table in Match data.</p>
+        {% if preview.candidates %}
+          <details>
+            <summary>Support details for {{ preview.candidates|length }} candidate(s)</summary>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Canonical entity</th><th>Stable Impodo ID</th><th>Odoo External ID</th><th>Sample evidence</th></tr></thead>
+                <tbody>
+                  {% for candidate in preview.candidates %}
+                    <tr>
+                      <td><strong>{{ candidate.name }}</strong><br><code>{{ candidate.canonical_key }}</code></td>
+                      <td><code>{{ candidate.entity_id }}</code></td>
+                      <td><code>{{ candidate.odoo_external_id }}</code></td>
+                      <td>{{ candidate.sampled_source_row_count }} contributing row(s)</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        {% endif %}
+      {% endif %}
+      </div>
+    </details>
+  {% endfor %}

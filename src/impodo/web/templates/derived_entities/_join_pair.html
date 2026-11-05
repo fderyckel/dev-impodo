@@ -1,0 +1,163 @@
+<details class="form-card secondary-preparation" id="combine-two-tables" data-derived-entity-section data-source-operation="combine-two-tables"{% if pending_join or editing_join_pair or source_operation|default('') == 'combine-two-tables' %} open{% endif %}>
+  <summary>
+    <span><strong>Advanced: combine two tables</strong><small>Keep the existing pairwise editor for structural workflows that need an explicit chain.</small></span>
+  </summary>
+  {% if editing_join_pair %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
+  <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/preview" data-source-editor data-exact-join-form>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="expected_parent_version" value="{{ join_form.expected_parent_version if join_form.expected_parent_version is not none else '' }}">
+    <input type="hidden" name="rule_id" value="{{ join_form.rule_id }}">
+
+    <div class="guided-step">
+      <span class="step-number">1</span>
+      <div>
+        <h3>Name the logical output</h3>
+        <label>
+          Combined table name
+          <input name="output_dataset_name" value="{{ join_form.output_dataset_name }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="customers" required>
+          <small>The base table defines what one output row represents. The preview states this grain explicitly.</small>
+        </label>
+      </div>
+    </div>
+
+    <div class="guided-step">
+      <span class="step-number">2</span>
+      <div>
+        <h3>Choose the two partial views</h3>
+        <div class="form-grid join-input-grid">
+          <label>
+            Base dataset
+            <select name="left_dataset_id" data-exact-join-input="left" required>
+              <option value="">Choose the base dataset</option>
+              {% for view in join_dataset_views %}<option value="{{ view.dataset.dataset_id }}" data-physical="{{ 'true' if view.physical else 'false' }}"{% if join_form.left_dataset_id == view.dataset.dataset_id %} selected{% endif %}>{{ view.dataset.name }}{% if not view.physical %} - prepared logical dataset{% endif %}</option>{% endfor %}
+            </select>
+            <small id="exact-join-grain">One output row will represent one row from the base dataset.</small>
+          </label>
+          <label>
+            Added dataset
+            <select name="right_dataset_id" data-exact-join-input="right" required>
+              <option value="">Choose the added dataset</option>
+              {% for view in join_dataset_views %}<option value="{{ view.dataset.dataset_id }}" data-physical="{{ 'true' if view.physical else 'false' }}"{% if join_form.right_dataset_id == view.dataset.dataset_id %} selected{% endif %}>{{ view.dataset.name }}{% if not view.physical %} - prepared logical dataset{% endif %}</option>{% endfor %}
+            </select>
+            <small>The added dataset may provide zero or one matching row for each base key.</small>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="guided-step">
+      <span class="step-number">3</span>
+      <div>
+        <h3>Pair the exact join keys</h3>
+        <p class="muted">Use one to five pairs. Include company, partition, or another scope whenever the identifier is not globally unique.</p>
+        <div class="table-scroll">
+          <table class="data-table exact-join-key-table">
+            <thead><tr><th>Pair</th><th>Base field</th><th>Added field</th><th>Value type</th></tr></thead>
+            <tbody>
+              {% for key in join_form.key_rows %}
+                <tr>
+                  <th>{{ loop.index }}</th>
+                  <td>
+                    <select name="key_left_{{ loop.index }}" aria-label="Base join field {{ loop.index }}" data-exact-key-side="left"{% if loop.first %} required{% endif %}>
+                      <option value="">{{ "Choose a field" if loop.first else "Not used" }}</option>
+                      {% for view in join_dataset_views %}<optgroup label="{{ view.dataset.name }}">{% for column_view in view.columns %}{% set column_token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ column_token }}" data-dataset-id="{{ view.dataset.dataset_id }}"{% if key[0] == column_token or (key[0] == column_view.column.stable_key and join_form.left_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select name="key_right_{{ loop.index }}" aria-label="Added join field {{ loop.index }}" data-exact-key-side="right"{% if loop.first %} required{% endif %}>
+                      <option value="">{{ "Choose a field" if loop.first else "Not used" }}</option>
+                      {% for view in join_dataset_views %}<optgroup label="{{ view.dataset.name }}">{% for column_view in view.columns %}{% set column_token = view.dataset.dataset_id ~ '|' ~ column_view.column.stable_key %}<option value="{{ column_token }}" data-dataset-id="{{ view.dataset.dataset_id }}"{% if key[1] == column_token or (key[1] == column_view.column.stable_key and join_form.right_dataset_id == view.dataset.dataset_id) %} selected{% endif %}>{{ column_view.column.source_name }}</option>{% endfor %}</optgroup>{% endfor %}
+                    </select>
+                  </td>
+                  <td>
+                    <select name="key_type_{{ loop.index }}" aria-label="Join value type {{ loop.index }}">
+                      {% for value, label in [('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Decimal number'), ('boolean', 'Yes or no'), ('date', 'Date'), ('datetime', 'Date and time')] %}<option value="{{ value }}"{% if key[2] == value %} selected{% endif %}>{{ label }}</option>{% endfor %}
+                    </select>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="guided-step">
+      <span class="step-number">4</span>
+      <div>
+        <h3>Set the completeness rule</h3>
+        <div class="form-grid">
+          <label>
+            Base-row enrichment
+            <select name="kind">
+              <option value="LEFT"{% if join_form.kind == 'LEFT' %} selected{% endif %}>Optional - keep an unmatched base row</option>
+              <option value="INNER"{% if join_form.kind == 'INNER' %} selected{% endif %}>Required - block if a base row has no match</option>
+            </select>
+          </label>
+          <label class="inline-choice">
+            <input type="checkbox" name="require_all_right_rows" value="1"{% if join_form.require_all_right_rows %} checked{% endif %}>
+            <span>Require every added row to be used</span>
+            <small>Leave this clear when the added table legitimately contains records outside the base population.</small>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="guided-step">
+      <span class="step-number">5</span>
+      <div>
+        <h3>Select and name the output fields</h3>
+        <p class="muted">Choose only the fields needed later. Give colliding fields different output names.</p>
+        {% for view in join_dataset_views %}
+          <fieldset class="join-projection-group" data-exact-projection-dataset="{{ view.dataset.dataset_id }}">
+            <legend>{{ view.dataset.name }}</legend>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Include</th><th>Source field</th><th>Output name</th><th>Type</th></tr></thead>
+                <tbody>
+                  {% for column_view in view.columns %}
+                    <tr>
+                      <td><input type="checkbox" name="projection" value="{{ column_view.projection_index }}" aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"{% if column_view.selected %} checked{% endif %}></td>
+                      <td>{{ column_view.column.source_name }}</td>
+                      <td><input name="projection_name" value="{{ column_view.output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                      <td>{{ column_view.column.candidate_type }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </fieldset>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="guided-step">
+      <span class="step-number">6</span>
+      <div>
+        <h3>Choose how the physical inputs enter Match data</h3>
+        <p class="muted">Preparation-only tables remain immutable evidence and keep complete lineage, but they do not need their own Odoo mapping.</p>
+        <div class="form-grid">
+          <label data-exact-use-side="left">
+            Base input use
+            <select name="left_dataset_use">
+              <option value="preparation_only"{% if join_form.left_dataset_use == 'preparation_only' %} selected{% endif %}>Preparation only</option>
+              <option value="map_and_prepare"{% if join_form.left_dataset_use == 'map_and_prepare' %} selected{% endif %}>Map and prepare</option>
+            </select>
+          </label>
+          <label data-exact-use-side="right">
+            Added input use
+            <select name="right_dataset_use">
+              <option value="preparation_only"{% if join_form.right_dataset_use == 'preparation_only' %} selected{% endif %}>Preparation only</option>
+              <option value="map_and_prepare"{% if join_form.right_dataset_use == 'map_and_prepare' %} selected{% endif %}>Map and prepare</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="button primary" type="submit">Review complete join</button>
+    </div>
+  </form>
+  {% include "derived_entities/_join_pair_review.html" %}
+</details>

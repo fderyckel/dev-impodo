@@ -215,6 +215,11 @@ stages:
       - tests/integration/web/test_stage12_page_loading.py
       - tests/integration/duckdb/test_schema_structure.py
       - tests/e2e/test_derived_entities_navigation.py
+      - tests/e2e/test_source_journey.py
+      - tests/e2e/test_source_confirmation_guard.py
+      - tests/e2e/test_source_save_recovery.py
+      - tests/integration/web/test_source_journey_saving.py
+      - tests/integration/web/test_source_journey_overview.py
     contracts:
       - docs/developer/contracts/project-lifecycle.md
       - docs/developer/contracts/evidence-lifecycle.md
@@ -491,6 +496,7 @@ stages:
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
       - src/impodo/web/presenters/mapping_journey.py::resolve_mapping_journey
+      - tests/support/mapping_journey.py::MappingJourneyFixture
       - src/impodo/domain/workspace/supporting_review.py::SupportingReviewRequiredError
       - src/impodo/web/presenters/supporting_review.py::mapping_supporting_review_view
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
@@ -604,6 +610,7 @@ stages:
     tests:
       - tests/integration/web/test_mapping_journey.py
       - tests/integration/web/test_mapping_journey_mutations.py
+      - tests/e2e/test_mapping_journey.py
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_mapping_forms.py
       - tests/integration/web/test_same_table_hierarchy.py

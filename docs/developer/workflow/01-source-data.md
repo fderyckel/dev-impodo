@@ -59,8 +59,16 @@ catalogues and configurations to render the dataset-name fields and the final
 save action. `POST /workspaces/{workspace_id}/datasets/freeze` retains the hard
 evidence boundary. Before a selection exists,
 `GET /workspaces/{workspace_id}/datasets` returns the data manager to the inline
-form; after the save, that route presents the saved-table result and the next
-action.
+form; after the save, that route lists the accepted tables with their row and
+column counts and the next action. This view uses the already loaded source
+selection rather than inspecting source files again.
+
+`source-workflow.js` marks changed file settings as unconfirmed and prevents
+table freeze or navigation from silently using an earlier confirmation. The
+operator can confirm or discard those changes. Confirming one changed file
+preserves other files' pending reading and table settings in the existing
+one-use browser position record. These temporary settings do not become
+accepted source evidence until their own confirmation succeeds.
 
 For Odoo mode, schema capture occurs first. The source routes then save one
 bounded capture selection for each selected model. A model-keyed current
@@ -85,9 +93,17 @@ immutable Parquet snapshot, then passes every chosen-field value to
 repeat, blank, incomplete-path, parent-row, and combined-spelling counts before
 the rule can be saved. The review runs in a worker thread, reads no live Odoo
 business records, publishes no artifact, and changes no source evidence.
-The choice controls open forms within Stage 1 without adding browser-history
-entries. A preview response reveals its form, while a saved rule redirects to
-its saved card. Lookup and hierarchy choices that need Odoo record types open
+The choice controls open one operation within Stage 1 without adding
+browser-history entries. `derived_entities/` template partials keep that
+operation's editor and review together. `derived-journey.js` presents the
+review, retains the editor, and uses the existing save route for **Use this
+table**. Saved results appear in compact summaries, with a hierarchy kept in
+its own result context. **Save and add another** and **Save and continue to Odoo
+data** can save the current valid review before moving on. Editing its inputs
+requires a new review. The browser protects pending work during navigation;
+the save command remains the authority for accepting it.
+
+Lookup and hierarchy choices that need Odoo record types open
 the shared Odoo access page when the destination is not configured. A bounded
 return token survives the connection check and local-stack actions. After the
 connection is saved, `target.py` refreshes the record-type list and redirects
@@ -580,6 +596,8 @@ form token.
 | Authenticated exact-join screenshot capture | [`capture_exact_join_screenshot.py`](../../../scripts/capture_exact_join_screenshot.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
+| Source-task presentation and saving | [`derived-journey.js`](../../../src/impodo/web/static/derived-journey.js) and [`source-journey.css`](../../../src/impodo/web/static/source-journey.css) |
+| File-confirmation position and pending-setting protection | [`source-workflow.js`](../../../src/impodo/web/static/source-workflow.js) |
 
 ## Evidence and state
 
@@ -603,6 +621,13 @@ datasets.
 ## Completion and navigation
 
 File mode completes when a source selection exists and then unlocks Odoo data.
+The file-source gate describes saved evidence; it cannot observe browser-only
+changes. The source-task coordinator therefore reviews pending inputs and
+saves the current accepted result before continuing. The save routes accept
+only the allowlisted `return_to=schema` destination and redirect there after
+their existing version-checked save succeeds. Completed rules do not need
+another save, which would invalidate downstream mapping and preparation.
+
 Odoo mode deliberately reverses the first two responsibilities. **Select data
 to download** captures eligible fields and model-specific plans, then
 **Download and freeze** publishes the selection. It then unlocks the separately
@@ -643,6 +668,13 @@ partial set or automatically freezes it on the operator's behalf.
 
 Background Odoo capture exposes explicit cancel and status routes. Do not
 interpret an interrupted job as a published snapshot.
+
+Source-organization preview and save failures retain submitted field choices
+and the expected plan version. The browser keeps failed-save inputs in the
+current editor. When a save response is uncertain, it requires a read-back
+before permitting a retry; it does not repeat a potentially committed command.
+Warning acknowledgements, file-table freeze, and Odoo capture retain their
+explicit acceptance actions.
 
 ## Odoo compatibility and performance
 
@@ -717,6 +749,18 @@ Historical measurement details remain available in Git history.
 
 ## Verification
 
+The authenticated source journey captures the current choices, table overview,
+combination review, hierarchy editor and review, saved summaries, and file
+confirmation at 1440 by 1024. Run these cases from the checkout to refresh the
+scenes:
+
+```sh
+IMPODO_SOURCE_SCREENSHOTS=docs/images/user UV_CACHE_DIR=.uv-cache \
+  .tools/uv/uv run --frozen --group quality python -m unittest \
+  tests.e2e.test_source_journey.SourceJourneyBrowserTests.test_file_confirmation_moves_to_the_next_required_choice \
+  tests.e2e.test_source_journey.SourceJourneyBrowserTests.test_odoo20_local -v
+```
+
 `capture_hierarchy_tutorial_screenshots.py::capture` creates an isolated
 fictional Product workspace and captures the current authenticated Stage 1
 one-field result review, related-split choice, hierarchy form, and hierarchy
@@ -763,6 +807,11 @@ operator workspace.
 - [`tests/integration/web/test_stage12_page_loading.py`](../../../tests/integration/web/test_stage12_page_loading.py)
 - [`tests/integration/duckdb/test_schema_structure.py`](../../../tests/integration/duckdb/test_schema_structure.py)
 - [`tests/e2e/test_derived_entities_navigation.py`](../../../tests/e2e/test_derived_entities_navigation.py)
+- [`tests/integration/web/test_source_journey_saving.py`](../../../tests/integration/web/test_source_journey_saving.py)
+- [`tests/integration/web/test_source_journey_overview.py`](../../../tests/integration/web/test_source_journey_overview.py)
+- [`tests/e2e/test_source_confirmation_guard.py`](../../../tests/e2e/test_source_confirmation_guard.py)
+- [`tests/e2e/test_source_journey.py`](../../../tests/e2e/test_source_journey.py)
+- [`tests/e2e/test_source_save_recovery.py`](../../../tests/e2e/test_source_save_recovery.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 
 Cover file hashing, configuration, pre-freeze replacement, post-freeze refusal,

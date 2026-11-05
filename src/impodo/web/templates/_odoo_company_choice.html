@@ -15,7 +15,7 @@
                   <option value="{{ choice.company_id }}" {% if selected_company and selected_company.company_id == choice.company_id or not selected_company and company_access.choices|length == 1 %}selected{% endif %}>{{ choice.name }}</option>
                 {% endfor %}
               </select>
-            <button class="button secondary" type="submit">Use this company</button>
+            <button class="button primary" type="submit">{% if workspace_state.source_mode.value == 'FILE' %}Use this company and continue{% else %}Use this company{% endif %}</button>
           </form>
         {% else %}
           <form method="post" action="{{ company_action }}/choices">

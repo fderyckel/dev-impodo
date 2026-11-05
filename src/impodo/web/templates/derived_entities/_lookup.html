@@ -1,0 +1,104 @@
+{% set submitted = source_form|default({}) if source_operation|default('') == 'lookup-extraction' else {} %}
+<details class="form-card secondary-preparation" id="lookup-extraction" data-derived-entity-section data-source-operation="lookup-extraction"{% if pending_lookup or source_operation|default('') == 'lookup-extraction' %} open{% endif %}>
+  <summary>
+    <span><strong>Create a related table from one field</strong><small>Use this when repeated values from one source field describe records that you want to match separately.</small></span>
+  </summary>
+
+  <section class="nested-rule-card" id="lookup-form">
+    <h2>Choose the related table</h2>
+    <p>Choose the field whose repeated values describe related records. Impodo keeps the original rows, builds one related-table row for each cleaned value, and lets you review the link in Match data.</p>
+    {% if model_catalog %}
+      <div class="notice stack-ready" role="status">
+        <strong>Odoo record types are ready.</strong>
+        Choose one of the {{ model_catalog.models|length }} existing record types loaded from this Odoo database.
+      </div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="actions">
+          <button class="button secondary" type="submit">Refresh Odoo record types</button>
+        </div>
+      </form>
+    {% else %}
+      <div class="notice warning">
+        <strong>Load the existing Odoo record types first.</strong>
+        Impodo will read the available record names from the configured Odoo database so this choice can be checked.
+      </div>
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="actions">
+          {% if not workspace_state.odoo_connection_mode %}
+            <a class="button primary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Set up Odoo access</a>
+          {% elif read_credential_prompt and not read_credential_prompt.available %}
+            <button
+              class="button primary"
+              type="button"
+              data-open-read-credential
+              data-read-credential-resume="submit"
+              data-read-credential-resume-action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh"
+            >Enter key and show Odoo record types</button>
+          {% else %}
+            <button class="button primary" type="submit">Show available Odoo record types</button>
+          {% endif %}
+          {% if workspace_state.odoo_connection_mode %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Review Odoo access</a>{% endif %}
+        </div>
+      </form>
+    {% endif %}
+    {% if model_catalog %}
+    <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/lookup/preview" data-source-editor>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_parent_version" value="{{ submitted.get('expected_parent_version', plan.version if plan else '') }}">
+      <div class="form-grid">
+        <label>
+          Use values from
+          <select name="source_binding" required>
+            <option value="">Choose a source column</option>
+            {% for choice in source_choices %}
+              <option value="{{ choice.value }}"{% if choice.value == submitted.get('source_binding', (pending_lookup.rule.source_dataset_id ~ '|' ~ pending_lookup.rule.source_column_key if pending_lookup else '')) %} selected{% endif %}>{{ choice.dataset_name }} - {{ choice.column_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>
+          Name shown in Impodo
+          <input name="output_dataset_name" value="{{ submitted.get('output_dataset_name', pending_lookup.rule.output_dataset_name if pending_lookup else '') }}" pattern="[a-z][a-z0-9_]{0,62}" required>
+          <small>Use a short plural name that describes the values. For example, if the field contains regions, use <code>regions</code>.</small>
+        </label>
+        <label>
+          Type of Odoo record
+          <input name="target_model" aria-label="Type of Odoo record" value="{{ submitted.get('target_model', pending_lookup.rule.target_model if pending_lookup else '') }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" aria-describedby="derived-target-model-help" required>
+          <datalist id="derived-target-models">
+            {% for model in model_choices %}<option value="{{ model.name }}" label="{{ model.label }}">{{ model.label }}</option>{% endfor %}
+          </datalist>
+          <small id="derived-target-model-help">Choose an existing record type from this Odoo database. Impodo checks the choice before reviewing the result.</small>
+        </label>
+        <details class="technical-details">
+          <summary>Support options</summary>
+          <label>
+            Odoo display field
+            <input name="target_name_field" value="{{ submitted.get('target_name_field', pending_lookup.rule.target_name_field if pending_lookup else 'name') }}" pattern="[a-z_][a-z0-9_.]{0,127}" required>
+          </label>
+          <label>
+            Stable source-system namespace
+            <input name="external_id_namespace" value="{{ submitted.get('external_id_namespace', pending_lookup.rule.external_id_namespace if pending_lookup else namespace_default) }}" pattern="[a-z][a-z0-9_]{0,39}" required>
+          </label>
+          <label>
+            Optional parent separator
+            <input name="parent_separator" value="{{ submitted.get('parent_separator', (pending_lookup.rule.parent_separator or '') if pending_lookup else '') }}" maxlength="10" placeholder="/">
+            <small>Use this only when values contain levels, such as <code>Parent / Child</code>. Leave it empty for a flat list.</small>
+          </label>
+        </details>
+        <label>
+          If a source value is blank
+          <select name="blank_policy">
+            <option value="block">Stop and ask me to correct it</option>
+            <option value="quarantine"{% if submitted.get('blank_policy', pending_lookup.rule.blank_policy if pending_lookup else 'block') == 'quarantine' %} selected{% endif %}>Set the affected rows aside</option>
+          </select>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="button primary" type="submit">Review resulting table</button>
+      </div>
+    </form>
+    {% endif %}
+    {% include "derived_entities/_lookup_review.html" %}
+  </section>
+</details>

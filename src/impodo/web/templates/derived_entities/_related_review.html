@@ -1,0 +1,80 @@
+{% if pending_related %}
+  {% set pending_rule = pending_related.rule %}
+  {% set pending_preview = pending_related.preview %}
+  <section class="form-card related-preview" id="related-preview" data-derived-entity-preview data-source-review tabindex="-1">
+    <div class="page-heading compact">
+      <div>
+        <p class="eyebrow">Review before creating</p>
+        <h2>{{ pending_rule.parent_dataset_name }} and {{ pending_rule.child_dataset_name }}</h2>
+        <p>Check that Impodo grouped the source rows correctly.</p>
+      </div>
+      <span class="status registered">Ready to use</span>
+    </div>
+
+    <div class="notice success">
+      Impodo will create one row in <strong>{{ pending_rule.parent_dataset_name }}</strong> for each group and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
+    </div>
+
+    <div class="metric-grid">
+      <div><span>Source rows</span><strong>{{ pending_preview.source_rows }}</strong></div>
+      <div>
+        <span>Groups found</span>
+        <strong>{{ pending_preview.parent_candidate_count }}{% if not pending_preview.parent_candidate_count_is_exact %} estimate{% endif %}</strong>
+      </div>
+      <div><span>Source rows retained</span><strong>{{ pending_preview.child_rows }}</strong></div>
+      <div><span>Example groups checked</span><strong>{{ pending_preview.sampled_parent_groups }}</strong></div>
+    </div>
+
+    {% if pending_preview.blank_parent_sample_rows or pending_preview.blank_scope_sample_rows or pending_preview.blank_child_key_sample_rows %}
+      <div class="notice warning">
+        Some example rows are missing information needed to group them. They will {% if pending_rule.blank_policy == 'quarantine' %}be set aside for review{% else %}stop and ask for a correction{% endif %}.
+      </div>
+    {% endif %}
+    {% if pending_preview.duplicate_child_key_sample_rows %}
+      <div class="notice error">
+        {{ pending_preview.duplicate_child_key_sample_rows }} sampled row(s) repeat the same group, separation value, and row identifier. Choose a better row identifier or correct the source rule before continuing.
+      </div>
+    {% endif %}
+    {% if pending_preview.normalized_key_sample_rows %}
+      <div class="notice warning">
+        {{ pending_preview.normalized_key_sample_rows }} example row(s) contain inconsistent spaces or characters. Impodo will keep the original value and use the cleaned value only for grouping.
+      </div>
+    {% endif %}
+
+    {% if pending_preview.parent_samples %}
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th>Group value</th><th>Additional separation</th><th>Example rows</th><th>Row identifiers</th></tr></thead>
+          <tbody>
+            {% for sample in pending_preview.parent_samples %}
+              <tr>
+                <th>{{ sample.parent_key }}</th>
+                <td>{{ sample.scope or "Not used" }}</td>
+                <td>{{ sample.sampled_child_rows }}</td>
+                <td>{{ sample.sampled_child_keys|join(', ') }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+
+    <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/related/save" data-source-save>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="return_to" value="{{ source_form.get('return_to', '') if source_form is defined else '' }}">
+      <input type="hidden" name="expected_parent_version" value="{{ source_form.get('expected_parent_version', plan.version if plan else '') if source_form is defined else (plan.version if plan else '') }}">
+      <input type="hidden" name="source_dataset_id" value="{{ pending_rule.source_dataset_id }}">
+      <input type="hidden" name="parent_dataset_name" value="{{ pending_rule.parent_dataset_name }}">
+      <input type="hidden" name="child_dataset_name" value="{{ pending_rule.child_dataset_name }}">
+      <input type="hidden" name="parent_key_column_key" value="{{ pending_rule.parent_key_column_key }}">
+      <input type="hidden" name="scope_column_key" value="{{ pending_rule.scope_column_key or '' }}">
+      <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
+      <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
+      <input type="hidden" name="source_dataset_use" value="{{ pending_related.source_dataset_use }}">
+      <div class="actions">
+        <button class="button secondary" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
+        <button class="button primary" type="submit">Use these tables</button>
+      </div>
+    </form>
+  </section>
+{% endif %}

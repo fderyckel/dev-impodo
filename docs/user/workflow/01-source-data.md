@@ -27,13 +27,26 @@ first complete the eligible-field capture described in
    continue**. Impodo checks the files and opens the source preview.
 2. Review the delimiter or worksheet, headings, bounded preview, counts, data
    types, blanks, repeated values, and warnings.
-3. Configure the intended tables for every file.
+3. Configure the intended tables and select **Confirm this file**. Use
+   **Confirm next file** to review the next file.
 4. Add a corrected file and remove the wrong file if necessary.
 5. After every file is confirmed, give each table a **Name shown in Impodo**
    and select **Save tables for this data version**.
-6. Optionally open **Separate combined information** when one table contains
+6. Review the names, row counts, and column counts in **Saved source tables**.
+   Optionally open **Separate combined information** when one table contains
    several business realities or several tables contain partial views of the
    same reality.
+
+Impodo keeps one source change open at a time. Set it up, review the result,
+then select **Use this table** to save it. **Saved changes** shows the accepted
+result. Select **Add another change** to work on the next table.
+From a ready review, **Save and add another** saves that result and opens the
+source choices together.
+
+When you finish, select **Continue to Odoo data**. If your current selections
+need checking, the action becomes **Review result**. After that review,
+**Save and continue to Odoo data** saves the accepted change before opening
+Stage 2. You do not need to save completed changes again.
 
 Choose **Several tables describe the same records** when one primary frozen
 table and up to nine added tables describe the same business record. Name the
@@ -52,7 +65,8 @@ the final output within 200 fields.
 Select **Review complete combination**. Impodo checks every accepted row and
 shows one reconciliation row for each added table: matched and unmatched
 primary rows, unused added rows, invalid keys, repeated keys, and final output
-rows. Select **Save combined table** only when the primary grain is preserved.
+rows. Select **Use this table** only when one primary row still produces one
+output row.
 The physical inputs default to preparation-only, private intermediate tables
 do not create separate mapping work, and only the final logical output enters
 **Match data**. Use **Advanced: combine two tables** when an explicit pairwise
@@ -73,7 +87,7 @@ For **Create a related table from one field**, select **Review resulting
 table** after choosing the source field and Odoo record type. Impodo checks
 every accepted source row and shows the expected table size, repeated values,
 unusable values, extra parent rows, and spelling differences it will combine.
-Select **Add related table to Match data** only when that result is correct.
+Select **Use this table** only when that result is correct.
 The original source table stays unchanged, and this action does not create or
 change Odoo records.
 
@@ -290,9 +304,10 @@ Recipes; it still never reuses the Authoring rows as current Test evidence.
 
 ## What Complete means
 
-Impodo shows the source stage as frozen or complete only after every selected
-Odoo record type has a saved plan and the complete set has been captured.
-Every selected dataset is bound to protected evidence for this data version.
+For files, every file is confirmed and the named source tables are saved. For
+an Odoo source, every selected record type has a saved plan and the complete
+set has been captured. Every selected dataset is bound to protected evidence
+for this data version. A **Ready to use** source change still needs saving.
 
 ## What changes and what does not
 
@@ -312,6 +327,14 @@ For combined source information, use the
 [related-table and combined-table authoring guide](../guides/related-tables.md)
 instead of manually altering the project database.
 
+If you change a confirmed file, select **Confirm changes** before saving the
+source tables or leaving the page. **Discard changes** restores its previous
+settings, so you can add or remove a corrected file instead.
+
+If a source-table change cannot be saved, Impodo keeps your selections beside
+the issue. If it shows **Save not confirmed**, select **Check saved changes**
+before trying the save again.
+
 ## What makes this work stale
 
 A changed source file, table choice, Odoo selection, or related-table plan
@@ -323,7 +346,9 @@ Earlier data-version evidence remains protected history.
 
 ## Next stage
 
-For a file source, continue to [Odoo data](02-odoo-data.md). For an Odoo
+For a file source, select **Continue to Odoo data** after reviewing your saved
+source changes, or **Choose Odoo data** from **Saved source tables**, to open
+[Odoo data](02-odoo-data.md). For an Odoo
 source, continue to **Connect destination Odoo** after the complete capture is
 frozen. You then match destination records, validate relationship order,
 approve the transfer, and run the read-only destination preflight. When it

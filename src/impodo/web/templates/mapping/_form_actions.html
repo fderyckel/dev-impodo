@@ -68,9 +68,6 @@
           {% if validation %}
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check">Return to checks</a>
           {% endif %}
-          {% if matching_order and matching_order.next_recommended_url %}
-            <a class="button secondary" href="{{ matching_order.next_recommended_url }}" data-next-recommended-table data-mapping-table-link {% if not matching_order.show_next_recommended %}hidden{% endif %}>Next recommended table</a>
-          {% endif %}
         </div>
         <div class="mapping-journey-action-group" data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=tables" data-mapping-go-step="tables">Back to matching tables</a>

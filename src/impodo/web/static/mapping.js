@@ -174,7 +174,9 @@ document.addEventListener("DOMContentLoaded", () => {
       window.impodoMappingJourney?.reveal?.(target);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
-          target.scrollIntoView({ block: "start", behavior: "auto" });
+          if (target.id === "odoo-operation-company") {
+            window.scrollTo({ top: 0, behavior: "auto" });
+          } else target.scrollIntoView({ block: "start", behavior: "auto" });
           focusTarget.focus({ preventScroll: true });
         });
       });
@@ -190,8 +192,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const missingCompany = document.querySelector('[data-company-choice-required="true"]');
+    const query = new URLSearchParams(window.location.search);
+    const explicitStep = ["company", "tables", "check", "confirm"].includes(query.get("step"));
     // An unresolved company choice takes priority over remembered field scroll.
-    if (missingCompany) {
+    if (missingCompany && !explicitStep) {
       revealDestination(missingCompany, missingCompany.querySelector("select, button") || missingCompany);
       return;
     }
@@ -199,7 +203,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return;
     }
     const journey = document.querySelector("[data-mapping-journey]");
-    const query = new URLSearchParams(window.location.search);
     const explicitTask = query.has("step") || query.has("task");
     if (journey && stored.journeyStep) {
       if (explicitTask && (stored.journeyStep !== journey.dataset.step ||

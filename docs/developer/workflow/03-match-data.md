@@ -39,23 +39,36 @@ The authoring sidebar exposes **Choose company**, **Match tables**, **Check and
 resolve**, and **Confirm matches**. The existing `/mapping` page accepts the
 display-only `step` and `task` query parameters.
 [`resolve_mapping_journey`](../../../src/impodo/web/presenters/mapping_journey.py)
-accepts only known locations. Missing locations start at the company choice when it is required,
-or at the table editor after a company is chosen. These locations add no
-database reads and do not establish completion or authorization.
+accepts only known locations. Missing locations start at the company choice
+when it is required, or at the table editor after a company is chosen. These
+locations add no database reads and do not establish completion or authorization.
 
 `mapping-journey.js` shows one step and one active table task. The table tasks
 cover rows, record identity, scalar values, and linked values. Hidden controls
 remain in the mapping form so a partial display cannot remove a saved choice.
+The field grid presents the Odoo field, its value provider, and the preview in
+three columns. Value conversion and cleanup stay under **Prepare values**.
+The catalogue's **More field options** disclosure owns filtering and Odoo-field
+refresh; each field's **Support options** owns comparison and requiredness.
 The existing page-read and mutation operation scopes remain unchanged.
 Save-and-continue uses the normal mutation receipt and advances only after
-the save is committed. A check returns to the check results or the checked row
-selection that requires review. Submission still binds the exact checked
+the save is committed. It advances through the active table's available tasks,
+then visits the remaining tables even when newly saved relationships change
+the recommended order. Per-tab traversal hints guide those visits; they create
+no saved matching evidence and establish no completion or approval. The
+identity-only recommendation remains a separate shortcut. New edits made
+during a save keep the browser dirty and cancel automatic continuation. A check returns to the
+check results or the checked row selection that requires review. Submission
+still binds the exact checked
 revision and preserves required warning and row-selection confirmations.
 
 The check step owns the expanded blocker list. Detailed health reports and
 optional review tools use disclosures; correction links reveal their owning
-table task. The confirm step owns row-selection confirmation and warning
-acknowledgement. Merely opening it does not unlock Prepare data.
+table task. Required-field and Odoo-default groups also offer **Match this
+field**, which opens the exact scalar or relationship field when the data
+manager chooses to supply a value instead. The confirm step owns row-selection
+confirmation and warning acknowledgement. Merely opening it does not unlock
+Prepare data.
 
 The fixture regressions are
 [`test_mapping_journey.py`](../../../tests/integration/web/test_mapping_journey.py)
@@ -65,6 +78,51 @@ They cover Odoo 19 and 20, local and remote targets, unchanged form controls,
 safe locations, exact save/check/confirmation boundaries, and invalid-check
 recovery. The JavaScript journey tests exercise task visibility and save
 continuation without opening a browser session.
+
+The authenticated browser walkthrough is
+[`tests/e2e/test_mapping_journey.py`](../../../tests/e2e/test_mapping_journey.py).
+Its
+[`MappingJourneyFixture`](../../../tests/support/mapping_journey.py)
+accepts two fictional CSV tables through the normal source workflow, captures
+an Odoo schema through isolated read adapters, and starts Stage 3 without a
+chosen company or mapping draft. The module defines Odoo 19 and 20 cases for
+local and remote access. It walks company selection, every table task,
+save-and-continue, a failed match check and its field correction, checked row
+review, and exact confirmation. It checks the next controls in the viewport
+after scrolling and layout settle. These are isolated application checks;
+they use no operator workspace or live Odoo database.
+
+Set `IMPODO_STAGE3_SCREENSHOT_DIR` to an operating-system temporary directory
+to capture the seven walkthrough decision points and the saved formula-error
+recovery. The Odoo 20 remote case
+writes the images at 1440 by 1024 CSS pixels after the fonts and scroll position
+settle. With a Playwright browser installed, use the checkout's pinned runner
+from the repository root:
+
+```sh
+IMPODO_STAGE3_SCREENSHOT_DIR=/private/tmp/impodo-stage3-captures \
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --group quality \
+--with playwright --with httpx python -m unittest tests.e2e.test_mapping_journey
+```
+
+Inspect those images before copying them into `docs/images/user/`. A complete
+browser matrix result must be recorded separately from the screenshot case.
+
+The paired user page uses `11q-stage3-choose-company.png` through
+`11w-stage3-confirm-matches.png` for the normal journey, and
+`11x-stage3-formula-recovery.png` for a saved invalid formula.
+[`test_mapping_supporting_recovery.py`](../../../tests/e2e/test_mapping_supporting_recovery.py)
+also accepts `IMPODO_STAGE3_SCREENSHOT_DIR` and writes
+`11o-related-data-recovery.png`. That separate fixture checks both Odoo majors,
+retains unsaved matching choices after a failed related-choice save, and
+retries the save before resuming the match check. Run it with the same
+temporary screenshot directory:
+
+```sh
+IMPODO_STAGE3_SCREENSHOT_DIR=/private/tmp/impodo-stage3-captures \
+UV_CACHE_DIR=.uv-cache .tools/uv/uv run --frozen --group quality \
+--with playwright --with httpx python -m unittest tests.e2e.test_mapping_supporting_recovery
+```
 
 The browser also presents a recommended authoring order. Its initial result is
 local-only, and rendering or saving the queue does not open an Odoo connection.
@@ -76,8 +134,9 @@ mapping meaning.
 
 ## Company and business expectations
 
-For file imports, the page presents **Company for this load** before the
-field editor. `odoo_company.py` owns `/mapping/company/choices` and
+For file imports, **Choose company** presents **Company for this load** before
+the table editor. **Use this company and continue** saves the explicit choice
+and opens **Match tables**. `odoo_company.py` owns `/mapping/company/choices` and
 `/mapping/company`; earlier `/target/company` routes remain compatible.
 The Odoo-access and Stage 2 pages no longer present the selector. A Recipe
 setup can reach the Stage 3 company control before application activation.

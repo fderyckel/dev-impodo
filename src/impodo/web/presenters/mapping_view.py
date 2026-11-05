@@ -9,6 +9,7 @@ from datetime import date, time
 from functools import partial
 from time import perf_counter
 from typing import Any
+from urllib.parse import quote
 from uuid import NAMESPACE_URL, uuid5
 
 from fastapi import Request
@@ -1657,10 +1658,15 @@ def _mapping_issue_views(
         fix_url = None
         if dataset_index is not None:
             updates: dict[str, object] = {
+                "step": "tables",
                 "mapping_dataset": dataset_index,
                 "scalar_page": 1,
                 "relation_page": 1,
+                "mapped_only": None,
+                "scalar_target": None,
+                "relation_target": None,
             }
+            anchor = f"mapping-dataset-{dataset_index}"
             if field is not None and field.type in {
                 "many2one",
                 "many2many",
@@ -1668,12 +1674,20 @@ def _mapping_issue_views(
             }:
                 updates["relation_query"] = field.label or field.name
                 updates["field_query"] = None
+                updates["relation_target"] = field.name
+                updates["task"] = "links"
+                anchor = f"relationship-{dataset_index}-{field.name}"
             elif field is not None:
                 updates["field_query"] = field.label or field.name
                 updates["relation_query"] = None
+                updates["scalar_target"] = field.name
+                updates["task"] = "fields"
+                anchor = f"scalar-{dataset_index}-{field.name}"
+                if field.readonly:
+                    updates["compare_only"] = 1
             fix_url = (
                 f"{_mapping_return_url(request, workspace_id, **updates)}"
-                f"#mapping-dataset-{dataset_index}"
+                f"#{quote(anchor, safe='')}"
             )
         views.append(
             {
@@ -1846,9 +1860,8 @@ def _mapping_next_step(
                             f"{'s' if len(default_reviews) != 1 else ''}"
                         ),
                         "message": (
-                            "Odoo returned these create values for this exact "
-                            "target and company context. Confirm them together "
-                            "or match the fields yourself."
+                            "Use the checked Odoo defaults, or match these "
+                            "fields yourself."
                         ),
                         "action_label": (
                             f"Use {len(default_reviews)} Odoo default"
@@ -1871,10 +1884,8 @@ def _mapping_next_step(
                             f"field{'s' if len(default_checks) != 1 else ''}"
                         ),
                         "message": (
-                            "Impodo will check the defaults read-only for this "
-                            "exact Odoo target and company context. During loading, "
-                            "Impodo leaves these fields out so Odoo applies those "
-                            "defaults."
+                            "Check whether Odoo supplies a default, or match "
+                            "each field below."
                         ),
                         "action_label": "Let Odoo decide",
                         "action": "refresh_defaults",

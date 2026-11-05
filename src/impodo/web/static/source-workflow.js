@@ -185,6 +185,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const sourceReviewPositionKey = sourceReviewPage
     ? `impodo.source.position:${sourceReviewPage.dataset.sourcePositionKey}`
     : "";
+  const isSourceSetting = (name) => /^(encoding|delimiter|warnings_acknowledged|selected_\d+|header_row_\d+)$/.test(name);
   const rememberSourceReviewPosition = (form) => {
     if (!sourceReviewPositionKey) {
       return;
@@ -202,8 +203,17 @@ document.addEventListener("DOMContentLoaded", () => {
           fileId: card?.dataset.sourceReviewCard || "",
           cardOffset: card?.getBoundingClientRect().top ?? null,
           focusName: active?.name || "",
-          focusValue: active?.value || "",
+          focusValue: isSourceSetting(active?.name) || active?.name === "action"
+            ? active?.value || "" : "",
           horizontal,
+          pendingFiles: Array.from(changedSourceForms)
+            .filter(([pendingForm]) => pendingForm !== form)
+            .map(([pendingForm, pendingCard]) => ({
+              fileId: pendingCard.dataset.sourceReviewCard,
+              controls: Array.from(pendingForm.elements)
+                .filter((control) => isSourceSetting(control.name))
+                .map((control) => ({ name: control.name, value: control.value, checked: control.checked })),
+            })),
         })
       );
     } catch {
@@ -225,6 +235,20 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     if (!stored) {
       return;
+    }
+    for (const pending of stored.pendingFiles || []) {
+      const pendingCard = Array.from(document.querySelectorAll("[data-source-review-card]"))
+        .find((card) => card.dataset.sourceReviewCard === pending.fileId);
+      const pendingForm = pendingCard?.querySelector("[data-source-review-form]");
+      if (!pendingForm || pendingForm.querySelector("fieldset[disabled]")) continue;
+      for (const saved of pending.controls) {
+        if (!isSourceSetting(saved.name)) continue;
+        const control = Array.from(pendingForm.elements).find((item) => item.name === saved.name);
+        if (!control || control.type === "submit" || control.type === "file") continue;
+        if (["checkbox", "radio"].includes(control.type)) control.checked = saved.checked;
+        else control.value = saved.value;
+      }
+      pendingForm.dispatchEvent(new Event("input", { bubbles: true }));
     }
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
@@ -270,44 +294,106 @@ document.addEventListener("DOMContentLoaded", () => {
       rememberSourceReviewPosition(form);
     });
   }
-  for (const card of document.querySelectorAll(
-    '[data-source-review-card][data-source-review-confirmed="true"]'
-  )) {
+  const changedSourceForms = new Map();
+  const pageConfirmationStatus = document.querySelector("[data-source-page-status]");
+  const savedPageStatus = pageConfirmationStatus?.innerHTML || "";
+  const pageWasComplete = pageConfirmationStatus?.classList.contains("complete");
+  const syncPageConfirmation = () => {
+    if (!pageConfirmationStatus) return;
+    pageConfirmationStatus.classList.toggle("complete", Boolean(pageWasComplete && !changedSourceForms.size));
+    pageConfirmationStatus.classList.toggle("attention", Boolean(changedSourceForms.size || !pageWasComplete));
+    pageConfirmationStatus.innerHTML = changedSourceForms.size
+      ? "Changes not confirmed"
+      : savedPageStatus;
+  };
+  for (const card of document.querySelectorAll("[data-source-review-card]")) {
     const form = card.querySelector("form[data-source-review-form]");
+    if (!form || form.querySelector("fieldset[disabled]")) continue;
     const confirmationAction = form?.querySelector(
       "[data-source-confirmation-action]"
     );
+    const discard = form.querySelector("[data-source-discard-changes]");
+    const notice = form.querySelector("[data-source-confirmation-notice]");
+    const next = form.querySelector("[data-source-confirmation-next]");
     const confirmationStatuses = Array.from(
       card.querySelectorAll("[data-source-confirmation-status]")
     );
     const fileStatus = document.querySelector(
       `[data-source-file-status="${card.dataset.sourceReviewCard}"]`
     );
-    let confirmationIsDirty = false;
+    const statuses = [...confirmationStatuses, fileStatus].filter(Boolean);
+    const savedStatuses = statuses.map((status) => status.innerHTML);
+    const wasConfirmed = card.dataset.sourceReviewConfirmed === "true";
+    const savedAction = confirmationAction?.textContent;
+    const fingerprint = () => JSON.stringify(Array.from(new FormData(form).entries()));
+    const savedFingerprint = fingerprint();
     const markConfirmationDirty = () => {
-      if (confirmationIsDirty) {
-        return;
-      }
-      confirmationIsDirty = true;
-      card.classList.remove("is-confirmed");
-      card.classList.add("has-unconfirmed-changes");
-      for (const status of [...confirmationStatuses, fileStatus]) {
-        if (!status) {
-          continue;
-        }
-        status.classList.remove("complete");
-        status.classList.add("attention");
-        status.textContent = "Changes not confirmed";
-      }
+      const dirty = fingerprint() !== savedFingerprint;
+      if (dirty) changedSourceForms.set(form, card);
+      else changedSourceForms.delete(form);
+      card.classList.toggle("is-confirmed", wasConfirmed && !dirty);
+      card.classList.toggle("has-unconfirmed-changes", dirty);
+      statuses.forEach((status, index) => {
+        status.classList.toggle("complete", wasConfirmed && !dirty);
+        status.classList.toggle("attention", dirty || !wasConfirmed);
+        status.innerHTML = dirty ? "Changes not confirmed" : savedStatuses[index];
+      });
       if (confirmationAction) {
-        confirmationAction.classList.remove("secondary");
-        confirmationAction.classList.add("primary");
-        confirmationAction.textContent = "Confirm changes";
+        confirmationAction.classList.toggle("secondary", wasConfirmed && !dirty);
+        confirmationAction.classList.toggle("primary", dirty || !wasConfirmed);
+        confirmationAction.textContent = dirty ? "Confirm changes" : savedAction;
       }
+      if (discard) discard.hidden = !dirty;
+      if (next) next.hidden = dirty;
+      if (!dirty && notice) notice.hidden = true;
+      syncPageConfirmation();
     };
-    form?.addEventListener("input", markConfirmationDirty);
-    form?.addEventListener("change", markConfirmationDirty);
+    form.addEventListener("input", markConfirmationDirty);
+    form.addEventListener("change", markConfirmationDirty);
+    discard?.addEventListener("click", () => {
+      form.reset();
+      markConfirmationDirty();
+      confirmationAction?.focus({ preventScroll: true });
+    });
   }
+  const revealUnconfirmedChanges = (card) => {
+    const notice = card.querySelector("[data-source-confirmation-notice]");
+    if (notice) notice.hidden = false;
+    const confirm = card.querySelector("[data-source-confirmation-action]");
+    const action = confirm?.disabled ? card.querySelector("[data-source-discard-changes]") : confirm;
+    action?.focus({ preventScroll: true });
+    action?.scrollIntoView({ block: "nearest" });
+  };
+  let sourceSubmission = false;
+  document.addEventListener("submit", (event) => {
+    if (!sourceReviewPage) return;
+    const form = event.target;
+    const pending = Array.from(changedSourceForms).find(([changed]) => changed !== form);
+    if (pending && !changedSourceForms.has(form)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      revealUnconfirmedChanges(pending[1]);
+      return;
+    }
+    sourceSubmission = true;
+  }, true);
+  document.addEventListener("click", (event) => {
+    const link = event.target.closest?.("a[href]");
+    if (!link || !changedSourceForms.size || link.target === "_blank"
+      || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const destination = new URL(link.href, window.location.href);
+    if (destination.origin === window.location.origin
+      && destination.pathname === window.location.pathname && destination.hash) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    revealUnconfirmedChanges(changedSourceForms.values().next().value);
+  }, true);
+  window.addEventListener("beforeunload", (event) => {
+    if (!changedSourceForms.size || sourceSubmission) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  window.addEventListener("pageshow", () => { sourceSubmission = false; });
   for (const group of document.querySelectorAll("[data-source-choice-group]")) {
     const wholeWorksheet = group.querySelector("[data-source-whole]");
     const separateRegions = Array.from(

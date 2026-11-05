@@ -200,11 +200,16 @@
             : null;
           const savedLabel =
             savedDate && !Number.isNaN(savedDate.getTime())
-              ? `Saved ${savedDate.toLocaleString()}. `
-              : "";
+              ? `Saved ${savedDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+              : "Progress saved";
+          if (savedDate && !Number.isNaN(savedDate.getTime())) {
+            saveStatus.title = savedDate.toLocaleString();
+          }
           saveStatus.textContent = newerEdits
             ? "Earlier changes saved. Your newer edits still need saving."
-            : savedLabel + (payload.message || "Matches saved.");
+            : operation.action === "save_progress"
+              ? savedLabel + (payload.authoring_issues?.length ? " — needs attention." : ".")
+              : payload.message || "Matches saved.";
           if (newerEdits) saveStatus.classList.add("unsaved");
           else saveStatus.classList.remove("unsaved");
         }

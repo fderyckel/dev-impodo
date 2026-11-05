@@ -90,7 +90,7 @@ def capture() -> None:
                 (
                     f"{workspace_id}/derived-entities",
                     "source-composition",
-                    "06g-source-decision-help.png",
+                    "06i-stage1-choice.png",
                 ),
                 (
                     f"{schema_workspace_id}/schema",
