@@ -673,7 +673,7 @@ def capture(
                 wait_until="networkidle",
             )
             page.get_by_role(
-                "button", name="One field contains reusable values"
+                "button", name="Create a related table", exact=True
             ).click()
             lookup = page.locator("#lookup-extraction")
             expect(lookup).to_have_attribute("open", "")
@@ -763,7 +763,7 @@ def capture(
                 wait_until="networkidle",
             )
             page.get_by_role(
-                "button", name="Several fields form a hierarchy"
+                "button", name="Build a hierarchy", exact=True
             ).click()
             hierarchy = page.locator("#hierarchy-extraction")
             expect(hierarchy).to_have_attribute("open", "")

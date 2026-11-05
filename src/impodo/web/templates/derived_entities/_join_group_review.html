@@ -1,16 +1,16 @@
 {% if pending_join_group %}
   {% set group_preview = pending_join_group.preview %}
-  <section class="form-card exact-join-preview" id="join-group-preview" data-derived-entity-preview data-source-review tabindex="-1">
+  <section class="source-review-panel exact-join-preview" id="join-group-preview" data-derived-entity-preview data-source-review tabindex="-1">
     <div class="page-heading compact">
       <div>
-        <p class="eyebrow">Complete multi-table review</p>
+        <p class="eyebrow">Review result</p>
         <h2>{{ group_preview.final_rule.output_dataset_name }}</h2>
-        <p>One output row represents one row from <strong>{{ pending_join_group.primary.name }}</strong>. Only the final combined table enters Match data.</p>
+        <p>One output row represents one row from <strong>{{ pending_join_group.primary.name }}</strong>.</p>
       </div>
       <span class="status {{ 'registered' if group_preview.can_save else 'attention' }}">{{ "Ready to use" if group_preview.can_save else "Needs attention" }}</span>
     </div>
 
-    <div class="metric-grid exact-join-metrics">
+    <div class="metric-grid exact-join-metrics source-review-metrics">
       <div><span>Primary rows</span><strong>{{ pending_join_group.rows[0].review.left_rows }}</strong></div>
       <div><span>Added tables</span><strong>{{ pending_join_group.rows|length }}</strong></div>
       <div><span>Output fields</span><strong>{{ group_preview.final_rule.output_columns|length }}</strong></div>
@@ -18,26 +18,31 @@
     </div>
 
     <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr><th>Added table</th><th>Added rows</th><th>Primary matched</th><th>Primary unmatched</th><th>Unused added rows</th><th>Repeated key rows</th><th>Result</th></tr></thead>
+      <table class="data-table source-review-reconciliation">
+        <caption class="visually-hidden">Rows checked for each added table</caption>
+        <thead><tr><th scope="col">Added table</th><th scope="col" class="source-review-number">Added rows</th><th scope="col" class="source-review-number">Primary matched</th><th scope="col" class="source-review-number">Primary unmatched</th><th scope="col" class="source-review-number">Unused added rows</th><th scope="col" class="source-review-number">Repeated key rows</th><th scope="col" class="source-review-result">Result</th></tr></thead>
         <tbody>
           {% for row in pending_join_group.rows %}
             <tr>
-              <th>{{ row.added.name }}</th>
-              <td>{{ row.review.right_rows }}</td>
-              <td>{{ row.review.matched_left_rows }}</td>
-              <td>{{ row.review.unmatched_left_rows }}</td>
-              <td>{{ row.review.unmatched_right_rows }}</td>
-              <td>{{ row.review.duplicate_right_key_rows }}</td>
-              <td>{{ "Complete" if row.review.can_save else row.review.findings|join('; ') }}</td>
+              <th scope="row">{{ row.added.name }}</th>
+              <td class="source-review-number">{{ row.review.right_rows }}</td>
+              <td class="source-review-number">{{ row.review.matched_left_rows }}</td>
+              <td class="source-review-number">{{ row.review.unmatched_left_rows }}</td>
+              <td class="source-review-number">{{ row.review.unmatched_right_rows }}</td>
+              <td class="source-review-number">{{ row.review.duplicate_right_key_rows }}</td>
+              <td class="source-review-result"><span{% if row.review.can_save %} class="source-review-pass"{% endif %}>{{ "Complete" if row.review.can_save else row.review.findings|join('; ') }}</span></td>
             </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    {% if group_preview.can_save %}
-      <div class="notice success"><strong>The primary grain is preserved.</strong> <span>Every intermediate result remains private and every final row retains physical source lineage.</span></div>
-    {% endif %}
+    <details class="technical-details source-review-support">
+      <summary>Review details</summary>
+      <p>Complete multi-table review. Only the final combined table enters Match data.</p>
+      {% if group_preview.can_save %}
+        <p><strong>The primary grain is preserved.</strong> Every intermediate result remains private and every final row retains physical source lineage.</p>
+      {% endif %}
+    </details>
 
     <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/save" data-source-save>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -58,9 +63,9 @@
       {% endfor %}
       {% for projection_index in join_group_form.projection_indexes %}<input type="hidden" name="group_projection" value="{{ projection_index }}">{% endfor %}
       {% for projection_name in join_group_form.projection_names %}<input type="hidden" name="group_projection_name" value="{{ projection_name }}">{% endfor %}
-      <div class="actions">
-        <button class="button secondary" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
-        {% if group_preview.can_save %}<button class="button primary" type="submit">{{ "Save changes" if editing_join_group else "Use this table" }}</button>{% endif %}
+      <div class="actions source-review-actions">
+        <button class="button source-review-change" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
+        {% if group_preview.can_save %}<button class="button secondary" type="submit">{{ "Save changes" if editing_join_group else "Use this table" }}</button>{% endif %}
       </div>
     </form>
   </section>

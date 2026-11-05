@@ -33,24 +33,43 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         styles = (
             REPOSITORY_ROOT / "src/impodo/web/static/workflow-pages.css"
         ).read_text(encoding="utf-8")
+        styles += (
+            REPOSITORY_ROOT / "src/impodo/web/static/source-journey.css"
+        ).read_text(encoding="utf-8")
+        shape_choices = (
+            ("combine-source-tables", "Combine tables", "Different details about the same records."),
+            ("lookup-extraction", "Create a related table", "Repeated values in one field."),
+            ("hierarchy-extraction", "Build a hierarchy", "Parent and child levels in separate fields."),
+            ("create-related-datasets", "Split a table", "Different records repeated across source rows."),
+        )
+        cards = "".join(
+            f'''<button class="source-shape-choice" type="button"
+              data-derived-entity-target="{operation}"
+              aria-labelledby="{operation}-title" aria-describedby="{operation}-description">
+              <span class="source-shape-icon" aria-hidden="true"><svg class="ui-icon" viewBox="0 0 16 16"><path d="M2 2h12v12H2z"></path></svg></span>
+              <strong id="{operation}-title">{title}</strong>
+              <span class="source-shape-description" id="{operation}-description">{description}</span>
+            </button>'''
+            for operation, title, description in shape_choices
+        )
         self.page = self.browser.new_page(viewport={"width": 900, "height": 600})
         self.addCleanup(self.page.close)
         self.errors = []
         self.page.on("pageerror", lambda error: self.errors.append(str(error)))
         html = f"""
           <style>{styles}</style>
-          <div class="actions source-composition-actions" data-source-composition-actions>
-            <button class="button primary" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
-            <button class="button primary" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
-            <button class="button secondary" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
-            <button class="button secondary" data-derived-entity-target="create-related-datasets">Several rows describe the same record</button>
+          <div class="source-composition-actions" data-source-composition-actions>
+            {cards}
           </div>
-          <button data-derived-entity-target="combine-two-tables">Advanced: combine two tables</button>
           <button data-derived-entity-target="hierarchy-source-one">Change selections</button>
           <div style="height: 1000px"></div>
           <details id="lookup-extraction"><summary>Lookup form</summary></details>
           <details id="combine-source-tables" data-derived-entity-section>
             <summary>Combine several source tables</summary>
+            <details class="technical-details" data-source-combination-advanced>
+              <summary>Advanced options</summary>
+              <button type="button" data-derived-entity-target="combine-two-tables">Combine two tables</button>
+            </details>
             <form data-exact-join-group-form>
               <select name="primary_dataset_id" data-group-primary-dataset>
                 <option value="accounts">Customer accounts</option>
@@ -208,15 +227,25 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
 
         self.assertEqual(len(button_tops), 4)
         self.assertEqual(len(set(button_tops)), 1)
+        button_widths = choices.locator("button").evaluate_all(
+            "buttons => buttons.map(button => button.getBoundingClientRect().width)"
+        )
+        self.assertLessEqual(max(button_widths) - min(button_widths), 1)
+        for title in ("Combine tables", "Create a related table", "Build a hierarchy", "Split a table"):
+            card = choices.get_by_role("button", name=title, exact=True)
+            self.assertEqual(card.count(), 1)
+            description_id = card.get_attribute("aria-describedby")
+            self.assertTrue(description_id)
+            self.assertTrue(self.page.locator(f"#{description_id}").inner_text())
         self.assertEqual(self.errors, [])
 
     def test_choices_and_change_selections_do_not_add_back_button_steps(self):
         self.page.goto("http://127.0.0.1:12345/derived-entities")
         initial_history = self.page.evaluate("history.length")
-        self.page.get_by_role("button", name="Hierarchy").click()
+        self.page.get_by_role("button", name="Build a hierarchy", exact=True).click()
         self.assertTrue(self.page.locator("#hierarchy-extraction").evaluate("el => el.open"))
         self.page.get_by_role(
-            "button", name="One field contains reusable values"
+            "button", name="Create a related table", exact=True
         ).click()
         self.assertTrue(self.page.locator("#lookup-extraction").evaluate("el => el.open"))
         self.page.get_by_role("button", name="Change selections").click()
@@ -243,7 +272,7 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
     def test_grouped_join_is_keyboard_reachable_and_pairwise_form_validates_inputs(self):
         self.page.goto("http://127.0.0.1:12345/derived-entities")
         choice = self.page.get_by_role(
-            "button", name="Several tables describe the same records"
+            "button", name="Combine tables", exact=True
         )
         choice.focus()
         self.page.keyboard.press("Enter")
@@ -251,7 +280,15 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
             self.page.locator("#combine-source-tables").evaluate("el => el.open")
         )
         self.assertTrue(self.page.locator("[data-exact-join-group-form]").is_visible())
-        self.page.get_by_role("button", name="Advanced: combine two tables").click()
+        advanced = self.page.locator("[data-source-combination-advanced]")
+        pair_choice = advanced.get_by_role("button", name="Combine two tables", exact=True)
+        self.assertTrue(pair_choice.is_hidden())
+        advanced.locator(":scope > summary").focus()
+        self.page.keyboard.press("Enter")
+        self.assertTrue(advanced.evaluate("el => el.open"))
+        self.page.keyboard.press("Tab")
+        self.assertTrue(pair_choice.evaluate("el => el === document.activeElement"))
+        self.page.keyboard.press("Enter")
         self.assertTrue(
             self.page.locator("#combine-two-tables").evaluate("el => el.open")
         )

@@ -222,7 +222,7 @@ organizes denormalized files without changing the original files.
 
 ### 4.1 Create product_categories from one column
 
-Choose **One field contains reusable values** and enter:
+Choose **Create a related table** and enter:
 
 | Choice | Training value |
 | --- | --- |
@@ -234,7 +234,7 @@ Choose **One field contains reusable values** and enter:
 
 Select **Review resulting table**. Check the source-row count, the rows in the
 new related table, repeated values, unusable values, and any spellings Impodo
-will combine. Then select **Add related table to Match data**.
+will combine. Then select **Use this table**.
 
 ![The complete reusable-value review explains the resulting table before it is added to Match data.](../../images/user/06-related-lookup.png)
 
@@ -262,7 +262,7 @@ choices instead:
 
 ### 4.2 Split repeated BoM rows into parent and child tables
 
-Choose **Several rows describe the same record** for bom_source_rows and enter:
+Choose **Split a table** for bom_source_rows and enter:
 
 | Choice | Training value |
 | --- | --- |
@@ -274,7 +274,7 @@ Choose **Several rows describe the same record** for bom_source_rows and enter:
 | Should Match data also show the original table? | No - use only the two resulting tables |
 
 Preview the grouping. The expanded training result is three BoM headers and
-eight retained component rows. Select **Create these separate tables**.
+eight retained component rows. Select **Use these tables**.
 
 ![Current controls for splitting repeated rows into parent and child tables.](../../images/user/07-related-parent-child.png)
 

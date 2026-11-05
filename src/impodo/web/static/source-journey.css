@@ -10,6 +10,11 @@ body:has([data-source-journey]) .site-footer {
   display: none !important;
 }
 
+.source-journey [data-source-focus-target]:focus,
+.source-journey summary:focus:not(:focus-visible) {
+  outline: none;
+}
+
 .source-journey [data-source-operation],
 .source-journey [data-source-review],
 .source-journey [data-source-saved] {
@@ -21,6 +26,76 @@ body:has([data-source-journey]) .site-footer {
   display: flex;
   align-items: center;
   gap: .45rem;
+  margin: 0 0 1.25rem;
+  font-size: 1.4rem;
+}
+
+.source-journey > .page-heading h1 {
+  font-size: clamp(2rem, 3vw, 2.8rem);
+  line-height: 1.15;
+}
+
+.source-operation-choices {
+  padding: 1.5rem;
+}
+
+.source-shape-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .65rem;
+  min-height: 11rem;
+  border: 1px solid var(--line);
+  border-radius: .5rem;
+  background: var(--surface);
+  padding: 1.15rem;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+
+.source-shape-choice:hover:not(:disabled),
+.source-shape-choice[aria-current="step"] {
+  border-color: var(--brand);
+  background: #fff9f8;
+}
+
+.source-shape-choice:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: -3px;
+}
+
+.source-shape-icon {
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: .4rem;
+  background: var(--paper);
+  color: var(--muted);
+}
+
+.source-shape-choice strong {
+  min-height: 2.7em;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.source-shape-choice:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.source-shape-description {
+  color: var(--muted);
+  font-size: .88rem;
+  line-height: 1.45;
+}
+
+.source-journey[data-source-active=""]:not(:has([data-source-saved])) [data-source-add-another] {
+  display: none;
 }
 
 .source-saved-overview h2 {
@@ -72,7 +147,7 @@ body:has([data-source-journey]) .site-footer {
   flex-wrap: wrap;
   border-top: 1px solid var(--line);
   background: var(--surface);
-  padding: .85rem 2rem;
+  padding: .75rem 1.25rem;
   box-shadow: 0 -.25rem 1rem rgb(0 0 0 / 5%);
 }
 
@@ -100,6 +175,18 @@ body.sidebar-collapsed .source-journey-actions {
   max-width: 100%;
 }
 
+.source-journey-actions [data-source-discard] {
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.source-journey-actions [data-source-discard]:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
 .source-journey-state {
   color: var(--muted);
   font-size: .9rem;
@@ -124,7 +211,7 @@ body.sidebar-collapsed .source-journey-actions {
 
 @media (max-width: 860px) {
   .source-journey {
-    padding-bottom: 8rem;
+    padding-bottom: max(8rem, var(--source-action-height, 8rem));
   }
 
   .source-journey-actions,
@@ -143,7 +230,7 @@ body.sidebar-collapsed .source-journey-actions {
 
 @media (max-width: 480px) {
   .source-journey {
-    padding-bottom: 11rem;
+    padding-bottom: max(11rem, var(--source-action-height, 11rem));
   }
 
   .source-journey-actions .actions {

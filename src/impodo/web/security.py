@@ -63,7 +63,7 @@ async def run_workspace_page_read(
 ) -> Response:
     """Authorize, apply journey policy, and render one local page on one worker.
 
-    The access middleware supplies the admission check for the three complete
+    The access middleware supplies the admission check for the complete local
     saved pages. No child read or active-job inspection may precede this
     callback. Owners and verified lineage are released before returning to the
     event loop; other routes retain their existing admission boundary.
@@ -222,7 +222,7 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             request.method == "GET"
             and request.url.path in {
                 f"/workspaces/{workspace_id}/{area}"
-                for area in ("schema", "mapping", "summary")
+                for area in ("schema", "mapping", "summary", "files", "sources")
             }
         ):
             def read_authorized_page(function: Callable[[], Response]) -> Response:

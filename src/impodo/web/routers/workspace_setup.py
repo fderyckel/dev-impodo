@@ -5,25 +5,28 @@ from __future__ import annotations
 from time import perf_counter
 
 from fastapi import APIRouter, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import FormData
 
 from impodo.application.data_version.inspection import SourceInspectionError
+from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceRegistrationError,
+    WorkspaceState,
     WorkspaceStateError,
     WorkspaceStatus,
     workspace_registration_problems,
 )
 
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render, _workspace_error
 from ..presenters.mapping_forms import _draft_or_redirect
 from ..request_identity import request_identity
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 from ..source_file_commands import accept_source_uploads
 
 
@@ -88,7 +91,9 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/files", response_class=HTMLResponse)
     async def workspace_files_form(request: Request, workspace_id: str):
         require_session(request)
-        return await run_page_read(render_files_form, request, workspace_id)
+        return await run_workspace_page_read(
+            request, lambda: render_files_form(request, workspace_id),
+        )
 
     def render_files_form(request: Request, workspace_id: str):
         """Read file setup and render within one database-scoped worker."""
@@ -107,7 +112,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     async def workspace_files(request: Request, workspace_id: str):
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision", "source_file"})
-        workspace = _draft_or_redirect(context, workspace_id)
+        workspace = await run_page_read(_draft_or_redirect, context, workspace_id)
         if isinstance(workspace, RedirectResponse):
             return workspace
         if workspace.source_mode is SourceMode.ODOO:
@@ -123,7 +128,8 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 actor=request_identity(request, context.identity_resolver).actor,
             )
         except WorkspaceStateError as error:
-            return _workspace_error(
+            return await run_page_read(
+                _workspace_error,
                 request,
                 context,
                 workspace_id,
@@ -140,6 +146,38 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_form(request, form, {"csrf_token", "revision"})
         actor = request_identity(request, context.identity_resolver).actor
+        workspace = await run_local_operation(register_local, request, workspace_id, actor, form)
+        if isinstance(workspace, Response):
+            return workspace
+        if workspace.source_mode is SourceMode.FILE:
+            try:
+                catalogs = await run_in_threadpool(
+                    context.inspections.inspect_project,
+                    workspace.workspace_id,
+                    actor=actor,
+                )
+            except SourceInspectionError as error:
+                request.session["source_inspection_error"] = {
+                    "workspace_id": workspace.workspace_id,
+                    "message": str(error),
+                }
+            else:
+                file_label = "file" if len(catalogs) == 1 else "files"
+                _flash(request, f"Checked {len(catalogs)} source {file_label}.")
+            return RedirectResponse(
+                f"/workspaces/{workspace.workspace_id}/sources#source-files",
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/workspaces/{workspace.workspace_id}/schema",
+            status_code=303,
+        )
+
+    def register_local(
+        request: Request, workspace_id: str, actor: Actor, form: FormData,
+    ) -> WorkspaceState | Response:
+        """Register and render local rejection recovery in one worker operation."""
+
         try:
             workspace = context.workspace_states.register(
                 workspace_id,
@@ -175,28 +213,6 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
                 error,
                 problems=workspace_registration_problems(workspace),
             )
-        if workspace.source_mode is SourceMode.FILE:
-            try:
-                catalogs = await run_in_threadpool(
-                    context.inspections.inspect_project,
-                    workspace.workspace_id,
-                    actor=actor,
-                )
-            except SourceInspectionError as error:
-                request.session["source_inspection_error"] = {
-                    "workspace_id": workspace.workspace_id,
-                    "message": str(error),
-                }
-            else:
-                file_label = "file" if len(catalogs) == 1 else "files"
-                _flash(request, f"Checked {len(catalogs)} source {file_label}.")
-            return RedirectResponse(
-                f"/workspaces/{workspace.workspace_id}/sources#source-files",
-                status_code=303,
-            )
-        return RedirectResponse(
-            f"/workspaces/{workspace.workspace_id}/schema",
-            status_code=303,
-        )
+        return workspace
 
     return router

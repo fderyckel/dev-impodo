@@ -247,7 +247,7 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(source_page.status_code, 200)
         self.assertIn("0 of 2 files confirmed", source_page.text)
         self.assertEqual(source_page.text.count("Ready to confirm"), 6)
-        self.assertEqual(source_page.text.count("Confirm this file"), 2)
+        self.assertEqual(source_page.text.count(">Confirm this file</button>"), 2)
 
         catalog = self.app.state.context.queries.get_source_catalogs(workspace_id)[0]
         confirmed = self.client.post(

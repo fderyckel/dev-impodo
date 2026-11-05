@@ -1,7 +1,12 @@
 <details class="form-card secondary-preparation" id="combine-source-tables" data-derived-entity-section data-source-operation="combine-source-tables"{% if pending_join_group or join_group_error or editing_join_group or source_operation|default('') == 'combine-source-tables' %} open{% endif %}>
   <summary>
-    <span><strong>Several tables describe the same records</strong><small>Choose one primary table and add up to nine enrichments in one reviewed decision.</small></span>
+    <span><strong>Combine tables</strong><small>Choose one primary table and up to nine tables to add.</small></span>
   </summary>
+  <details class="technical-details" data-source-combination-advanced>
+    <summary>Advanced options</summary>
+    <p>Use a previously created table, or combine tables in separate steps.</p>
+    <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Combine two tables</button>
+  </details>
   {% if editing_join_group %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
   <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-source-editor data-exact-join-group-form{% if join_group_form and (pending_join_group or join_group_error or editing_join_group or source_operation|default('') == 'combine-source-tables') %} data-group-retained{% endif %}{% if join_group_error %} data-group-server-error{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

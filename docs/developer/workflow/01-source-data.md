@@ -54,6 +54,31 @@ request and verifies it before opening the source file. A changed editable
 installation therefore requires an Impodo restart instead of combining two
 builds in one intake operation.
 
+[`SourceInspectionService`](../../../src/impodo/application/data_version/inspection.py)
+captures authorization and source state in one local
+database operation, closes every owner before materializing or inspecting a
+file, and publishes in a second local operation. Publication rechecks
+authorization, lifecycle, source selection, and captured workspace state.
+Changing those inputs during inspection rejects publication and preserves the
+previous catalogs.
+
+The service retains at most 64 successful inspection receipts from its current
+instance. Each receipt binds the Data version, complete source record,
+canonical catalog hash, and parsing options. An unchanged-file recheck still
+hashes every byte and validates the container in the normal resource-bounded
+worker. It reuses proven column profiles only after those checks, then rechecks
+the current catalog before publication. A new service instance, eviction,
+changed source, changed catalog, or different parsing settings requires full
+profiling. Equivalent explicit settings can reuse auto-detected profiles.
+Receipt timestamps still advance and normal confirmation invalidation still
+runs. No receipt retains a database connection or source values.
+
+The first XLSX inspection continues to scan rows and validate worksheet XML.
+A streaming XML target counts formulas and merged ranges without constructing
+an element for every cell. Sparse-cell profiling avoids repeated method calls
+for empty cells. Entity rejection, XML syntax validation, formula and error
+evidence, and existing row, column, byte, time, and memory limits remain active.
+
 After every file is confirmed, the Source data page uses the already loaded
 catalogues and configurations to render the dataset-name fields and the final
 save action. `POST /workspaces/{workspace_id}/datasets/freeze` retains the hard
@@ -98,9 +123,10 @@ browser-history entries. `derived_entities/` template partials keep that
 operation's editor and review together. `derived-journey.js` presents the
 review, retains the editor, and uses the existing save route for **Use this
 table**. Saved results appear in compact summaries, with a hierarchy kept in
-its own result context. **Save and add another** and **Save and continue to Odoo
-data** can save the current valid review before moving on. Editing its inputs
-requires a new review. The browser protects pending work during navigation;
+its own result context. **Save and add another** saves the current valid review
+before opening another source choice; **Save and continue** saves it before
+opening Odoo data. Editing its inputs requires a new review. The browser
+protects pending work during navigation;
 the save command remains the authority for accepting it.
 
 Lookup and hierarchy choices that need Odoo record types open
@@ -178,7 +204,7 @@ final group output removes its private ancestors and saved reviews in one
 revision. Removal remains blocked when a rule outside the group consumes an
 output being removed.
 
-The normal browser choice is **Several tables describe the same records**.
+The normal browser choice is **Combine tables**.
 `exact_join_forms.py` parses the bounded primary-key, added-table, completeness,
 and projection matrices, then resolves every posted index, dataset, and field
 against the current physical selection. It never trusts a posted source
@@ -190,8 +216,8 @@ default, keeps a colliding primary field, and places other colliding fields
 under **Needs decision** with qualified names. Search, category filters, bulk
 selection, bulk clearing, and the effective 200-field count remain client-side
 helpers; the server independently rejects an oversized or invalid projection.
-The prior pairwise editor remains under **Advanced: combine two tables** for
-explicit structural chains. The
+For explicit structural chains, open **Advanced options** inside the main
+combination task, then select **Combine two tables**. The
 [`exact-join group form tests`](../../../tests/integration/web/test_exact_join_group_forms.py)
 cover the initial recommendation, qualified collision names, and early
 200-field rejection.
@@ -596,7 +622,8 @@ form token.
 | Authenticated exact-join screenshot capture | [`capture_exact_join_screenshot.py`](../../../scripts/capture_exact_join_screenshot.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
 | Related-dataset routes | [`derived_entities.py`](../../../src/impodo/web/routers/derived_entities.py) |
-| Source-task presentation and saving | [`derived-journey.js`](../../../src/impodo/web/static/derived-journey.js) and [`source-journey.css`](../../../src/impodo/web/static/source-journey.css) |
+| Source-task focus, navigation, and saving | [`derived-journey.js`](../../../src/impodo/web/static/derived-journey.js) |
+| Source layout and review presentation | [`source-journey.css`](../../../src/impodo/web/static/source-journey.css) and [`source-review.css`](../../../src/impodo/web/static/source-review.css) |
 | File-confirmation position and pending-setting protection | [`source-workflow.js`](../../../src/impodo/web/static/source-workflow.js) |
 
 ## Evidence and state
@@ -683,11 +710,13 @@ field policy. Page reads are batched; adding per-row metadata or relationship
 lookups would create an N+1 regression. Preparation must consume the frozen
 snapshot and make zero Odoo calls.
 
-Source review, saved tables, related-table cards, and the adjacent file and Odoo
-access setup pages render in bounded `run_page_read` workers. The access
-middleware also resolves authorization and applies its local route policy in
-one worker. Each scope releases its database owners before returning to the
-event loop.
+Files and Source data use `run_workspace_page_read` to share admission,
+authorization, journey policy, and complete rendering in one local worker.
+Saved tables, related-table cards, and Odoo access setup use bounded
+`run_page_read` workers with their existing admission scope. File confirmation
+uses `run_local_operation`; configuration reads and rejected-form rendering
+also run outside the event loop. Each scope releases its database owners before
+returning to the event loop or starting file workers.
 
 [`BrowserQueryService.get_source_page`](../../../src/impodo/application/browser_queries.py)
 passes the source package already verified
@@ -776,6 +805,7 @@ operator workspace.
 
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
+- [`tests/integration/web/test_file_intake_performance.py`](../../../tests/integration/web/test_file_intake_performance.py)
 - [`tests/domain/data_version/test_source_snapshot.py`](../../../tests/domain/data_version/test_source_snapshot.py)
 - [`tests/integration/odoo/test_source_capture.py`](../../../tests/integration/odoo/test_source_capture.py)
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)

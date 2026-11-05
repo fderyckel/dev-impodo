@@ -208,6 +208,7 @@ from .odoo_source_graph import (
     OdooSourcePorts,
     build_odoo_source_service_graph,
 )
+from .page_reads import run_local_operation_sync
 from .service_graph import (
     AuthoringSchemaPorts,
     PreparationResolutionPorts,
@@ -680,6 +681,7 @@ def create_local_app(
         odoo_sources=odoo_sources,
         connection_tester=resolved_connection_tester,
         read_identity_probe=resolved_read_identity_probe,
+        local_source_operation=run_local_operation_sync,
     )
     application_services = build_application_service_graph(
         foundation=foundation_services,

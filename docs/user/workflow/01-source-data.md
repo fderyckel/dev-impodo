@@ -45,10 +45,10 @@ source choices together.
 
 When you finish, select **Continue to Odoo data**. If your current selections
 need checking, the action becomes **Review result**. After that review,
-**Save and continue to Odoo data** saves the accepted change before opening
-Stage 2. You do not need to save completed changes again.
+**Save and continue** saves the accepted change before opening **Odoo data**
+in Stage 2. You do not need to save completed changes again.
 
-Choose **Several tables describe the same records** when one primary frozen
+Choose **Combine tables** when one primary frozen
 table and up to nine added tables describe the same business record. Name the
 logical output, choose the primary table, define one to five exact typed key
 fields once, and confirm the corresponding fields for every added table. The
@@ -69,9 +69,10 @@ rows. Select **Use this table** only when one primary row still produces one
 output row.
 The physical inputs default to preparation-only, private intermediate tables
 do not create separate mapping work, and only the final logical output enters
-**Match data**. Use **Advanced: combine two tables** when an explicit pairwise
-structural step is needed. Several reviewed combinations can prepare together
-in the same workspace, including outputs that share inputs. Preparation has
+**Match data**. This option also handles two tables. To use a previously
+created table in another combination, open **Advanced options** inside this
+task and select **Combine two tables**. Several reviewed combinations can
+prepare together in the same workspace, including outputs that share inputs. Preparation has
 been checked through Final review with 65,299 and 100,000 physical rows. Large
 counts produce a notice rather than a cutoff on that route; other derived-table
 shapes keep their separate preparation limits.

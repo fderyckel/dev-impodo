@@ -195,7 +195,7 @@ scope. Choose the scope from the route's responsibility:
 | Route responsibility | Shared helper | Bounded callback |
 | --- | --- | --- |
 | Read and render one local page | `run_page_read` | All synchronous repository reads, presenter work, navigation composition, and template rendering for that response. |
-| Open saved Odoo details, Match data, or Final review | `run_workspace_page_read` | Access resolution and journey policy run before source gates, active-job inspection, and the complete page projection, inside the same `run_page_read` worker. |
+| Open files, Source data, saved Odoo details, Match data, or Final review | `run_workspace_page_read` | Access resolution and journey policy run before source gates, active-job inspection, and the complete page projection, inside the same `run_page_read` worker. |
 | Execute one local command | `run_local_operation` | The complete synchronous command, including its independent repository transactions and any local read-back required for its result. |
 | Execute one local command from a worker that is already off the event loop | `run_local_operation_sync` | One complete local phase. The worker releases the scope before remote I/O, progress publication, or its next local phase. |
 
@@ -215,7 +215,7 @@ object. Do not split one page into several `run_page_read` calls merely to wrap
 individual queries; doing so recreates connection churn and can observe an
 inconsistent page state.
 
-The three complete saved pages use
+The files, Source data, saved Odoo details, Match data, and Final review pages use
 [`run_workspace_page_read`](../../src/impodo/web/security.py).
 `WorkspaceAccessMiddleware` supplies their request-specific admission callback.
 The callback first authorizes the actual parent Project and applies the closed
@@ -227,6 +227,14 @@ Other routes keep their existing admission scope. No retained owner crosses
 [page admission regressions](../../tests/integration/web/test_workspace_page_admission.py)
 verify denied access, journey redirects, failure cleanup, and fresh validation
 on the next request.
+
+File intake and inspection split their work into local capture, isolated file
+work, and local publication. The application-owned
+[`LocalOperation`](../../src/impodo/application/shared/local_operations.py) port
+lets local composition supply `run_local_operation_sync` for each database
+phase. No retained owner survives artifact streaming or a spawned validator or
+inspector. Publication rechecks authorization, lifecycle, and captured state;
+the owning services retain their existing transactions and compensation.
 
 The first repository that opens a retained store validates or upgrades its
 exact schema through
@@ -265,6 +273,9 @@ For every new or materially changed database-backed browser route:
 4. Keep remote calls, awaits, background jobs, and unrelated mutations outside
    the retained scope. Test that boundary explicitly when a route also owns a
    remote or write-capable action.
+   For file workflows, also assert that upload validators and inspection
+   workers start with no retained database owner. Cover first inspection,
+   repeat checks, changed parsing settings, and rejected publication.
 
 A lower connection count is structural evidence, not a latency guarantee.
 Use paired measurements from matching fixtures and the pinned toolchain for a performance

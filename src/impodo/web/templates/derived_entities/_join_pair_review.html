@@ -1,10 +1,10 @@
 {% if pending_join %}
   {% set pending_rule = pending_join.rule %}
   {% set pending_review = pending_join.review %}
-  <section class="form-card exact-join-preview" id="join-preview" data-derived-entity-preview data-source-review tabindex="-1">
+  <section class="source-review-panel exact-join-preview" id="join-preview" data-derived-entity-preview data-source-review tabindex="-1">
     <div class="page-heading compact">
       <div>
-        <p class="eyebrow">Complete-data review</p>
+        <p class="eyebrow">Review result</p>
         <h2>{{ pending_rule.output_dataset_name }}</h2>
         <p>One output row represents one row from <strong>{{ pending_join.left.name }}</strong>.</p>
       </div>
@@ -31,7 +31,7 @@
       </div>
     </div>
 
-    <div class="metric-grid exact-join-metrics">
+    <div class="metric-grid exact-join-metrics source-review-metrics source-review-metrics-six">
       <div><span>Base rows</span><strong>{{ pending_review.left_rows }}</strong></div>
       <div><span>Added rows</span><strong>{{ pending_review.right_rows }}</strong></div>
       <div><span>Matched base rows</span><strong>{{ pending_review.matched_left_rows }}</strong></div>
@@ -43,25 +43,26 @@
     {% for finding in pending_review.findings %}
       <div class="notice error"><strong>Resolve before saving.</strong> <span>{{ finding }}</span></div>
     {% endfor %}
-    {% if pending_review.can_save %}
-      <div class="notice success"><strong>The base grain is preserved.</strong> <span>Every output row has complete physical source lineage.</span></div>
-    {% endif %}
-
     <div class="table-scroll">
-      <table class="data-table">
-        <thead><tr><th>Complete-data check</th><th>{{ pending_join.left.name }}</th><th>{{ pending_join.right.name }}</th></tr></thead>
+      <table class="data-table source-review-checks">
+        <thead><tr><th scope="col">Complete-data check</th><th scope="col" class="source-review-number">{{ pending_join.left.name }}</th><th scope="col" class="source-review-number">{{ pending_join.right.name }}</th></tr></thead>
         <tbody>
-          <tr><th>Blank key rows</th><td>{{ pending_review.blank_left_key_rows }}</td><td>{{ pending_review.blank_right_key_rows }}</td></tr>
-          <tr><th>Invalid key rows</th><td>{{ pending_review.invalid_left_key_rows }}</td><td>{{ pending_review.invalid_right_key_rows }}</td></tr>
-          <tr><th>Repeated key groups</th><td>{{ pending_review.duplicate_left_key_groups }}</td><td>{{ pending_review.duplicate_right_key_groups }}</td></tr>
-          <tr><th>Rows in repeated groups</th><td>{{ pending_review.duplicate_left_key_rows }}</td><td>{{ pending_review.duplicate_right_key_rows }}</td></tr>
+          <tr><th scope="row">Blank key rows</th><td class="source-review-number">{{ pending_review.blank_left_key_rows }}</td><td class="source-review-number">{{ pending_review.blank_right_key_rows }}</td></tr>
+          <tr><th scope="row">Invalid key rows</th><td class="source-review-number">{{ pending_review.invalid_left_key_rows }}</td><td class="source-review-number">{{ pending_review.invalid_right_key_rows }}</td></tr>
+          <tr><th scope="row">Repeated key groups</th><td class="source-review-number">{{ pending_review.duplicate_left_key_groups }}</td><td class="source-review-number">{{ pending_review.duplicate_right_key_groups }}</td></tr>
+          <tr><th scope="row">Rows in repeated groups</th><td class="source-review-number">{{ pending_review.duplicate_left_key_rows }}</td><td class="source-review-number">{{ pending_review.duplicate_right_key_rows }}</td></tr>
         </tbody>
       </table>
     </div>
 
-    {% if pending_review.examples %}
-      <details class="technical-details">
-        <summary>Reviewed row references</summary>
+    <details class="technical-details source-review-support">
+      <summary>Review details</summary>
+      <p>Complete-data review.</p>
+      {% if pending_review.can_save %}
+        <p><strong>The base grain is preserved.</strong> Every output row has complete physical source lineage.</p>
+      {% endif %}
+      {% if pending_review.examples %}
+        <h3>Reviewed row references</h3>
         <p>These protected row numbers explain a small set of matches without copying customer values into the saved review.</p>
         <div class="table-scroll">
           <table class="data-table">
@@ -77,8 +78,8 @@
             </tbody>
           </table>
         </div>
-      </details>
-    {% endif %}
+      {% endif %}
+    </details>
 
     <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/save" data-source-save>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -99,9 +100,9 @@
       {% endfor %}
       {% for projection_index in join_form.projection_indexes %}<input type="hidden" name="projection" value="{{ projection_index }}">{% endfor %}
       {% for projection_name in join_form.projection_names %}<input type="hidden" name="projection_name" value="{{ projection_name }}">{% endfor %}
-      <div class="actions">
-        <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
-        {% if pending_review.can_save %}<button class="button primary" type="submit">{{ "Save changes" if editing_join_pair else "Use this table" }}</button>{% endif %}
+      <div class="actions source-review-actions">
+        <button class="button source-review-change" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
+        {% if pending_review.can_save %}<button class="button secondary" type="submit">{{ "Save changes" if editing_join_pair else "Use this table" }}</button>{% endif %}
       </div>
     </form>
   </section>

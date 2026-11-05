@@ -1,16 +1,16 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
-from pathlib import Path
 import re
 import tempfile
 import unittest
+from datetime import datetime, timezone
+from hashlib import sha256
+from pathlib import Path
+from xml.etree.ElementTree import ParseError
 from zipfile import ZIP_DEFLATED, ZipFile
 
+from defusedxml.common import EntitiesForbidden
 from openpyxl import Workbook
 from openpyxl.styles import PatternFill
 from openpyxl.worksheet.table import Table
@@ -19,6 +19,7 @@ from impodo.application.data_version.inspection import (
     SourceFileCatalog,
     SourceInspectionError,
     SourceInspectionOptions,
+    _count_sheet_features,
     inspect_source_file,
 )
 from impodo.application.data_version.source_files import load_selected_source_table
@@ -26,13 +27,9 @@ from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.workspace.workbench import SourceFile
 
 
-ROOT = REPOSITORY_ROOT
-
-
 class SourceInspectionTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.directory = Path(self.temporary.name)
 
     def tearDown(self) -> None:
@@ -70,6 +67,49 @@ class SourceInspectionTests(unittest.TestCase):
 
         restored = SourceFileCatalog.from_json(catalog.to_json())
         self.assertEqual(restored, catalog)
+
+    def test_worksheet_feature_counter_counts_namespaced_tags_without_cell_text(self):
+        path = self.directory / "features.xlsx"
+        xml = b'''<x:worksheet xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+          <x:sheetData><x:row><x:c><x:f>SUM(A1:A2)</x:f></x:c>
+          <x:c><x:v>&lt;f&gt;Not a formula&lt;/f&gt;</x:v></x:c></x:row></x:sheetData>
+          <!-- <x:f>Not a formula</x:f> -->
+          <x:mergeCells><x:mergeCell ref="A1:B1"/><x:mergeCell ref="A2:B2"/></x:mergeCells>
+        </x:worksheet>'''
+        with ZipFile(path, "w") as archive:
+            archive.writestr("xl/worksheets/sheet1.xml", xml)
+        with ZipFile(path) as archive:
+            self.assertEqual(_count_sheet_features(archive, "xl/worksheets/sheet1.xml"), (2, 1))
+
+    def test_worksheet_feature_counter_rejects_internal_and_external_entities(self):
+        for declaration in ('<!ENTITY value "expanded">', '<!ENTITY value SYSTEM "file:///unavailable">'):
+            with self.subTest(declaration=declaration):
+                path = self.directory / "entities.xlsx"
+                xml = f'<!DOCTYPE worksheet [{declaration}]><worksheet>&value;</worksheet>'
+                with ZipFile(path, "w") as archive:
+                    archive.writestr("xl/worksheets/sheet1.xml", xml)
+                with ZipFile(path) as archive, self.assertRaises(EntitiesForbidden):
+                    _count_sheet_features(archive, "xl/worksheets/sheet1.xml")
+
+    def test_headerless_sheet_keeps_formula_and_merged_range_evidence(self):
+        path = self.directory / "headerless.xlsx"
+        workbook = Workbook()
+        sheet = workbook.active
+        sheet.merge_cells("A29:B29")
+        sheet["A30"] = "=1+1"
+        workbook.save(path)
+        workbook.close()
+        catalog = inspect_source_file(path, source_file=_source_evidence(path))
+        self.assertIsNone(catalog.tables[0].header_row)
+        self.assertEqual(catalog.tables[0].formula_cell_count, 1)
+        self.assertEqual(catalog.tables[0].merged_range_count, 1)
+
+    def test_worksheet_feature_counter_rejects_incomplete_xml(self):
+        path = self.directory / "incomplete.xlsx"
+        with ZipFile(path, "w") as archive:
+            archive.writestr("xl/worksheets/sheet1.xml", "<worksheet><sheetData>")
+        with ZipFile(path) as archive, self.assertRaises(ParseError):
+            _count_sheet_features(archive, "xl/worksheets/sheet1.xml")
 
     def test_noncurrent_catalog_json_is_rejected(self) -> None:
         path = self.directory / "noncurrent.xlsx"

@@ -77,6 +77,8 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.register
       - src/impodo/web/source_file_commands.py::accept_source_uploads
+      - src/impodo/application/data_version/intake.py::SourceIntakeService
+      - src/impodo/application/shared/local_operations.py::LocalOperation
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler.compile_workspace
       - src/impodo/application/recipe_compilation_service.py::RecipeCompiler._preparation
       - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._field
@@ -91,6 +93,7 @@ stages:
       - tests/integration/web/test_concept_help.py
       - tests/integration/web/test_user_help.py
       - tests/application/project/test_authoring.py
+      - tests/integration/web/test_file_intake_performance.py
       - tests/architecture/test_identity_semantics.py
       - tests/application/workspace/test_access.py
       - tests/architecture/test_canonical_ownership.py
@@ -179,6 +182,7 @@ stages:
       - scripts/capture_exact_join_screenshot.py::capture
       - scripts/benchmark_source_composition.py::main
       - src/impodo/application/data_version/source_worker.py::validate_source_file_isolated
+      - src/impodo/application/data_version/inspection.py::SourceInspectionService
       - src/impodo/web/source_file_commands.py::accept_source_uploads
       - src/impodo/web/source_file_commands.py::remove_source_file
     tests:
@@ -186,6 +190,7 @@ stages:
       - tests/application/test_source_workspace_service.py
       - tests/integration/duckdb/test_atomic_odoo_capture_publication.py
       - tests/application/data_version/test_source_worker.py
+      - tests/integration/web/test_file_intake_performance.py
       - tests/domain/data_version/test_source_snapshot.py
       - tests/integration/odoo/test_source_capture.py
       - tests/application/data_version/test_odoo_capture_publication.py

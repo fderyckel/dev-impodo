@@ -20,6 +20,7 @@ import json
 import posixpath
 import re
 import zipfile
+from collections import OrderedDict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass, replace
 from dataclasses import fields as dataclass_fields
@@ -27,6 +28,7 @@ from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
 from hashlib import sha256
 from pathlib import Path
+from threading import Lock
 from typing import Any, Protocol
 
 from defusedxml import ElementTree as SafeElementTree
@@ -45,7 +47,14 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     DataVersionSourceArtifactStore,
 )
-from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+)
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import SourceSelection
@@ -64,6 +73,7 @@ DISTINCT_TABLE_VALUE_LIMIT = 100_000
 DISPLAY_VALUE_LIMIT = 200
 MAX_CATALOG_HEADER_LENGTH = 1_000
 CSV_SAMPLE_BYTES = 64 * 1024
+TRUSTED_INSPECTION_LIMIT = 64
 SUPPORTED_CSV_ENCODINGS = ("utf-8-sig", "utf-8", "cp1252")
 SUPPORTED_CSV_DELIMITERS = (",", ";", "\t", "|")
 
@@ -279,6 +289,12 @@ class SourceCatalogRepository(Protocol):
         ...
 
 
+@dataclass(frozen=True, slots=True)
+class _InspectionInput:
+    access: WorkspaceAccessContext
+    workspace: WorkspaceState
+
+
 class SourceInspectionService:
     """Inspect registered files and publish their hash-bound catalogs.
 
@@ -293,11 +309,20 @@ class SourceInspectionService:
         sources: SourceCatalogRepository,
         artifacts: DataVersionSourceArtifactStore,
         authorization: WorkspaceAccessService,
+        *,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.workspace_states = workspace_states
         self.sources = sources
         self.artifacts = artifacts
         self.authorization = authorization
+        self._run_local = local_operation or direct_local_operation
+        # Only successful inspections made by this service instance are trusted.
+        # Keep receipts, not profiles or open database owners, across requests.
+        self._trusted: OrderedDict[
+            tuple[str, str], tuple[SourceFile, str, SourceInspectionOptions | None]
+        ] = OrderedDict()
+        self._trust_lock = Lock()
 
     def inspect_project(
         self,
@@ -305,19 +330,9 @@ class SourceInspectionService:
         *,
         actor: Actor,
     ) -> tuple[SourceFileCatalog, ...]:
-        """Reinspect every registered file and replace the complete catalog set."""
+        """Verify every registered file and replace the complete catalog set."""
 
-        context = self.authorization.require(
-            actor,
-            Capability.SOURCE_INSPECT,
-            workspace_id=workspace_id,
-        )
-        workspace_state = self.workspace_states.get(workspace_id)
-        if workspace_state.status is not WorkspaceStatus.REGISTERED:
-            raise SourceInspectionError(
-                "Register the migration project before inspecting its sources"
-            )
-        self._require_unselected(workspace_id)
+        prepared, cached = self._run_local(lambda: self._capture(workspace_id, actor, None))
 
         # Import here to keep multiprocessing bootstrapping independent of the
         # domain module import path.
@@ -326,29 +341,35 @@ class SourceInspectionService:
         )
 
         catalogs: list[SourceFileCatalog] = []
-        for source_file in workspace_state.source_files:
+        for source_file in prepared.workspace.source_files:
+            cached_input = cached.get(source_file.file_id)
             try:
                 with self.artifacts.materialize_source(
-                    context.data_version_id,
+                    prepared.access.data_version_id,
                     source_file.stored_name,
                 ) as path:
                     catalogs.append(
                         inspect_source_file_isolated(
                             path,
                             source_file=source_file,
-                            options=None,
-                            inspector=inspect_source_file,
+                            options=cached_input[0] if cached_input is not None else None,
+                            inspector=(
+                                _refresh_verified_catalog if cached_input is not None
+                                else inspect_source_file
+                            ),
                             catalog_from_json=SourceFileCatalog.from_json,
                             inspection_error=SourceInspectionError,
                         )
                     )
             except ArtifactStoreError as error:
                 raise SourceInspectionError(str(error)) from error
-        self.sources.save_source_catalogs(
-            workspace_id,
-            catalogs,
-            actor=actor,
-        )
+
+        def publish() -> None:
+            self._recheck(prepared, actor, cached)
+            self.sources.save_source_catalogs(workspace_id, catalogs, actor=actor)
+
+        self._run_local(publish)
+        self._remember(prepared, catalogs, cached, None)
         return tuple(catalogs)
 
     def inspect_file(
@@ -361,20 +382,12 @@ class SourceInspectionService:
     ) -> SourceFileCatalog:
         """Regenerate one catalog with governed user-selected settings."""
 
-        context = self.authorization.require(
-            actor,
-            Capability.SOURCE_INSPECT,
-            workspace_id=workspace_id,
+        prepared, cached = self._run_local(
+            lambda: self._capture(workspace_id, actor, options, file_id=file_id)
         )
-        workspace_state = self.workspace_states.get(workspace_id)
-        if workspace_state.status is not WorkspaceStatus.REGISTERED:
-            raise SourceInspectionError(
-                "Register the migration project before configuring its sources"
-            )
-        self._require_unselected(workspace_id)
         try:
             source_file = next(
-                item for item in workspace_state.source_files if item.file_id == file_id
+                item for item in prepared.workspace.source_files if item.file_id == file_id
             )
         except StopIteration as error:
             raise SourceInspectionError("Registered source file was not found") from error
@@ -383,27 +396,112 @@ class SourceInspectionService:
             inspect_source_file_isolated,
         )
 
+        cached_input = cached.get(file_id)
         try:
             with self.artifacts.materialize_source(
-                context.data_version_id,
+                prepared.access.data_version_id,
                 source_file.stored_name,
             ) as path:
                 catalog = inspect_source_file_isolated(
                     path,
                     source_file=source_file,
-                    options=options,
-                    inspector=inspect_source_file,
+                    options=cached_input[0] if cached_input is not None else options,
+                    inspector=(
+                        _refresh_verified_catalog if cached_input is not None
+                        else inspect_source_file
+                    ),
                     catalog_from_json=SourceFileCatalog.from_json,
                     inspection_error=SourceInspectionError,
                 )
         except ArtifactStoreError as error:
             raise SourceInspectionError(str(error)) from error
-        self.sources.save_source_catalog(
-            workspace_id,
-            catalog,
-            actor=actor,
-        )
+
+        def publish() -> None:
+            self._recheck(prepared, actor, cached)
+            self.sources.save_source_catalog(workspace_id, catalog, actor=actor)
+
+        self._run_local(publish)
+        self._remember(prepared, (catalog,), cached, options)
         return catalog
+
+    def _capture(
+        self, workspace_id: str, actor: Actor, options: SourceInspectionOptions | None,
+        *, file_id: str | None = None,
+    ) -> tuple[_InspectionInput, dict[str, tuple[SourceFileCatalog, SourceInspectionOptions | None]]]:
+        prepared = self._prepare(
+            workspace_id, actor,
+            action="configuring" if file_id is not None else "inspecting",
+        )
+        files = {
+            item.file_id: item for item in prepared.workspace.source_files
+            if file_id is None or item.file_id == file_id
+        }
+        with self._trust_lock:
+            trusted = {
+                key: self._trusted[(prepared.access.data_version_id, key)]
+                for key in files if (prepared.access.data_version_id, key) in self._trusted
+            }
+        cached = {}
+        if trusted:
+            for catalog in self.sources.get_source_catalogs(workspace_id):
+                marker = trusted.get(catalog.file_id)
+                if (
+                    marker is not None and marker[0] == files[catalog.file_id]
+                    and marker[1] == catalog.content_hash
+                    and _same_inspection_options(catalog, marker[2], options)
+                ):
+                    cached[catalog.file_id] = (catalog, marker[2])
+        return prepared, cached
+
+    def _remember(
+        self, prepared: _InspectionInput, catalogs: Iterable[SourceFileCatalog],
+        cached: dict[str, tuple[SourceFileCatalog, SourceInspectionOptions | None]],
+        options: SourceInspectionOptions | None,
+    ) -> None:
+        files = {item.file_id: item for item in prepared.workspace.source_files}
+        for catalog in catalogs:
+            original_options = cached[catalog.file_id][1] if catalog.file_id in cached else options
+            marker = (files[catalog.file_id], catalog.content_hash, original_options)
+            key = (prepared.access.data_version_id, catalog.file_id)
+            with self._trust_lock:
+                self._trusted[key] = marker
+                self._trusted.move_to_end(key)
+                while len(self._trusted) > TRUSTED_INSPECTION_LIMIT:
+                    self._trusted.popitem(last=False)
+
+    def _prepare(
+        self, workspace_id: str, actor: Actor, *, action: str = "inspecting",
+    ) -> _InspectionInput:
+        access = self.authorization.require(
+            actor, Capability.SOURCE_INSPECT, workspace_id=workspace_id,
+        )
+        workspace = self.workspace_states.get(workspace_id)
+        if workspace.status is not WorkspaceStatus.REGISTERED:
+            raise SourceInspectionError(
+                f"Register the migration project before {action} its sources"
+            )
+        self._require_unselected(workspace_id)
+        return _InspectionInput(access, workspace)
+
+    def _recheck(
+        self, prepared: _InspectionInput, actor: Actor,
+        cached: dict[str, tuple[SourceFileCatalog, SourceInspectionOptions | None]],
+    ) -> None:
+        if self._prepare(prepared.workspace.workspace_id, actor) != prepared:
+            raise SourceInspectionError(
+                "The workspace or its files changed while they were being checked. "
+                "Reload and check the current files again."
+            )
+        if cached:
+            current = {
+                catalog.file_id: catalog.content_hash
+                for catalog in self.sources.get_source_catalogs(prepared.workspace.workspace_id)
+            }
+            if any(current.get(key) != value[0].content_hash for key, value in cached.items()):
+                raise SourceInspectionError(
+                    "The file checks changed while they were being verified. "
+                    "Reload and check the current files again."
+                )
 
     def _require_unselected(self, workspace_id: str) -> None:
         if self.sources.get_source_selection(workspace_id) is not None:
@@ -411,6 +509,56 @@ class SourceInspectionService:
                 "The tables for this Data version are already saved. "
                 "Start a new run with a new Data version to check different files."
             )
+
+
+def _same_inspection_options(
+    catalog: SourceFileCatalog, original: SourceInspectionOptions | None,
+    requested: SourceInspectionOptions | None,
+) -> bool:
+    """Reuse auto-detected profiles only for equivalent explicit parse settings."""
+
+    if original == requested:
+        return True
+    if original is not None or requested is None:
+        return False
+    if catalog.format == "CSV":
+        return (
+            requested.encoding in {None, catalog.encoding}
+            and requested.delimiter in {None, catalog.delimiter}
+            and requested.csv_header_row == catalog.tables[0].header_row
+        )
+    headers = {
+        table.table_key: table.header_row
+        for table in catalog.tables if table.kind == "WORKSHEET"
+    }
+    return all(headers.get(key) == row for key, row in requested.worksheet_header_rows)
+
+
+def _refresh_verified_catalog(
+    path: str | Path, *, source_file: SourceFile, options: SourceFileCatalog,
+) -> SourceFileCatalog:
+    """Recheck immutable bytes in the normal worker before reusing proven profiles.
+
+    Only the service's bounded, current-process receipt admits this path. The
+    worker still enforces the application build, memory and time limits; a new
+    service instance or changed catalog/settings requires full inspection.
+    """
+
+    try:
+        size, digest = _hash_file(Path(path))
+    except OSError as error:
+        raise SourceInspectionError(
+            f"Could not read the registered source file {source_file.display_name}"
+        ) from error
+    if (
+        size != source_file.size_bytes or digest != source_file.sha256
+        or options.file_id != source_file.file_id
+        or options.source_sha256 != source_file.sha256
+        or options.source_size_bytes != source_file.size_bytes
+    ):
+        raise SourceInspectionError("The stored source file no longer matches its registered evidence")
+    validate_source_file(path)
+    return replace(options, inspected_at=datetime.now(UTC))
 
 
 def inspect_source_file(
@@ -474,7 +622,8 @@ def _inspect_csv(
     *,
     options: SourceInspectionOptions | None,
 ) -> tuple[str, str, SourceTableCatalog, tuple[str, ...]]:
-    sample = path.read_bytes()[:CSV_SAMPLE_BYTES]
+    with path.open("rb") as stream:
+        sample = stream.read(CSV_SAMPLE_BYTES)
     detected_encoding, encoding_warning = _detect_csv_encoding(sample)
     encoding = options.encoding if options and options.encoding else detected_encoding
     if encoding not in SUPPORTED_CSV_ENCODINGS:
@@ -846,6 +995,9 @@ def _inspect_worksheet(
             )
         padded = [*values, *([None] * (len(headers) - len(values)))]
         for accumulator, value in zip(accumulators, padded, strict=True):
+            if value is None:
+                accumulator.null_count += 1
+                continue
             if isinstance(value, str) and len(value) > MAX_CELL_STRING_LENGTH:
                 raise SourceInspectionError(
                     f"Worksheet {worksheet.title!r} contains a cell exceeding "
@@ -1104,20 +1256,36 @@ def _read_xml(archive: zipfile.ZipFile, path: str):
     return SafeElementTree.fromstring(archive.read(information))
 
 
+class _WorksheetFeatureCounter:
+    """Count worksheet tags without constructing or retaining a cell tree."""
+
+    def __init__(self) -> None:
+        self.merged_ranges = 0
+        self.formula_cells = 0
+
+    def start(self, tag: str, _attributes: dict[str, str]) -> None:
+        if tag == f"{{{_MAIN_NS}}}mergeCell":
+            self.merged_ranges += 1
+        elif tag == f"{{{_MAIN_NS}}}f":
+            self.formula_cells += 1
+
+    def close(self) -> None:
+        pass
+
+
 def _count_sheet_features(
     archive: zipfile.ZipFile,
     sheet_path: str,
 ) -> tuple[int, int]:
-    merged_ranges = 0
-    formula_cells = 0
+    counter = _WorksheetFeatureCounter()
+    parser = SafeElementTree.DefusedXMLParser(
+        target=counter, forbid_entities=True, forbid_external=True,
+    )
     with archive.open(sheet_path) as stream:
-        for _event, element in SafeElementTree.iterparse(stream, events=("end",)):
-            if element.tag == f"{{{_MAIN_NS}}}mergeCell":
-                merged_ranges += 1
-            elif element.tag == f"{{{_MAIN_NS}}}f":
-                formula_cells += 1
-            element.clear()
-    return merged_ranges, formula_cells
+        while chunk := stream.read(64 * 1024):
+            parser.feed(chunk)
+    parser.close()
+    return counter.merged_ranges, counter.formula_cells
 
 
 def _resolve_relationship_target(base_path: str, target: str) -> str:

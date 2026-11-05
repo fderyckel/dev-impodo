@@ -2,6 +2,7 @@
 {% block title %}Separate combined information - {{ migration_project.display_name }} - Impodo{% endblock %}
 {% block page_styles %}
   <link rel="stylesheet" href="{{ url_for('static', path='/source-journey.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/source-review.css') }}">
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/derived-entities.js') }}" defer></script>
@@ -28,13 +29,20 @@
   {% else %}
     <section class="form-card source-operation-choices" id="source-operation-choices" data-source-choices>
       <h2>What does your source contain? {{ decision_help("source-composition") }}</h2>
-      <div class="actions source-composition-actions" data-source-composition-actions>
-        <button class="button secondary" type="button" data-derived-entity-target="combine-source-tables">Several tables describe the same records</button>
-        <button class="button secondary" type="button" data-derived-entity-target="lookup-extraction">One field contains reusable values</button>
-        <button class="button secondary" type="button" data-derived-entity-target="hierarchy-extraction">Several fields form a hierarchy</button>
-        <button class="button secondary" type="button" data-derived-entity-target="create-related-datasets">Several rows describe the same record</button>
+      <div class="source-composition-actions" data-source-composition-actions>
+        {% for choice_id, title, description, icon in [
+          ('combine-source-tables', 'Combine tables', 'Different details about the same records.', 'intersect'),
+          ('lookup-extraction', 'Create a related table', 'Repeated values in one field.', 'collection'),
+          ('hierarchy-extraction', 'Build a hierarchy', 'Parent and child levels in separate fields.', 'diagram-3'),
+          ('create-related-datasets', 'Split a table', 'Different records repeated across source rows.', 'layout-split')
+        ] %}
+          <button class="source-shape-choice" type="button" data-derived-entity-target="{{ choice_id }}" aria-labelledby="{{ choice_id }}-title" aria-describedby="{{ choice_id }}-description">
+            <span class="source-shape-icon" aria-hidden="true">{{ app_icon(icon) }}</span>
+            <strong id="{{ choice_id }}-title">{{ title }}</strong>
+            <span class="source-shape-description" id="{{ choice_id }}-description">{{ description }}</span>
+          </button>
+        {% endfor %}
       </div>
-      <button class="button secondary compact source-advanced-choice" type="button" data-derived-entity-target="combine-two-tables">Advanced: combine two tables</button>
     </section>
 
     {% if join_rule_views or related_rule_views or rule_views %}

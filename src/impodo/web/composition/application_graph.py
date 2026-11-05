@@ -51,6 +51,7 @@ from impodo.application.shared.job_runtimes import (
     RecipeRunJobRuntime,
 )
 from impodo.application.shared.jobs import JobDispatcher
+from impodo.application.shared.local_operations import LocalOperation
 from impodo.application.shared.secrets import SecretStore
 from impodo.application.supporting_lookup_service import (
     SupportingLookupRepositoryPort,
@@ -246,6 +247,7 @@ def build_workflow_support_service_graph(
     odoo_sources: OdooSourceServiceGraph,
     connection_tester: ConnectionTester,
     read_identity_probe: ReadIdentityProbe,
+    local_source_operation: LocalOperation | None = None,
 ) -> WorkflowSupportServiceGraph:
     """Wire browser-support services without selecting persistence adapters."""
 
@@ -281,12 +283,14 @@ def build_workflow_support_service_graph(
             foundation.workspace_states,
             artifacts,
             foundation.workspace_access,
+            local_operation=local_source_operation,
         ),
         inspections=SourceInspectionService(
             ports.workspace_catalogs,
             ports.source_catalogs,
             artifacts,
             foundation.workspace_access,
+            local_operation=local_source_operation,
         ),
         derived_entities=DerivedEntityWorkspaceService(
             ports.derived_sources,

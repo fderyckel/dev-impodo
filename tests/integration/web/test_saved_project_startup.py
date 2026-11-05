@@ -27,6 +27,7 @@ from impodo.adapters.protected_evidence.credential_vault import MemorySecretStor
 from impodo.domain.shared.schema import WORKSPACE_SCHEMA_GENERATION, WORKSPACE_SCHEMA_VERSION
 from impodo.web.app import create_local_app
 from tests.support.browser_scenarios import POST_HEADERS, _csrf
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 
 
@@ -102,15 +103,18 @@ class SavedProjectStartupTests(unittest.TestCase):
                         projects = client.get("/launch?token=saved-project-launch")
                         self.assertEqual(projects.status_code, 200)
                         self.assertIn("Saved fictional customer project", projects.text)
-                        with collect_duckdb_request_timings() as timings:
+                        with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
                             files = client.get(f"/workspaces/{workspace_id}/files")
                         self.assertEqual(files.status_code, 200)
                         self.assertIn("customers.csv", files.text)
-                        # Route policy opens the registry and reference store.
-                        # The retained page scope opens those two stores again,
-                        # plus the engine and DataVersion store: two plus four.
-                        self.assertLessEqual(timings.connection_count, 6)
-                        self.assertEqual(timings.schema_check_count, 4)
+                        # Admission and rendering share registry, reference,
+                        # engine, and Data version owners in one operation.
+                        self.assertLessEqual(timings.connection_count, 4)
+                        self.assertEqual(timings.schema_check_count, 3)
+                        self.assertEqual(
+                            sum("duckdb_columns()" in sql for sql in statements),
+                            timings.schema_check_count,
+                        )
                         self.assertEqual(timings.lock_retry_count, 0)
                     self.assertEqual(_saved_rows(root), before)
                     for path in root.rglob("*.duckdb"):

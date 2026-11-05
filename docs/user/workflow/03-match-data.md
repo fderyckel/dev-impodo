@@ -611,8 +611,8 @@ the supporting record type to the migration scope. A changed relationship,
 key, or Odoo field contract blocks the check and returns ownership to this
 stage.
 
-If you combined files with **Several tables describe the same records**,
-**Match values** reads the choices in the final combined table. Rows from an
+If you combined files with **Combine tables**, **Match values** reads the
+choices in the final combined table. Rows from an
 added table that did not match a primary row do not add choices or increase
 their counts. **Check matches** uses the same combined values and reports any
 populated choice that still needs a match.
@@ -732,8 +732,8 @@ combined.
 
 **Combine source columns** produces one scalar Odoo text value. It does not
 create a generated-table identity or a relationship key. To create related
-records from separate hierarchy fields, first use **Several fields form a
-hierarchy** in Stage 1. This stage then suggests the generated table for its
+records from separate hierarchy fields, first use **Build a hierarchy** in
+Stage 1. This stage then suggests the generated table for its
 compatible self-parent relationship and for the consumer model's compatible
 many2one. Both relationships use complete generated path keys rather than a
 combined label or final record name.

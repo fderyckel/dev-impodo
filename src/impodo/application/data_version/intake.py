@@ -25,6 +25,10 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     DataVersionSourceArtifactStore,
 )
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.access import Actor, Capability
@@ -56,10 +60,13 @@ class SourceIntakeService:
         workspaces: WorkspaceStateService,
         artifacts: DataVersionSourceArtifactStore,
         workspace_access: WorkspaceAccessService,
+        *,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.artifacts = artifacts
         self.workspace_access = workspace_access
+        self._run_local = local_operation or direct_local_operation
 
     def accept(
         self,
@@ -88,11 +95,9 @@ class SourceIntakeService:
         if extension not in ALLOWED_EXTENSIONS:
             raise SourceIntakeError("Only CSV and XLSX files are accepted")
 
-        context = self.workspace_access.require(
-            actor,
-            Capability.PROJECT_EDIT,
-            workspace_id=workspace_id,
-        )
+        context = self._run_local(lambda: self.workspace_access.require(
+            actor, Capability.PROJECT_EDIT, workspace_id=workspace_id,
+        ))
         data_version_id = context.data_version_id
         file_id = str(uuid4())
         try:
@@ -114,12 +119,12 @@ class SourceIntakeService:
                 received_at=datetime.now(UTC),
             )
             try:
-                self.workspaces.add_source_file(
+                self._run_local(lambda: self.workspaces.add_source_file(
                     workspace_id,
                     actor=actor,
                     expected_revision=expected_revision,
                     source_file=source_file,
-                )
+                ))
             except Exception:
                 self.artifacts.delete_source(data_version_id, stored.storage_key)
                 raise

@@ -400,7 +400,7 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "Build a hierarchy from separate fields",
             hierarchy_page.text,
         )
-        self.assertIn("Several fields form a hierarchy", hierarchy_page.text)
+        self.assertIn("Build a hierarchy", hierarchy_page.text)
         self.assertIn(
             "models/refresh?return_to=hierarchy",
             hierarchy_page.text,

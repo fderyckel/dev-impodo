@@ -181,7 +181,21 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             "link", name="Separate combined information", exact=True
         ).click()
         expect(self.root).to_be_visible()
+        pairwise = self.page.get_by_role(
+            "button", name="Combine two tables", exact=True
+        )
+        expect(pairwise).to_be_hidden()
         self._capture("06i-stage1-choice.png")
+        combined = self._choose("Combine tables", "combine-source-tables")
+        advanced = combined.locator("[data-source-combination-advanced]")
+        expect(pairwise).to_be_hidden()
+        advanced.locator("summary").focus()
+        self.page.keyboard.press("Enter")
+        expect(pairwise).to_be_visible()
+        pairwise.click()
+        expect(self.root).to_have_attribute("data-source-active", "combine-two-tables")
+        expect(self.page.locator("[data-exact-join-form]")).to_be_visible()
+        self.page.locator("[data-source-add-another]").click()
 
     def _choose(self, name, operation):
         self.page.get_by_role("button", name=name, exact=True).click()
@@ -197,6 +211,11 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         self.next.click()
         expect(panel.locator("[data-source-review]")).to_be_visible()
         expect(self.state).to_have_text("Ready to use")
+        title = panel.locator("[data-source-review] h2").first
+        expect(title).to_be_focused()
+        self.assertEqual(
+            title.evaluate("element => getComputedStyle(element).outlineStyle"), "none"
+        )
         expect(self.next).to_be_in_viewport()
         bounds = self.next.bounding_box()
         self.assertGreaterEqual(bounds["x"], 0)
@@ -223,9 +242,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         return self.fixture.context.queries.get_derived_entity_plan(self.workspace_id)
 
     def _combine(self):
-        panel = self._choose(
-            "Several tables describe the same records", "combine-source-tables"
-        )
+        panel = self._choose("Combine tables", "combine-source-tables")
         panel.get_by_label("Combined table name", exact=True).fill("complete_products")
         panel.get_by_role("combobox", name=re.compile("^Primary table")).select_option(
             self.products.dataset_id
@@ -243,15 +260,28 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             f"{self.details.dataset_id}|{key}"
         )
         expect(self.state).to_have_text("Unsaved changes")
-        self.page.get_by_role(
-            "button", name="Several fields form a hierarchy", exact=True
-        ).click()
+        self.page.get_by_role("button", name="Build a hierarchy", exact=True).click()
         expect(self.root).to_have_attribute(
             "data-source-active", "combine-source-tables"
         )
         expect(self.page.locator("[data-source-notice]")).to_be_visible()
         self.assertIsNone(self._plan())
         self._review(panel)
+        table = panel.locator("[data-source-review] .table-scroll").first
+        self.assertLessEqual(
+            table.evaluate("element => element.scrollWidth - element.clientWidth"), 1
+        )
+        first_table = table.locator("tbody th").first
+        original_name = first_table.inner_text()
+        first_table.evaluate(
+            "element => { element.textContent = 'ecranproduitslance'; }"
+        )
+        self.assertLessEqual(
+            table.evaluate("element => element.scrollWidth - element.clientWidth"), 1
+        )
+        first_table.evaluate(
+            "(element, text) => { element.textContent = text; }", original_name
+        )
         self._capture("06j-stage1-combination-review.png")
         # Changing the editor must invalidate the older review and its save action.
         panel.get_by_role("button", name="Change selections", exact=True).click()
@@ -274,7 +304,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         expect(self.page.locator("[data-source-choices]")).to_be_in_viewport()
 
     def _hierarchy(self):
-        panel = self._choose("Several fields form a hierarchy", "hierarchy-extraction")
+        panel = self._choose("Build a hierarchy", "hierarchy-extraction")
         source = panel.locator(
             f'[data-source-editor][data-source-source-id="{self.products.dataset_id}"]'
         )
@@ -299,7 +329,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         self.assertEqual(self._plan().version, 2)
 
     def _lookup_with_failed_save(self):
-        panel = self._choose("One field contains reusable values", "lookup-extraction")
+        panel = self._choose("Create a related table", "lookup-extraction")
         editor = panel.locator("[data-source-editor]")
         editor.get_by_role(
             "combobox", name=re.compile("^Use values from")
@@ -320,6 +350,22 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         expect(
             self.page.get_by_role("button", name="Check saved changes", exact=True)
         ).to_be_in_viewport()
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        check = self.page.get_by_role("button", name="Check saved changes", exact=True)
+        expect(check).to_be_in_viewport()
+        bounds = check.bounding_box()
+        self.assertGreaterEqual(bounds["x"], 0)
+        self.assertLessEqual(bounds["x"] + bounds["width"], 390)
+        self.assertLessEqual(bounds["y"] + bounds["height"], 845)
+        self.page.wait_for_function("""() => {
+          const root = document.querySelector('[data-source-journey]');
+          const bar = root.querySelector('[data-source-action-bar]');
+          return parseFloat(getComputedStyle(root).paddingBottom) >= bar.getBoundingClientRect().height + 16;
+        }""")
+        self.assertLessEqual(
+            self.page.evaluate("document.documentElement.scrollWidth - innerWidth"), 1
+        )
+        self.page.set_viewport_size({"width": 1440, "height": 1024})
         self.assertEqual(self._plan().version, 2)
         expect(
             panel.locator('[data-source-save] [name="output_dataset_name"]')
@@ -332,9 +378,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         self.assertEqual(self._plan().version, 3)
 
     def _split_and_continue(self):
-        panel = self._choose(
-            "Several rows describe the same record", "create-related-datasets"
-        )
+        panel = self._choose("Split a table", "create-related-datasets")
         editor = panel.locator(
             f'[data-source-editor][data-source-source-id="{self.products.dataset_id}"]'
         )

@@ -1,7 +1,7 @@
 {% if pending_related %}
   {% set pending_rule = pending_related.rule %}
   {% set pending_preview = pending_related.preview %}
-  <section class="form-card related-preview" id="related-preview" data-derived-entity-preview data-source-review tabindex="-1">
+  <section class="source-review-panel related-preview" id="related-preview" data-derived-entity-preview data-source-review tabindex="-1">
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Review before creating</p>
@@ -15,7 +15,7 @@
       Impodo will create one row in <strong>{{ pending_rule.parent_dataset_name }}</strong> for each group and keep every source row in <strong>{{ pending_rule.child_dataset_name }}</strong>.
     </div>
 
-    <div class="metric-grid">
+    <div class="metric-grid source-review-metrics">
       <div><span>Source rows</span><strong>{{ pending_preview.source_rows }}</strong></div>
       <div>
         <span>Groups found</span>
@@ -44,13 +44,13 @@
     {% if pending_preview.parent_samples %}
       <div class="table-scroll">
         <table class="data-table">
-          <thead><tr><th>Group value</th><th>Additional separation</th><th>Example rows</th><th>Row identifiers</th></tr></thead>
+          <thead><tr><th>Group value</th><th>Additional separation</th><th class="source-review-number">Example rows</th><th>Row identifiers</th></tr></thead>
           <tbody>
             {% for sample in pending_preview.parent_samples %}
               <tr>
                 <th>{{ sample.parent_key }}</th>
                 <td>{{ sample.scope or "Not used" }}</td>
-                <td>{{ sample.sampled_child_rows }}</td>
+                <td class="source-review-number">{{ sample.sampled_child_rows }}</td>
                 <td>{{ sample.sampled_child_keys|join(', ') }}</td>
               </tr>
             {% endfor %}
@@ -71,9 +71,9 @@
       <input type="hidden" name="child_key_column_key" value="{{ pending_rule.child_key_column_key }}">
       <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
       <input type="hidden" name="source_dataset_use" value="{{ pending_related.source_dataset_use }}">
-      <div class="actions">
-        <button class="button secondary" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
-        <button class="button primary" type="submit">Use these tables</button>
+      <div class="actions source-review-actions">
+        <button class="button source-review-change" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
+        <button class="button secondary" type="submit">Use these tables</button>
       </div>
     </form>
   </section>

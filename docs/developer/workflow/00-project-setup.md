@@ -155,6 +155,20 @@ than editing the accepted package.
 
 ## Odoo compatibility and performance
 
+File upload separates authorization, artifact validation, and publication.
+[`SourceIntakeService`](../../../src/impodo/application/data_version/intake.py)
+uses the application-owned
+[`LocalOperation`](../../../src/impodo/application/shared/local_operations.py)
+port to close each local database phase before the isolated
+validator runs, then attaches the file through the existing revision-checked
+command. Failed attachment still deletes the newly stored artifact.
+Registration and rejected-form recovery run in one bounded local command;
+owners close before the initial source inspection starts. Files-page admission
+and rendering share one `run_workspace_page_read` operation. The
+[file-intake regressions](../../../tests/integration/web/test_file_intake_performance.py)
+bound opens, schema checks, and SQL for upload, registration, and page reads,
+and assert that file workers inherit no retained database owner.
+
 Project list and overview use bounded registry projections. Do not add a
 workspace-store or protected-payload read inside a list loop. The fresh-Project
 overview's controlled regression fixture allows at most two physical registry

@@ -1,19 +1,19 @@
 {% if pending_lookup %}
   {% set pending_rule = pending_lookup.rule %}
   {% set pending_preview = pending_lookup.preview %}
-  <section class="nested-rule-card" id="lookup-preview" data-derived-entity-preview data-source-review tabindex="-1">
+  <section class="source-review-panel" id="lookup-preview" data-derived-entity-preview data-source-review tabindex="-1">
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Review the resulting table</p>
         <h2>{{ pending_rule.output_dataset_name }}</h2>
       </div>
-      <span class="status registered">{{ "Needs attention" if pending_preview.needs_attention else "Ready to use" }}</span>
+      <span class="status {{ 'attention' if pending_preview.needs_attention else 'registered' }}">{{ "Needs attention" if pending_preview.needs_attention else "Ready to use" }}</span>
     </div>
 
     <div class="notice success">
       The original <strong>{{ pending_preview.source_dataset_name }}</strong> table stays unchanged. After you confirm, Impodo adds <strong>{{ pending_rule.output_dataset_name }}</strong> to Match data. There, you can review how <strong>{{ pending_preview.source_column_name }}</strong> links to it.
     </div>
-    <div class="metric-grid">
+    <div class="metric-grid source-review-metrics">
       <div><span>Source rows checked</span><strong>{{ pending_preview.source_rows }}</strong></div>
       <div><span>Rows with a related value</span><strong>{{ pending_preview.linked_source_rows }}</strong></div>
       <div><span>Rows in the new related table</span><strong>{{ pending_preview.related_record_count }}</strong></div>
@@ -46,13 +46,13 @@
       <p>Impodo ignores capitalization and extra spacing when it decides whether values refer to the same related record. Check the values it will combine.</p>
       <div class="table-scroll">
         <table class="data-table">
-          <thead><tr><th>Related record</th><th>Source values combined</th><th>Source rows</th><th>What will happen</th></tr></thead>
+          <thead><tr><th>Related record</th><th>Source values combined</th><th class="source-review-number">Source rows</th><th>What will happen</th></tr></thead>
           <tbody>
             {% for candidate in pending_preview.values_to_review %}
               <tr>
                 <th>{{ candidate.name }}</th>
                 <td>{{ candidate.aliases|join(', ') }}</td>
-                <td>{{ candidate.source_row_count }}</td>
+                <td class="source-review-number">{{ candidate.source_row_count }}</td>
                 <td>Use one related record</td>
               </tr>
             {% endfor %}
@@ -78,20 +78,20 @@
       </div>
     {% endif %}
 
-    <details class="technical-details">
-      <summary>Support details and example records</summary>
+    <details class="technical-details source-review-support">
+      <summary>Review details</summary>
       <p>This section shows a bounded set of technical identities from the complete review.</p>
       {% if pending_preview.result_examples %}
         <div class="table-scroll">
           <table class="data-table">
-            <thead><tr><th>Related record</th><th>Matching key</th><th>External ID</th><th>Source rows</th></tr></thead>
+            <thead><tr><th>Related record</th><th>Matching key</th><th>External ID</th><th class="source-review-number">Source rows</th></tr></thead>
             <tbody>
               {% for candidate in pending_preview.result_examples %}
                 <tr>
                   <th>{{ candidate.name }}</th>
                   <td><code>{{ candidate.canonical_key }}</code></td>
                   <td><code>{{ candidate.odoo_external_id }}</code></td>
-                  <td>{{ candidate.source_row_count }}</td>
+                  <td class="source-review-number">{{ candidate.source_row_count }}</td>
                 </tr>
               {% endfor %}
             </tbody>
@@ -116,9 +116,9 @@
       <input type="hidden" name="external_id_namespace" value="{{ pending_rule.external_id_namespace }}">
       <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
       <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
-      <div class="actions">
-        <button class="button secondary" type="button" data-derived-entity-target="lookup-form">Change selections</button>
-        {% if pending_preview.can_add %}<button class="button primary" type="submit">Use this table</button>{% endif %}
+      <div class="actions source-review-actions">
+        <button class="button source-review-change" type="button" data-derived-entity-target="lookup-form">Change selections</button>
+        {% if pending_preview.can_add %}<button class="button secondary" type="submit">Use this table</button>{% endif %}
       </div>
     </form>
   </section>

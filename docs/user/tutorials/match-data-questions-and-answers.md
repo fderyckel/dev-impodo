@@ -87,8 +87,8 @@ not attach the line to a similar order and does not load it as an orphan.
 
 ## How do I create hierarchical records from separate source columns?
 
-Use **Several fields form a hierarchy** when separate source columns contain
-ordered parent and child names. This is a generic related-record feature. It can
+Use **Build a hierarchy** when separate source columns contain ordered parent
+and child names. This is a generic related-record feature. It can
 prepare Product Categories, departments, locations, analytic accounts, or
 another Odoo record type with a compatible parent relationship.
 
@@ -108,8 +108,7 @@ is Level 2. The screenshots use the fictional equivalents `Product family` and
 ### Stage 1: create the hierarchy table
 
 1. Open **Source data**, then **Separate combined information**.
-2. Under **What does your source contain?**, select **Several fields form a
-   hierarchy**.
+2. Under **What does your source contain?**, select **Build a hierarchy**.
 3. Select the original source table, such as `plw_products`.
 4. Set **Hierarchy level 1** to `Groupe de modèles d'article` and **Hierarchy
    level 2** to `code2`. Keep the levels in parent-to-child order.
@@ -126,8 +125,8 @@ record hierarchy.
 
 7. Select **Preview hierarchy records**. Review **Related record**, **Complete
    path key**, **Parent record**, and the sampled source rows.
-8. When the preview represents the intended business records, select **Create
-   this hierarchy table**.
+8. When the preview represents the intended business records, select **Use
+   this table**.
 
 ![The hierarchy preview keeps the display name, complete path identity, and parent path separate.](../../images/user/06b-hierarchy-preview.png)
 

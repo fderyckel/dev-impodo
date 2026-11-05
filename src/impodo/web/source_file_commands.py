@@ -8,6 +8,7 @@ event loop.
 
 from __future__ import annotations
 
+from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
 from impodo.application.data_version.intake import SourceIntakeError
@@ -58,7 +59,9 @@ async def accept_source_uploads(
                 )
                 current_revision += 1
 
-        await run_local_operation(accept_all)
+        # Intake retains only its local authorization/publication phases.
+        # Validation workers and file I/O must run without retained owners.
+        await run_in_threadpool(accept_all)
     except WorkspaceStateError as error:
         if added:
             raise SourceIntakeError(

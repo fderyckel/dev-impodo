@@ -10,28 +10,23 @@ unchanged.
 
 Choose the shape that matches how the source information is arranged:
 
-1. **Several tables describe the same records.** Choose this when one primary
-   table and up to nine other tables contain different details about the same
+1. **Combine tables.** Choose this when one primary table and up to nine other
+   tables contain different details about the same
    records. Impodo combines them into one logical dataset for one review. For
    example, a customer table contains names and email addresses, while separate
    address and payment-term tables use the same customer ID. Impodo produces
    one customer dataset with those details together.
-2. **Advanced: combine two tables.** Choose this when exactly two partial
-   tables must become one visible intermediate dataset for another preparation
-   step. For example, Impodo can combine a product-details table with a
-   product-prices table into `products_with_prices`, which a later rule can
-   use.
-3. **One field contains reusable values.** Choose this when repeated values in
-   one field should become reusable records. For example, many product rows
+2. **Create a related table.** Choose this when repeated values in one field
+   should become reusable records. For example, many product rows
    contain the category `Office Furniture`. Impodo creates that category once
    in a related table and keeps the original product rows available for
    mapping.
-4. **Several fields form a hierarchy.** Choose this when two to five fields
-   describe ordered levels. For example, employee rows contain `Region`,
+3. **Build a hierarchy.** Choose this when two to five fields describe ordered
+   levels. For example, employee rows contain `Region`,
    `Country`, and `Office`. Impodo creates those levels in one related
    hierarchy and adds the matching relationship value to each employee row.
-5. **Several rows describe the same record.** Choose this when one record is
-   repeated across several source rows. For example, every row for sales order
+4. **Split a table.** Choose this when one record is repeated across several
+   source rows. For example, every row for sales order
    `1001` contains one order line. Impodo creates one table with one row for
    order `1001` and another table that keeps every order-line row.
 
@@ -59,8 +54,8 @@ Open **Source data**, then **Separate combined information**.
 Work on one change at a time. Review its result, then select **Use this table**
 to save it. The result appears under **Saved changes**. Use **Add another
 change** for the next source choice. From a ready review, **Save and add
-another** saves the result and opens those choices, while **Save and continue
-to Odoo data** saves it and leaves Stage 1. If you edit a reviewed choice,
+another** saves the result and opens those choices, while **Save and continue**
+saves it and opens **Odoo data**. If you edit a reviewed choice,
 Impodo asks you to **Review result** again before saving it.
 
 The question mark beside **What does your source contain?** opens the choices
@@ -70,7 +65,7 @@ and examples at the beginning of this guide in a new tab.
 
 ## Combine partial views of the same records
 
-Choose **Several tables describe the same records** when accepted tables each
+Choose **Combine tables** when accepted tables each
 contain part of the same business record. One primary table defines the
 population and grain. Each added table may contribute zero or one row for the
 same key. This is exact enrichment, not a free-form SQL join. Repeated primary
@@ -142,10 +137,12 @@ remain available for mapping. Impodo retains the complete per-table review and
 row-level physical lineage. The source files do not need to be pre-joined with
 Python or SQL.
 
-Use **Advanced: combine two tables** only when another structural workflow
-needs one explicit pairwise step or a visible pairwise output. That editor
-retains the prior base/added controls and can still chain visible logical
-outputs.
+This choice also handles two tables. If you need to combine previously created
+tables or build a combination in separate steps, open **Advanced options**
+inside this task and select **Combine two tables**. For example, combine
+product details and prices into `products_with_prices`, then use that result
+in another combination. The advanced editor retains its existing input and
+output choices.
 
 ![The combination review and its save action stay together.](../../images/user/06j-stage1-combination-review.png)
 
@@ -202,7 +199,7 @@ Authoring rows, file paths, snapshot identities, or old review counts.
 
 ## Build a hierarchy from separate fields
 
-Choose **Several fields form a hierarchy** when two to five fields describe
+Choose **Build a hierarchy** when two to five fields describe
 ordered levels of one related record hierarchy. The feature is not specific to
 Product Categories: the same rule can prepare departments, analytic accounts,
 locations, classification trees, or another Odoo model with a compatible
@@ -264,7 +261,7 @@ choices.
 
 ## Create a related table from reusable values
 
-Choose **One field contains reusable values** when values from one source field
+Choose **Create a related table** when values from one source field
 should become their own Odoo records. For example, a `Product Category` field
 can produce a related `product.category` table while the original product rows
 retain their category values.
@@ -343,7 +340,7 @@ they are not silently resolved from an arbitrary contributing row.
 
 ## Create two tables from repeated rows
 
-Choose **Several rows describe the same record** when repeated information
+Choose **Split a table** when repeated information
 connects several source rows. Impodo creates:
 
 - one table with one row per group; and
@@ -374,7 +371,7 @@ For example, a bill-of-materials export might use:
 | Additional separation | Company, only when required |
 | Row identifier | Line sequence |
 
-Select **Create these separate tables** only when the preview groups the source
+Select **Use these tables** only when the preview groups the source
 rows correctly. Keep the default **No - use only the two resulting tables**
 when every accepted row belongs in the generated parent and child tables.
 

@@ -90,7 +90,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 wait_until="networkidle",
             )
             page.get_by_role(
-                "button", name="Several tables describe the same records"
+                "button", name="Combine tables", exact=True
             ).click()
             form = page.locator("#combine-source-tables")
             expect(form).to_have_attribute("open", "")

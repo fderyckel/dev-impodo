@@ -136,7 +136,7 @@ from ..presenters.schema import (
     _decode_delimiter,
 )
 from ..request_identity import request_identity
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 from ..source_file_commands import accept_source_uploads, remove_source_file
 from ..target_credentials import (
     TargetCredentialRole,
@@ -482,7 +482,9 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         require_session(request)
-        return await run_page_read(render_sources, request, workspace_id)
+        return await run_workspace_page_read(
+            request, lambda: render_sources(request, workspace_id),
+        )
 
     def render_sources(request: Request, workspace_id: str):
         """Read source choices and render within one database-scoped worker."""
@@ -1833,7 +1835,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=actor,
             )
         except (SourceInspectionError, MigrationFoundationError) as error:
-            return _render_file_sources(
+            return await run_page_read(
+                _render_file_sources,
                 request,
                 context,
                 workspace_id,
@@ -1865,7 +1868,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         form = await request.form()
-        catalogs = context.queries.get_source_catalogs(workspace_id)
+        catalogs = await run_page_read(context.queries.get_source_catalogs, workspace_id)
         catalog = next(
             (item for item in catalogs if item.file_id == file_id),
             None,
@@ -1909,7 +1912,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
             if _text(form, "action") == "confirm":
                 refreshed_keys = {table.table_key for table in refreshed.tables}
                 selected = [key for key in selected if key in refreshed_keys]
-                context.sources.confirm_source(
+                await run_local_operation(
+                    context.sources.confirm_source,
                     workspace_id,
                     file_id,
                     selected_table_keys=selected,
@@ -1920,7 +1924,8 @@ def build_sources_router(context: WebContext) -> APIRouter:
             else:
                 _flash(request, f"Updated preview for {refreshed.display_name}.")
         except (SourceInspectionError, WorkspaceError, ValueError) as error:
-            return _render_file_sources(
+            return await run_page_read(
+                _render_file_sources,
                 request,
                 context,
                 workspace_id,

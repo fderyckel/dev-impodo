@@ -1,12 +1,16 @@
 """Exercise the authenticated Fresh data form with the real Recipe compiler."""
 
+import asyncio
 import re
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest import TestCase
+from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import _read_databases
+from impodo.application.data_version import source_worker
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
@@ -19,6 +23,7 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.application.run import test_integrated_recipe_runs as fixtures
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 from tests.support.recipe_lifecycle import metadata_for_schema
 
@@ -100,7 +105,7 @@ class FreshDataControlBrowserTests(TestCase):
         url = f"/projects/{project_id}/test-runs/{setup.run.migration_run_id}/fresh-data"
         with collect_duckdb_request_timings() as initial_page_timings:
             page = self.client.get(url)
-        with collect_duckdb_request_timings() as upload_timings:
+        with collect_duckdb_request_timings() as upload_timings, count_duckdb_statements() as upload_sql:
             uploaded = self.client.post(url + "/files", data={
                 "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
             }, files={"source_file": ("balances.csv", source_csv, "text/csv")},
@@ -108,7 +113,7 @@ class FreshDataControlBrowserTests(TestCase):
         self.assertEqual(uploaded.status_code, 303, uploaded.text)
         with collect_duckdb_request_timings() as uploaded_page_timings:
             page = self.client.get(url)
-        with collect_duckdb_request_timings() as register_timings:
+        with collect_duckdb_request_timings() as register_timings, count_duckdb_statements() as register_sql:
             registered = self.client.post(url + "/register", data={
                 "csrf_token": field(page, "csrf_token"), "revision": field(page, "revision"),
             }, headers={"Origin": "http://testserver"}, follow_redirects=False)
@@ -119,10 +124,20 @@ class FreshDataControlBrowserTests(TestCase):
             "uploaded_page": uploaded_page_timings,
             "register": register_timings,
         }
+        self.fresh_data_request_sql = {"upload": upload_sql, "register": register_sql}
         return url
 
     def test_fresh_data_page_and_commands_reuse_bounded_database_owners(self):
-        url = self.registered_delivery()
+        inspect = source_worker.inspect_source_file_isolated
+
+        def inspect_without_owners(*args, **kwargs):
+            self.assertIsNone(getattr(_read_databases, "connections", None))
+            with self.assertRaises(RuntimeError):
+                asyncio.get_running_loop()
+            return inspect(*args, **kwargs)
+
+        with patch.object(source_worker, "inspect_source_file_isolated", inspect_without_owners):
+            url = self.registered_delivery()
 
         with collect_duckdb_request_timings() as registered_page_timings:
             page = self.client.get(url)
@@ -134,9 +149,11 @@ class FreshDataControlBrowserTests(TestCase):
         }
         ceilings = {
             "initial_page": (4, 3),
-            "upload": (8, 6),
+            # View (4), authorization (2), and attachment (3) release their owners.
+            "upload": (9, 6),
             "uploaded_page": (4, 3),
-            "register": (8, 7),
+            # View, registration, capture, and publication each own four stores.
+            "register": (16, 12),
             "registered_page": (4, 3),
         }
         for request_name, (connection_ceiling, schema_ceiling) in ceilings.items():
@@ -148,6 +165,14 @@ class FreshDataControlBrowserTests(TestCase):
                 self.assertLessEqual(
                     timings[request_name].schema_check_count,
                     schema_ceiling,
+                )
+        for request_name, sql_limit in (("upload", 135), ("register", 235)):
+            with self.subTest(sql=request_name):
+                statements = self.fresh_data_request_sql[request_name]
+                self.assertLessEqual(len(statements), sql_limit)
+                self.assertEqual(
+                    sum("duckdb_columns()" in sql for sql in statements),
+                    timings[request_name].schema_check_count,
                 )
 
     def test_control_only_recipe_requires_totals_before_acceptance_and_compiles_them(self):

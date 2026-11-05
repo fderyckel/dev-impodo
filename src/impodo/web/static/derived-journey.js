@@ -123,9 +123,15 @@ document.addEventListener("DOMContentLoaded", () => {
     requestAnimationFrame(() => {
       element.scrollIntoView({ block: "start", behavior: "auto" });
       if (focus) {
+        const editor = element.matches("form[data-source-editor]") ? element
+          : element.querySelector("form[data-source-editor]");
         const target = element.matches("input,select,button,a,summary") ? element
-          : element.querySelector("summary, h2, h3, input:not([type=hidden]), select, button");
-        if (target && !target.matches("input,select,button,a,summary")) target.tabIndex = -1;
+          : editor?.querySelector("input:not([type=hidden]):not(:disabled), select:not(:disabled), textarea:not(:disabled)")
+            || element.querySelector("h2, h3") || element.querySelector("summary, button");
+        if (target && !target.matches("input,select,button,a,summary")) {
+          target.tabIndex = -1;
+          target.dataset.sourceFocusTarget = "";
+        }
         target?.focus({ preventScroll: true });
       }
     });
@@ -164,7 +170,8 @@ document.addEventListener("DOMContentLoaded", () => {
       : dirty ? "Unsaved changes" : ready ? "Ready to use"
       : pendingReview() ? "Needs attention" : "Saved";
     next.textContent = dirty || (pendingReview() && !ready) ? "Review result"
-      : ready ? "Save and continue to Odoo data" : "Continue to Odoo data";
+      : ready ? "Save and continue" : "Continue to Odoo data";
+    next.setAttribute("aria-label", ready ? "Save and continue to Odoo data" : next.textContent);
     next.setAttribute("aria-disabled", String(busy || uncertain));
     if (another) another.disabled = busy || uncertain;
     if (another) another.textContent = ready ? "Save and add another" : "Add another change";

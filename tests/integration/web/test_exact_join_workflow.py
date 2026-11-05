@@ -334,7 +334,7 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         workspace_id, selection, by_name = self._frozen_customer_workspace()
         page = self.client.get(f"/workspaces/{workspace_id}/derived-entities")
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("Several tables describe the same records", page.text)
+        self.assertIn("Combine tables", page.text)
         self.assertIn("Advanced: combine two tables", page.text)
         self.assertIn('data-exact-join-form', page.text)
         self.assertIn('name="key_left_5"', page.text)

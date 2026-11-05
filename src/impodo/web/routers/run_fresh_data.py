@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from starlette.concurrency import run_in_threadpool
 
 from impodo.application.data_version.inspection import SourceInspectionError
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -183,20 +184,19 @@ def build_run_fresh_data_router(context: WebContext) -> APIRouter:
             )
             _require_editable_fresh_files(view)
 
-            def register_and_inspect():
-                workspace = view["setup_state"]
-                if workspace.status is WorkspaceStatus.DRAFT:
-                    workspace = context.workspace_states.register(
-                        view["setup_workspace"].workspace_id,
-                        actor=actor,
-                        expected_revision=expected_revision,
-                    )
-                return context.inspections.inspect_project(
-                    workspace.workspace_id,
+            workspace = view["setup_state"]
+            if workspace.status is WorkspaceStatus.DRAFT:
+                workspace = await run_local_operation(
+                    context.workspace_states.register,
+                    view["setup_workspace"].workspace_id,
                     actor=actor,
+                    expected_revision=expected_revision,
                 )
-
-            catalogs = await run_local_operation(register_and_inspect)
+            catalogs = await run_in_threadpool(
+                context.inspections.inspect_project,
+                workspace.workspace_id,
+                actor=actor,
+            )
         except WorkspaceRegistrationError as error:
             return await run_page_read(
                 _render_fresh_data,

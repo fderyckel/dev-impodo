@@ -121,7 +121,7 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
                 side_effect=AssertionError("summary read"),
             ),
         ):
-            for area in ("schema", "mapping", "summary"):
+            for area in ("files", "sources", "schema", "mapping", "summary"):
                 with (
                     self.subTest(area=area),
                     collect_duckdb_request_timings() as timings,
@@ -244,7 +244,7 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
         context.migration_workspaces.close(
             workspace_id, actor=actor, expected_revision=workspace.optimistic_revision
         )
-        for area in ("schema", "mapping", "summary"):
+        for area in ("files", "sources", "schema", "mapping", "summary"):
             response = self.client.get(
                 f"/workspaces/{workspace_id}/{area}", follow_redirects=False
             )
