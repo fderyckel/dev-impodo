@@ -1,0 +1,23 @@
+<div data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
+  <details class="form-card mapping-journey-details" id="required-values-summary">
+    <summary>Review required values and check details</summary>
+    <p><a href="/workspaces/{{ workspace_id }}/mapping/required-values">Review required values</a></p>
+    {% include "mapping/_identity_health.html" %}
+    {% include "mapping/_relationship_health.html" %}
+    {% include "mapping/_technical_details.html" %}
+  </details>
+  {% if workflow_issue_summary and workflow_issue_summary.issues %}
+    <details class="form-card mapping-journey-details">
+      <summary>Migration issue details</summary>
+      {% include "_workflow_issue_summary.html" %}
+    </details>
+  {% endif %}
+</div>
+<div data-mapping-step-panel="confirm" {% if mapping_journey.step != 'confirm' %}hidden{% endif %}>
+  {% if expectations and not correction_binding %}{% include "mapping/_expectations.html" %}{% endif %}
+  <details class="form-card mapping-journey-details">
+    <summary>Optional review and business checks</summary>
+    {% include "mapping/_matching_review_workbook.html" %}
+    {% include "mapping/_quality.html" %}
+  </details>
+</div>

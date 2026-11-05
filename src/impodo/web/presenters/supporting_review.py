@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from urllib.parse import urlencode
 from uuid import uuid4
 
 from impodo.application.supporting_review_service import supporting_review_packet
@@ -15,6 +16,9 @@ from impodo.application.workspace.issues import (
 )
 from impodo.domain.workspace.contracts import SchemaOrigin
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.supporting_closure import (
+    supporting_mapping_conflict_details,
+)
 from impodo.domain.workspace.supporting_models import (
     SupportingModelRole,
     supporting_model_role,
@@ -41,6 +45,7 @@ def supporting_review_view(
     context, workspace, selection, schema, governance, *, actor, packet=None,
     save_error: ValueError | WorkspaceError | None = None,
     drafts: Mapping[str, tuple[str, str]] | None = None,
+    mapping_datasets=None,
 ):
     """Reuse the page's evidence and read rules/review once for all fields."""
     service = context.schema_workspace.supporting
@@ -85,6 +90,9 @@ def supporting_review_view(
         if review
         else {}
     )
+    conflicts = supporting_mapping_conflict_details(review.choices, mapping_datasets, schema) if (
+        review is not None and not error and mapping_datasets is not None
+    ) else ()
     labels = {model.name: model.label for model in schema.models}
     rows = []
     field_errors = (
@@ -184,11 +192,13 @@ def supporting_review_view(
             )
         ),
         "issues": issues,
+        "conflicts": conflicts,
     }
 
 
 def mapping_supporting_review_view(
-    request, context, workspace, selection, schema, governance, *, actor, preparation
+    request, context, workspace, selection, schema, governance, *, actor, preparation,
+    mapping_datasets=None, mapping_selection=None,
 ):
     """Project inline recovery from already loaded page evidence, without Odoo I/O."""
     if (
@@ -205,7 +215,8 @@ def mapping_supporting_review_view(
         workspace, selection, schema, preparation, governance
     )
     view = supporting_review_view(
-        context, workspace, selection, schema, governance, actor=actor, packet=packet
+        context, workspace, selection, schema, governance, actor=actor, packet=packet,
+        mapping_datasets=mapping_datasets,
     )
     marker = request.session.get("supporting_review_refresh")
     refreshed = bool(
@@ -233,9 +244,9 @@ def mapping_supporting_review_view(
             preparation, governance,
         )
         refreshed = previous.binding_hash == view.get("saved_binding_hash")
-    mapping_conflict = request.query_params.get("problem") == SupportingReviewProblem.MAPPING_CONFLICT
+    mapping_conflict = bool(view.get("conflicts")) or request.query_params.get("problem") == SupportingReviewProblem.MAPPING_CONFLICT
     if mapping_conflict:
-        message = "A related-data choice does not match its linked-field rule. Review the linked fields, then check matches again."
+        message = "Your choices are saved. Correct the linked fields below, then check matches again."
     elif refreshed and workspace.odoo_company is not None:
         message = f"Odoo access changed for {workspace.odoo_company.name}. Keep these choices if they are still correct."
     elif view.get("problem") == SupportingReviewProblem.STALE:
@@ -246,8 +257,47 @@ def mapping_supporting_review_view(
         message = "Review where related values come from before checking matches."
     return {
         **view, "message": message, "mapping_conflict": mapping_conflict,
+        "conflict_items": supporting_conflict_views(
+            view.get("conflicts", ()), schema, mapping_selection or selection,
+            workspace.workspace_id, mapping_datasets or (),
+        ),
         "account_companies": any(row["model"] == "account.account" and row["field"] == "company_ids" for row in view["rows"]),
     }
+
+
+def supporting_conflict_views(conflicts, schema, selection, workspace_id, datasets=()):
+    """Name exact correction controls using loaded schema and mapping metadata."""
+    models = {model.name: model for model in schema.models}
+    sources = {source.dataset_id: (index, source) for index, source in enumerate(selection.datasets)} if selection else {}
+    mappings = {item.dataset_id: item for item in datasets}
+    result = []
+    for conflict in conflicts[:1_000]:
+        model = models.get(conflict.source_model)
+        field = next((item for item in model.fields if item.name == conflict.field_name), None) if model else None
+        source = sources.get(conflict.dataset_id)
+        dataset_index = source[0] if source else 0
+        mapping = mappings.get(conflict.dataset_id)
+        identity = bool(mapping and any(
+            item.target_fields == (conflict.field_name,) and item.resolver is not None
+            for item in (*mapping.target_identity, *mapping.target_scope)
+        ))
+        anchor = f"target-identity-{dataset_index}" if identity else f"relationship-{dataset_index}-{conflict.field_name}"
+        params = {"mapping_dataset": str(dataset_index), "step": "tables", "task": "identity" if identity else "links"}
+        if not identity:
+            params["relation_target"] = conflict.field_name
+        related = models.get(field.relation) if field and field.relation else None
+        labels = {item.name: item.label for item in related.fields} if related else {}
+        message = "Use the saved matching rule: " + ", ".join(labels.get(name, name.replace("_", " ").capitalize()) for name in conflict.matching_fields) + "." if conflict.matching_fields else (
+            "Saved source: " + _SOURCE_LABELS[conflict.saved_action] + ". Review how this field is filled."
+        )
+        result.append({
+            "title": f"{model.label if model else conflict.source_model} · {field.label if field else conflict.field_name}",
+            "message": message,
+            "field": conflict.field_name, "source_model": conflict.source_model,
+            "dataset_id": conflict.dataset_id, "anchor": anchor,
+            "fix_url": f"/workspaces/{workspace_id}/mapping?{urlencode(params)}#{anchor}",
+        })
+    return tuple(result)
 
 
 def _review_issue(

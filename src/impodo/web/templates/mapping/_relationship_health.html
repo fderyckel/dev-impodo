@@ -14,7 +14,7 @@
         {% if relationship_health.running %}
           <span class="status review">Checking Odoo</span>
         {% else %}
-          <form method="post" action="{{ relationship_health.check_url }}">
+          <form method="post" action="{{ relationship_health.check_url }}" id="mapping-relationship-check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button class="button secondary compact" type="submit" {% if not relationship_health.can_start %}disabled{% endif %}>
               Check saved relationships

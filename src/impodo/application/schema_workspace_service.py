@@ -16,7 +16,7 @@ See ``docs/architecture/python-code-map.md``,
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import asdict, replace
 from datetime import UTC, datetime
 from typing import Protocol
@@ -62,6 +62,7 @@ from impodo.domain.workspace.supporting_plan import (
     SupportingRelationshipIntent,
     plan_supporting_data,
 )
+from impodo.domain.workspace.supporting_review import SupportingReview
 from impodo.domain.workspace.supporting_sources import (
     SupportingSourceLimitError,
     supporting_source_descriptors,
@@ -704,6 +705,7 @@ class SchemaWorkspaceService:
         read_credential_binding_hash: str,
         read_identity: OdooReadIdentity | None = None,
         actor: Actor,
+        on_supporting_revalidated: Callable[[SupportingReview], None] | None = None,
     ) -> OdooSchemaCatalog:
         """Check current Odoo details without replacing current schema meaning."""
 
@@ -798,27 +800,30 @@ class SchemaWorkspaceService:
             ),
             actor=actor,
         )
-        self._revalidate_supporting_access(workspace, current, checked, actor=actor)
+        revalidated = self._revalidate_supporting_access(workspace, current, checked, actor=actor)
+        if revalidated is not None and on_supporting_revalidated is not None:
+            on_supporting_revalidated(revalidated)
         return checked
 
     def _revalidate_supporting_access(
         self, workspace: WorkspaceState, previous: OdooSchemaCatalog,
         current: OdooSchemaCatalog, *, actor: Actor,
-    ) -> None:
+    ) -> SupportingReview | None:
         """Recheck saved intent only after a key generation was freshly verified."""
         if (
             workspace.source_mode is not SourceMode.FILE
             or current.pending_refresh is not None
             or previous.read_credential_binding_hash == current.read_credential_binding_hash
         ):
-            return
+            return None
         review = self.supporting.current(workspace.workspace_id, actor=actor)
         if review is None or not review.choices:
-            return
+            return None
         packet = self.supporting_review_inputs(
             workspace.workspace_id, actor=actor, schema=current, workspace=workspace,
         )
-        self.supporting.revalidate_access(packet, previous, review, actor=actor)
+        result = self.supporting.revalidate_access(packet, previous, review, actor=actor)
+        return result if result.version > review.version else None
 
     def refresh_create_defaults(
         self,

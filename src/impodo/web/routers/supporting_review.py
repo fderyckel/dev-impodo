@@ -26,6 +26,7 @@ from impodo.web.composition.target_readers import _capture_supporting_values
 from impodo.web.context import WebContext
 from impodo.web.forms import _secure_form, _text
 from impodo.web.presenters.common import _flash
+from impodo.web.presenters.mapping_view import _active_mapping_state
 from impodo.web.presenters.schema import _render_schema
 from impodo.web.presenters.supporting_review import mapping_supporting_review_view
 from impodo.web.request_identity import request_identity
@@ -44,9 +45,17 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
 
         def render():
             packet = context.schema_workspace.supporting_review_inputs(workspace_id, actor=actor)
+            mapping_selection = context.queries.get_mapping_source_selection(workspace_id)
+            _current, definition = _active_mapping_state(
+                mapping_selection, packet.schema, packet.governance,
+                context.queries.get_mapping_revision(workspace_id),
+                context.queries.get_mapping_working_draft(workspace_id),
+            )
             view = mapping_supporting_review_view(
                 request, context, packet.workspace, packet.selection, packet.schema,
                 packet.governance, actor=actor, preparation=packet.preparation,
+                mapping_selection=mapping_selection,
+                mapping_datasets=definition.datasets if definition else None,
             )
             return request.app.state.templates.TemplateResponse(
                 request=request,

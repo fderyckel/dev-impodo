@@ -8,7 +8,6 @@
   <p>Compare rows with the same Odoo matching identity. Select only the rows you want to exclude from this migration. If both records belong, review the matching rule instead.</p>
   <p class="muted">Highlighted values differ among the rows shown in each group. Included source positions belong to this check, rather than physical file row numbers.</p>
   <p role="status" aria-live="polite" data-duplicate-status></p>
-  <div class="notice warning" role="alert" data-duplicate-error hidden></div>
   <div data-duplicate-groups></div>
   <div class="actions" data-duplicate-pages hidden>
     <button type="button" class="button secondary" data-duplicate-previous>Previous 100</button>
@@ -17,10 +16,11 @@
   </div>
   <section class="notice" data-duplicate-preview hidden aria-label="Exclusion preview"></section>
   <p class="muted">Applying adds the selected unique source identifiers to Rows to use. You can restore a row by removing its identifier there. These rules may carry into a published Recipe; review exclusions for each new Data version.</p>
+  <div class="notice warning" role="alert" id="duplicate-exclusion-error" data-duplicate-error hidden></div>
   <div class="dialog-actions">
     <button type="button" class="button secondary" data-close-duplicate-rows>Cancel</button>
     <button type="button" class="button secondary" data-duplicate-retry hidden>Try again</button>
-    <button type="button" class="button primary" data-duplicate-review disabled>Review exclusions</button>
+    <button type="button" class="button primary" data-duplicate-review aria-describedby="duplicate-exclusion-error" disabled>Review exclusions</button>
     <button type="button" class="button primary" data-duplicate-apply hidden>Apply exclusions and check identities</button>
   </div>
 </dialog>

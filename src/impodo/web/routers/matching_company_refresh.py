@@ -146,9 +146,16 @@ async def check_matching_access(
     """Refresh stale access once, with no local database owner across the RPC."""
     if not prepared.needs_refresh:
         return prepared.schema
+    attempted = replace(
+        prepared.schema,
+        read_credential_binding_hash=prepared.credential.binding_hash
+        if prepared.credential else prepared.schema.read_credential_binding_hash,
+        read_context_hash=prepared.workspace.odoo_company.context_hash
+        if prepared.workspace.odoo_company else prepared.schema.read_context_hash,
+    )
     record_supporting_access(
         request, trigger=trigger, previous=prepared.schema,
-        before=prepared.supporting_review, outcome="REFRESH_FAILED",
+        current=attempted, before=prepared.supporting_review, outcome="REFRESH_FAILED",
     )
     state, profile, credential = (
         prepared.workspace,
@@ -243,18 +250,20 @@ async def check_matching_access(
                 read_identity=model_identity,
                 actor=actor,
             )
+        revalidated: list[SupportingReview] = []
         checked = context.schema_workspace.check_refresh(
             state.workspace_id,
             snapshot,
             read_credential_binding_hash=binding,
             read_identity=identity,
             actor=actor,
+            on_supporting_revalidated=revalidated.append,
         )
         after = context.schema_workspace.supporting.current(state.workspace_id, actor=actor)
         outcome = (
             "SCHEMA_REVIEW_REQUIRED" if checked.pending_refresh else
             "NOT_REQUIRED" if after is None or not after.choices else
-            "REVALIDATED" if prepared.supporting_review and after.version > prepared.supporting_review.version else
+            "REVALIDATED" if revalidated else
             "REVIEW_REQUIRED" if _access_binding(checked) != _access_binding(prepared.schema) else
             "UNCHANGED"
         )
@@ -315,12 +324,11 @@ def build_matching_company_refresh_router(context: WebContext) -> APIRouter:
                 "previous_context_hash": prepared.schema.read_context_hash,
                 "previous_credential_hash": prepared.schema.read_credential_binding_hash,
             }
-        _flash(
-            request,
-            "Company values checked. Confirm related-data choices to continue.",
-        )
+        company_changed = checked.read_context_hash != prepared.schema.read_context_hash
+        _flash(request, "Company values checked. Confirm related-data choices to continue."
+               if company_changed else "Odoo access checked. Check matches to continue.")
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/mapping#related-data-review",
+            f"/workspaces/{workspace_id}/mapping" + ("#related-data-review" if company_changed else ""),
             status_code=303,
         )
 

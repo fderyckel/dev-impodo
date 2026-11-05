@@ -114,6 +114,8 @@ services.
 | Reuse arithmetic preparation work | `domain/recipe/value_rules.py` compiles safe arithmetic into bounded Python instructions; `domain/staging/evaluator.py` binds them once per dataset, and `domain/mapping/scalar_values.py` supplies only referenced formula inputs |
 | Replay native prepared evidence | `domain/staging/preparation_session.py` versions the canonical projection; `adapters/duckdb/native_prepared_projection.py` renders canonical reference bytes for new evidence and preserves historical encoding; `adapters/duckdb/preparation_stored_run_reader.py` verifies the bound artifacts and stored hashes |
 | Gate downstream work on the current source version | `application/workspace/source_readiness.py` derives readiness from bounded navigation facts; `web/source_stage_gate.py` returns stale browser requests to the earliest source action; `web/run_commands.py` repeats the gate before preparation job creation |
+| Authorize and render complete saved workspace pages | `web/security.py::run_workspace_page_read` runs parent access and journey checks before Odoo details, Match data, or Final review projection in one synchronous worker; `tests/integration/web/test_workspace_page_admission.py` protects denial order, redirects, and owner cleanup |
+| Guide Stage 3 through focused tasks | `web/presenters/mapping_journey.py` validates display locations; the navigation and mapping presenters supply four authoring substeps; `web/static/mapping-journey.js` reveals one table task and advances after a committed save without changing mapping evidence or database ownership |
 | Recommend and select Odoo-source relationships | `domain/odoo_relationship_profiles.py` owns versioned standard recommendations; `domain/odoo_source_scope.py` owns metadata-derived discovery and safe inclusion; `domain/odoo_relationship_scope.py` owns immutable field-level decisions, canonical safe defaults, and recursive review completeness; `application/odoo_source_capture_service.py` gates assessment and freeze on that completeness; `adapters/duckdb/workspace_state_repository.py` stores decisions atomically with model scope; `web/presenters/odoo_source_scope.py`, `web/routers/sources.py`, and `web/templates/workspace_odoo_capture_selection.html` own compact exception review and the currently applicable **Advanced** matrix |
 | Compile Odoo-transfer relationships | `domain/workspace/odoo_relationship_compilation.py` joins saved source edges to reviewed destination keys and derives canonical mapping resolvers; `application/destination_matching_service.py` checks that projection, and `application/transfer_order_service.py` passes it through `domain/relationship_dependencies.py` before shared scheduling |
 | Match data identity, relationship health, work order, and live advisory check | `domain/relationship_health.py` owns aggregate relationship classification; `domain/matching_order.py` owns pure component ordering, typed identity facts, the isolated preference, and the combined aggregate check contract; `application/workspace/mapping/order_service.py` derives local advice, builds one bounded read plan, classifies protected exact-key evidence, and reconciles custom order; `application/workspace/mapping/health_issues.py` classifies navigation-safe Stage 3 issue counts; `adapters/duckdb/matching_order_repository.py` stores the versioned preference plus immutable aggregate and protected check rows; `web/routers/mapping.py`, the identity, relationship, and matching-health issue presenters, `web/presenters/mapping_view.py`, the shared issue summary, mapping health and order templates, and `web/static/mapping-order.js` own the explicit read-only action, safe progress, correction routes, and accessible queue without changing stable form indexes, semantic evidence, or execution order |
@@ -258,6 +260,11 @@ causes and names the affected relationship for browser guidance.
 when recording and exporting handled failures. The existing diagnostic
 recorder correlates that context with the support reference and includes a
 bounded recent-failures summary without querying workspace or Odoo state.
+`web/supporting_access_diagnostics.py` records allowlisted access-change and
+recovery codes, with a bounded history in the diagnostic bundle.
+`SupportingReviewService.revalidate_access` rechecks unchanged choices after
+verified key renewal; the repository appends access provenance and audit while
+preserving existing mapping and preparation pointers.
 
 `application/workspace/mapping/bounded_join_review.py` streams Rows to use and
 rule effects from the same verified logical source producers as preparation.
@@ -435,7 +442,10 @@ the compact execution-review projection without reading full snapshots or rows.
 evidence, and `web/routers/supporting_review.py` serves its bounded fragment and
 existing choice-save command. `web/static/mapping-supporting-review.js` keeps
 field edits in place and starts the normal mapping check only after a confirmed
-choice save. Mapping receipts retain the recovery classification.
+choice save. Mapping receipts retain the recovery classification and exact
+conflicting model, field, and table. The domain guard supplies those identities
+without parsing error text; the presenter names the correction controls and
+the browser opens the affected field, including fields on another catalogue page.
 
 `adapters/duckdb/schema/odoo_company.py` creates protected immutable company
 bindings in the initial workspace schema. Current stores retain the ordinary

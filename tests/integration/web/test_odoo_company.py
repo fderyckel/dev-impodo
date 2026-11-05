@@ -274,7 +274,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             "impodo.web.composition.target_readers.Json2ReadConnector",
             return_value=SupportingReader(),
         ) as supporting:
-            with collect_duckdb_request_timings() as timings:
+            with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
                 checked = self.client.post(
                     f"/workspaces/{workspace_id}/mapping/save",
                     json={"entries": entries},
@@ -331,7 +331,11 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         # The request's local phases reuse the registry, linkage, Data version
         # and engine owners. RPCs run after every retained owner has closed.
         self.assertLessEqual(timings.connection_count, 30)
-        self.assertLessEqual(timings.schema_check_count, 8)
+        # The collector now covers every store contract in each local phase,
+        # including foundation and Data version stores. Every catalogue scan
+        # must correspond to one of those bounded validations.
+        self.assertLessEqual(timings.schema_check_count, 22)
+        self.assertEqual(sum("duckdb_columns()" in statement for statement in statements), timings.schema_check_count)
         self.assertEqual(timings.lock_retry_count, 0)
         replayed = self.client.post(f"/workspaces/{workspace_id}/mapping/save", json={"entries": entries},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf})

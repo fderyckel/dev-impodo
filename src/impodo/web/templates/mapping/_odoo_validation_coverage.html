@@ -1,5 +1,5 @@
-<div class="notice info" data-odoo-validation-coverage>
-  <strong>What this match check covers</strong>
+<details class="technical-evidence" data-odoo-validation-coverage>
+  <summary>What this match check covers</summary>
   <p><strong>Covered here:</strong> captured Odoo field definitions, required-field decisions and available choice codes. Findings appear in the match check.</p>
   <p><strong>Not checked:</strong> server VAT rules and other Python or database constraints. Captured field definitions do not contain those rules. Odoo applies them when loading records.</p>
   {% if migration_workspace and migration_workspace.recipe_application_id %}
@@ -12,4 +12,4 @@
       {% endfor %}
     </div>
   {% endif %}
-</div>
+</details>

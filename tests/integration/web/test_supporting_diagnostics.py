@@ -17,6 +17,7 @@ from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.domain.mapping.contracts import DatasetMapping
 from impodo.domain.workspace.supporting_closure import close_supporting_plan
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
+from impodo.domain.workspace.supporting_review import SupportingChoiceAction, SupportingMappingConflict, SupportingReviewProblem, SupportingReviewRequiredError
 from impodo.web.diagnostics import LocalDiagnosticRecorder, create_diagnostic_bundle
 from impodo.web.supporting_diagnostics import (
     MAX_SUPPORTING_DIAGNOSTIC_ISSUES,
@@ -38,6 +39,25 @@ def supporting_error(version="20.0+e", count=1):
 
 
 class SupportingDiagnosticTests(unittest.TestCase):
+    def test_mapping_conflicts_export_field_names_and_bounds_without_dataset_values(self):
+        with TemporaryDirectory() as tmp:
+            error = SupportingReviewRequiredError(SupportingReviewProblem.MAPPING_CONFLICT,
+                "private-cause", conflicts=tuple(SupportingMappingConflict("mrp.bom", f"x_product_{i}",
+                    "private-dataset", SupportingChoiceAction.REUSE) for i in range(25)))
+            request = Request({"type": "http", "state": {}})
+            set_diagnostic_supporting_failure(request, error)
+            recorder = LocalDiagnosticRecorder(Path(tmp))
+            recorder.record_request(request_id="conflict", method="POST", route_template="/mapping/save",
+                status_code=422, duration_ms=1, validation_failure=request.state.diagnostic_validation_failure)
+            recorder.close()
+            with ZipFile(BytesIO(create_diagnostic_bundle(tmp, build_contract=PROCESS_BUILD_CONTRACT))) as archive:
+                failure = json.loads(archive.read("recent-failures.json"))[0]["validation_failure"]
+                self.assertEqual(failure["issues"][0]["field"], "x_product_0")
+                self.assertEqual(failure["issue_count"], 25)
+                self.assertEqual(len(failure["issues"]), 20)
+                self.assertTrue(failure["issues_truncated"])
+                self.assertNotIn("private-", b"\n".join(archive.read(name) for name in archive.namelist()).decode())
+
     def test_both_majors_keep_codes_counts_and_identifiers_without_extra_reads(self):
         for major in (19, 20):
             with self.subTest(major=major), TemporaryDirectory() as tmp:

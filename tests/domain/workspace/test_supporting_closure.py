@@ -11,6 +11,7 @@ from impodo.domain.mapping.contracts import (
 from impodo.domain.workspace.supporting_closure import (
     close_supporting_plan, portable_supporting_choices, recipe_supporting_choices,
     supporting_mapping_conflicts,
+    supporting_mapping_conflict_details,
 )
 from impodo.domain.workspace.supporting_review import SupportingChoice
 from tests.domain.workspace.test_supporting_plan import model, relation, dataset
@@ -93,6 +94,20 @@ class SupportingClosureTests(unittest.TestCase):
         ):
             changed = replace(self.mappings[0], relationships=(replace(original, resolver=resolver),))
             self.assertIn("product.template.categ_id", supporting_mapping_conflicts(self.choices, (changed, self.mappings[1]), self.schema)[0])
+
+    def test_structured_conflicts_identify_exact_table_field_and_reviewed_key(self):
+        original = self.mappings[0].relationships[0]
+        changed = replace(self.mappings[0], relationships=(replace(original,
+            resolver=replace(original.resolver, key_mappings=(ReferenceKeyMapping("source", "code"),))),))
+        for major in (19, 20):
+            with self.subTest(major=major):
+                schema = SimpleNamespace(**{**vars(self.schema), "odoo_version": f"{major}.0"})
+                details = supporting_mapping_conflict_details(self.choices, (changed, self.mappings[1]), schema)
+                self.assertEqual(len(details), 1)
+                self.assertEqual((details[0].source_model, details[0].field_name, details[0].dataset_id),
+                    ("product.template", "categ_id", "products"))
+                self.assertEqual(details[0].matching_fields, ("name",))
+                self.assertEqual((details[0].message,), supporting_mapping_conflicts(self.choices, (changed, self.mappings[1]), schema))
 
     def test_default_managed_and_unused_choices_do_not_supply_a_relationship(self):
         for flags, action, handling in (

@@ -105,6 +105,13 @@ DuckDB owner before dispatching or retrying a preparation worker. Opening
 renders the response inside one `run_page_read` callback. Rejected acceptance
 forms also recover and render inside a bounded read scope.
 
+The complete saved summary uses `run_workspace_page_read` to resolve access,
+apply journey policy, inspect active jobs, and render inside one synchronous
+local operation. Authorization still precedes child data and job inspection.
+The worker reuses each distinct store owner for this response and releases all
+owners on success, redirect, or failure. Preparation and comparison commands
+keep their separate intake and dispatch boundaries.
+
 The [action-rich Final review regression](../../../tests/integration/web/test_final_review_performance.py)
 covers both supported Odoo majors and
 local and remote access. It asserts unchanged comparison evidence, zero Odoo

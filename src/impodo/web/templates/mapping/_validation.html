@@ -1,5 +1,5 @@
       {% if validation %}
-        <section class="form-card" id="semantic-validation">
+        <section class="form-card" id="semantic-validation" data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">Match check</p>
@@ -25,7 +25,7 @@
           {% endif %}
           {% if validation_problem_count %}
             {% if validation.status.value == 'INVALID' %}
-              <p>Resolve every reason shown at the top of this page. Impodo rechecks Odoo-default decisions automatically; check matches after other changes.</p>
+              <p>Resolve the decisions listed here, then check matches again.</p>
             {% elif visible_validation_issues %}
             <div class="table-scroll">
               <table class="data-table">
@@ -57,18 +57,6 @@
           {% elif not advisory_issues %}
             <p>Your field matches are consistent. The next step prepares every source row for review.</p>
           {% endif %}
-          {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
-            <div class="actions">
-              <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Review rule effects (optional)</a>
-            </div>
-            <p class="muted">Use this read-only preview when you want to inspect rule effects now. You can also confirm the checked matches and review every prepared row in Stage 4.</p>
-          {% endif %}
-          {% for item in warning_issues %}
-            <label class="acknowledgement">
-              <input type="checkbox" name="warning_acknowledgement" value="{{ item.fingerprint }}">
-              I reviewed this warning: {{ item.issue.message }}
-            </label>
-          {% endfor %}
           <details>
             <summary>Checks Impodo will run on your data next</summary>
             <ul>
@@ -78,4 +66,18 @@
             </ul>
           </details>
         </section>
+        <div data-mapping-step-panel="confirm" {% if mapping_journey.step != 'confirm' %}hidden{% endif %}>
+          {% if validation.status.value != 'INVALID' and revision and not has_unvalidated_changes %}
+            <details class="technical-evidence">
+              <summary>Review rule effects (optional)</summary>
+              <a href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Open the rule-effects preview</a>
+            </details>
+          {% endif %}
+          {% for item in warning_issues %}
+            <label class="acknowledgement">
+              <input type="checkbox" name="warning_acknowledgement" value="{{ item.fingerprint }}">
+              I reviewed this warning: {{ item.issue.message }}
+            </label>
+          {% endfor %}
+        </div>
       {% endif %}

@@ -1,0 +1,31 @@
+<section class="form-card mapping-table-queue" aria-label="Tables to match">
+  {% for view in dataset_views if view.active %}
+    <div class="mapping-table-current">
+      <span class="eyebrow">Table {{ view.display_position }} of {{ dataset_views|length }}</span>
+      <strong>{{ view.source.name }}</strong>
+    </div>
+  {% endfor %}
+  {% if matching_order and matching_order.rows|length > 1 %}
+    <details>
+      <summary>Choose a table</summary>
+      <ol class="mapping-table-queue-list">
+        {% for item in matching_order.rows %}
+          <li{% if item.active %} aria-current="step"{% endif %}>
+            {% if item.active %}
+              <strong>{{ item.dataset_name }}</strong><span class="status">Current table</span>
+            {% else %}
+              <a href="{{ item.edit_url }}" data-mapping-table-link>{{ item.dataset_name }}</a>
+              <span class="status {{ item.status_class }}">{{ item.status_label }}</span>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ol>
+    </details>
+  {% endif %}
+  {% if matching_order %}
+    <details class="mapping-journey-order-details">
+      <summary>Change table order</summary>
+      {% include "mapping/_matching_order.html" %}
+    </details>
+  {% endif %}
+</section>

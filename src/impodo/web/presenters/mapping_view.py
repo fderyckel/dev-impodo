@@ -116,6 +116,7 @@ from .mapping_impact import (
     _mapping_field_page_size,
     _mapping_return_url,
 )
+from .mapping_journey import resolve_mapping_journey
 from .matching_health_issues import matching_health_workflow_issue_summary
 from .missing_parent_actions import missing_parent_source_key
 from .relationship_health import relationship_health_view
@@ -576,6 +577,17 @@ def _render_mapping(
             )
         except (ArtifactStoreError, MappingReviewGenerationError):
             mapping_review_workbook_ready = False
+    correction_binding = context.corrections.binding_for_successor(workspace_id)
+    workspace_state = context.queries.get(workspace_id)
+    related_data_review = (
+        mapping_supporting_review_view(
+            request, context, workspace_state, physical_selection, schema, governance,
+            actor=actor, preparation=preparation_plan,
+            mapping_selection=selection,
+            mapping_datasets=active_definition.datasets if active_definition else None,
+        )
+        if correction_binding is None else None
+    )
     next_step = _mapping_next_step(
         workspace_id=workspace_id,
         schema=schema,
@@ -591,6 +603,7 @@ def _render_mapping(
         has_row_inclusion=has_row_inclusion,
         row_inclusion_review=row_inclusion_review,
         row_inclusion_confirmation=row_inclusion_confirmation,
+        related_data_review=related_data_review,
     )
     quality_view = None
     if (
@@ -607,15 +620,6 @@ def _render_mapping(
             active_dataset_index,
             context.queries.get_current_quality_ruleset(workspace_id),
         )
-    correction_binding = context.corrections.binding_for_successor(workspace_id)
-    workspace_state = context.queries.get(workspace_id)
-    related_data_review = (
-        mapping_supporting_review_view(
-            request, context, workspace_state, physical_selection, schema, governance,
-            actor=actor, preparation=preparation_plan,
-        )
-        if correction_binding is None else None
-    )
     expectations = (
         matching_expectations_view(
             context, actor=actor, workspace=workspace_state, selection=selection,
@@ -632,6 +636,16 @@ def _render_mapping(
         "mapping/page.html",
         workspace_id=workspace_id,
         workspace_state=workspace_state,
+        mapping_journey=resolve_mapping_journey(
+            request.query_params,
+            company_required=bool(
+                workspace_state.source_mode is SourceMode.FILE
+                and workspace_state.odoo_connection_mode
+                and workspace_state.odoo_company is None
+                and correction_binding is None
+            ),
+            mapping_href=f"/workspaces/{workspace_id}/mapping",
+        ),
         expectations=expectations,
         company_access=company_access,
         related_data_review=related_data_review,
@@ -1732,6 +1746,7 @@ def _mapping_next_step(
     has_row_inclusion=False,
     row_inclusion_review=None,
     row_inclusion_confirmation=None,
+    related_data_review=None,
 ):
     """Return one visible next action and every reason it is unavailable."""
 
@@ -1753,6 +1768,17 @@ def _mapping_next_step(
             "previous_check_items": (),
         }
     blockers = []
+    if related_data_review and related_data_review.get("mapping_conflict"):
+        names = "; ".join(item["title"] for item in related_data_review.get("conflict_items", ()))
+        return {
+            "label": "Confirm field matches", "available": False,
+            "blockers": ({
+                "title": "Correct the linked fields",
+                "message": names or "A related-data choice conflicts with a field rule.",
+                "action_label": "Review affected fields", "href": "#related-data-review",
+            },),
+            "previous_check_items": (),
+        }
     if has_unvalidated_changes:
         blockers.append(
             {

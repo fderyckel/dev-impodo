@@ -11,7 +11,8 @@
           <ul>
             {% for blocker in next_step.blockers %}
               <li>
-                <strong>{{ blocker.title }}</strong>
+                <details class="mapping-issue" name="mapping-issues" {% if loop.first %}open{% endif %}>
+                <summary>{{ blocker.title }}</summary>
                 <p>{{ blocker.message }}</p>
                 {% if blocker.readonly_recovery %}
                   <ul>
@@ -77,12 +78,13 @@
                     {{ blocker.action_label }}
                   </button>
                 {% endif %}
+                </details>
               </li>
             {% endfor %}
           </ul>
           {% if next_step.previous_check_items %}
-            <div class="mapping-previous-check">
-              <strong>Keep working from the last check</strong>
+            <details class="mapping-previous-check">
+              <summary>Keep working from the last check</summary>
               <p>These items stay here while you make changes. Check matches to refresh the list.</p>
               <ul>
                 {% for issue_view in next_step.previous_check_items %}
@@ -123,7 +125,7 @@
                   </li>
                 {% endfor %}
               </ul>
-            </div>
+            </details>
           {% endif %}
         </section>
       {% endif %}

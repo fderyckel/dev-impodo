@@ -47,7 +47,8 @@ document.addEventListener("DOMContentLoaded", () => {
   };
   const resetPreview = () => {
     previewHash = ""; operationId = ""; preview.hidden = true; applyButton.hidden = true;
-    reviewButton.hidden = false; retry.hidden = true; message("");
+    reviewButton.hidden = false; retry.hidden = true;
+    message(data.unavailable || data.identifier_message || "");
     status.textContent = `${selected.size} selected to exclude · ${data.included_count - selected.size} rows would remain in this table`;
     lock(false);
   };
@@ -88,7 +89,6 @@ document.addEventListener("DOMContentLoaded", () => {
     find("pages").hidden = data.previous == null && data.next == null;
     resetPreview();
     status.textContent = `Showing ${data.start}–${data.end} of ${data.matching_count} affected rows. No rows selected.`;
-    if (data.unavailable) message(data.unavailable);
   };
   const load = async (url) => {
     lock(true); message(""); status.textContent = "Reading the checked source rows…";
@@ -104,6 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
     body.set("csrf_token", mainForm.elements.namedItem("csrf_token").value);
     body.set("action", action); body.set("dataset_id", data.dataset_id); body.set("check_id", data.check_id);
     body.set("expected_version", String(data.expected_version));
+    body.set("exclusion_source_key", data.exclusion_source_key || "");
     body.set("expected_parent_version", data.expected_parent_version == null ? "" : String(data.expected_parent_version));
     body.set("after", new URL(sourceUrl, location.href).searchParams.get("after") || "");
     body.set("before", new URL(sourceUrl, location.href).searchParams.get("before") || "");
@@ -117,6 +118,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await request(dialog.dataset.endpoint, { method: "POST", body: form("preview") });
       preview.replaceChildren();
       node("strong", `Exclude ${result.excluded_count} selected rows; keep ${result.included_count} rows in this table.`, preview);
+      node("p", `The exclusion rule uses ${result.exclusion_column}. Your saved matching choices stay in place.`, preview);
       node("p", `${result.remaining_groups_on_page} duplicate groups shown on this page would still need attention. Other identity or Odoo issues may remain.`, preview);
       for (const impact of result.impacts) {
         node("p", impact.count == null

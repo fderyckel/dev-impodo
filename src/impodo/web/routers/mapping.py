@@ -168,9 +168,10 @@ from ..presenters.mapping_view import (
     _render_mapping_field_catalog,
     _safe_spreadsheet_text,
 )
+from ..presenters.supporting_review import supporting_conflict_views
 from ..request_identity import request_identity
-from ..security import require_csrf, require_session
-from ..source_stage_gate import source_stage_redirect
+from ..security import require_csrf, require_session, run_workspace_page_read
+from ..source_stage_gate import source_stage_redirect, source_stage_redirect_sync
 from ..supporting_diagnostics import set_diagnostic_supporting_failure
 from .duplicate_rows import build_duplicate_rows_router
 from .matching_company_refresh import (
@@ -312,18 +313,17 @@ def build_mapping_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/mapping", response_class=HTMLResponse)
     async def workspace_mapping(request: Request, workspace_id: str):
         require_session(request)
-        source_redirect = await source_stage_redirect(request, context, workspace_id)
-        if source_redirect is not None:
-            return source_redirect
-        active_url = _active_preparation_url(context, workspace_id)
-        if active_url:
-            return RedirectResponse(active_url, status_code=303)
-        queued_at = perf_counter()
 
         def render_mapping_page() -> Response:
             """Read and render the Match data editor in one bounded worker scope."""
 
-            queue_wait_ms = (perf_counter() - queued_at) * 1000
+            queue_wait_ms = request.state.workspace_page_queue_wait_ms
+            source_redirect = source_stage_redirect_sync(request, context, workspace_id)
+            if source_redirect is not None:
+                return source_redirect
+            active_url = _active_preparation_url(context, workspace_id)
+            if active_url:
+                return RedirectResponse(active_url, status_code=303)
             try:
                 response = _render_mapping(request, context, workspace_id)
             except UnsupportedMappingContractError as error:
@@ -342,7 +342,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             _append_server_timing(response, "queue_wait", queue_wait_ms)
             return response
 
-        return await run_page_read(render_mapping_page)
+        return await run_workspace_page_read(request, render_mapping_page)
 
     @router.get(
         "/workspaces/{workspace_id}/mapping/rows-to-use",
@@ -1277,11 +1277,15 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         _require_mapping_idle(context, workspace_id)
         form = await request.form()
         _secure_form(request, form, {"csrf_token"})
+        return await run_local_operation(prepare_impact, request, workspace_id, actor)
+
+    def prepare_impact(request: Request, workspace_id: str, actor: Actor):
+        """Prepare changed-value evidence and render recovery in one local scope."""
+
         try:
-            evidence = await run_page_read(_transformation_impact_evidence, context, workspace_id)
+            evidence = _transformation_impact_evidence(context, workspace_id)
         except WorkspaceError as error:
-            return await run_page_read(
-                _render_mapping,
+            return _render_mapping(
                 request,
                 context,
                 workspace_id,
@@ -1293,8 +1297,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         )
 
         try:
-            await run_local_operation(
-                context.transformation_impacts.prepare_snapshot,
+            context.transformation_impacts.prepare_snapshot(
                 workspace_id,
                 actor=actor,
             )
@@ -1551,6 +1554,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         row_review_check_started = False
         dependency_repairs = ()
         completed_receipt = None
+        conflict_datasets = ()
+        conflict_schema = None
+        conflict_selection = None
         try:
             form = await _mapping_request_form(request)
 
@@ -1626,6 +1632,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 receipt,
                 access_check,
             ) = await run_local_operation(begin_mapping_command)
+            conflict_schema, conflict_selection = schema, selection
             active_dataset = min(
                 requested_dataset if requested_dataset is not None else 0,
                 max(len(selection.datasets) - 1, 0),
@@ -1965,6 +1972,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 dependency_repairs,
                 selection_refresh,
             ) = await run_page_read(prepare_mapping_datasets)
+            conflict_datasets = datasets
             if action == "confirm_rows":
                 await run_local_operation(
                     context.row_inclusion_reviews.confirm_current,
@@ -1977,7 +1985,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 message = "Rows to use confirmed."
                 mapping_return_url = (
-                    f"{_mapping_return_url(request, workspace_id)}#rows-to-use-review"
+                    f"{_mapping_return_url(request, workspace_id, step='confirm')}#rows-to-use-review"
                 )
                 _flash(request, message)
             elif action == "save_progress":
@@ -2192,13 +2200,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 if validation.status.value == "INVALID":
                     message = "Matches checked. Review the items that need attention."
                     mapping_return_url = (
-                        f"{_mapping_return_url(request, workspace_id)}"
+                        f"{_mapping_return_url(request, workspace_id, step='check')}"
                         "#next-step-blockers"
                     )
                 elif row_review is not None and not row_review.confirmable:
                     message = "Matches checked. The rows-to-use result needs attention."
                     mapping_return_url = (
-                        f"{_mapping_return_url(request, workspace_id)}"
+                        f"{_mapping_return_url(request, workspace_id, step='confirm')}"
                         "#rows-to-use-review"
                     )
                 elif row_review is not None and row_review.excluded_count:
@@ -2207,11 +2215,14 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         f"{row_review.included_count} rows to use."
                     )
                     mapping_return_url = (
-                        f"{_mapping_return_url(request, workspace_id)}"
+                        f"{_mapping_return_url(request, workspace_id, step='confirm')}"
                         "#rows-to-use-review"
                     )
                 else:
                     message = "Matches checked and ready to confirm."
+                    mapping_return_url = _mapping_return_url(
+                        request, workspace_id, step="check", task=None
+                    )
                 message = _with_incoming_dependency_notice(
                     message,
                     dependency_repairs,
@@ -2418,6 +2429,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 if rejected is not None:
                     payload.update(rejected.portable_dict())
                     payload["detail"] = str(error)
+                if (isinstance(error, SupportingReviewRequiredError) and error.conflicts
+                    and conflict_schema is not None and conflict_selection is not None):
+                    payload["supporting_conflicts"] = supporting_conflict_views(
+                        error.conflicts, conflict_schema, conflict_selection, workspace_id, conflict_datasets,
+                    )
                 if row_review_check_started:
                     payload["partial_save"] = True
                     payload["detail"] = _row_review_failure_detail(str(error))
@@ -2955,7 +2971,7 @@ def _checked_mapping_return_url(
     success_url: str,
 ) -> str:
     if validation.status.value == "INVALID":
-        return f"{_mapping_return_url(request, workspace_id)}#next-step-blockers"
+        return f"{_mapping_return_url(request, workspace_id, step='check')}#next-step-blockers"
     return success_url
 
 

@@ -33,6 +33,7 @@ from ..workspace_journeys import (
     WorkspaceJourney,
     classify_workspace_journey,
 )
+from .mapping_journey import resolve_mapping_journey
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +250,7 @@ def build_workspace_navigation(
     workspace_view: WorkspaceOwnerView | None = None,
     run_setup_complete: bool | None = None,
     fresh_data_complete: bool | None = None,
+    mapping_step: str | None = None,
 ) -> WorkspaceNavigation:
     """Return the one user journey allowed by canonical workspace ownership."""
 
@@ -258,6 +260,7 @@ def build_workspace_navigation(
         template_name,
         current_path=current_path,
         migration_project_name=migration_project_name,
+        mapping_step=mapping_step,
     )
     if workspace_view is None:
         return navigation
@@ -291,6 +294,7 @@ def _build_authoring_workspace_navigation(
     *,
     current_path: str = "",
     migration_project_name: str | None = None,
+    mapping_step: str | None = None,
 ) -> WorkspaceNavigation:
     """Build the source-mode-specific Authoring evidence projection."""
 
@@ -899,6 +903,21 @@ def _build_authoring_workspace_navigation(
         )
 
     mapping_complete = facts.mapping_complete
+    company_required = bool(
+        current_workspace_state.odoo_connection_mode
+        and current_workspace_state.odoo_company is None
+    )
+    mapping_journey = resolve_mapping_journey(
+        {"step": mapping_step} if mapping_step is not None else {},
+        company_required,
+        mapping_href=f"/workspaces/{workspace_id}/mapping",
+    )
+    if template_name == "mapping/page.html":
+        viewed_page_label = next(
+            step["label"]
+            for step in mapping_journey["steps"]
+            if step["key"] == mapping_journey["step"]
+        )
     stages.append(
         _stage(
             workspace_id,
@@ -908,21 +927,19 @@ def _build_authoring_workspace_navigation(
             "/mapping",
             status=("complete" if mapping_complete else "current"),
             status_label=("Complete" if mapping_complete else "Current"),
-            pages=(
+            pages=tuple(
                 _page(
                     workspace_id,
-                    "mapping",
-                    "Match fields",
-                    "/mapping",
-                    complete=mapping_complete,
-                ),
-                _page(
-                    workspace_id,
-                    "transformation-impact",
-                    "Review rule effects",
-                    "/mapping/transformation-impact",
-                    optional=True,
-                ),
+                    f"mapping-{step['key']}",
+                    step["label"],
+                    f"/mapping?step={step['key']}",
+                    complete=(
+                        not company_required
+                        if step["key"] == "company"
+                        else mapping_complete
+                    ),
+                )
+                for step in mapping_journey["steps"]
             ),
         )
     )

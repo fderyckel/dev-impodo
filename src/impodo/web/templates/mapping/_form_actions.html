@@ -27,6 +27,8 @@
         >
           {% if formula_authoring_issue_payloads %}
             Saved — needs attention. Correct the formula before checking matches.
+          {% elif related_data_review and related_data_review.mapping_conflict %}
+            Correct the linked fields before checking again.
           {% elif has_unvalidated_changes %}
             Progress is saved. Check matches when ready.
           {% elif submission %}
@@ -53,33 +55,47 @@
           </span>
           <button class="button secondary compact" type="button" data-go-to-formula-issue>Go to issue</button>
         </div>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/{{ 'sources' if odoo_pinned else 'schema' }}">Back to Odoo data</a>
         <button class="button secondary" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
-        {% if matching_order and matching_order.next_recommended_url %}
-          <a
-            class="button secondary"
-            href="{{ matching_order.next_recommended_url }}"
-            data-next-recommended-table
-            {% if not matching_order.show_next_recommended %}hidden{% endif %}
-          >Next recommended table</a>
-        {% endif %}
-        <button
-          class="button secondary"
-          name="action"
-          value="draft"
-          type="submit"
-          data-check-mapping
-          aria-describedby="formula-check-help"
-          {% if formula_authoring_issue_payloads %}disabled{% endif %}
-        >Check matches</button>
+        <div class="mapping-journey-action-group" data-mapping-step-panel="tables" {% if mapping_journey.step != 'tables' %}hidden{% endif %}>
+          {% set continuation = namespace(active_position=none, next_url='') %}
+          {% for view in dataset_views if view.active %}{% set continuation.active_position = view.display_position %}{% endfor %}
+          {% for view in dataset_views|sort(attribute='display_position') %}
+            {% if continuation.active_position is not none and view.display_position > continuation.active_position and not continuation.next_url %}
+              {% set continuation.next_url = view.edit_url %}
+            {% endif %}
+          {% endfor %}
+          <button class="button primary" name="action" value="save_progress" type="submit" data-mapping-continue data-mapping-continuation-url="{{ continuation.next_url }}">Save and continue</button>
+          {% if validation %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check">Return to checks</a>
+          {% endif %}
+          {% if matching_order and matching_order.next_recommended_url %}
+            <a class="button secondary" href="{{ matching_order.next_recommended_url }}" data-next-recommended-table data-mapping-table-link {% if not matching_order.show_next_recommended %}hidden{% endif %}>Next recommended table</a>
+          {% endif %}
+        </div>
+        <div class="mapping-journey-action-group" data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=tables" data-mapping-go-step="tables">Back to matching tables</a>
+          <button
+            class="button primary"
+            name="action"
+            value="draft"
+            type="submit"
+            data-check-mapping
+            aria-describedby="formula-check-help"
+            {% if formula_authoring_issue_payloads %}disabled{% endif %}
+          >Check matches</button>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=confirm" data-mapping-go-step="confirm">Review confirmation</a>
+        </div>
         <span class="visually-hidden" id="formula-check-help" data-formula-check-help>
           {% if formula_authoring_issue_payloads %}Correct formula issues before checking matches.{% endif %}
         </span>
-        {% if next_step.available and next_step.kind == 'link' %}
-          <a class="button {{ next_step.button_style }}" href="{{ next_step.href }}">{{ next_step.label }}</a>
-        {% elif next_step.available %}
-          <button class="button {{ next_step.button_style }}" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
-        {% else %}
-          <button class="button primary" type="button" aria-describedby="next-step-blockers" disabled>{{ next_step.label }}</button>
-        {% endif %}
+        <div class="mapping-journey-action-group" data-mapping-step-panel="confirm" {% if mapping_journey.step != 'confirm' %}hidden{% endif %}>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check">Back to checks</a>
+          {% if next_step.available and next_step.kind == 'link' %}
+            <a class="button {{ next_step.button_style }}" href="{{ next_step.href }}">{{ next_step.label }}</a>
+          {% elif next_step.available %}
+            <button class="button {{ next_step.button_style }}" name="action" value="{{ next_step.action }}" type="submit" data-confirm-mapping>{{ next_step.label }}</button>
+          {% else %}
+            <button class="button primary" type="button" aria-describedby="next-step-blockers" disabled>{{ next_step.label }}</button>
+          {% endif %}
+        </div>
       </div>

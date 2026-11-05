@@ -232,11 +232,180 @@ class DuplicateRowExclusionTests(HierarchyWorkflowFixture):
         self.setup_rows(unique=False)
         response = self.client.get(self.endpoint, params=self.query)
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("unique source identifier", response.json()["unavailable"])
+        self.assertIn("unique source identifier", response.json()["identifier_message"])
         self.assertEqual(self.command().status_code, 409)
         self.assertEqual(
             self.context.queries.get_mapping_working_draft(self.workspace_id).version, 1
         )
+
+    def test_automatic_identifier_is_proved_beyond_the_displayed_duplicate_rows(self):
+        self.setup_rows(
+            source_identity_names=("Reference",),
+            source_id_values=(
+                "ROW-1",
+                "ROW-2",
+                "ROW-3",
+                "ROW-4",
+                "ROW-5",
+                "ROW-6",
+                "ROW-7",
+                "ROW-1",
+                "ROW-9",
+                "ROW-10",
+                "ROW-11",
+            ),
+        )
+        columns = {
+            column.source_name: column.stable_key for column in self.dataset.columns
+        }
+        response = self.client.get(self.endpoint, params=self.query)
+        self.assertEqual(response.status_code, 200, response.text)
+        # SourceId looks unique in the seven displayed rows but also occurs
+        # on an eighth row. The complete-population proof must reject it.
+        self.assertEqual(
+            response.json()["exclusion_source_key"], columns["Description"]
+        )
+        preview = self.command()
+        self.assertEqual(preview.status_code, 200, preview.text)
+        self.assertEqual(preview.json()["excluded_count"], 1)
+        saved = self.command(
+            action="apply",
+            operation_id=str(uuid4()),
+            preview_hash=preview.json()["preview_hash"],
+        )
+        self.assertEqual(saved.status_code, 200, saved.text)
+        rule = (
+            self.context.queries.get_mapping_working_draft(self.workspace_id)
+            .definition.datasets[0]
+            .row_inclusion
+        )
+        self.assertFalse(row_is_included(rule, {columns["Description"]: "Version 1"}))
+        self.assertTrue(row_is_included(rule, {columns["Description"]: "Version 8"}))
+
+    def test_separate_exclusion_column_preserves_matching_and_surviving_parent_keys(
+        self,
+    ):
+        for major, mode in (
+            (19, "LOCAL"),
+            (19, "REMOTE"),
+            (20, "LOCAL"),
+            (20, "REMOTE"),
+        ):
+            with self.subTest(major=major, mode=mode):
+                self.setup_rows(
+                    major=major,
+                    mode=mode,
+                    source_identity_names=("Reference",),
+                    children=True,
+                    child_parent_values=("DUP", "DUP", "TARGET"),
+                    policy_factory=lambda columns: RowInclusionPolicy(
+                        mode=RowInclusionMode.MATCHING_ROWS,
+                        conditions=(
+                            RowInclusionCondition(
+                                str(uuid4()),
+                                columns["Site"],
+                                SelectionConditionOperator.EQUALS,
+                                "BE",
+                            ),
+                        ),
+                    ),
+                )
+                columns = {
+                    column.source_name: column.stable_key
+                    for column in self.dataset.columns
+                }
+                initial = self.context.queries.get_mapping_working_draft(
+                    self.workspace_id
+                )
+                with (
+                    collect_duckdb_request_timings() as timings,
+                    count_duckdb_statements() as statements,
+                    patch.object(
+                        self.context.categorical_coverage,
+                        "source_condition_rows",
+                        wraps=self.context.categorical_coverage.source_condition_rows,
+                    ) as reads,
+                ):
+                    response = self.client.get(self.endpoint, params=self.query)
+                # Automatic discovery adds one bulk proof, not a read per row
+                # or per candidate. Both reads share the six existing owners.
+                self.assertEqual(reads.call_count, 2)
+                self.assertLessEqual(timings.connection_count, 6)
+                self.assertLessEqual(timings.schema_check_count, 4)
+                self.assertEqual(timings.lock_retry_count, 0)
+                self.assertLessEqual(len(statements), 160)
+                self.assertEqual(response.json()["identifier_message"], "")
+                self.assertEqual(
+                    response.json()["exclusion_source_key"], columns["SourceId"]
+                )
+                preview = self.command()
+                self.assertEqual(preview.status_code, 200, preview.text)
+                self.assertEqual(preview.json()["impacts"], [])
+                self.assertEqual(preview.json()["exclusion_column"], "SourceId")
+                # Removing the last included copy loses the matching parent
+                # key; removing one copy while retaining another does not.
+                all_copies = self.command(
+                    positions=tuple(range(1, 8)),
+                    exclusion_source_key=columns["SourceId"],
+                )
+                self.assertEqual(all_copies.status_code, 200, all_copies.text)
+                self.assertEqual(
+                    all_copies.json()["impacts"],
+                    [
+                        {
+                            "table": "lines",
+                            "field": "parent_id",
+                            "count": 2,
+                            "follows_parent": False,
+                        }
+                    ],
+                )
+                mismatched = self.command(
+                    action="apply",
+                    operation_id=str(uuid4()),
+                    preview_hash=preview.json()["preview_hash"],
+                    exclusion_source_key=columns["Description"],
+                )
+                self.assertEqual(mismatched.status_code, 409, mismatched.text)
+                saved = self.command(
+                    action="apply",
+                    operation_id=str(uuid4()),
+                    preview_hash=preview.json()["preview_hash"],
+                    exclusion_source_key=columns["SourceId"],
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                after = self.context.queries.get_mapping_working_draft(
+                    self.workspace_id
+                )
+                original = next(
+                    item
+                    for item in initial.definition.datasets
+                    if item.dataset_id == self.dataset.dataset_id
+                )
+                updated = next(
+                    item
+                    for item in after.definition.datasets
+                    if item.dataset_id == self.dataset.dataset_id
+                )
+                self.assertEqual(
+                    updated.source_identity_column_keys,
+                    original.source_identity_column_keys,
+                )
+                self.assertEqual(updated.target_identity, original.target_identity)
+                self.assertEqual(
+                    updated.row_inclusion.conditions[0],
+                    original.row_inclusion.conditions[0],
+                )
+                self.assertEqual(
+                    updated.row_inclusion.conditions[-1].source_column_key,
+                    columns["SourceId"],
+                )
+                self.assertEqual(
+                    updated.row_inclusion.conditions[-1].comparison_value, "ROW-1"
+                )
+                self.assertEqual(
+                    self.command(exclusion_source_key="not-a-column").status_code, 409
+                )
 
     def test_any_rule_is_preserved_instead_of_rewritten_as_all(self):
         self.setup_rows()

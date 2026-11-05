@@ -41,8 +41,12 @@ class SupportingReviewRequiredError(WorkspaceError):
 
     failure_code = "SUPPORTING_REVIEW_REQUIRED"
 
-    def __init__(self, problem: SupportingReviewProblem, detail: str) -> None:
+    def __init__(
+        self, problem: SupportingReviewProblem, detail: str, *,
+        conflicts: tuple[SupportingMappingConflict, ...] = (),
+    ) -> None:
         self.problem = problem
+        self.conflicts = conflicts
         if problem is SupportingReviewProblem.MAPPING_CONFLICT:
             self.failure_code = "SUPPORTING_MAPPING_CONFLICT"
         super().__init__(detail)
@@ -70,6 +74,26 @@ class SupportingChoiceAction(StrEnum):
     CHECKED_DEFAULT = "CHECKED_DEFAULT"
     ODOO_MANAGED = "ODOO_MANAGED"
     SKIP_OPTIONAL = "SKIP_OPTIONAL"
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class SupportingMappingConflict:
+    """Identify a rejected relationship without parsing its diagnostic sentence."""
+
+    source_model: str
+    field_name: str
+    dataset_id: str
+    saved_action: SupportingChoiceAction
+    field_unavailable: bool = False
+    matching_fields: tuple[str, ...] = ()
+
+    @property
+    def message(self) -> str:
+        """Preserve the existing diagnostic wording for contracts and receipts."""
+        reason = "Odoo details changed" if self.field_unavailable else (
+            f"saved {self.saved_action.value.lower()} choice conflicts with Match data"
+        )
+        return f"{self.source_model}.{self.field_name}: {reason}"
 
 
 @dataclass(frozen=True, slots=True, order=True)

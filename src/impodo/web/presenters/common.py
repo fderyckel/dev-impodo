@@ -142,6 +142,13 @@ def _render(
             workspace_view=workspace_view,
             run_setup_complete=context.get("activation_complete"),
             fresh_data_complete=context.get("fresh_data_complete"),
+            mapping_step=(
+                context["mapping_journey"]["step"]
+                if "mapping_journey" in context
+                else request.query_params.get("step")
+                if template_name == "mapping/page.html"
+                else None
+            ),
         )
         timings["navigation_present"] = (perf_counter() - started) * 1000
     if (

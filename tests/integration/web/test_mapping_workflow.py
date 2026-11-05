@@ -492,18 +492,22 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         workbook.close()
 
-    def test_active_table_fields_have_a_two_state_disclosure(self) -> None:
+    def test_active_table_shows_only_the_requested_matching_task(self) -> None:
         workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
             scalar_field_count=1
         )
 
-        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+        page = self.client.get(
+            f"/workspaces/{workspace_id}/mapping?step=tables&task=fields"
+        )
 
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("data-table-fields-toggle", page.text)
-        self.assertIn('aria-expanded="true"', page.text)
-        self.assertIn('aria-controls="mapping-table-fields-0"', page.text)
-        self.assertIn("Close this table's fields", page.text)
+        self.assertRegex(page.text, r'data-mapping-task-panel="fields"\s*>')
+        self.assertRegex(page.text, r'data-mapping-task-panel="rows"\s+hidden')
+        self.assertRegex(page.text, r'data-mapping-task-panel="identity"\s+hidden')
+        self.assertRegex(page.text, r'data-mapping-task-panel="links"\s+hidden')
+        self.assertIn('name="row_inclusion_mode_0"', page.text)
+        self.assertIn('name="scalar_value_source_0_1"', page.text)
         self.assertIn('id="mapping-table-fields-0" data-table-fields-panel', page.text)
 
     def test_mapping_page_shows_the_local_recommended_table_queue(self) -> None:
@@ -518,7 +522,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match supporting tables first", page.text)
         self.assertIn("This page did not contact Odoo", page.text)
         self.assertIn("Starting order", page.text)
-        self.assertIn("Step 1 of 1", page.text)
+        self.assertIn("Table 1 of 1", page.text)
         self.assertIn('aria-current="step"', page.text)
         self.assertIn("Ready now", page.text)
 

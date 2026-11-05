@@ -6,7 +6,7 @@
   <div class="page-heading compact">
     <div>
       <p class="eyebrow">Source population</p>
-      <h3 id="rows-to-use-{{ dataset_index }}">Rows to use {{ decision_help("rows-to-use") }}</h3>
+      <h3 id="rows-to-use-{{ dataset_index }}" data-mapping-task-heading tabindex="-1">Rows to use {{ decision_help("rows-to-use") }}</h3>
       <p class="muted">Choose which source rows belong to this migration. Your accepted Data version remains unchanged.</p>
     </div>
     {% if not view.active and policy_mode != 'all_rows' %}<span class="status needs_review">Rule saved</span>{% endif %}

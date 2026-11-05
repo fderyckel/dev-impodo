@@ -1,0 +1,170 @@
+/* Stage 3 shows one load step and one table task at a time. */
+
+[data-mapping-journey] [data-mapping-step-panel][hidden],
+[data-mapping-journey] [data-mapping-task-panel][hidden],
+[data-mapping-journey] .mapping-dataset[hidden] {
+  display: none !important;
+}
+
+.mapping-journey-current-step {
+  margin: -.5rem 0 1.25rem;
+  color: var(--impodo-red-dark);
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.mapping-table-queue {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .75rem 1.5rem;
+  padding-top: .85rem;
+  padding-bottom: .85rem;
+}
+
+.mapping-table-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .5rem 1rem;
+  margin-right: auto;
+}
+
+.mapping-table-current .eyebrow {
+  margin: 0;
+}
+
+.mapping-table-queue > details > summary {
+  color: var(--muted);
+  font-size: .88rem;
+}
+
+.mapping-table-queue > details[open] {
+  flex-basis: 100%;
+}
+
+.mapping-table-queue-list {
+  display: grid;
+  gap: .4rem;
+  margin: .85rem 0 0;
+  padding-left: 1.5rem;
+}
+
+.mapping-table-queue-list li {
+  padding: .4rem 0;
+}
+
+.mapping-table-queue-list .status {
+  margin-left: .75rem;
+}
+
+.mapping-journey-order-details .mapping-order {
+  margin-bottom: 0;
+  border: 0;
+  padding: 1rem 0 0;
+}
+
+.mapping-task-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: .35rem;
+  margin: 1rem 0 1.4rem;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  padding-bottom: .5rem;
+}
+
+.mapping-task-link {
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: .55rem .8rem;
+  color: var(--muted);
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.mapping-task-link[aria-current="step"] {
+  border-color: var(--line);
+  border-bottom-color: var(--impodo-red-dark);
+  background: var(--surface);
+  color: var(--impodo-red-dark);
+}
+
+.mapping-task-link:hover,
+.mapping-task-link:focus-visible {
+  border-color: var(--impodo-red-dark);
+  color: var(--impodo-red-dark);
+}
+
+[data-mapping-task-heading] {
+  scroll-margin-top: 1rem;
+}
+
+.mapping-linked-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .5rem 1rem;
+  margin-bottom: 1rem;
+}
+
+.mapping-linked-summary .related-records-help {
+  flex: 1 1 24rem;
+}
+
+.mapping-journey-action-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .6rem;
+}
+
+.mapping-journey-details > summary {
+  font-weight: 650;
+}
+
+.mapping-issue > summary,
+.mapping-value-preparation > summary {
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.mapping-value-preparation > summary {
+  white-space: nowrap;
+}
+
+.mapping-value-preparation[open] > summary {
+  margin-bottom: .75rem;
+}
+
+.mapping-journey-details > .form-card {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+
+.mapping-confirm-summary p:last-child {
+  margin-bottom: 0;
+}
+
+.mapping-company-next {
+  justify-content: flex-end;
+  margin-bottom: 1.5rem;
+}
+
+@media (max-width: 700px) {
+  .mapping-table-queue {
+    gap: .75rem;
+  }
+
+  .mapping-journey-action-group {
+    width: 100%;
+  }
+
+  .mapping-journey-action-group .button.primary {
+    flex: 1 1 auto;
+  }
+}

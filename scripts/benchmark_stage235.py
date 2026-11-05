@@ -13,7 +13,7 @@ import statistics
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from time import perf_counter
+from time import perf_counter, process_time
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "src"), str(ROOT)]
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.preflight_jobs import PreflightJobManager
+from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.composition.page_reads import run_local_operation_sync
@@ -40,12 +42,15 @@ def measure(callback, *, samples: int, expected_status: int) -> dict[str, object
     for _ in range(samples):
         with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
             started = perf_counter()
+            cpu_started = process_time()
             response = callback()
+            cpu_ms = (process_time() - cpu_started) * 1000
             elapsed_ms = (perf_counter() - started) * 1000
         if response.status_code != expected_status:
             raise AssertionError(f"Unexpected fixture response {response.status_code}: {response.text[:1000]}")
         measurements.append({
             "elapsed_ms": elapsed_ms,
+            "cpu_ms": cpu_ms,
             "sql_statements": len(statements),
             "column_catalogue_reads": sum("duckdb_columns()" in sql for sql in statements),
             **asdict(timings),
@@ -59,7 +64,9 @@ def measure(callback, *, samples: int, expected_status: int) -> dict[str, object
     }
 
 
-def small_routes(major: int, mode: str, samples: int) -> dict[str, object]:
+def small_routes(
+    major: int, mode: str, samples: int, *, saved_pages_only: bool = False,
+) -> dict[str, object]:
     """Exercise saved pages, formula parsing, key confirmation and recovery."""
 
     fixture = ProjectSetupBrowserTestCase()
@@ -68,6 +75,12 @@ def small_routes(major: int, mode: str, samples: int) -> dict[str, object]:
         workspace_id, dataset, _ = fixture._mapping_ready_workspace(
             scalar_field_count=2, odoo_major=major, connection_mode=OdooConnectionMode(mode),
         )
+        if saved_pages_only:
+            # Normal local servers inspect persisted comparison intent before
+            # summary rendering. Include that read in the complete GET budget.
+            fixture.app.state.context.preflight_jobs = PreflightJobManager(
+                attempt_store=fixture.app.state.context.migration_projects.repository,
+            )
         prefix = f"/workspaces/{workspace_id}/"
         schema = fixture.app.state.context.queries.get_odoo_schema_catalog(workspace_id)
         routes = {
@@ -75,6 +88,8 @@ def small_routes(major: int, mode: str, samples: int) -> dict[str, object]:
                           samples=samples, expected_status=200)
             for area in ("schema", "mapping", "summary")
         }
+        if saved_pages_only:
+            return routes
         for area, data, status in (
             ("mapping/formula-validation", {
                 "dataset_id": dataset.dataset_id, "formula": "'Ready'",
@@ -141,18 +156,29 @@ def main() -> None:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--odoo-major", type=int, choices=(19, 20), action="append")
     parser.add_argument("--access-mode", choices=("LOCAL", "REMOTE"), action="append")
+    parser.add_argument("--saved-pages-only", action="store_true")
     args = parser.parse_args()
     if args.samples < 1:
         parser.error("--samples must be positive")
     cases = []
     for major in args.odoo_major or (19, 20):
         for mode in args.access_mode or ("LOCAL", "REMOTE"):
+            routes = small_routes(
+                major, mode, args.samples, saved_pages_only=args.saved_pages_only,
+            )
+            if not args.saved_pages_only:
+                routes.update(review_routes(major, mode, args.samples))
             cases.append({
                 "odoo_major": major, "access_mode": mode,
-                "routes": {**small_routes(major, mode, args.samples),
-                           **review_routes(major, mode, args.samples)},
+                "routes": routes,
             })
-    encoded = json.dumps({"evidence": "isolated fictional fixtures", "cases": cases}, indent=2)
+    encoded = json.dumps({
+        "evidence": "isolated fictional fixtures",
+        "application_build_id": PROCESS_BUILD_CONTRACT.application_build_id,
+        "python_version": sys.version.split()[0],
+        "persisted_comparison_intent_reader": args.saved_pages_only,
+        "cases": cases,
+    }, indent=2)
     if args.output is not None:
         args.output.write_text(encoded + "\n", encoding="utf-8")
     print(encoded)

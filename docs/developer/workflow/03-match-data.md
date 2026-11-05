@@ -33,6 +33,39 @@ memory to show non-authoritative proposed values and changed-cell lineage.
 It does not publish prepared evidence, perform the final target comparison, or
 write to Odoo.
 
+## Four-step browser journey
+
+The authoring sidebar exposes **Choose company**, **Match tables**, **Check and
+resolve**, and **Confirm matches**. The existing `/mapping` page accepts the
+display-only `step` and `task` query parameters.
+[`resolve_mapping_journey`](../../../src/impodo/web/presenters/mapping_journey.py)
+accepts only known locations. Missing locations start at the company choice when it is required,
+or at the table editor after a company is chosen. These locations add no
+database reads and do not establish completion or authorization.
+
+`mapping-journey.js` shows one step and one active table task. The table tasks
+cover rows, record identity, scalar values, and linked values. Hidden controls
+remain in the mapping form so a partial display cannot remove a saved choice.
+The existing page-read and mutation operation scopes remain unchanged.
+Save-and-continue uses the normal mutation receipt and advances only after
+the save is committed. A check returns to the check results or the checked row
+selection that requires review. Submission still binds the exact checked
+revision and preserves required warning and row-selection confirmations.
+
+The check step owns the expanded blocker list. Detailed health reports and
+optional review tools use disclosures; correction links reveal their owning
+table task. The confirm step owns row-selection confirmation and warning
+acknowledgement. Merely opening it does not unlock Prepare data.
+
+The fixture regressions are
+[`test_mapping_journey.py`](../../../tests/integration/web/test_mapping_journey.py)
+and
+[`test_mapping_journey_mutations.py`](../../../tests/integration/web/test_mapping_journey_mutations.py).
+They cover Odoo 19 and 20, local and remote targets, unchanged form controls,
+safe locations, exact save/check/confirmation boundaries, and invalid-check
+recovery. The JavaScript journey tests exercise task visibility and save
+continuation without opening a browser session.
+
 The browser also presents a recommended authoring order. Its initial result is
 local-only, and rendering or saving the queue does not open an Odoo connection.
 An explicit read-only check may refine that advice from current target records.
@@ -139,10 +172,36 @@ are available. Unchanged selections need no individual confirmation badges.
 `mapping-supporting-review.js` replaces only the review fragment. After a
 confirmed choice save, it submits the current mapping form through the normal
 Check matches receipt flow. Rejected saves and network failures retain field
-edits. A conflict also offers **Review linked fields**. The company-refresh
+edits. A conflict names each affected field and offers **Review this field**.
+`SupportingMappingConflict` carries the model, field and mapping dataset from
+the existing domain check; the established diagnostic sentences remain unchanged.
+The rejection response keeps those correction projections for unsaved browser
+edits. The recovery fragment also reconstructs conflicts from the current saved
+draft, so reopening the page retains the actual blocker. No extra Odoo read or
+source-row scan is introduced.
+
+For a conflict, the panel hides the supporting-choice confirmation form and the
+bottom next-step summary names the fields instead of saying they were never
+checked. The browser focuses the exact field, using the existing catalogue
+loader when pagination hides it. Navigation to another table requires saving
+unsaved edits first. The [conflict recovery regression](../../../tests/integration/web/test_supporting_conflict_recovery.py)
+covers the rejected check, field link, preserved draft and successful retry for
+Odoo 19 and 20 with local and remote access. The
+[browser-control regressions](../../../tests/e2e/mapping-supporting-review.test.cjs)
+exercise exact focus, hidden-page lookup and retention before table navigation.
+
+The company-refresh
 explanation requires matching current access evidence and a reconstruction of
 the exact previous review binding; a later source change receives generic
-guidance instead. No saved review is automatically reauthorized.
+guidance instead. A verified key-only renewal can revalidate unchanged choices.
+[`SupportingReviewService.revalidate_access`](../../../src/impodo/application/supporting_review_service.py)
+reconstructs their exact previous
+binding from current source and preparation inputs. It requires unchanged
+company, principal, permissions, fields, defaults, target, policy and matching
+keys. Publication appends a review revision and `SUPPORTING_ACCESS_REVALIDATED`
+audit in one transaction, preserving the mapping and prepared evidence pointers.
+The original revision remains immutable. Other stale or conflicting decisions
+still require explicit review. Recipe decisions remain owned by their Recipe.
 
 The [isolated rich-page regression](../../../tests/integration/web/test_mapping_supporting_recovery.py)
 measures eight connections and two schema
@@ -635,14 +694,25 @@ members from the submitted current page. It builds or extends an exact text
 `not_in` condition on one nonblank, unique source identifier. It preserves
 existing conditions and list values, and evaluates the proposed rule against
 the current included rows to prove that it removes exactly the selected rows.
+That exclusion column may differ from the saved source matching identifier.
+If the matching identifier repeats, the review derives at most eight candidate
+columns from the displayed source values, then verifies their uniqueness and
+completeness across the full included population in one narrow read. It keeps
+the saved source identity, target identity and relationship choices unchanged.
+The operator's checkbox choices drive the exclusion without another identifier
+choice. A missing safe candidate produces an explanation while preserving the
+selected rows. The browser keeps blocking explanations visible when a checkbox
+changes.
 An empty resulting population, an outdated check, parent or any-condition
 rules, unrepresentable identifiers, or an exhausted condition limit block the
-addition. Preview counts current direct incoming parent references and lists
+addition. Preview compares parent matching keys before and after the selection.
+Keeping another included copy of the same parent key preserves its links.
+Preview counts current direct incoming parent references to keys that disappear and lists
 other incoming dependencies whose row effects need separate review. It does
 not silently cascade exclusions.
 
 Apply recomputes the preview and verifies its hash, which binds the check,
-mapping, Data version, selected positions, and relationship effects. It uses
+mapping, Data version, selected positions, exclusion column, and relationship effects. It uses
 the existing mapping mutation receipt and optimistic draft version to save
 only the reviewed table's policy through `MappingWorkspaceService`. A replay
 returns the committed result without adding another rule or draft version.
@@ -931,6 +1001,13 @@ Live-check preparation ends its local operation before starting the Odoo
 worker. Rejected mapping saves read their current versions together off the
 event loop. These changes preserve formula restrictions, saved decisions,
 authorization, and stale-evidence checks.
+
+Opening the complete Match data page uses `run_workspace_page_read`. Its one
+local worker authorizes the parent Project, applies journey and source gates,
+checks active preparation, and renders the editor. It opens each distinct
+local store once and closes every owner before returning. Active-job redirects
+and rejected access cannot reach the editor projection. Other mapping commands
+retain their existing admission and command boundaries.
 
 The [Stage 2, 3, and 5 regression fixtures](../../../tests/integration/web/test_stage235_performance.py)
 cover Odoo 19 and Odoo 20 with local
@@ -1595,6 +1672,27 @@ requiredness, mapping use, saved choice, and candidate count. Browser guidance
 names the affected relationship; diagnostic output omits its display labels
 and arbitrary exception text.
 
+Handled supporting-review failures also retain their closed problem code, such
+as `STALE` or `MAPPING_CONFLICT`, without exporting exception text. Mapping
+conflicts include up to 20 technical model and field identifiers with the saved
+source action, total count and truncation flag. Dataset identities, display
+labels and entered values remain outside the diagnostic schema. Access refresh
+records include the triggering action, changed input categories, qualified Odoo
+major, previous and resulting review versions, choice count and recovery outcome.
+[`supporting_access_diagnostics.py`](../../../src/impodo/web/supporting_access_diagnostics.py)
+compares loaded metadata and exports only
+allowlisted codes such as `CREDENTIAL_VERSION`, `COMPANY_CONTEXT`, `CHECKING_USER`,
+`PERMISSIONS` and `FIELDS`. It records no credential, company, user or field values.
+Both recording and export sanitize the payload. A successful revalidation is
+reported only by the application operation that actually published it.
+
+The [application regressions](../../../tests/application/workspace/test_supporting_access_revalidation.py)
+cover unchanged choices and rejected drift. The
+[HTTP recovery regressions](../../../tests/integration/web/test_supporting_access_revalidation.py)
+exercise both majors, local and remote access, and both refresh entry actions.
+The [access diagnostic regressions](../../../tests/integration/web/test_supporting_access_diagnostics.py)
+verify closed reason codes, privacy and retention after health traffic.
+
 [`web/supporting_diagnostics.py`](../../../src/impodo/web/supporting_diagnostics.py)
 validates the same bounded schema when the
 request is recorded and again when the bundle is exported. Unknown fields and
@@ -1695,6 +1793,10 @@ event-loop-delay summaries. Bundle schema version 2 also includes
 including fast HTTP validation refusals. This summary is selected before the
 5,000-record limit, so later successful health requests cannot displace a
 retained failure from the summary. Log rotation still bounds retention.
+The additive `supporting-access.json` file retains up to 100 access transitions
+and supporting-review failures before that same limit. It includes successful
+recovery, so later health checks cannot displace the explanation. The manifest
+reports `supporting_access_record_count`.
 The manifest reports the summary count and discloses technical model and field
 identifiers. Export reads log files only, never workspace databases or Odoo.
 Exported routes are reduced to a fixed route class.

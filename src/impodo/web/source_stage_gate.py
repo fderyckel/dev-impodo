@@ -22,10 +22,19 @@ async def source_stage_redirect(
 ) -> RedirectResponse | None:
     """Redirect a downstream browser request when source evidence is stale."""
 
-    readiness = await run_page_read(
-        context.navigation.get_source_readiness,
-        workspace_id,
+    return await run_page_read(
+        source_stage_redirect_sync, request, context, workspace_id,
     )
+
+
+def source_stage_redirect_sync(
+    request: Request,
+    context: WebContext,
+    workspace_id: str,
+) -> RedirectResponse | None:
+    """Apply the source gate inside an already bounded local page operation."""
+
+    readiness = context.navigation.get_source_readiness(workspace_id)
     if readiness.ready:
         return None
     _flash(request, source_stage_message(readiness))

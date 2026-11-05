@@ -20,7 +20,8 @@ from tests.support.recipe_lifecycle import metadata_for_schema
 
 
 def duplicate_identity_workspace(fixture, *, repeated_count=105, unique_source_ids=False,
-    major=19, mode="LOCAL", children=False, policy_factory=None):
+    major=19, mode="LOCAL", children=False, policy_factory=None,
+    source_identity_names=None, child_parent_values=None, source_id_values=None):
     rows = [("DUP", "BE")] * repeated_count + [
         ("DUP", "LU"),
         ("TARGET", "BE"),
@@ -30,11 +31,12 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105, unique_source_i
     data = "Reference,Site\n" + "\n".join(",".join(row) for row in rows) + "\n"
     if unique_source_ids:
         data = "SourceId,Reference,Site,Description\n" + "\n".join(
-            f"ROW-{index},{reference},{site},Version {index}" for index, (reference, site) in enumerate(rows, 1)
+            f"{source_id_values[index - 1] if source_id_values else f'ROW-{index}'},{reference},{site},Version {index}" for index, (reference, site) in enumerate(rows, 1)
         ) + "\n"
     files = {"products": data.encode()}
     if children:
-        files["lines"] = b"Line,Parent\nL-1,ROW-1\nL-2,ROW-1\nL-3,ROW-2\n"
+        parents = child_parent_values or ("ROW-1", "ROW-1", "ROW-2")
+        files["lines"] = ("Line,Parent\n" + "\n".join(f"L-{index},{parent}" for index, parent in enumerate(parents, 1)) + "\n").encode()
     workspace_id = fixture.freeze_files(files)
     model = SchemaModel(
         "x.product",
@@ -66,7 +68,8 @@ def duplicate_identity_workspace(fixture, *, repeated_count=105, unique_source_i
     reference, site = columns["Reference"], columns["Site"]
     mappings = [DatasetMapping(
         dataset.dataset_id, "x.product",
-        source_identity_column_keys=(columns["SourceId"],) if unique_source_ids else (reference, site),
+        source_identity_column_keys=tuple(columns[name] for name in source_identity_names)
+            if source_identity_names is not None else (columns["SourceId"],) if unique_source_ids else (reference, site),
         target_identity=(IdentityComponentMapping((reference,), ("code",)),),
         target_scope=(IdentityComponentMapping((site,), ("site",)),),
         row_inclusion=policy_factory(columns) if policy_factory else RowInclusionPolicy(),

@@ -1,6 +1,6 @@
           {% if migration_workspace and migration_workspace.recipe_application_id and view.mapping and view.mapping.effective_control_totals|length == view.mapping.control_definitions|length %}
             {% if view.mapping.control_definitions %}
-              <details class="technical-evidence" open>
+              <details class="technical-evidence">
                 <summary>Accepted control totals <small>Fixed for this run</small></summary>
                 <dl class="summary-list">
                   {% for control in view.mapping.effective_control_totals %}
@@ -11,7 +11,7 @@
               </details>
             {% endif %}
           {% else %}
-          <details class="technical-evidence" {% if view.mapping and view.mapping.effective_control_totals %}open{% endif %}>
+          <details class="technical-evidence">
             <summary>
               Check a known total (optional)
               <small>For amounts or quantities you already know</small>

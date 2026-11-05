@@ -10,12 +10,14 @@ shared:
   skills: []
   code_references:
     - src/impodo/web/composition/page_reads.py::run_page_read
+    - src/impodo/web/security.py::run_workspace_page_read
     - src/impodo/web/composition/page_reads.py::run_local_operation
     - src/impodo/web/composition/page_reads.py::run_local_operation_sync
     - src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation
     - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
   tests:
     - tests/integration/web/test_page_reads.py
+    - tests/integration/web/test_workspace_page_admission.py
     - tests/integration/duckdb/test_page_read_connections.py
     - tests/integration/duckdb/test_scoped_store_validation.py
   router_modules:
@@ -488,6 +490,7 @@ stages:
       - src/impodo/web/templates/mapping/page.html
       - src/impodo/web/templates/workspace_transformation_impact.html
     code_references:
+      - src/impodo/web/presenters/mapping_journey.py::resolve_mapping_journey
       - src/impodo/domain/workspace/supporting_review.py::SupportingReviewRequiredError
       - src/impodo/web/presenters/supporting_review.py::mapping_supporting_review_view
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService
@@ -581,6 +584,8 @@ stages:
       - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
       - src/impodo/web/diagnostics.py::create_diagnostic_bundle
       - src/impodo/web/supporting_diagnostics.py::sanitize_supporting_failure
+      - src/impodo/web/supporting_access_diagnostics.py::sanitize_supporting_access
+      - src/impodo/application/supporting_review_service.py::SupportingReviewService.revalidate_access
       - src/impodo/web/routers/lifecycle.py::build_lifecycle_router
       - src/impodo/web/server_supervisor.py::supervise_server
       - scripts/capture_match_data_recovery_screenshots.py::capture
@@ -597,6 +602,8 @@ stages:
       - src/impodo/web/presenters/matching_health_issues.py::matching_health_workflow_issue_summary
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
+      - tests/integration/web/test_mapping_journey.py
+      - tests/integration/web/test_mapping_journey_mutations.py
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_mapping_forms.py
       - tests/integration/web/test_same_table_hierarchy.py
@@ -624,6 +631,8 @@ stages:
       - tests/integration/web/test_constant_record_lookup.py
       - tests/e2e/test_constant_record_lookup.py
       - tests/integration/web/test_mapping_supporting_recovery.py
+      - tests/integration/web/test_supporting_conflict_recovery.py
+      - tests/e2e/mapping-supporting-review.test.cjs
       - tests/e2e/test_mapping_supporting_recovery.py
       - tests/integration/web/test_matching_expectations.py
       - tests/e2e/test_odoo_company.py
@@ -665,6 +674,9 @@ stages:
       - tests/integration/web/test_mapping_catalog_runtime.py
       - tests/integration/web/test_diagnostics.py
       - tests/integration/web/test_supporting_diagnostics.py
+      - tests/integration/web/test_supporting_access_diagnostics.py
+      - tests/integration/web/test_supporting_access_revalidation.py
+      - tests/application/workspace/test_supporting_access_revalidation.py
       - tests/integration/web/test_supporting_mapping_intent.py
       - tests/domain/recipe/test_value_rules.py
       - tests/integration/artifacts/test_mapping_review_workbook.py

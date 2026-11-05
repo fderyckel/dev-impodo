@@ -4,6 +4,7 @@ import asyncio
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.preflight_jobs import PreflightJobManager
 from impodo.domain.workspace.business_keys import BUSINESS_KEY_POLICY_VERSION
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
@@ -32,15 +33,24 @@ class Stage235PerformanceTests(ProjectSetupBrowserTestCase):
         original_selection = context.queries.get_source_selection(workspace_id)
         prefix = f"/workspaces/{workspace_id}/"
 
-        for area, opens, statements in (
-            ("schema", 6, 75), ("mapping", 8, 130), ("summary", 6, 85),
+        for area, marker, opens, statements in (
+            ("schema", "<title>Odoo data", 4, 70), ("mapping", "<title>Match data", 4, 120),
+            ("summary", "<h1>Review and compare</h1>", 4, 80),
         ):
             with self.subTest(area=area):
                 response = self.bounded(
-                    lambda: self.client.get(prefix + area), opens, statements,
+                    lambda area=area: self.client.get(prefix + area, follow_redirects=False), opens, statements,
                 )
                 self.assertEqual(response.status_code, 200, response.text)
-                self.assertIn("Impodo", response.text)
+                self.assertIn(marker, response.text)
+
+        manager = PreflightJobManager(attempt_store=context.migration_projects.repository)
+        try:
+            with patch.object(context, "preflight_jobs", manager):
+                summary = self.bounded(lambda: self.client.get(prefix + "summary", follow_redirects=False), 4, 85)
+                self.assertEqual(summary.status_code, 200)
+        finally:
+            manager.shutdown()
 
         selection_reader = context.queries.get_mapping_source_selection
 
@@ -51,7 +61,7 @@ class Stage235PerformanceTests(ProjectSetupBrowserTestCase):
 
         with patch.object(context.queries, "get_mapping_source_selection", side_effect=off_loop):
             for formula, valid in (("'Ready'", True), ("__import__('os')", False)):
-                response = self.bounded(lambda: self._post(
+                response = self.bounded(lambda formula=formula: self._post(
                     prefix + "mapping/formula-validation",
                     {"csrf_token": self.csrf, "dataset_id": dataset.dataset_id, "formula": formula},
                 ), 6, 40)
@@ -81,13 +91,21 @@ class Stage235PerformanceTests(ProjectSetupBrowserTestCase):
         }), 6, 130)
         self.assertEqual(bad_order.status_code, 422)
         self.assertIn("Choose a supported table-order action", bad_order.text)
+        # A missing checked mapping must recover inside the command's owner
+        # scope, including metadata, navigation and full editor rendering.
+        impact = self.bounded(lambda: self._post(
+            prefix + "mapping/transformation-impact/prepare", {"csrf_token": self.csrf},
+        ), 6, 150)
+        self.assertEqual(impact.status_code, 422)
+        self.assertEqual(context.queries.get_source_selection(workspace_id), original_selection)
         self.assertEqual(self.schema_calls, [])
         self.assertEqual(self.readiness_calls, [])
 
     def bounded(self, callback, opens, maximum_statements):
         with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
             response = callback()
-        # Access has its own scope; the route retains each distinct local owner.
+        # Complete page reads retain registry, linkage, engine and Data version
+        # owners once; action routes keep their separate admission scopes.
         self.assertLessEqual(timings.connection_count, opens)
         self.assertLessEqual(timings.schema_check_count, 6)
         self.assertEqual(timings.lock_retry_count, 0)

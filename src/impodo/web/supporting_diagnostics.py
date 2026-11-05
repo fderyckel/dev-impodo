@@ -39,7 +39,24 @@ def sanitize_supporting_failure(value: object) -> dict[str, object] | None:
     }:
         problem = value.get("problem")
         if isinstance(problem, str) and problem in {item.value for item in SupportingReviewProblem}:
-            return {"failure_code": value["failure_code"], "stage": "supporting_review", "problem": problem}
+            result: dict[str, object] = {"failure_code": value["failure_code"], "stage": "supporting_review", "problem": problem}
+            raw = value.get("issues")
+            if isinstance(raw, list):
+                issues = []
+                for item in raw[:MAX_SUPPORTING_DIAGNOSTIC_ISSUES]:
+                    if not isinstance(item, dict):
+                        continue
+                    model, field, action = item.get("source_model"), item.get("field"), item.get("saved_choice")
+                    if (isinstance(model, str) and len(model) <= 200 and _MODEL.fullmatch(model)
+                        and isinstance(field, str) and len(field) <= 200 and _FIELD.fullmatch(field)
+                        and isinstance(action, str) and action in _CHOICES):
+                        issues.append({"source_model": model, "field": field, "saved_choice": action})
+                result["issues"] = issues
+                count = value.get("issue_count")
+                safe_count = count if type(count) is int and len(issues) <= count <= 1_000_000 else len(issues)
+                result["issue_count"] = safe_count
+                result["issues_truncated"] = len(raw) > len(issues) or safe_count > len(issues)
+            return result
         return None
     if (
         not isinstance(value, dict)
@@ -107,9 +124,14 @@ def set_diagnostic_supporting_failure(
 ) -> None:
     """Attach already-loaded causes to the terminal request record, without I/O."""
     if isinstance(error, SupportingReviewRequiredError):
-        request.state.diagnostic_validation_failure = sanitize_supporting_failure({
+        detail: dict[str, object] = {
             "failure_code": error.failure_code, "problem": error.problem.value,
-        })
+        }
+        if error.conflicts:
+            detail["issue_count"] = len(error.conflicts)
+            detail["issues"] = [{"source_model": item.source_model, "field": item.field_name,
+                                  "saved_choice": item.saved_action.value} for item in error.conflicts[:MAX_SUPPORTING_DIAGNOSTIC_ISSUES]]
+        request.state.diagnostic_validation_failure = sanitize_supporting_failure(detail)
         return
     request.state.diagnostic_validation_failure = sanitize_supporting_failure(
         {

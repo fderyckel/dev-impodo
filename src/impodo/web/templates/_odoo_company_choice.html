@@ -25,7 +25,7 @@
         {% endif %}
         {% if workspace_state.source_mode.value == 'FILE' and selected_company and schema %}
           <div class="notice{% if schema.read_context_hash != selected_company.context_hash %} warning{% endif %}">
-            <p>Check matches automatically verifies a changed checking key or company. To check {{ selected_company.name }} earlier, save your matching progress and use the button below. Saved matches are kept when the verified user, permissions and fields are unchanged.</p>
+            <p>Check matches verifies this company automatically. Save progress before checking company-specific values here.</p>
             <form method="post" action="/workspaces/{{ workspace_id }}/mapping/company/refresh">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="revision" value="{{ workspace_state.revision }}">

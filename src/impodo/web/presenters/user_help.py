@@ -321,7 +321,7 @@ DECISION_HELP_TARGETS = (
         "target-identity",
         "match-data",
         "Check how Odoo records are identified",
-        "check-identity-health-before-matching-fields",
+        "check-record-identities",
         "mapping/_dataset.html",
     ),
     _decision_help(
@@ -343,7 +343,7 @@ DECISION_HELP_TARGETS = (
         "match-data-questions",
         "Connect a field to another record",
         "how-do-i-connect-a-field-to-another-record",
-        "mapping/_relationship_fields.html",
+        "mapping/_dataset.html",
     ),
     _decision_help(
         "preparation-findings",

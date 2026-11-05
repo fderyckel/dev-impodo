@@ -592,7 +592,7 @@ linkage and Data version store checks; earlier engine-only measurements below
 record the counter coverage of their original build.
 
 Opening `/workspaces/{workspace_id}/schema` renders saved evidence through
-`run_page_read`. The worker retains database handles for that page read and
+`run_workspace_page_read`. The worker retains database handles for that page read and
 closes them before returning. This avoids repeated database opens and keeps
 the event loop responsive to other requests. Opening the page does not call
 Odoo or refresh evidence; capture and change checks remain explicit actions.
@@ -602,8 +602,10 @@ The route passes its
 into the schema presenter, so the
 presenter reuses the workspace state and source package that the route verified.
 Each request still checks source lineage and package hashes. The access
-middleware resolves authorization and applies its local route policy in a
-separate bounded worker before page construction.
+middleware supplies an admission callback that resolves authorization and
+applies its local route policy before page construction in the same bounded
+worker. The isolated fixture opens each of its four database owners once:
+registry, Workspace linkage, Workspace engine, and Data version.
 
 The route also passes one authorized
 [`RunSetupPage`](../../../src/impodo/application/run/setup_service.py)

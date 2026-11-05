@@ -243,6 +243,8 @@ def _mapping_return_url(
     **updates: object,
 ) -> str:
     allowed_names = {
+        "step",
+        "task",
         "mapping_dataset",
         "scalar_page",
         "scalar_page_size",

@@ -279,6 +279,18 @@ and captured read-access hashes. Mapping checks and submission, Recipe
 compilation, and preparation must reject stale saved choices or a provider that
 contradicts them. An unchecked working draft remains recoverable.
 
+A freshly verified checking-key renewal may append a new access-bound review
+without asking the operator to repeat unchanged business choices. This requires
+the exact prior review binding to match today's source, preparation and scope,
+with unchanged target, company, principal, permissions, fields, defaults, policy
+and normalized matching keys. The new revision preserves every choice, and the
+repository compares the complete previous revision before publishing its summary
+and `SUPPORTING_ACCESS_REVALIDATED` audit atomically. The old evidence remains
+immutable. This transition preserves mapping and prepared evidence pointers;
+normal value checks still run against current access. A company change, changed
+choice or other stale dependency retains explicit review. Recipe applications
+retain their inherited decision owner.
+
 An empty supporting review carries no incoming-table or supporting-read intent.
 Consumers verify its workspace ownership and recheck required relationships
 against current metadata, then treat it as no supporting choice set. Its old
@@ -449,6 +461,7 @@ portable source or relationship identities.
 | Change governed business keys | Mapping, target comparison, and execution evidence |
 | Change reviewed supporting decision meaning or its input binding | Mapping current pointer and dependent preparation evidence; accepted source and governed key meaning remain intact |
 | Record another review with identical supporting meaning and input binding | No dependent invalidation; publish its new bounded summary and audit |
+| Revalidate identical supporting choices after a verified key-only renewal | No dependent invalidation; append the new access-bound review, summary and revalidation audit |
 | Change the governed-reference policy | Mapping validation and submission, supporting lookups, preparation, comparison, and new Recipe target contracts |
 | Save or remove a source-preparation rule or dataset-use policy | Mapping and downstream prepared evidence |
 | Rearrange or reset the Stage 3 matching-order preference | No semantic evidence; only workspace-local presentation state changes |

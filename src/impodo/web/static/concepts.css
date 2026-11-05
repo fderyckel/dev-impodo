@@ -3,6 +3,14 @@
   max-width: 880px;
 }
 
+.concepts-heading .heading-with-user-help {
+  flex-wrap: nowrap;
+}
+
+.concepts-heading .heading-with-user-help h1 {
+  min-width: 0;
+}
+
 .concepts-heading h1,
 .concept-model h2,
 .concept-page-example h2,

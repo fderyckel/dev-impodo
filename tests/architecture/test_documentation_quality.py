@@ -77,6 +77,7 @@ class DocumentationQualityTests(unittest.TestCase):
             shared["code_references"],
             [
                 "src/impodo/web/composition/page_reads.py::run_page_read",
+                "src/impodo/web/security.py::run_workspace_page_read",
                 "src/impodo/web/composition/page_reads.py::run_local_operation",
                 "src/impodo/web/composition/page_reads.py::run_local_operation_sync",
                 "src/impodo/adapters/duckdb/unit_of_work.py::validate_schema_once_for_operation",
@@ -87,6 +88,7 @@ class DocumentationQualityTests(unittest.TestCase):
             shared["tests"],
             [
                 "tests/integration/web/test_page_reads.py",
+                "tests/integration/web/test_workspace_page_admission.py",
                 "tests/integration/duckdb/test_page_read_connections.py",
                 "tests/integration/duckdb/test_scoped_store_validation.py",
             ],

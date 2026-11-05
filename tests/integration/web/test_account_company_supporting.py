@@ -274,7 +274,7 @@ class AccountCompanySupportingTests(ProjectSetupBrowserTestCase):
                     self.assertLessEqual(
                         check_timings.connection_count, connection_limit
                     )
-                    self.assertLessEqual(check_timings.schema_check_count, 6)
+                    self.assertLessEqual(check_timings.schema_check_count, 7)
                     self.assertEqual(check_timings.lock_retry_count, 0)
                     if mode is OdooConnectionMode.LOCAL:
                         local.assert_called_once()

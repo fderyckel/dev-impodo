@@ -8,7 +8,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..presenters.summary import _render_quality_cause, _render_summary
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 from .business_expectations import build_business_expectations_router
 
 
@@ -21,6 +21,14 @@ def build_summary_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/summary", response_class=HTMLResponse)
     async def workspace_summary(request: Request, workspace_id: str):
         require_session(request)
+
+        return await run_workspace_page_read(
+            request, lambda: render_summary(request, workspace_id),
+        )
+
+    def render_summary(request: Request, workspace_id: str):
+        """Inspect active jobs and render only after local page admission."""
+
         if context.preflight_jobs is not None:
             active_comparison = context.preflight_jobs.active(workspace_id)
             if active_comparison is not None:
@@ -36,12 +44,7 @@ def build_summary_router(context: WebContext) -> APIRouter:
                     f"/workspaces/{workspace_id}/preparation/{active.job_id}",
                     status_code=303,
                 )
-        return await run_page_read(
-            _render_summary,
-            request,
-            context,
-            workspace_id,
-        )
+        return _render_summary(request, context, workspace_id)
 
     @router.get(
         "/workspaces/{workspace_id}/summary/quality-causes/{cause_key}",

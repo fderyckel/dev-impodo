@@ -1,0 +1,18 @@
+<div data-mapping-step-panel="confirm" {% if mapping_journey.step != 'confirm' %}hidden{% endif %}>
+  <section class="form-card mapping-confirm-summary">
+    <h2>Confirm your checked matches</h2>
+    <p>{{ dataset_views|length }} table{{ 's' if dataset_views|length != 1 else '' }} · {% if validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %}Matches checked{% else %}Matches need checking{% endif %}</p>
+    <p>Review the selected rows and any warnings before continuing.</p>
+  </section>
+  {% include "mapping/_row_inclusion_review.html" %}
+  {% for view in dataset_views if view.active %}
+    {% set dataset_index = view.index %}
+    {% include "mapping/_control_totals.html" %}
+  {% endfor %}
+  {% if next_step.blockers %}
+    <div class="notice warning">
+      <strong>Some decisions still need attention.</strong>
+      <a href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check">Review what needs attention</a>
+    </div>
+  {% endif %}
+</div>

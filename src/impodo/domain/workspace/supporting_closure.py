@@ -32,6 +32,7 @@ from impodo.domain.workspace.supporting_plan import (
 from impodo.domain.workspace.supporting_review import (
     SupportingChoice,
     SupportingChoiceAction,
+    SupportingMappingConflict,
     eligible_supporting_fields,
 )
 
@@ -139,6 +140,15 @@ def supporting_mapping_conflicts(
     datasets: tuple[DatasetMapping, ...],
     schema: OdooSchemaCatalog,
 ) -> tuple[str, ...]:
+    """Keep the established text contract over structured conflict identities."""
+    return tuple(sorted({item.message for item in supporting_mapping_conflict_details(choices, datasets, schema)}))
+
+
+def supporting_mapping_conflict_details(
+    choices: tuple[SupportingChoice, ...],
+    datasets: tuple[DatasetMapping, ...],
+    schema: OdooSchemaCatalog,
+) -> tuple[SupportingMappingConflict, ...]:
     """Check each reviewed edge against every mapping that supplies its parent."""
     fields = eligible_supporting_fields(schema)
     _intents, inverse_owners = _supporting_mapping_usage(datasets, schema)
@@ -151,7 +161,7 @@ def supporting_mapping_conflicts(
         field = fields.get((choice.source_model, choice.field_name))
         if field is None:
             conflicts.add(
-                f"{choice.source_model}.{choice.field_name}: Odoo details changed"
+                SupportingMappingConflict(choice.source_model, choice.field_name, "", choice.action, True)
             )
             continue
         for dataset in by_model.get(choice.source_model, ()):
@@ -261,7 +271,15 @@ def supporting_mapping_conflicts(
                 )
             if not valid:
                 conflicts.add(
-                    f"{choice.source_model}.{choice.field_name}: saved {action.value.lower()} choice conflicts with Match data"
+                    SupportingMappingConflict(
+                        choice.source_model, choice.field_name, dataset.dataset_id, action,
+                        matching_fields=(*choice.key_fields, *choice.scope_fields) if (
+                            action is SupportingChoiceAction.REUSE and providers
+                            and all(resolver.origin is ResolverOrigin.TARGET_CATALOG and resolver.model == field.relation
+                                    for resolver, _key, _scope in providers)
+                            and any(key != choice.key_fields or scope != choice.scope_fields for _resolver, key, scope in providers)
+                        ) else (),
+                    )
                 )
     return tuple(sorted(conflicts))
 

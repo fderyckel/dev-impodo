@@ -1,13 +1,20 @@
 <section class="form-card" id="related-data-review" data-related-data-review tabindex="-1"
-  {% if not related_data_review or not related_data_review.error %}hidden{% endif %}>
-  <h2>Review related-data choices</h2>
+  {% if not related_data_review or (not related_data_review.error and not related_data_review.mapping_conflict) %}hidden{% endif %}>
+  <h2>{{ 'Correct linked fields' if related_data_review and related_data_review.mapping_conflict else 'Review related-data choices' }}</h2>
   <p data-related-review-message>{{ related_data_review.message if related_data_review else '' }}</p>
   {% if related_data_review and related_data_review.mapping_conflict %}
     {% if related_data_review.account_companies %}<p>Choosing <strong>Company for this load</strong> does not fill <strong>Companies</strong>. In that linked field, choose <strong>The same existing Odoo record for every row</strong> or connect a source value to existing Odoo records.</p>{% endif %}
-    <button class="button primary" type="button" data-review-related-mappings>Review linked fields</button>
+    <ul data-related-conflicts>
+      {% for item in related_data_review.conflict_items %}
+      <li>
+        <strong>{{ item.title }}</strong><p>{{ item.message }}</p>
+        <a class="button secondary" href="{{ item.fix_url }}" data-review-related-field data-review-anchor="{{ item.anchor }}" data-dataset-id="{{ item.dataset_id }}">Review this field</a>
+      </li>
+      {% endfor %}
+    </ul>
   {% endif %}
   <p class="notice error" data-related-review-error role="alert" hidden></p>
-  {% if related_data_review and related_data_review.rows and (related_data_review.error or related_review_requested) %}
+  {% if related_data_review and not related_data_review.mapping_conflict and related_data_review.rows and (related_data_review.error or related_review_requested) %}
     {% set supporting_review = related_data_review %}
     <form method="post" action="/workspaces/{{ workspace_id }}/schema/supporting/save" data-related-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

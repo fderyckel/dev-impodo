@@ -1,16 +1,18 @@
 <div class="page-heading">
   <div>
     <p class="eyebrow">{% if correction_binding %}Completed-load correction{% else %}Stage 3 of 6 · Match data{% endif %}</p>
-    <h1>{% if correction_binding %}Correct the matching rules{% else %}Match your data to Odoo{% endif %}</h1>
+    <h1 data-mapping-journey-heading tabindex="-1">{% if correction_binding %}Correct the matching rules{% else %}Match your data to Odoo{% endif %}</h1>
   </div>
-  {% if has_unvalidated_changes %}
-    <span class="status">Saved changes need checking</span>
+  {% if related_data_review and related_data_review.mapping_conflict %}
+    <span class="status review" data-mapping-journey-state>Linked fields need attention</span>
+  {% elif has_unvalidated_changes %}
+    <span class="status" data-mapping-journey-state>Saved changes need checking</span>
   {% elif submission %}
-    <span class="status registered">Matches confirmed</span>
+    <span class="status registered" data-mapping-journey-state>Matches confirmed</span>
   {% elif validation and validation.status.value == 'INVALID' %}
-    <span class="status review">Matches need attention</span>
+    <span class="status review" data-mapping-journey-state>Matches need attention</span>
   {% elif revision %}
-    <span class="status ready">Ready to confirm</span>
+    <span class="status ready" data-mapping-journey-state>Ready to confirm</span>
   {% endif %}
 </div>
 
@@ -40,7 +42,7 @@
   <div class="notice warning">
     Your source tables or Odoo choices changed, so older matching work was not loaded. Review the current choices before saving again.
   </div>
-{% elif has_unvalidated_changes %}
+{% elif has_unvalidated_changes and not (related_data_review and related_data_review.mapping_conflict) %}
   <div class="notice success">
     Your saved work is loaded. Continue editing or check the matches when ready.
   </div>

@@ -10,6 +10,7 @@ application services still enforce the exact command capability.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 from hmac import compare_digest
 from time import perf_counter
 from urllib.parse import urlsplit
@@ -40,6 +41,44 @@ FORWARDED_HEADERS = frozenset(
         "x-forwarded-proto",
     }
 )
+
+
+@dataclass(slots=True)
+class _WorkspacePageRead:
+    """Admit exactly one synchronous page projection through its access checks."""
+
+    render: Callable[[Callable[[], Response]], Response]
+    consumed: bool = False
+
+    def read(self, function: Callable[[], Response]) -> Response:
+        if self.consumed:
+            raise RuntimeError("Workspace page access must run exactly once")
+        self.consumed = True
+        return self.render(function)
+
+
+async def run_workspace_page_read(
+    request: Request,
+    function: Callable[[], Response],
+) -> Response:
+    """Authorize, apply journey policy, and render one local page on one worker.
+
+    The access middleware supplies the admission check for the three complete
+    saved pages. No child read or active-job inspection may precede this
+    callback. Owners and verified lineage are released before returning to the
+    event loop; other routes retain their existing admission boundary.
+    """
+
+    page = getattr(request.state, "workspace_page_read", None)
+    if not isinstance(page, _WorkspacePageRead):
+        raise TypeError("Workspace page access middleware is required")
+    queued_at = perf_counter()
+
+    def read() -> Response:
+        request.state.workspace_page_queue_wait_ms = (perf_counter() - queued_at) * 1000
+        return page.read(function)
+
+    return await run_page_read(read)
 
 
 class LoopbackSecurityMiddleware(BaseHTTPMiddleware):
@@ -178,6 +217,36 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
                     else None
                 )
             return context, policy_response
+
+        if (
+            request.method == "GET"
+            and request.url.path in {
+                f"/workspaces/{workspace_id}/{area}"
+                for area in ("schema", "mapping", "summary")
+            }
+        ):
+            def read_authorized_page(function: Callable[[], Response]) -> Response:
+                started = perf_counter()
+                try:
+                    context, policy_response = resolve_access()
+                except (AuthorizationError, MigrationFoundationError):
+                    return PlainTextResponse("Workspace not found", status_code=404)
+                access_ms = (perf_counter() - started) * 1000
+                with bind_workspace_access_context(context):
+                    response = policy_response if policy_response is not None else function()
+                existing = response.headers.get("Server-Timing", "")
+                response.headers["Server-Timing"] = (
+                    f"{existing}, access_context;dur={access_ms:.3f}"
+                    if existing else f"access_context;dur={access_ms:.3f}"
+                )
+                return response
+
+            page = _WorkspacePageRead(read_authorized_page)
+            request.state.workspace_page_read = page
+            response = await call_next(request)
+            if not page.consumed and response.status_code < 400:
+                raise RuntimeError("Workspace page did not perform its access check")
+            return response
 
         try:
             context, policy_response = await run_page_read(resolve_access)

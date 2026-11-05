@@ -1,5 +1,16 @@
+<div data-mapping-step-panel="company" {% if mapping_journey.step != 'company' %}hidden{% endif %}>
 {% if workspace_state.source_mode.value == 'FILE' and workspace_state.odoo_connection_mode and not correction_binding %}
   {% set company_action = '/workspaces/' ~ workspace_id ~ '/mapping/company' %}
   {% include "_odoo_company_choice.html" %}
+{% elif not mapping_journey.company_required %}
+  <section class="form-card">
+    <h2>Set up this load</h2>
+    <p>Your current setup is ready for matching tables.</p>
+  </section>
 {% endif %}
-{% if expectations and not correction_binding %}{% include "mapping/_expectations.html" %}{% endif %}
+{% if not mapping_journey.company_required %}
+  <div class="actions mapping-company-next">
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping?step=tables" data-mapping-go-step="tables">Continue to matching tables</a>
+  </div>
+{% endif %}
+</div>

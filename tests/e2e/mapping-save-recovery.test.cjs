@@ -134,3 +134,15 @@ test("stale review keeps ordinary error guidance when inline recovery is unavail
   assert.match(page.element("[data-mapping-save-outcome-message]").textContent, /Review related-data/);
   assert.equal(page.dirty, true);
 });
+
+test("a field conflict keeps its exact correction data through receipt recovery", async () => {
+  const conflicts = [{title: "Bill of Material · Product", field: "product_id", fix_url: "/mapping?relation_target=product_id"}];
+  const page = editor([{status: "rejected", failure_code: "SUPPORTING_MAPPING_CONFLICT",
+    detail: "The Product field conflicts with its saved source.", supporting_conflicts: conflicts}]);
+  assert.equal(await page.recovery.resolveMutationOutcome(operation), "rejected");
+  assert.equal(page.events[0].detail.mappingConflict, true);
+  assert.deepEqual(JSON.parse(JSON.stringify(page.events[0].detail.conflicts)), conflicts);
+  assert.match(page.events[0].detail.message, /Product/);
+  assert.equal(page.dirty, true);
+  assert.deepEqual(page.navigations, []);
+});

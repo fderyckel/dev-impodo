@@ -5,39 +5,35 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', path='/mapping-duplicate-rows.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', path='/mapping-journey.css') }}">
 {% endblock %}
 {% block page_scripts %}
   {% include "mapping/_scripts.html" %}
 {% endblock %}
 {% block content %}
-  {% include "mapping/_heading.html" %}{% include "mapping/_load_setup.html" %}
-  {% if migration_workspace and migration_workspace.recipe_application_id %}
-    <div class="notice" role="status">
-      <strong>These decisions apply to this Recipe run.</strong>
-      <p>You can confirm target value matches here. Totals accepted on Fresh data are fixed for this run. Changes to field providers, transformations, record identities, or relationships require a new Recipe version.</p>
-      <a href="/projects/{{ migration_project.project_id }}/runs/{{ migration_run.migration_run_id }}">Return to Review and load</a>
-    </div>
+  {% set mapping_journey = mapping_journey if mapping_journey is defined else {'step': 'tables', 'task': 'rows', 'company_required': false, 'steps': []} %}
+  <div data-mapping-journey data-step="{{ mapping_journey.step }}" data-task="{{ mapping_journey.task }}" data-company-required="{{ 'true' if mapping_journey.company_required else 'false' }}" {% for view in dataset_views if view.active %}data-active-dataset-index="{{ view.index }}"{% endfor %}>
+  {% include "mapping/_heading.html" %}
+  {% if mapping_journey.steps %}
+    <p class="mapping-journey-current-step" data-mapping-step-title>
+      {% for step in mapping_journey.steps if step.key == mapping_journey.step %}{{ step.label }}{% endfor %}
+    </p>
   {% endif %}
-  {% if revision and revision.definition.contract_version != current_mapping_contract_version %}
-    <div class="notice warning" role="status">
-      <strong>This mapping was created with mapping contract v{{ revision.definition.contract_version }}.</strong>
-      Impodo can read it and has left the saved revision unchanged. When you save and check field matches, Impodo will create a v{{ current_mapping_contract_version }} successor revision.
-    </div>
-  {% endif %}
+  {% include "mapping/_load_setup.html" %}
+  {% include "mapping/_journey_notices.html" %}
   {% if selection and schema and (governance or odoo_pinned) %}
     {% if related_data_review %}
-    <div data-related-review-host data-related-review-url="/workspaces/{{ workspace_id }}/mapping/supporting-review">
+    <div data-related-review-host data-related-review-url="/workspaces/{{ workspace_id }}/mapping/supporting-review" data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
       {% set inline_supporting_review = true %}
       {% include "mapping/_supporting_review.html" %}
     </div>
     {% endif %}
-    <section class="form-card" id="required-values-summary" aria-labelledby="required-values-title">
-      <div class="page-heading compact"><div><p class="eyebrow">Mapping coverage</p><h2 id="required-values-title">Required values</h2><p>Review required-field decisions across {{ dataset_views|length }} table{{ 's' if dataset_views|length != 1 else '' }}, alongside identity and required-parent proof.</p></div><a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/required-values">Review required values</a></div>
-    </section>
-    {% include "_workflow_issue_summary.html" %}
-    {% include "mapping/_identity_health.html" %}
-    {% include "mapping/_relationship_health.html" %}
-    {% include "mapping/_matching_order.html" %}{% include "mapping/_odoo_field_refresh.html" %}
+    <div data-mapping-step-panel="tables" {% if mapping_journey.step != 'tables' %}hidden{% endif %}>
+      {% include "mapping/_table_queue.html" %}
+    </div>
+    <div data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
+      {% include "mapping/_odoo_field_refresh.html" %}
+    </div>
     <form
       method="post"
       action="/workspaces/{{ workspace_id }}/mapping/save{% if request.url.query %}?{{ request.url.query }}{% endif %}"
@@ -62,18 +58,26 @@
           >
         {% endfor %}
       {% endfor %}
-      {% include "mapping/_technical_details.html" %}
-      {% include "mapping/_numeric_precision_warnings.html" %}
-      {% for view in dataset_views %}
-        {% include "mapping/_dataset.html" %}
-      {% endfor %}
-      {% include "mapping/_row_inclusion_review.html" %}
+      <div data-mapping-step-panel="tables" {% if mapping_journey.step != 'tables' %}hidden{% endif %}>
+        {% for view in dataset_views %}
+          {% include "mapping/_dataset.html" %}
+        {% endfor %}
+      </div>
       {% include "mapping/_validation.html" %}
-      {% include "mapping/_next_step.html" %}
+      <div data-mapping-step-panel="check" {% if mapping_journey.step != 'check' %}hidden{% endif %}>
+        {% if not validation %}
+          <section class="form-card">
+            <h2>Check and resolve</h2>
+            <p>Check your saved matches, then resolve any decisions shown here.</p>
+          </section>
+        {% endif %}
+        {% include "mapping/_numeric_precision_warnings.html" %}
+        {% include "mapping/_next_step.html" %}
+      </div>
+      {% include "mapping/_journey_confirmation.html" %}
       {% include "mapping/_form_actions.html" %}
     </form>
-    {% include "mapping/_matching_review_workbook.html" %}
-    {% include "mapping/_quality.html" %}
+    {% include "mapping/_journey_details.html" %}
     {% include "mapping/_value_match_dialog.html" %}
     {% include "mapping/_duplicate_rows_dialog.html" %}
   {% else %}
@@ -85,4 +89,5 @@
       </div>
     </section>
   {% endif %}
+  </div>
 {% endblock %}

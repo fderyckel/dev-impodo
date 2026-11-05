@@ -39,12 +39,12 @@ class FinalReviewPerformanceTests(HierarchyWorkflowFixture):
         requests = len(target.requests)
         self.assertNotEqual(report.status, "READY")
         prefix = f"/workspaces/{workspace_id}/summary"
-        for path, expected, limit in (
-            (prefix, "Preview all problem groups", 170),
-            (prefix + "/deferred-groups", "Preview all problem groups", 100),
+        for path, expected, opens, checks, limit in (
+            (prefix, "Preview all problem groups", 4, 3, 165),
+            (prefix + "/deferred-groups", "Preview all problem groups", 6, 4, 100),
         ):
             with self.subTest(path=path):
-                page = self.bounded(lambda: self.client.get(path), 6, 4, limit)
+                page = self.bounded(lambda: self.client.get(path), opens, checks, limit)
                 self.assertEqual(page.status_code, 200, page.text)
                 self.assertIn(expected, page.text)
 

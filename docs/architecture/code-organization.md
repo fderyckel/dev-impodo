@@ -195,6 +195,7 @@ scope. Choose the scope from the route's responsibility:
 | Route responsibility | Shared helper | Bounded callback |
 | --- | --- | --- |
 | Read and render one local page | `run_page_read` | All synchronous repository reads, presenter work, navigation composition, and template rendering for that response. |
+| Open saved Odoo details, Match data, or Final review | `run_workspace_page_read` | Access resolution and journey policy run before source gates, active-job inspection, and the complete page projection, inside the same `run_page_read` worker. |
 | Execute one local command | `run_local_operation` | The complete synchronous command, including its independent repository transactions and any local read-back required for its result. |
 | Execute one local command from a worker that is already off the event loop | `run_local_operation_sync` | One complete local phase. The worker releases the scope before remote I/O, progress publication, or its next local phase. |
 
@@ -213,6 +214,19 @@ cache. Do not retain it in a router, presenter, application service, or global
 object. Do not split one page into several `run_page_read` calls merely to wrap
 individual queries; doing so recreates connection churn and can observe an
 inconsistent page state.
+
+The three complete saved pages use
+[`run_workspace_page_read`](../../src/impodo/web/security.py).
+`WorkspaceAccessMiddleware` supplies their request-specific admission callback.
+The callback first authorizes the actual parent Project and applies the closed
+workspace and Recipe-run journey rules. Only then may the page read child data
+or inspect active jobs. Match data checks source readiness in this same local
+operation. The middleware rejects a successful response that bypasses admission.
+Other routes keep their existing admission scope. No retained owner crosses
+`call_next`, an await, response streaming, or remote work. The
+[page admission regressions](../../tests/integration/web/test_workspace_page_admission.py)
+verify denied access, journey redirects, failure cleanup, and fresh validation
+on the next request.
 
 The first repository that opens a retained store validates or upgrades its
 exact schema through
@@ -253,7 +267,7 @@ For every new or materially changed database-backed browser route:
    remote or write-capable action.
 
 A lower connection count is structural evidence, not a latency guarantee.
-Use paired measurements from the same fixture and process for a performance
+Use paired measurements from matching fixtures and the pinned toolchain for a performance
 claim, then confirm the result in a restarted live build. Evidence, identity,
 and invalidation hashes must remain correct; profile repeated hashing before
 caching or removing it.

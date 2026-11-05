@@ -87,7 +87,7 @@ from ..presenters.summary import _require_local_stack_access
 from ..request_identity import request_identity
 from ..run_commands import start_next_preparation
 from ..run_urls import RunSetupKind
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 from ..target_credentials import (
     TargetCredentialRole,
     get_target_credential,
@@ -311,7 +311,9 @@ def build_schema_router(context: WebContext) -> APIRouter:
     async def workspace_schema(request: Request, workspace_id: str):
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        return await run_page_read(render_schema, request, workspace_id, actor)
+        return await run_workspace_page_read(
+            request, lambda: render_schema(request, workspace_id, actor),
+        )
 
     def render_schema(request: Request, workspace_id: str, actor: Actor):
         """Render saved Odoo details within one database-scoped worker."""

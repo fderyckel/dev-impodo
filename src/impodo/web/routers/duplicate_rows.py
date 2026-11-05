@@ -70,6 +70,8 @@ def duplicate_row_payload(review: DuplicateRows) -> dict[str, object]:
         "expected_version": review.draft.version,
         "expected_parent_version": review.draft.base_mapping_version,
         "columns": [item.source_name for item in review.dataset.columns],
+        "exclusion_source_key": review.exclusion_source_key,
+        "identifier_message": review.identifier_message,
         "groups": list(groups.values()),
         "unavailable": review.unavailable,
         "matching_count": review.page.matching_count,
@@ -169,6 +171,7 @@ def build_duplicate_rows_router(context: WebContext) -> APIRouter:
                 "preview_hash",
                 "operation_id",
                 "action",
+                "exclusion_source_key",
             },
         )
 
@@ -220,6 +223,7 @@ def build_duplicate_rows_router(context: WebContext) -> APIRouter:
                     _text(form, "check_id"),
                     after=_optional_nonnegative_query_int(_text(form, "after")),
                     before=_optional_nonnegative_query_int(_text(form, "before")),
+                    exclusion_source_key=_text(form, "exclusion_source_key"),
                     actor=actor,
                 )
                 if review.draft.version != version:

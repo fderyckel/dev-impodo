@@ -1,0 +1,2111 @@
+{
+  "evidence": "isolated fictional fixtures; alternating before/after cases",
+  "cases": [
+    {
+      "odoo_major": 19,
+      "access_mode": "LOCAL",
+      "routes": {
+        "schema": {
+          "median": {
+            "elapsed_ms": 176.27083300612867,
+            "cpu_ms": 185.77900000000014,
+            "sql_statements": 112,
+            "column_catalogue_reads": 15,
+            "connect_ms": 78.47095998295117,
+            "schema_ms": 8.685082997544669,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 176.27083300612867,
+              "cpu_ms": 185.77900000000014,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 78.34245602134615,
+              "schema_ms": 8.685082997544669,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 177.43829199753236,
+              "cpu_ms": 188.22399999999993,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 79.13429097970948,
+              "schema_ms": 8.85887500771787,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 175.4695840063505,
+              "cpu_ms": 184.20500000000038,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 78.47095998295117,
+              "schema_ms": 8.252416999312118,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping": {
+          "median": {
+            "elapsed_ms": 306.5237920091022,
+            "cpu_ms": 321.1770000000005,
+            "sql_statements": 209,
+            "column_catalogue_reads": 27,
+            "connect_ms": 113.90712500724476,
+            "schema_ms": 19.465498990030028,
+            "lock_wait_ms": 0.0,
+            "connection_count": 8,
+            "schema_check_count": 2,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 289.18829100439325,
+              "cpu_ms": 308.32100000000116,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 113.90712500724476,
+              "schema_ms": 19.465498990030028,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 321.72941700264346,
+              "cpu_ms": 323.33099999999956,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 117.0905839826446,
+              "schema_ms": 19.825292998575605,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 306.5237920091022,
+              "cpu_ms": 321.1770000000005,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 111.16400003083982,
+              "schema_ms": 17.78987499710638,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "summary": {
+          "median": {
+            "elapsed_ms": 182.38587499945424,
+            "cpu_ms": 191.94399999999945,
+            "sql_statements": 130,
+            "column_catalogue_reads": 17,
+            "connect_ms": 79.64075000199955,
+            "schema_ms": 8.977500008768402,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 182.38587499945424,
+              "cpu_ms": 191.94399999999945,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 79.64075000199955,
+              "schema_ms": 8.487207989674062,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 201.03070799086709,
+              "cpu_ms": 211.05700000000027,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 83.09883301262744,
+              "schema_ms": 9.711333012091927,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 180.39262499951292,
+              "cpu_ms": 191.25900000000053,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 77.9557490022853,
+              "schema_ms": 8.977500008768402,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/formula-validation": {
+          "median": {
+            "elapsed_ms": 176.7444579891162,
+            "cpu_ms": 179.66400000000073,
+            "sql_statements": 41,
+            "column_catalogue_reads": 6,
+            "connect_ms": 118.14283300191164,
+            "schema_ms": 7.998959001270123,
+            "lock_wait_ms": 0.0,
+            "connection_count": 11,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 178.9017090050038,
+              "cpu_ms": 182.9640000000001,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 118.996416014852,
+              "schema_ms": 8.808667000266723,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 175.92966700613033,
+              "cpu_ms": 178.71300000000014,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 116.87083197466563,
+              "schema_ms": 7.845375002943911,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 176.7444579891162,
+              "cpu_ms": 179.66400000000073,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 118.14283300191164,
+              "schema_ms": 7.998959001270123,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "schema/govern": {
+          "median": {
+            "elapsed_ms": 1145.311332991696,
+            "cpu_ms": 1175.3599999999994,
+            "sql_statements": 203,
+            "column_catalogue_reads": 33,
+            "connect_ms": 753.6123719619354,
+            "schema_ms": 120.07475103018805,
+            "lock_wait_ms": 0.0,
+            "connection_count": 51,
+            "schema_check_count": 12,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 986.8648749979911,
+              "cpu_ms": 1009.8789999999998,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 655.6032089574728,
+              "schema_ms": 101.80145798949525,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1302.080958004808,
+              "cpu_ms": 1175.3599999999994,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 865.3354990528896,
+              "schema_ms": 133.63887698506005,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1145.311332991696,
+              "cpu_ms": 1177.0899999999997,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 753.6123719619354,
+              "schema_ms": 120.07475103018805,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/order": {
+          "median": {
+            "elapsed_ms": 1310.288082997431,
+            "cpu_ms": 1287.4240000000013,
+            "sql_statements": 264,
+            "column_catalogue_reads": 43,
+            "connect_ms": 847.0777520706179,
+            "schema_ms": 130.1217499858467,
+            "lock_wait_ms": 0.0,
+            "connection_count": 67,
+            "schema_check_count": 15,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1310.288082997431,
+              "cpu_ms": 1287.4240000000013,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 847.0777520706179,
+              "schema_ms": 130.1217499858467,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1556.8083329999354,
+              "cpu_ms": 1542.431999999998,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 1009.57262502925,
+              "schema_ms": 145.68891300586984,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1240.5515419959556,
+              "cpu_ms": 1269.4899999999975,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 815.1837500190595,
+              "schema_ms": 119.56241702137049,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "prepared_summary": {
+          "median": {
+            "elapsed_ms": 400.4220409988193,
+            "cpu_ms": 424.2229999999978,
+            "sql_statements": 321,
+            "column_catalogue_reads": 44,
+            "connect_ms": 102.80899998906534,
+            "schema_ms": 11.794499994721264,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 402.4189589981688,
+              "cpu_ms": 424.2229999999978,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 102.80899998906534,
+              "schema_ms": 10.247165992041118,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 400.4220409988193,
+              "cpu_ms": 433.1810000000047,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 106.24249899410643,
+              "schema_ms": 12.033167004119605,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 367.4006250075763,
+              "cpu_ms": 392.7410000000009,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 93.57850000378676,
+              "schema_ms": 11.794499994721264,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_groups": {
+          "median": {
+            "elapsed_ms": 1310.2905420091702,
+            "cpu_ms": 1337.4880000000005,
+            "sql_statements": 189,
+            "column_catalogue_reads": 30,
+            "connect_ms": 872.3331689252518,
+            "schema_ms": 116.20937299448997,
+            "lock_wait_ms": 0.0,
+            "connection_count": 50,
+            "schema_check_count": 10,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1270.5377920065075,
+              "cpu_ms": 1286.7279999999964,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 850.0683309830492,
+              "schema_ms": 109.03470902121626,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1310.2905420091702,
+              "cpu_ms": 1337.4880000000005,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 872.3331689252518,
+              "schema_ms": 116.20937299448997,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1463.7120420084102,
+              "cpu_ms": 1433.7249999999954,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 896.7475460085552,
+              "schema_ms": 120.93558096967172,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_preview": {
+          "median": {
+            "elapsed_ms": 418.59345899138134,
+            "cpu_ms": 424.4910000000033,
+            "sql_statements": 306,
+            "column_catalogue_reads": 40,
+            "connect_ms": 103.75100097735412,
+            "schema_ms": 13.158708999981172,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 418.59345899138134,
+              "cpu_ms": 424.4910000000033,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 99.19512501801364,
+              "schema_ms": 14.236457995139062,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 441.2212500028545,
+              "cpu_ms": 432.3180000000022,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 103.75100097735412,
+              "schema_ms": 12.27837499754969,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 417.1788329986157,
+              "cpu_ms": 414.68399999999406,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 106.23037499317434,
+              "schema_ms": 13.158708999981172,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "preparation_intake": {
+          "median": {
+            "elapsed_ms": 791.2746670044726,
+            "cpu_ms": 778.1669999999963,
+            "sql_statements": 120,
+            "column_catalogue_reads": 17,
+            "connect_ms": 496.36937805917114,
+            "schema_ms": 62.32929199177306,
+            "lock_wait_ms": 0.0,
+            "connection_count": 29,
+            "schema_check_count": 5,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 791.2746670044726,
+              "cpu_ms": 778.1669999999963,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 496.36937805917114,
+              "schema_ms": 65.89008298760746,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 764.5137910003541,
+              "cpu_ms": 773.8569999999995,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 485.0619579956401,
+              "schema_ms": 57.23845701140817,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 801.6298750007991,
+              "cpu_ms": 808.5099999999983,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 501.5775020001456,
+              "schema_ms": 62.32929199177306,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "odoo_major": 19,
+      "access_mode": "REMOTE",
+      "routes": {
+        "schema": {
+          "median": {
+            "elapsed_ms": 232.7508340094937,
+            "cpu_ms": 244.1330000000015,
+            "sql_statements": 114,
+            "column_catalogue_reads": 15,
+            "connect_ms": 103.7732499971753,
+            "schema_ms": 11.556500001461245,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 206.31320799293462,
+              "cpu_ms": 216.95300000000017,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 90.18766699591652,
+              "schema_ms": 9.538540994981304,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 248.02324999473058,
+              "cpu_ms": 251.09099999999972,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 106.64037399692461,
+              "schema_ms": 12.162625003838912,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 232.7508340094937,
+              "cpu_ms": 244.1330000000015,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 103.7732499971753,
+              "schema_ms": 11.556500001461245,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping": {
+          "median": {
+            "elapsed_ms": 335.6826669914881,
+            "cpu_ms": 356.77800000000025,
+            "sql_statements": 211,
+            "column_catalogue_reads": 27,
+            "connect_ms": 131.72295803087763,
+            "schema_ms": 22.642249998170882,
+            "lock_wait_ms": 0.0,
+            "connection_count": 8,
+            "schema_check_count": 2,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 334.47133300069254,
+              "cpu_ms": 356.77800000000025,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 127.08999899041373,
+              "schema_ms": 20.452750017284416,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 335.6826669914881,
+              "cpu_ms": 355.9469999999987,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 131.72295803087763,
+              "schema_ms": 22.764542009099387,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 344.36412499053404,
+              "cpu_ms": 365.3530000000007,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 134.1204159980407,
+              "schema_ms": 22.642249998170882,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "summary": {
+          "median": {
+            "elapsed_ms": 248.05812499835156,
+            "cpu_ms": 258.6259999999996,
+            "sql_statements": 132,
+            "column_catalogue_reads": 17,
+            "connect_ms": 106.90483401413076,
+            "schema_ms": 12.604916002601385,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 248.05812499835156,
+              "cpu_ms": 258.6259999999996,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 106.90483401413076,
+              "schema_ms": 10.986791996401735,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 232.89874999318272,
+              "cpu_ms": 247.12199999999916,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 96.87974900589325,
+              "schema_ms": 12.604916002601385,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 392.7767079876503,
+              "cpu_ms": 302.3249999999997,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 145.35887498641387,
+              "schema_ms": 14.630124991526827,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/formula-validation": {
+          "median": {
+            "elapsed_ms": 285.3738749981858,
+            "cpu_ms": 271.2089999999989,
+            "sql_statements": 41,
+            "column_catalogue_reads": 6,
+            "connect_ms": 181.89624899241608,
+            "schema_ms": 12.853707987233065,
+            "lock_wait_ms": 0.0,
+            "connection_count": 11,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 285.3738749981858,
+              "cpu_ms": 271.2089999999989,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 181.89624899241608,
+              "schema_ms": 12.853707987233065,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 288.9257920032833,
+              "cpu_ms": 281.52200000000073,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 185.58199801191222,
+              "schema_ms": 14.189500012435019,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 271.47312500164844,
+              "cpu_ms": 271.1020000000008,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 179.04499803262297,
+              "schema_ms": 12.586000011651777,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "schema/govern": {
+          "median": {
+            "elapsed_ms": 1551.6461249935674,
+            "cpu_ms": 1534.364,
+            "sql_statements": 203,
+            "column_catalogue_reads": 33,
+            "connect_ms": 1010.690209994209,
+            "schema_ms": 161.86408398789354,
+            "lock_wait_ms": 0.0,
+            "connection_count": 51,
+            "schema_check_count": 12,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1551.6461249935674,
+              "cpu_ms": 1534.364,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 1010.690209994209,
+              "schema_ms": 161.86408398789354,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1940.9324159933021,
+              "cpu_ms": 1546.9799999999996,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 1302.3400839738315,
+              "schema_ms": 163.4764979535248,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1465.7814999955008,
+              "cpu_ms": 1448.361000000002,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 967.5483329774579,
+              "schema_ms": 149.1205429774709,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/order": {
+          "median": {
+            "elapsed_ms": 1826.040957996156,
+            "cpu_ms": 1815.7570000000014,
+            "sql_statements": 266,
+            "column_catalogue_reads": 43,
+            "connect_ms": 1196.7914170381846,
+            "schema_ms": 178.70233398571145,
+            "lock_wait_ms": 0.0,
+            "connection_count": 69,
+            "schema_check_count": 15,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1732.774584001163,
+              "cpu_ms": 1773.9119999999994,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 1152.3652150499402,
+              "schema_ms": 167.81324900512118,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1826.040957996156,
+              "cpu_ms": 1835.9989999999975,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 1196.7914170381846,
+              "schema_ms": 178.70233398571145,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1883.9454170083627,
+              "cpu_ms": 1815.7570000000014,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 1208.928746957099,
+              "schema_ms": 205.99341701017693,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "prepared_summary": {
+          "median": {
+            "elapsed_ms": 347.61195800092537,
+            "cpu_ms": 370.73200000000384,
+            "sql_statements": 323,
+            "column_catalogue_reads": 44,
+            "connect_ms": 88.00549901206978,
+            "schema_ms": 10.272457991959527,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 347.61195800092537,
+              "cpu_ms": 370.73200000000384,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 88.00549901206978,
+              "schema_ms": 9.838416008278728,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 322.3405839962652,
+              "cpu_ms": 344.64999999999435,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 85.08041698951274,
+              "schema_ms": 10.603457994875498,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 365.8702499960782,
+              "cpu_ms": 382.7580000000026,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 88.52791599929333,
+              "schema_ms": 10.272457991959527,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_groups": {
+          "median": {
+            "elapsed_ms": 1370.4673750035,
+            "cpu_ms": 1349.2649999999956,
+            "sql_statements": 191,
+            "column_catalogue_reads": 30,
+            "connect_ms": 908.026539007551,
+            "schema_ms": 112.98050099867396,
+            "lock_wait_ms": 0.0,
+            "connection_count": 52,
+            "schema_check_count": 10,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1232.0042500068666,
+              "cpu_ms": 1263.767999999999,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 829.7157109482214,
+              "schema_ms": 99.64100102661178,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1370.4673750035,
+              "cpu_ms": 1387.2440000000026,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 908.026539007551,
+              "schema_ms": 114.1760850296123,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1388.6556250072317,
+              "cpu_ms": 1349.2649999999956,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 941.1157459981041,
+              "schema_ms": 112.98050099867396,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_preview": {
+          "median": {
+            "elapsed_ms": 494.94662499637343,
+            "cpu_ms": 432.04899999999924,
+            "sql_statements": 308,
+            "column_catalogue_reads": 40,
+            "connect_ms": 121.3149590039393,
+            "schema_ms": 12.239084011525847,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 524.2502500041155,
+              "cpu_ms": 414.389000000007,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 168.24550100136548,
+              "schema_ms": 9.8400419956306,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 440.53758299560286,
+              "cpu_ms": 432.04899999999924,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 97.9876659985166,
+              "schema_ms": 12.239084011525847,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 494.94662499637343,
+              "cpu_ms": 462.4769999999998,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 121.3149590039393,
+              "schema_ms": 14.607959004933946,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "preparation_intake": {
+          "median": {
+            "elapsed_ms": 692.6959580014227,
+            "cpu_ms": 714.1650000000013,
+            "sql_statements": 120,
+            "column_catalogue_reads": 17,
+            "connect_ms": 411.6432509472361,
+            "schema_ms": 54.01783199340571,
+            "lock_wait_ms": 0.0,
+            "connection_count": 29,
+            "schema_check_count": 5,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 701.6375840030378,
+              "cpu_ms": 723.3020000000039,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 411.6432509472361,
+              "schema_ms": 105.02020797866862,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 692.6959580014227,
+              "cpu_ms": 714.1650000000013,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 432.36921103380155,
+              "schema_ms": 54.01783199340571,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 621.8094579962781,
+              "cpu_ms": 642.6519999999982,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 399.1636679711519,
+              "schema_ms": 47.58191500150133,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "odoo_major": 20,
+      "access_mode": "LOCAL",
+      "routes": {
+        "schema": {
+          "median": {
+            "elapsed_ms": 196.13579200813547,
+            "cpu_ms": 206.5350000000006,
+            "sql_statements": 112,
+            "column_catalogue_reads": 15,
+            "connect_ms": 90.50795898656361,
+            "schema_ms": 8.681582999997772,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 207.3757499892963,
+              "cpu_ms": 218.13600000000034,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 93.28166699560825,
+              "schema_ms": 9.711709004477598,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 196.13579200813547,
+              "cpu_ms": 206.5350000000006,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 90.50795898656361,
+              "schema_ms": 8.494333000271581,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 194.02175000868738,
+              "cpu_ms": 204.35999999999945,
+              "sql_statements": 112,
+              "column_catalogue_reads": 15,
+              "connect_ms": 90.15995802474208,
+              "schema_ms": 8.681582999997772,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping": {
+          "median": {
+            "elapsed_ms": 325.19408300868236,
+            "cpu_ms": 343.28299999999956,
+            "sql_statements": 209,
+            "column_catalogue_reads": 27,
+            "connect_ms": 119.63008201564662,
+            "schema_ms": 19.718708979780786,
+            "lock_wait_ms": 0.0,
+            "connection_count": 8,
+            "schema_check_count": 2,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 304.3739999993704,
+              "cpu_ms": 323.50100000000026,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 117.32595700595994,
+              "schema_ms": 19.229667988838628,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 325.6595419952646,
+              "cpu_ms": 344.7820000000004,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 119.63008201564662,
+              "schema_ms": 19.718708979780786,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 325.19408300868236,
+              "cpu_ms": 343.28299999999956,
+              "sql_statements": 209,
+              "column_catalogue_reads": 27,
+              "connect_ms": 125.58533396804705,
+              "schema_ms": 20.425416994839907,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "summary": {
+          "median": {
+            "elapsed_ms": 212.90091700211633,
+            "cpu_ms": 223.4309999999997,
+            "sql_statements": 130,
+            "column_catalogue_reads": 17,
+            "connect_ms": 92.35808299854398,
+            "schema_ms": 10.191915993345901,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 212.90091700211633,
+              "cpu_ms": 223.4309999999997,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 92.07845898345113,
+              "schema_ms": 10.191915993345901,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 211.24345800490119,
+              "cpu_ms": 222.69200000000035,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 92.35808299854398,
+              "schema_ms": 9.676957997726277,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 238.64691700146068,
+              "cpu_ms": 244.97700000000043,
+              "sql_statements": 130,
+              "column_catalogue_reads": 17,
+              "connect_ms": 100.43766601302195,
+              "schema_ms": 10.253833999740891,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/formula-validation": {
+          "median": {
+            "elapsed_ms": 190.10912500380073,
+            "cpu_ms": 194.8749999999997,
+            "sql_statements": 41,
+            "column_catalogue_reads": 6,
+            "connect_ms": 125.62154201441444,
+            "schema_ms": 8.851500009768642,
+            "lock_wait_ms": 0.0,
+            "connection_count": 11,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 213.06024999648798,
+              "cpu_ms": 217.1529999999997,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 141.4358739857562,
+              "schema_ms": 8.897708001313731,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 190.10912500380073,
+              "cpu_ms": 194.8749999999997,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 125.62154201441444,
+              "schema_ms": 8.851500009768642,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 186.48187500366475,
+              "cpu_ms": 191.29799999999975,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 123.31737701606471,
+              "schema_ms": 8.809417005977593,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "schema/govern": {
+          "median": {
+            "elapsed_ms": 1082.795583002735,
+            "cpu_ms": 1090.4750000000015,
+            "sql_statements": 203,
+            "column_catalogue_reads": 33,
+            "connect_ms": 718.5096640023403,
+            "schema_ms": 107.350332007627,
+            "lock_wait_ms": 0.0,
+            "connection_count": 51,
+            "schema_check_count": 12,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1054.939124995144,
+              "cpu_ms": 1082.7969999999993,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 704.7760410059709,
+              "schema_ms": 106.85604200989474,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1135.5092500016326,
+              "cpu_ms": 1156.1400000000006,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 760.6357879849384,
+              "schema_ms": 110.56112399091944,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1082.795583002735,
+              "cpu_ms": 1090.4750000000015,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 718.5096640023403,
+              "schema_ms": 107.350332007627,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/order": {
+          "median": {
+            "elapsed_ms": 1386.7220829997677,
+            "cpu_ms": 1418.7119999999993,
+            "sql_statements": 264,
+            "column_catalogue_reads": 43,
+            "connect_ms": 911.5603750105947,
+            "schema_ms": 131.44037398160435,
+            "lock_wait_ms": 0.0,
+            "connection_count": 67,
+            "schema_check_count": 15,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1386.7220829997677,
+              "cpu_ms": 1422.1600000000017,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 911.5603750105947,
+              "schema_ms": 142.0291249960428,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1395.0328339997213,
+              "cpu_ms": 1418.7119999999993,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 922.3972539766692,
+              "schema_ms": 131.44037398160435,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1186.1257919954369,
+              "cpu_ms": 1216.7540000000017,
+              "sql_statements": 264,
+              "column_catalogue_reads": 43,
+              "connect_ms": 784.2575810209382,
+              "schema_ms": 114.92316403018776,
+              "lock_wait_ms": 0.0,
+              "connection_count": 67,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "prepared_summary": {
+          "median": {
+            "elapsed_ms": 282.66954100399744,
+            "cpu_ms": 300.3469999999986,
+            "sql_statements": 321,
+            "column_catalogue_reads": 44,
+            "connect_ms": 67.64641699555796,
+            "schema_ms": 7.562999991932884,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 247.56520800292492,
+              "cpu_ms": 265.076999999998,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 66.17516702681314,
+              "schema_ms": 7.414000006974675,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 282.66954100399744,
+              "cpu_ms": 300.3469999999986,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 67.64641699555796,
+              "schema_ms": 7.562999991932884,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 289.3638330133399,
+              "cpu_ms": 304.6559999999978,
+              "sql_statements": 321,
+              "column_catalogue_reads": 44,
+              "connect_ms": 86.37091697892174,
+              "schema_ms": 11.318040997139178,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_groups": {
+          "median": {
+            "elapsed_ms": 1085.1596249995055,
+            "cpu_ms": 1110.418999999993,
+            "sql_statements": 189,
+            "column_catalogue_reads": 30,
+            "connect_ms": 679.1949999897042,
+            "schema_ms": 98.05570701428223,
+            "lock_wait_ms": 0.0,
+            "connection_count": 50,
+            "schema_check_count": 10,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1201.2158330035163,
+              "cpu_ms": 1185.7090000000028,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 778.0279179569334,
+              "schema_ms": 110.3355830127839,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1008.6967920069583,
+              "cpu_ms": 1024.8419999999996,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 661.0510419413913,
+              "schema_ms": 89.14454199839383,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1085.1596249995055,
+              "cpu_ms": 1110.418999999993,
+              "sql_statements": 189,
+              "column_catalogue_reads": 30,
+              "connect_ms": 679.1949999897042,
+              "schema_ms": 98.05570701428223,
+              "lock_wait_ms": 0.0,
+              "connection_count": 50,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_preview": {
+          "median": {
+            "elapsed_ms": 357.85229099565186,
+            "cpu_ms": 378.58099999999695,
+            "sql_statements": 306,
+            "column_catalogue_reads": 40,
+            "connect_ms": 93.80337700713426,
+            "schema_ms": 10.506249993341044,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 372.5472499936586,
+              "cpu_ms": 396.36100000000596,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 96.9356669957051,
+              "schema_ms": 12.620084002264775,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 357.85229099565186,
+              "cpu_ms": 378.58099999999695,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 93.80337700713426,
+              "schema_ms": 10.506249993341044,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 312.41516600130126,
+              "cpu_ms": 333.8820000000027,
+              "sql_statements": 306,
+              "column_catalogue_reads": 40,
+              "connect_ms": 85.16045700525865,
+              "schema_ms": 10.281832990585826,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "preparation_intake": {
+          "median": {
+            "elapsed_ms": 577.1590829972411,
+            "cpu_ms": 596.1369999999988,
+            "sql_statements": 120,
+            "column_catalogue_reads": 17,
+            "connect_ms": 366.0977519903099,
+            "schema_ms": 43.66054301499389,
+            "lock_wait_ms": 0.0,
+            "connection_count": 29,
+            "schema_check_count": 5,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 755.7645830092952,
+              "cpu_ms": 729.4280000000058,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 470.12329097196925,
+              "schema_ms": 56.862457990064286,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 577.1590829972411,
+              "cpu_ms": 596.1369999999988,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 366.0977519903099,
+              "schema_ms": 43.66054301499389,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 546.8466669990448,
+              "cpu_ms": 564.1190000000051,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 352.5904590060236,
+              "schema_ms": 41.36883198225405,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "odoo_major": 20,
+      "access_mode": "REMOTE",
+      "routes": {
+        "schema": {
+          "median": {
+            "elapsed_ms": 138.03970901062712,
+            "cpu_ms": 145.54400000000012,
+            "sql_statements": 114,
+            "column_catalogue_reads": 15,
+            "connect_ms": 61.22099999629427,
+            "schema_ms": 6.6131249914178625,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 138.03970901062712,
+              "cpu_ms": 145.54400000000012,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 61.86837502173148,
+              "schema_ms": 6.6131249914178625,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 134.19908400101122,
+              "cpu_ms": 141.38899999999933,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 60.77895899943542,
+              "schema_ms": 6.695083997328766,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 142.46333300252445,
+              "cpu_ms": 149.5230000000003,
+              "sql_statements": 114,
+              "column_catalogue_reads": 15,
+              "connect_ms": 61.22099999629427,
+              "schema_ms": 6.61154200497549,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping": {
+          "median": {
+            "elapsed_ms": 308.91862499993294,
+            "cpu_ms": 323.512,
+            "sql_statements": 211,
+            "column_catalogue_reads": 27,
+            "connect_ms": 116.52574900654145,
+            "schema_ms": 17.10954100417439,
+            "lock_wait_ms": 0.0,
+            "connection_count": 8,
+            "schema_check_count": 2,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 308.91862499993294,
+              "cpu_ms": 323.512,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 118.90162398049142,
+              "schema_ms": 17.10954100417439,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 273.6518750025425,
+              "cpu_ms": 291.1739999999998,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 105.71299999719486,
+              "schema_ms": 16.000417002942413,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 312.67966600717045,
+              "cpu_ms": 326.905,
+              "sql_statements": 211,
+              "column_catalogue_reads": 27,
+              "connect_ms": 116.52574900654145,
+              "schema_ms": 19.558749001589604,
+              "lock_wait_ms": 0.0,
+              "connection_count": 8,
+              "schema_check_count": 2,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "summary": {
+          "median": {
+            "elapsed_ms": 228.22600000654347,
+            "cpu_ms": 238.66800000000055,
+            "sql_statements": 132,
+            "column_catalogue_reads": 17,
+            "connect_ms": 96.50508500635624,
+            "schema_ms": 10.54116700834129,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 228.88454199710395,
+              "cpu_ms": 238.66800000000055,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 97.71404198545497,
+              "schema_ms": 10.78504099859856,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 225.13437499583233,
+              "cpu_ms": 237.11299999999991,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 96.50508500635624,
+              "schema_ms": 10.099708000780083,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 228.22600000654347,
+              "cpu_ms": 240.575999999999,
+              "sql_statements": 132,
+              "column_catalogue_reads": 17,
+              "connect_ms": 96.00004102685489,
+              "schema_ms": 10.54116700834129,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/formula-validation": {
+          "median": {
+            "elapsed_ms": 248.46212500415277,
+            "cpu_ms": 243.71700000000018,
+            "sql_statements": 41,
+            "column_catalogue_reads": 6,
+            "connect_ms": 161.63983498699963,
+            "schema_ms": 11.289417001535185,
+            "lock_wait_ms": 0.0,
+            "connection_count": 11,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 232.1085830044467,
+              "cpu_ms": 237.7520000000004,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 153.5627909906907,
+              "schema_ms": 11.289417001535185,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 248.46212500415277,
+              "cpu_ms": 243.71700000000018,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 161.63983498699963,
+              "schema_ms": 14.793415990425274,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 254.5222909975564,
+              "cpu_ms": 252.90799999999967,
+              "sql_statements": 41,
+              "column_catalogue_reads": 6,
+              "connect_ms": 169.9139990087133,
+              "schema_ms": 10.708791989600286,
+              "lock_wait_ms": 0.0,
+              "connection_count": 11,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "schema/govern": {
+          "median": {
+            "elapsed_ms": 1080.264417003491,
+            "cpu_ms": 1110.4649999999997,
+            "sql_statements": 203,
+            "column_catalogue_reads": 33,
+            "connect_ms": 714.1016240202589,
+            "schema_ms": 111.10841696790885,
+            "lock_wait_ms": 0.0,
+            "connection_count": 51,
+            "schema_check_count": 12,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1096.8662910017883,
+              "cpu_ms": 1124.732999999999,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 728.8062490406446,
+              "schema_ms": 112.8545009996742,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1080.264417003491,
+              "cpu_ms": 1110.4649999999997,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 714.1016240202589,
+              "schema_ms": 111.10841696790885,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1040.5578750069253,
+              "cpu_ms": 1069.8000000000006,
+              "sql_statements": 203,
+              "column_catalogue_reads": 33,
+              "connect_ms": 691.4017919480102,
+              "schema_ms": 106.53071003616787,
+              "lock_wait_ms": 0.0,
+              "connection_count": 51,
+              "schema_check_count": 12,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "mapping/order": {
+          "median": {
+            "elapsed_ms": 1501.8765830027405,
+            "cpu_ms": 1521.2529999999997,
+            "sql_statements": 266,
+            "column_catalogue_reads": 43,
+            "connect_ms": 987.740583033883,
+            "schema_ms": 142.53304002340883,
+            "lock_wait_ms": 0.0,
+            "connection_count": 69,
+            "schema_check_count": 15,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1501.8765830027405,
+              "cpu_ms": 1521.2529999999997,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 987.740583033883,
+              "schema_ms": 142.53304002340883,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1465.9179169975687,
+              "cpu_ms": 1501.5029999999997,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 969.4709600444185,
+              "schema_ms": 139.9689989775652,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1529.6434170013526,
+              "cpu_ms": 1550.5619999999994,
+              "sql_statements": 266,
+              "column_catalogue_reads": 43,
+              "connect_ms": 1016.9777119881473,
+              "schema_ms": 154.64537400112022,
+              "lock_wait_ms": 0.0,
+              "connection_count": 69,
+              "schema_check_count": 15,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "prepared_summary": {
+          "median": {
+            "elapsed_ms": 370.36137499671895,
+            "cpu_ms": 390.9759999999984,
+            "sql_statements": 323,
+            "column_catalogue_reads": 44,
+            "connect_ms": 100.60637599963229,
+            "schema_ms": 12.493917005485855,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 326.25945899053477,
+              "cpu_ms": 348.1650000000016,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 80.31145800487138,
+              "schema_ms": 9.090584004297853,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 480.6548750057118,
+              "cpu_ms": 452.3939999999982,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 108.5564590030117,
+              "schema_ms": 13.339707991690375,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 370.36137499671895,
+              "cpu_ms": 390.9759999999984,
+              "sql_statements": 323,
+              "column_catalogue_reads": 44,
+              "connect_ms": 100.60637599963229,
+              "schema_ms": 12.493917005485855,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_groups": {
+          "median": {
+            "elapsed_ms": 1077.1643329935614,
+            "cpu_ms": 1104.3379999999984,
+            "sql_statements": 191,
+            "column_catalogue_reads": 30,
+            "connect_ms": 717.1575010142988,
+            "schema_ms": 100.68679199321195,
+            "lock_wait_ms": 0.0,
+            "connection_count": 52,
+            "schema_check_count": 10,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 1077.1643329935614,
+              "cpu_ms": 1104.3379999999984,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 717.1575010142988,
+              "schema_ms": 100.68679199321195,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 983.7434159999248,
+              "cpu_ms": 1007.6579999999992,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 662.1021209575702,
+              "schema_ms": 82.53945602336898,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 1228.6101669888012,
+              "cpu_ms": 1237.2060000000006,
+              "sql_statements": 191,
+              "column_catalogue_reads": 30,
+              "connect_ms": 810.0058309501037,
+              "schema_ms": 117.555667005945,
+              "lock_wait_ms": 0.0,
+              "connection_count": 52,
+              "schema_check_count": 10,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "deferred_preview": {
+          "median": {
+            "elapsed_ms": 291.21187499549706,
+            "cpu_ms": 309.84399999999823,
+            "sql_statements": 308,
+            "column_catalogue_reads": 40,
+            "connect_ms": 80.2716670150403,
+            "schema_ms": 9.528249996947125,
+            "lock_wait_ms": 0.0,
+            "connection_count": 6,
+            "schema_check_count": 1,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 262.0906670053955,
+              "cpu_ms": 279.28,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 74.15791701350827,
+              "schema_ms": 8.679291000589728,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 359.37029200431425,
+              "cpu_ms": 373.25799999999987,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 83.1048320105765,
+              "schema_ms": 9.528249996947125,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 291.21187499549706,
+              "cpu_ms": 309.84399999999823,
+              "sql_statements": 308,
+              "column_catalogue_reads": 40,
+              "connect_ms": 80.2716670150403,
+              "schema_ms": 11.5449169970816,
+              "lock_wait_ms": 0.0,
+              "connection_count": 6,
+              "schema_check_count": 1,
+              "lock_retry_count": 0
+            }
+          ]
+        },
+        "preparation_intake": {
+          "median": {
+            "elapsed_ms": 513.7291659921175,
+            "cpu_ms": 532.6799999999992,
+            "sql_statements": 120,
+            "column_catalogue_reads": 17,
+            "connect_ms": 329.22703903750516,
+            "schema_ms": 40.4664590023458,
+            "lock_wait_ms": 0.0,
+            "connection_count": 29,
+            "schema_check_count": 5,
+            "lock_retry_count": 0
+          },
+          "samples": [
+            {
+              "elapsed_ms": 621.3425000023562,
+              "cpu_ms": 642.1659999999961,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 369.0525399579201,
+              "schema_ms": 88.60037400154397,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 513.7291659921175,
+              "cpu_ms": 532.6799999999992,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 329.22703903750516,
+              "schema_ms": 40.4664590023458,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            },
+            {
+              "elapsed_ms": 501.774333009962,
+              "cpu_ms": 517.203000000002,
+              "sql_statements": 120,
+              "column_catalogue_reads": 17,
+              "connect_ms": 324.19683698390145,
+              "schema_ms": 37.847998974029906,
+              "lock_wait_ms": 0.0,
+              "connection_count": 29,
+              "schema_check_count": 5,
+              "lock_retry_count": 0
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "application_build_id": "sha256:1d7acb4c766c824e306a23fdcfc6b61bc31393d8a12b23fb0150d9ab2b22dde6",
+  "python_version": "3.12.14"
+}

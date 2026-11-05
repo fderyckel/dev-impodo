@@ -291,6 +291,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const control = visibleControlFor(identity.key);
     if (control) {
       control.closest("details")?.setAttribute("open", "");
+      window.impodoMappingJourney?.reveal?.(control);
       control.scrollIntoView({ behavior: "smooth", block: "center" });
       control.focus({ preventScroll: true });
       requestedIssueKey = "";

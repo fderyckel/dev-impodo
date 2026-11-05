@@ -1,14 +1,16 @@
         {% from "_user_help.html" import decision_help with context %}
+        {% set mapping_journey = mapping_journey if mapping_journey is defined else {'task': 'rows'} %}
         {% set dataset_index = view.index %}
         <section
           class="form-card mapping-dataset"
           id="mapping-dataset-{{ dataset_index }}"
           data-mapping-dataset="{{ view.source.dataset_id }}"
+          {% if view.active %}data-mapping-active-table{% else %}hidden{% endif %}
         >
           <div class="page-heading compact">
             <div>
               <p class="eyebrow">
-                Step {{ view.display_position }} of {{ dataset_views|length }}
+                Table {{ view.display_position }} of {{ dataset_views|length }}
                 {% if view.related_role %} · prepared {{ view.related_role }} records{% endif %}
               </p>
               <h2>{{ view.source.name }}</h2>
@@ -21,7 +23,7 @@
               {% if view.active %}
                 <span class="status registered">Editing this table</span>
               {% else %}
-                <a class="button secondary" href="{{ view.edit_url }}">Edit this table</a>
+                <a class="button secondary" href="{{ view.edit_url }}" data-mapping-table-link>Edit this table</a>
               {% endif %}
               <details class="technical-details">
                 <summary>Support details</summary>
@@ -41,6 +43,16 @@
             {% endfor %}
           </template>
 
+          {% if view.active %}
+            <nav class="mapping-task-nav" aria-label="Match {{ view.source.name }}">
+              {% for key, label in [('rows', 'Choose rows'), ('identity', 'Identify records'), ('fields', 'Match fields'), ('links', 'Connect linked values')] %}
+                {% if not view.odoo_pinned or key not in ('identity', 'links') %}
+                  <button type="button" class="mapping-task-link" data-mapping-go-task="{{ key }}" {% if mapping_journey.task == key %}aria-current="step"{% endif %}>{{ label }}</button>
+                {% endif %}
+              {% endfor %}
+            </nav>
+          {% endif %}
+          <div data-mapping-task-panel="rows" {% if mapping_journey.task != 'rows' %}hidden{% endif %}>
           {% include "mapping/_row_inclusion.html" %}
 
           {% if view.odoo_pinned %}
@@ -48,8 +60,11 @@
           <input type="hidden" name="mode_{{ dataset_index }}" value="odoo_pinned_update">
           <div class="notice warning">
             <strong>Update only the records selected from Odoo</strong>
-            <p>These rows stay bound to {{ view.model.label if view.model else view.selected_model }} through protected capture evidence. Blank or duplicate names are allowed because Impodo does not use a business key or create fallback.</p>
-            <p>Nothing is sent to Odoo here. A later comparison is required before any load.</p>
+            <p>These rows will update the same {{ view.model.label if view.model else view.selected_model }} records selected from Odoo.</p>
+            <details class="technical-details">
+              <summary>Support details</summary>
+              <p>Captured record identities are preserved. Blank or duplicate names do not affect which record is updated.</p>
+            </details>
           </div>
           {% else %}
           <div class="form-grid">
@@ -87,6 +102,12 @@
             </label>
           </details>
 
+          {% endif %}
+          </div>
+
+          {% if not view.odoo_pinned %}
+          <div data-mapping-task-panel="identity" {% if mapping_journey.task != 'identity' %}hidden{% endif %}>
+          <h3 data-mapping-task-heading tabindex="-1">Identify these records</h3>
           <div class="identity-pair">
             <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
               <p class="eyebrow">Source</p>
@@ -198,41 +219,36 @@
               {% endif %}
             </section>
           </div>
+          {% if view.active and identity_health %}
+            <div class="actions mapping-early-check">
+              <button class="button secondary" type="submit" form="mapping-identity-check" data-mapping-early-check {% if not identity_health.can_start %}disabled{% endif %}>Check saved identities</button>
+              <small class="muted">Save your choices before checking.</small>
+            </div>
+          {% endif %}
+          </div>
           {% endif %}
 
           {% if view.active %}
-            <div class="mapping-table-fields-heading">
-              <h3 id="scalar-fields-{{ dataset_index }}">Choose what goes into each Odoo field {{ decision_help("field-values") }}</h3>
-              <button
-                class="button secondary mapping-table-fields-toggle"
-                type="button"
-                aria-expanded="true"
-                aria-controls="mapping-table-fields-{{ dataset_index }}"
-                data-table-fields-toggle
-              >
-                <span data-table-fields-toggle-label>Close this table's fields</span>
-                {{ app_icon("chevron-up", "mapping-table-fields-chevron") }}
-              </button>
+            <div data-mapping-task-panel="fields" {% if mapping_journey.task != 'fields' %}hidden{% endif %}>
+              <h3 id="scalar-fields-{{ dataset_index }}" data-mapping-task-heading tabindex="-1">Match field values {{ decision_help("field-values") }}</h3>
+              <p class="muted">Choose where each Odoo field gets its value.</p>
+              <div id="mapping-table-fields-{{ dataset_index }}" data-table-fields-panel>
+                {% include "mapping/_scalar_fields.html" %}
+              </div>
             </div>
-            <p class="muted" data-table-fields-expanded-copy>
-              Choose where each Odoo field gets its value. Start with the fields below or search for another one.
-            </p>
-            <p class="muted mapping-table-fields-summary" data-table-fields-summary hidden>
-              {{ view.scalar_mapped_total }} Odoo field{{ "s" if view.scalar_mapped_total != 1 else "" }} and
-              {{ view.relation_mapped_total }} linked list{{ "s" if view.relation_mapped_total != 1 else "" }} matched.
-            </p>
-            <div id="mapping-table-fields-{{ dataset_index }}" data-table-fields-panel>
-              {% include "mapping/_scalar_fields.html" %}
-              {% include "mapping/_relationship_fields.html" %}
-              {% include "mapping/_control_totals.html" %}
-            </div>
+            {% if not view.odoo_pinned %}
+              <div data-mapping-task-panel="links" {% if mapping_journey.task != 'links' %}hidden{% endif %}>
+                <h3 data-mapping-task-heading tabindex="-1">Connect linked values {{ decision_help("relationships") }}</h3>
+                {% include "mapping/_relationship_fields.html" %}
+                {% if relationship_health %}
+                  <div class="actions mapping-early-check">
+                    <button class="button secondary" type="submit" form="mapping-relationship-check" data-mapping-early-check {% if not relationship_health.can_start %}disabled{% endif %}>Check saved relationships</button>
+                    <small class="muted">Save your choices before checking.</small>
+                  </div>
+                {% endif %}
+              </div>
+            {% endif %}
           {% else %}
-            <div class="empty-state compact">
-              <p>
-                {{ view.scalar_mapped_total }} Odoo field{{ "s" if view.scalar_mapped_total != 1 else "" }} and
-                {{ view.relation_mapped_total }} linked list{{ "s" if view.relation_mapped_total != 1 else "" }} matched for this table.
-              </p>
-              <a class="button secondary" href="{{ view.edit_url }}">Open this table's fields</a>
-            </div>
+            <p class="muted">{{ view.scalar_mapped_total }} fields and {{ view.relation_mapped_total }} linked fields matched.</p>
           {% endif %}
         </section>

@@ -1,6 +1,8 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  let getState = () => ({ dirty: false, busy: false });
+  let cancelPendingContinuation = () => {};
   const targetModels = Array.from(
     document.querySelectorAll("[data-target-model]")
   );
@@ -243,6 +245,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
     let dirty = false;
     let submitting = false;
+    let activeOperation = null;
+    let editGeneration = 0;
 
     const updateMappingVersionFields = (payload) => {
       let workingVersionUpdated = false;
@@ -268,9 +272,10 @@ document.addEventListener("DOMContentLoaded", () => {
       return workingVersionUpdated;
     };
 
-    const navigateToMappingResult = (redirectUrl) => {
+    const navigateToMappingResult = (redirectUrl, operation) => {
       const target = new URL(
-        redirectUrl || window.location.pathname,
+        (operation && window.impodoMappingJourney?.resultUrl?.(redirectUrl, operation)) ||
+          redirectUrl || window.location.pathname,
         window.location.href
       );
       const current = new URL(window.location.href);
@@ -292,17 +297,24 @@ document.addEventListener("DOMContentLoaded", () => {
       saveStatus,
       updateMappingVersionFields,
       navigateToMappingResult,
-      onCommitted: (operation) => valueMatch?.acceptSelectionRefreshes(operation),
+      onCommitted: (operation, payload) => {
+        valueMatch?.acceptSelectionRefreshes(operation);
+        return window.impodoMappingJourney?.committed?.(operation, payload);
+      },
+      hasNewerEdits: (operation) => operation.editGeneration !== editGeneration,
       setDirty: (value) => {
         dirty = value;
       },
     });
+    getState = () => ({ dirty, busy: submitting || saveRecovery.hasUnresolvedOperation() });
+    cancelPendingContinuation = () => window.impodoMappingJourney?.cancelContinuation?.(activeOperation);
 
     const stopSubmitting = (failureMessage, statusMessage) => {
       if (!submitting) {
         return;
       }
       submitting = false;
+      window.impodoMappingJourney?.cancelContinuation?.(activeOperation);
       mappingForm.removeAttribute("aria-busy");
       saveRecovery.showFailure(failureMessage);
       if (saveStatus) {
@@ -363,6 +375,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
       dirty = true;
+      editGeneration += 1;
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
@@ -386,6 +399,14 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     mappingForm.addEventListener("input", markMappingDirty);
     mappingForm.addEventListener("change", markMappingDirty);
+    document.addEventListener("submit", (event) => {
+      if (!["mapping-identity-check", "mapping-relationship-check"].includes(event.target?.id)) return;
+      if (!dirty && !submitting) return;
+      event.preventDefault();
+      saveRecovery.showFailure(submitting
+        ? "Wait for the current save to finish before checking Odoo."
+        : "Save progress before checking these choices. Your edits are still on this page.");
+    });
 
     const sparseMappingEntries = (submitter) => {
       const data = new FormData(mappingForm);
@@ -490,7 +511,10 @@ document.addEventListener("DOMContentLoaded", () => {
         choosesOdooDefault,
         changesDisposition: changesFieldDisposition,
         entries: sparseMappingEntries(event.submitter),
+        journeyContinuation: window.impodoMappingJourney?.continuationFor?.(event.submitter),
       });
+      activeOperation = operation;
+      operation.editGeneration = editGeneration;
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
       saveRecovery.clear();
@@ -565,6 +589,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch (_error) {
         await saveRecovery.resolveMutationOutcome(operation);
       } finally {
+        activeOperation = null;
         submitting = false;
         mappingForm.removeAttribute("aria-busy");
       }
@@ -585,6 +610,8 @@ document.addEventListener("DOMContentLoaded", () => {
   window.impodoMappingEditor = {
     initializeLazySourceSelect,
     mappingForm,
+    getState: () => getState(),
+    cancelPendingContinuation: () => cancelPendingContinuation(),
     restoreRelationRow,
     restoreScalarRow,
   };

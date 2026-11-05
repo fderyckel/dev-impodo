@@ -9,6 +9,62 @@ document.addEventListener("DOMContentLoaded", () => {
   let saving = false;
   let operationId = "";
   let mappingConflict = false;
+  let conflicts = [];
+  let failureMessage = "";
+
+  const conflictLink = (item) => {
+    const link = document.createElement("a");
+    link.className = "button secondary";
+    link.textContent = "Review this field";
+    link.href = item.fix_url;
+    link.dataset.reviewRelatedField = "";
+    link.dataset.reviewAnchor = item.anchor;
+    link.dataset.datasetId = item.dataset_id;
+    return link;
+  };
+  const showConflicts = () => {
+    if (!mappingConflict) return;
+    const journey = document.querySelector("[data-mapping-journey-state]");
+    if (journey) {
+      journey.textContent = "Linked fields need attention";
+      journey.className = "status review";
+    }
+    const list = host.querySelector("[data-related-conflicts]");
+    if (list && conflicts.length) {
+      list.replaceChildren(...conflicts.map((item) => {
+        const entry = document.createElement("li");
+        const title = document.createElement("strong");
+        title.textContent = item.title;
+        const message = document.createElement("p");
+        message.textContent = item.message;
+        entry.append(title, message, conflictLink(item));
+        return entry;
+      }));
+    } else if (list && !list.children.length && failureMessage) {
+      showError(failureMessage);
+    }
+    const mapping = document.querySelector("[data-mapping-form]");
+    if (!mapping) return;
+    let blocker = mapping.querySelector("#next-step-blockers");
+    if (!blocker) {
+      blocker = document.createElement("section");
+      blocker.id = "next-step-blockers";
+      blocker.className = "notice warning mapping-next-step-blockers";
+      const checkPanel = mapping.querySelector('[data-mapping-step-panel="check"]');
+      if (checkPanel) checkPanel.append(blocker);
+      else mapping.querySelector(".mapping-actions")?.before(blocker);
+    }
+    const title = document.createElement("strong");
+    title.textContent = "Correct linked fields before checking again";
+    const fields = document.createElement("p");
+    fields.textContent = conflicts.map((item) => item.title).join("; ");
+    const link = document.createElement("a");
+    link.className = "button secondary";
+    link.href = "#related-data-review";
+    link.textContent = "Review affected fields";
+    blocker.replaceChildren(title, fields, link);
+    mapping.querySelector("[data-confirm-mapping]")?.setAttribute("disabled", "");
+  };
 
   const panel = () => host.querySelector("[data-related-data-review]");
   const showError = (message) => {
@@ -29,6 +85,7 @@ document.addEventListener("DOMContentLoaded", () => {
       reference.textContent = operationId ? `Support reference: ${operationId}` : "";
       reference.hidden = !operationId;
     }
+    window.impodoMappingJourney?.reveal?.(section);
     section.focus();
     section.scrollIntoView({ block: "start" });
   };
@@ -51,6 +108,7 @@ document.addEventListener("DOMContentLoaded", () => {
         throw new Error("Review unavailable");
       }
       host.replaceChildren(template.content);
+      showConflicts();
       reveal();
     } catch (_error) {
       reveal();
@@ -64,19 +122,41 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     operationId = event.detail.operationId || "";
     mappingConflict = Boolean(event.detail.mappingConflict);
+    conflicts = Array.isArray(event.detail.conflicts) ? event.detail.conflicts : [];
+    failureMessage = event.detail.message || "";
+    if (mappingConflict) host.querySelector("[data-related-review-form]")?.setAttribute("hidden", "");
     void reload();
   });
   host.addEventListener("click", (event) => {
     if (event.target.closest("[data-reload-related-review]")) void reload();
-    if (event.target.closest("[data-review-related-mappings]")) {
-      const target = document.querySelector('[data-relation-mapping-row][data-target-field="company_ids"]')
-        || document.querySelector("[data-relation-field-catalog]");
-      if (!target) return;
+    const link = event.target.closest("[data-review-related-field]");
+    if (link) {
+      const target = document.getElementById(link.dataset.reviewAnchor);
+      const dataset = Array.from(document.querySelectorAll("[data-mapping-dataset]"))
+        .find((item) => item.dataset.mappingDataset === link.dataset.datasetId);
+      const catalog = dataset?.querySelector("[data-relation-field-catalog]");
+      if (!target && catalog) {
+        event.preventDefault();
+        catalog.dispatchEvent(new CustomEvent("impodo:focus-linked-field", {
+          detail: { url: link.href, targetId: link.dataset.reviewAnchor },
+        }));
+        return;
+      }
+      if (!target) {
+        if (document.querySelector("[data-mapping-save-status]")?.classList.contains("unsaved")) {
+          event.preventDefault();
+          showError("Save progress before opening another table.");
+        }
+        return;
+      }
+      event.preventDefault();
+      window.impodoMappingJourney?.reveal?.(target);
       for (let parent = target; parent; parent = parent.parentElement) {
         if (parent instanceof HTMLDetailsElement) parent.open = true;
       }
       target.scrollIntoView({ block: "center" });
-      target.querySelector("select, input")?.focus();
+      target.setAttribute("tabindex", "-1");
+      (target.querySelector("select:not([disabled]), input:not([type='hidden']):not([disabled])") || target).focus({ preventScroll: true });
     }
   });
   host.addEventListener("submit", async (event) => {

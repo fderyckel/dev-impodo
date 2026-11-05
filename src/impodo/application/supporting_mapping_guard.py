@@ -21,7 +21,7 @@ from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_closure import (
     close_supporting_plan,
-    supporting_mapping_conflicts,
+    supporting_mapping_conflict_details,
 )
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
 from impodo.domain.workspace.supporting_review import (
@@ -171,10 +171,11 @@ class SupportingMappingGuard:
             raise SupportingPlanIncompleteError(
                 closure.proposal, schema, datasets, review.choices
             )
-        conflicts = supporting_mapping_conflicts(review.choices, datasets, schema)
+        conflicts = supporting_mapping_conflict_details(review.choices, datasets, schema)
         if conflicts:
             raise SupportingReviewRequiredError(
                 SupportingReviewProblem.MAPPING_CONFLICT,
                 "Review supporting choices in Odoo data and the corresponding Match data rule: "
-                + "; ".join(conflicts)
+                + "; ".join(sorted({item.message for item in conflicts})),
+                conflicts=conflicts,
             )

@@ -163,8 +163,14 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     expect(panel).to_contain_text(
                         "Choosing Company for this load does not fill Companies"
                     )
-                    panel.get_by_role("button", name="Review linked fields").click()
+                    expect(panel.locator("[data-related-review-form]")).to_have_count(0)
+                    expect(panel).to_contain_text("Account · Companies")
+                    expect(page.locator("#next-step-blockers")).not_to_contain_text(
+                        "Saved changes have not been checked yet"
+                    )
+                    panel.get_by_role("link", name="Review this field").first.click()
                     expect(provider).to_be_visible()
+                    expect(provider).to_be_focused()
                     self.assertEqual(page_errors, [])
                 finally:
                     browser.close()

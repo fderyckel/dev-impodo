@@ -8,6 +8,7 @@
     navigateToMappingResult,
     setDirty,
     onCommitted,
+    hasNewerEdits,
   }) => {
     const saveOutcome = mappingForm.querySelector(
       "[data-mapping-save-outcome]"
@@ -187,10 +188,11 @@
       if (status === "committed") {
         unresolvedOperation = null;
         staleConflict = false;
+        const newerEdits = hasNewerEdits?.(operation) === true;
         updateMappingVersionFields(payload);
-        onCommitted?.(operation);
-        window.impodoFormulaValidation?.applySaveResult(payload);
-        setDirty(false);
+        if (!newerEdits) window.impodoFormulaValidation?.applySaveResult(payload);
+        else window.impodoMappingJourney?.cancelContinuation(operation);
+        setDirty(newerEdits);
         clear();
         if (saveStatus) {
           const savedDate = payload.saved_at
@@ -200,22 +202,26 @@
             savedDate && !Number.isNaN(savedDate.getTime())
               ? `Saved ${savedDate.toLocaleString()}. `
               : "";
-          saveStatus.textContent =
-            savedLabel + (payload.message || "Matches saved.");
-          saveStatus.classList.remove("unsaved");
+          saveStatus.textContent = newerEdits
+            ? "Earlier changes saved. Your newer edits still need saving."
+            : savedLabel + (payload.message || "Matches saved.");
+          if (newerEdits) saveStatus.classList.add("unsaved");
+          else saveStatus.classList.remove("unsaved");
         }
         if (operation.action === "save_progress" && nextRecommendedTable) {
           const nextUrl = String(payload.next_recommended_url || "");
-          nextRecommendedTable.hidden = !nextUrl;
+          nextRecommendedTable.hidden = newerEdits || !nextUrl;
           if (nextUrl) {
             nextRecommendedTable.href = nextUrl;
           }
         }
-        if (operation.action !== "save_progress") {
-          navigateToMappingResult(payload.redirect_url);
+        const navigationHandled = onCommitted?.(operation, payload);
+        if (operation.action !== "save_progress" && !newerEdits && navigationHandled !== true) {
+          navigateToMappingResult(payload.redirect_url, operation);
         }
         return "committed";
       }
+      window.impodoMappingJourney?.cancelContinuation(operation);
       if (status === "not_found") {
         unresolvedOperation = null;
         staleConflict = false;
@@ -278,12 +284,19 @@
         if (["SUPPORTING_REVIEW_REQUIRED", "SUPPORTING_MAPPING_CONFLICT"].includes(payload.failure_code)) {
           const recovery = new CustomEvent("impodo:related-review-required", {
             cancelable: true,
-            detail: { operationId: currentOperationId, mappingConflict: payload.failure_code === "SUPPORTING_MAPPING_CONFLICT" },
+            detail: {
+              operationId: currentOperationId,
+              mappingConflict: payload.failure_code === "SUPPORTING_MAPPING_CONFLICT",
+              conflicts: payload.supporting_conflicts || [],
+              message: payload.detail || payload.message || "",
+            },
           });
           if (!document.dispatchEvent(recovery)) {
             clear();
             if (saveStatus) {
-              saveStatus.textContent = "Related-data choices need review. Your edits are retained.";
+              saveStatus.textContent = payload.failure_code === "SUPPORTING_MAPPING_CONFLICT"
+                ? "Check failed. Correct the linked fields above."
+                : "Related-data choices need review. Your edits are retained.";
               saveStatus.classList.add("unsaved");
             }
             return "rejected";
@@ -312,6 +325,7 @@
     };
 
     const showUnknownOutcome = (operation) => {
+      window.impodoMappingJourney?.cancelContinuation(operation);
       unresolvedOperation = operation;
       showFailure(
         "Impodo could not verify whether this operation was saved. Do not repeat it yet. Keep this tab open and check the save outcome again.",
@@ -391,6 +405,7 @@
       choosesOdooDefault,
       changesDisposition,
       entries,
+      journeyContinuation,
     }) => {
       const currentOperationId = createOperationId();
       const submittedEntries = [...entries, ["operation_id", currentOperationId]];
@@ -401,6 +416,7 @@
         choosesOdooDefault,
         changesDisposition,
         entries: submittedEntries,
+        journeyContinuation,
       };
     };
 
@@ -461,6 +477,7 @@
       clear,
       createOperation,
       failureSuffix,
+      hasUnresolvedOperation: () => Boolean(unresolvedOperation || staleConflict),
       fetchSave: (url, options) =>
         fetchWithTimeout(
           url,

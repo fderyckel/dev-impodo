@@ -493,6 +493,17 @@ document.addEventListener("DOMContentLoaded", () => {
         fieldCatalogSearchDelayMs
       );
     };
+    catalog.addEventListener("impodo:focus-linked-field", async (event) => {
+      await loadRelationCatalog(event.detail.url);
+      const target = document.getElementById(event.detail.targetId);
+      if (!target) return;
+      for (let parent = target; parent; parent = parent.parentElement) {
+        if (parent instanceof HTMLDetailsElement) parent.open = true;
+      }
+      window.impodoMappingJourney?.reveal?.(target);
+      target.scrollIntoView({ block: "center" });
+      target.querySelector("select:not([disabled]), input:not([type='hidden']):not([disabled])")?.focus({ preventScroll: true });
+    });
     search?.addEventListener("input", scheduleRelationCatalogSearch);
     search?.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {

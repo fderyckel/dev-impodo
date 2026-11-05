@@ -115,6 +115,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const remember = () => {
+    const journey = document.querySelector("[data-mapping-journey]");
     const active = document.activeElement;
     const activeRow = active?.closest?.("[data-target-field]");
     const row = activeRow || (lastRow?.isConnected ? lastRow : null) || visibleRow();
@@ -138,6 +139,8 @@ document.addEventListener("DOMContentLoaded", () => {
           targetField: row?.dataset.targetField || "",
           targetOffset: row?.getBoundingClientRect().top ?? null,
           horizontal,
+          journeyStep: journey?.dataset.step || "",
+          journeyTask: journey?.dataset.task || "",
         })
       );
     } catch {
@@ -152,10 +155,11 @@ document.addEventListener("DOMContentLoaded", () => {
       } catch {
         // The blocker anchor remains usable without browser storage.
       }
+      const blockers = document.querySelector("#next-step-blockers");
+      window.impodoMappingJourney?.reveal?.(blockers);
       window.requestAnimationFrame(() => {
-        document
-          .querySelector("#next-step-blockers")
-          ?.focus({ preventScroll: true });
+        blockers?.scrollIntoView({ block: "start", behavior: "auto" });
+        blockers?.focus({ preventScroll: true });
       });
       return;
     }
@@ -167,6 +171,7 @@ document.addEventListener("DOMContentLoaded", () => {
       stored = null;
     }
     const revealDestination = (target, focusTarget = target) => {
+      window.impodoMappingJourney?.reveal?.(target);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           target.scrollIntoView({ block: "start", behavior: "auto" });
@@ -193,15 +198,30 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!stored || !document.querySelector("[data-mapping-form]")) {
       return;
     }
+    const journey = document.querySelector("[data-mapping-journey]");
+    const query = new URLSearchParams(window.location.search);
+    const explicitTask = query.has("step") || query.has("task");
+    if (journey && stored.journeyStep) {
+      if (explicitTask && (stored.journeyStep !== journey.dataset.step ||
+          stored.journeyTask !== journey.dataset.task)) return;
+      if (!explicitTask) window.impodoMappingJourney?.show?.({
+        step: stored.journeyStep, task: stored.journeyTask,
+      }, { history: "replace" });
+    }
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        const row = Array.from(document.querySelectorAll("[data-target-field]")).find(
+        let row = Array.from(document.querySelectorAll("[data-target-field]")).find(
           (candidate) =>
             candidate.dataset.targetField === stored.targetField &&
             (!stored.datasetId ||
               candidate.closest("[data-mapping-dataset]")?.dataset
                 .mappingDataset === stored.datasetId)
         );
+        if (journey && (journey.dataset.step !== "tables" ||
+            (stored.journeyTask && row?.closest("[data-mapping-task-panel]")?.dataset.mappingTaskPanel !== journey.dataset.task))) {
+          row = null;
+        }
+        window.impodoMappingJourney?.reveal?.(row);
         const targetTop =
           row && Number.isFinite(stored.targetOffset)
             ? window.scrollY + row.getBoundingClientRect().top - stored.targetOffset
@@ -220,7 +240,9 @@ document.addEventListener("DOMContentLoaded", () => {
             control.name === stored.focusName &&
             (!stored.focusValue || control.value === stored.focusValue)
         );
-        focusTarget?.focus({ preventScroll: true });
+        if (focusTarget && !focusTarget.closest("[hidden]")) {
+          focusTarget.focus({ preventScroll: true });
+        }
       });
     });
   };

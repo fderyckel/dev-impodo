@@ -27,7 +27,7 @@ Odoo can keep different fiscal positions and payment terms for Northwind Factory
 and Northwind Trading. The selected load company tells Odoo which company's
 settings apply. You do not need to add a Company column just to upload a file.
 
-At the top of **Match data**, open **Company for this load** and select
+In **Choose company**, open **Company for this load** and select
 **Choose Odoo company**. Impodo shows the checking user, that user's default
 company and their available companies. Choose **Odoo company**, then select
 **Use this company**, even when only one choice is available. **Check matches**
@@ -71,6 +71,8 @@ version, even when the key text is the same. **Check matches** refreshes that
 verification before it reads the linked Odoo choices. A repeated check with the
 same current setup does not repeat the field refresh. This keeps your matches
 when the same Odoo user, permissions and fields are verified.
+If the company and selected sources also remain the same, Impodo keeps your
+related-data choices and checks them again automatically.
 Other changes require the normal schema review. Verify
 an active or uncertain load before changing its company.
 
@@ -81,8 +83,10 @@ saves those choices before checking the field mappings currently on your page.
 If saving fails, your entered mappings remain visible. **Reload choices**
 reloads only the related-data controls.
 
-If a saved choice disagrees with a linked-field rule, select **Review linked
-fields**. For example, choosing Northwind Factory under **Company for this
+If a saved choice disagrees with a field rule, **Correct linked fields** names
+the affected fields. Select **Review this field**, correct its source or
+matching rule, then select **Check matches**. The field opens even when it is
+on another page of the field list. For example, choosing Northwind Factory under **Company for this
 load** does not fill an account's **Companies** field. To assign that company
 to every account, connect **Companies** using **The same existing Odoo record
 for every row** and select Northwind Factory. Keep the existing account
@@ -109,8 +113,8 @@ another destination check. The frozen source keeps its own independent context.
 
 ### Set business expectations
 
-After checking field matches, use **What may this load change?** near the top
-of Match data. Choose **Allowed changes** for each record type, optionally set
+After checking field matches, open **What may this load change?** in
+**Confirm matches**. Choose **Allowed changes** for each record type, optionally set
 minimum and maximum new or changed records, then select **Save business
 expectations**. Empty counts mean no limit. A maximum of **0** means no records
 of that kind may be written.
@@ -134,8 +138,9 @@ their destination-owned matching and approval controls.
 
 ### Review required values across tables
 
-Select **Review required values** near the top of **Match data** to see how
-required fields get their values. Opening the checklist uses saved evidence;
+In **Check and resolve**, open **Review required values and check details**,
+then select **Review required values** to see how required fields get their
+values. Opening the checklist uses saved evidence;
 it does not contact Odoo, capture defaults, or evaluate source rows.
 
 ![The Required values entry opens one checklist across the workspace's tables.](../../images/user/11n-mapping-required-values-entry.png)
@@ -173,10 +178,11 @@ Match data shows the existing grouped acceptance action and checks the complete
 mapping once after acceptance. It then shows only the remaining blockers.
 Save and check other corrections before relying on the updated checklist.
 
-### Check identity health before matching fields
+### Check record identities
 
-At the top of **Match data**, **Identity health** separates three facts that
-must not be confused:
+In **Match tables**, **Check saved identities** tests your saved record choices.
+The detailed **Identity health** results under **Check and resolve** separate
+three facts:
 
 - **Suggested** means Impodo can propose a governed Odoo matching rule, but
   the current mapping has not saved it.
@@ -232,10 +238,18 @@ remains available. To restore a row, remove its identifier from the exclusion
 list in **Rows to use**, then save and check again. Existing conditions and
 exclusion values are preserved.
 
+Your checkboxes are enough to choose the rows. When the saved matching
+identifier repeats, Impodo automatically finds and checks a column that can
+distinguish the selected rows. For example, you can keep matching BoM versions
+by `bomID` while Impodo uses `RecID` to save the exclusions. The preview names
+that column, and your saved matching choices stay in place.
+
 ![The duplicate-row dialog compares fictional records, highlights differing values, and previews two selected exclusions.](../../images/user/11o-mapping-duplicate-exclusions.png)
 
-The dialog requires one nonblank, unique source identifier. It asks you to
-review the rule manually when a parent rule, an **any** condition, the condition
+Impodo checks the exclusion column against all included rows, including rows
+outside the displayed duplicate groups. It keeps an explanation visible if it
+cannot save the selection safely. It asks you to review the rule manually when
+a parent rule, an **any** condition, the condition
 limit, or an identifier that cannot fit an exact list prevents a safe addition.
 It rejects a selection that would exclude every row or affect unselected rows.
 Save unsaved matching choices and check current data before opening the review.
@@ -246,7 +260,9 @@ exclusions.
 
 After applying, use **Check matches**, review the complete included and excluded
 population, and confirm **Rows to use** before continuing. Linked child rows
-remain included unless their own rule follows the parent's included rows.
+keep their parent link when another included row retains the same parent
+identifier. If you exclude its last included copy, child rows remain included
+unless their own rule follows the parent's included rows.
 Their required relationships must still resolve. Exclusion rules can carry
 into a published Recipe, and each new Data version requires its own checked
 confirmation. If the new identity check cannot start, the dialog keeps the saved
@@ -420,51 +436,42 @@ replace a newer saved order; it shows the latest saved sequence instead.
 This queue guides matching work only. It does not change matching rules, a
 Recipe, prepared data, or the safe order used later to load Odoo.
 
-Use **Close this table's fields** when you want a shorter page while reviewing
-the other decisions. Impodo remembers the open or closed state through saves
-and refreshes in the current browser tab. This display choice does not change
-or save any field match.
+Each table shows one task at a time. Use its task buttons to revisit a choice.
+Changing the visible task keeps your entered values; select **Save progress**
+to store them before leaving the editor.
 
 ## Steps in Impodo
 
-1. Open **Match data** and review the recommended order. After saving the
-   relevant identity and relationship choices, select **Check saved
-   identities** or **Check saved relationships**. The same bounded read updates
-   both health summaries and the table-order suggestion. Select **Apply
-   recommendation** only when you also want to use that suggested order. Work
-   through one table at a time. You can also select **Reorder tables**, arrange
-   the queue, and select **Save table order**.
-2. Under **Rows to use**, keep **Use every row** or select **Use only rows that
-   match** and add one to eight source conditions.
-3. Choose whether the table is a reference, create, update, or upsert dataset.
-4. Match the source identity to the confirmed Odoo business key.
-5. For each writable field, choose one source value, combine source columns,
-   supply a fixed value, or make an explicit Odoo decision. Use **Let Odoo choose** only when the target
-   configuration supplies a default. Use **Odoo manages this field** only for
-   a field Odoo creates or maintains itself. When you select **Let Odoo
-   choose**, Impodo saves that decision and immediately checks the current
-   matches.
-6. Configure text, number, date, and selection-value preparation where needed.
-7. Resolve linked fields using a stable key in another project table or
-   approved existing Odoo data.
-8. Select **Save progress** before leaving the page. When shown, use **Next
-   recommended table** to continue through the queue.
-   If an advanced formula is malformed, Impodo shows **Must fix** beside the
-   field. Saving still preserves the formula and reports **Saved — needs
-   attention**.
-9. Correct every displayed formula issue, then select **Check matches**. Use
-   **Go to issue** when the affected field is outside the current field page.
-10. If a rows-to-use rule excludes anything, review the included and excluded
-    rows, then select **Confirm N rows to use**. A row that could not be checked
-    or a rule that includes zero rows must be corrected and checked again.
-11. Select **Create matching review workbook** when you want to review the
-   checked matches in Excel. You can create it when the check passes or when
-   it finds errors.
-12. Select **Download matching review workbook** after Impodo creates it.
-13. Optionally select **Review rule effects** when you want to inspect changed
-   values before confirmation.
-14. Select **Confirm field matches** for the exact checked revision. You can
-    continue without the optional rule-effects preview.
+Stage 3 has four sidebar steps. Saving progress, checking matches, and confirming
+matches remain separate actions.
+
+1. **Choose company.** Select the company for this load, then continue to
+   matching tables. When you return with a company already chosen, Impodo
+   opens the table editor.
+2. **Match tables.** Work through the recommended order, one table at a time.
+   **Choose rows** sets which rows to use and what to prepare. **Identify
+   records** connects the source identifier to the Odoo matching rule.
+   **Match fields** chooses source values, fixed values, defaults, and any
+   cleanup rules. **Connect linked values** chooses the related records each
+   row uses. Select **Save and continue** to save before moving to the next
+   task. Captured Odoo records keep their protected identity and omit tasks
+   that do not apply. Use **Choose a table** to revisit a table and **Change
+   table order** when you need a different working sequence.
+3. **Check and resolve.** Select **Check matches** after completing the table
+   choices. Correct the listed decisions using their field links, then return
+   to the checks. **Go to issue** reveals a formula even when another task is
+   visible. Detailed counts and required-field coverage remain under
+   **Review required values and check details**.
+4. **Confirm matches.** Review included and excluded rows. When a rule excludes
+   rows, select **Confirm N rows to use** for the checked selection. Review any
+   required warnings, then select **Confirm field matches** to continue to
+   Prepare data. Optional Excel review, rule effects, and business checks are
+   available here. Opening this step does not confirm or approve anything.
+
+Use **Let Odoo choose** only when the checked target supplies a default, or
+**Odoo manages this field** when Odoo creates or maintains it. Choosing an Odoo
+default saves that decision and checks the mapping. Other field changes need
+**Check matches**. A malformed formula can still be saved for correction.
 
 To fill an Odoo date field such as **Valid From** from an Excel timestamp,
 choose the source column and set **Value type** to **Date**. Under **Input
@@ -476,7 +483,7 @@ select **Save progress**, and then select **Check matches**.
 ### Choose which source rows belong to the migration
 
 Use the question marks beside **Rows to use**, the source and Odoo identity
-headings, or **Choose what goes into each Odoo field** when you need help with
+headings, or **Match field values** when you need help with
 that decision. Each opens the relevant guide section in a new tab and keeps
 your current choices available in Impodo.
 
@@ -903,7 +910,7 @@ Odoo target.
 
 ### Choose where a source-provided linked value comes from
 
-The question mark beside **Connect values to existing Odoo lists** opens the
+The question mark beside **Connect linked values** opens the
 relationship explanation before you choose how to find the linked record.
 
 ![A question mark beside the relationship section opens the guide to connecting a field to another record.](../../images/user/09e-relationship-decision-help.png)
@@ -1127,9 +1134,9 @@ zero matches or overlapping priority does not block confirmation. Use the
 optional rule-effects preview when you want to inspect that result before
 Stage 4 prepares every row for the required data review.
 
-When **Confirm field matches** is unavailable, the reason panel beside the
-bottom workflow actions lists every current blocker even if a field search or
-page filter hides the affected field. Follow **Match this field**, **Review
+When **Confirm field matches** is unavailable, open **Check and resolve**.
+The issue list contains every current blocker even if a field search or page
+filter hides the affected field. One issue opens at a time. Follow **Match this field**, **Review
 Odoo defaults**, or the other recovery action shown there. **Let Odoo choose**
 and the grouped Odoo-default actions save the decision and check the mapping
 automatically. For ordinary field edits, select **Check matches** yourself.
@@ -1216,6 +1223,8 @@ plan, it includes the affected technical Odoo model and field names, the saved
 choice, and whether the relationship is required or used by the mapping. The
 support reference identifies the failed action. These details are recorded
 when the check fails, so a new bundle cannot add them to an older failure.
+It also records why Odoo access needed checking and whether saved related-data
+choices were kept or needed your review.
 The ZIP does not contain source rows, formula contents,
 credentials, tokens, request bodies, headers, complete URLs, or query strings.
 

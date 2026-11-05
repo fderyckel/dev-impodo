@@ -17,7 +17,11 @@ from impodo.domain.mapping.contracts import (
     RowInclusionPolicy,
     SelectionConditionOperator,
 )
-from impodo.domain.mapping.row_inclusion import incoming_parent_links, row_is_included
+from impodo.domain.mapping.row_inclusion import (
+    _source_key,
+    incoming_parent_links,
+    row_is_included,
+)
 from impodo.domain.mapping.source_conditions import parse_source_text_list
 from impodo.domain.matching_order import (
     MatchingIdentityChoiceFilter,
@@ -50,6 +54,8 @@ class DuplicateRows:
     rows: tuple[dict[str, object], ...]
     included: tuple[dict[str, object], ...]
     unavailable: str
+    exclusion_source_key: str
+    identifier_message: str
 
 
 class DuplicateRowReview:
@@ -73,6 +79,7 @@ class DuplicateRowReview:
         *,
         after: int | None = None,
         before: int | None = None,
+        exclusion_source_key: str = "",
         actor: Actor,
     ) -> DuplicateRows:
         """Authorize and bind the displayed rows to the exact saved check."""
@@ -101,6 +108,14 @@ class DuplicateRowReview:
         )
         if dataset is None or mapping is None:
             raise WorkspaceError("Choose a current table for duplicate review.")
+        exclusion_key = exclusion_source_key or (
+            mapping.source_identity_column_keys[0]
+            if len(mapping.source_identity_column_keys) == 1
+            else ""
+        )
+        columns_by_key = {column.stable_key: column for column in dataset.columns}
+        if exclusion_key and exclusion_key not in columns_by_key:
+            raise WorkspaceError("Choose a current source column for exclusions.")
         page = self.order.identity_choice_review_page(
             workspace_id,
             selection,
@@ -120,6 +135,7 @@ class DuplicateRowReview:
             dict.fromkeys(
                 (
                     *mapping.source_identity_column_keys,
+                    *((exclusion_key,) if exclusion_key else ()),
                     *(
                         item.source_column_key
                         for item in mapping.row_inclusion.conditions
@@ -147,7 +163,11 @@ class DuplicateRowReview:
             raise WorkspaceError(
                 "The duplicate rows no longer agree with this check. Check current data again."
             )
-        unavailable = self._unavailable(mapping, included)
+        identifier_message = self._identifier_problem(
+            included,
+            exclusion_key,
+            columns_by_key[exclusion_key].source_name if exclusion_key else "",
+        )
         columns = tuple(item.stable_key for item in dataset.columns)
         full_rows = self.values.source_condition_rows_at_positions(
             workspace_id,
@@ -155,6 +175,35 @@ class DuplicateRowReview:
             columns,
             tuple(admitted[item.member_position - 1][0] for item in page.rows),
         )
+        if identifier_message and not exclusion_source_key:
+            # The operator has already selected the rows. Find a source column
+            # that can save exactly that choice without changing matching keys.
+            candidates = self._candidate_columns(columns, full_rows)
+            if candidates:
+                probe_keys = tuple(dict.fromkeys((*keys, *candidates)))
+                probe_rows = self.values.source_condition_rows(
+                    workspace_id, dataset_id, probe_keys
+                )
+                included = tuple(
+                    row
+                    for values in probe_rows
+                    if row_is_included(
+                        mapping.row_inclusion,
+                        row := dict(zip(probe_keys, values, strict=True)),
+                        gate,
+                    )
+                )
+                if len(included) != len(admitted):
+                    raise WorkspaceError(
+                        "The source rows changed. Check current data again before excluding rows."
+                    )
+                for candidate in candidates:
+                    if not self._identifier_problem(
+                        included, candidate, columns_by_key[candidate].source_name
+                    ):
+                        exclusion_key, identifier_message = candidate, ""
+                        break
+        unavailable = self._unavailable(mapping, exclusion_key)
         return DuplicateRows(
             page,
             draft,
@@ -164,21 +213,40 @@ class DuplicateRowReview:
             tuple(dict(zip(columns, values, strict=True)) for values in full_rows),
             included,
             unavailable,
+            exclusion_key,
+            identifier_message,
         )
 
     @staticmethod
+    def _candidate_columns(
+        columns: tuple[str, ...], rows: tuple[tuple[object, ...], ...]
+    ) -> tuple[str, ...]:
+        """Bound fallback discovery before one narrow whole-population proof."""
+        candidates = []
+        for index, column in enumerate(columns):
+            values = tuple(
+                "" if row[index] is None else str(row[index]) for row in rows
+            )
+            if (
+                values
+                and len(set(values)) == len(values)
+                and all(
+                    value and value == value.strip() and "," not in value
+                    for value in values
+                )
+                and sum(len(value) + 2 for value in values) <= 10_000
+            ):
+                candidates.append(column)
+                if len(candidates) == 8:
+                    break
+        return tuple(candidates)
+
+    @staticmethod
     def _unavailable(
-        mapping: DatasetMapping, rows: tuple[dict[str, object], ...]
+        mapping: DatasetMapping,
+        key: str,
     ) -> str:
-        """Refuse rules that cannot distinguish individual rows exactly."""
-        if len(mapping.source_identity_column_keys) != 1:
-            return "Choose one unique source identifier before excluding individual rows. You can still compare the rows below."
-        key = mapping.source_identity_column_keys[0]
-        values = [None if row.get(key) is None else str(row[key]) for row in rows]
-        if any(value is None or not value.strip() for value in values) or len(
-            {value.strip() if value is not None else None for value in values}
-        ) != len(values):
-            return "The source identifier is blank or repeated. Choose a unique source identifier before excluding individual rows."
+        """Preserve policies that cannot safely accept the selected condition."""
         policy = mapping.row_inclusion
         if policy.included_parent_field or policy.join is not RowInclusionJoin.ALL:
             return "This table uses a parent rule or an any-condition rule. Review Rows to use manually so that your existing selection is preserved."
@@ -191,6 +259,20 @@ class DuplicateRowReview:
             return "Rows to use already has eight conditions. Review its conditions before adding exclusions."
         return ""
 
+    @staticmethod
+    def _identifier_problem(
+        rows: tuple[dict[str, object], ...], key: str, label: str
+    ) -> str:
+        """Explain why the exclusion column cannot yet distinguish single rows."""
+        if not key:
+            return "Impodo could not find a unique source identifier to save these individual row exclusions safely. Your selections and matching choices are kept."
+        values = [None if row.get(key) is None else str(row[key]) for row in rows]
+        if any(value is None or not value.strip() for value in values) or len(
+            {value.strip() if value is not None else None for value in values}
+        ) != len(values):
+            return f"{label} is blank or repeated, and Impodo could not find another unique source identifier to save these individual row exclusions safely. Your selections and matching choices are kept."
+        return ""
+
     def preview(
         self,
         workspace_id: str,
@@ -200,6 +282,8 @@ class DuplicateRowReview:
         """Prove the exact removed population and count affected incoming links."""
         if review.unavailable:
             raise WorkspaceError(review.unavailable)
+        if review.identifier_message:
+            raise WorkspaceError(review.identifier_message)
         allowed = {item.member_position for item in review.page.rows}
         selected = set(positions)
         if (
@@ -208,7 +292,7 @@ class DuplicateRowReview:
             or not selected.issubset(allowed)
         ):
             raise WorkspaceError("Select duplicate source rows from the current page.")
-        key = review.mapping.source_identity_column_keys[0]
+        key = review.exclusion_source_key
         values = tuple(
             str(review.included[position - 1][key]) for position in sorted(selected)
         )
@@ -277,7 +361,7 @@ class DuplicateRowReview:
             raise WorkspaceError(
                 "Keep at least one row in this table before applying exclusions."
             )
-        impacts = self._impacts(workspace_id, review, set(values))
+        impacts = self._impacts(workspace_id, review, updated)
         groups: dict[str, tuple[int, int]] = {}
         for item in review.page.rows:
             total, removed_count = groups.get(
@@ -294,6 +378,11 @@ class DuplicateRowReview:
                 total - count > 1 for total, count in groups.values()
             ),
             "impacts": impacts,
+            "exclusion_column": next(
+                column.source_name
+                for column in review.dataset.columns
+                if column.stable_key == key
+            ),
             "preview_hash": content_hash(
                 {
                     "check": review.page.check_id,
@@ -301,6 +390,7 @@ class DuplicateRowReview:
                     "data": review.selection.content_hash,
                     "data_version_id": review.selection.data_version_id,
                     "positions": sorted(selected),
+                    "exclusion_source_key": key,
                     "impacts": impacts,
                 }
             ),
@@ -308,13 +398,25 @@ class DuplicateRowReview:
         return updated, preview
 
     def _impacts(
-        self, workspace_id: str, review: DuplicateRows, removed: set[str]
+        self,
+        workspace_id: str,
+        review: DuplicateRows,
+        updated: RowInclusionPolicy,
     ) -> list[dict[str, object]]:
         """Count currently included children without silently cascading decisions."""
         results = []
         names = {item.dataset_id: item.name for item in review.selection.datasets}
         edges = extract_dataset_dependency_edges(review.draft.definition.datasets)
-        normalized_removed = {value.strip() for value in removed}
+        identity = review.mapping.source_identity_column_keys
+        before_keys = {_source_key(identity, row) for row in review.included}
+        after_keys = {
+            _source_key(identity, row)
+            for row in review.included
+            if row_is_included(updated, row)
+        }
+        removed_keys = {
+            key for key in before_keys - after_keys if key and None not in key
+        }
         parents = self.values.included_parent_rows(
             workspace_id, review.draft.definition.datasets
         )
@@ -338,7 +440,7 @@ class DuplicateRowReview:
                             "follows_parent": False,
                         }
                     )
-            if not links:
+            if not links or not removed_keys:
                 continue
             gate = parents.get(mapping.dataset_id)
             columns = tuple(
@@ -359,8 +461,7 @@ class DuplicateRowReview:
             for link in links:
                 count = sum(
                     row_is_included(mapping.row_inclusion, row, gate)
-                    and len(link.source_keys) == 1
-                    and str(row[link.source_keys[0]]).strip() in normalized_removed
+                    and _source_key(link.source_keys, row) in removed_keys
                     for values in rows
                     for row in (dict(zip(columns, values, strict=True)),)
                 )
