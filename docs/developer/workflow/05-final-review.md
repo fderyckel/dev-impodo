@@ -222,6 +222,19 @@ prepared value in the visible cell and places original-value and rule detail
 in an Excel note. The package path makes no Odoo call and performs no per-row
 or per-cell repository lookup.
 
+The first **Review overview** tab groups the verified cell effects into a
+**Stage 3 transformation summary**. The reporting adapter groups by dataset,
+target field, rule name, and explanation, then counts distinct source traces
+per group. The summary includes all prepared records in the saved comparison,
+including records later set aside from the load. Counts may overlap across
+fields and rules. Rows use captured dataset and field labels and deterministic
+ordering. The writer summarizes recorded effects; it does not reconstruct an
+edit history, list rules with no saved effect, or evaluate the rules again.
+Missing normalization evidence produces an unavailable message, while verified
+evidence with no effects reports no recorded changes. Protected Odoo-source
+values remain outside this summary. The projection adds no repository or Odoo
+read and changes neither the comparison manifest nor the load decision.
+
 The **Needs attention** projection is a manifest-authoritative action queue.
 The pure `review_workbook_action_priority` function maps errors to **Must fix**
 and warnings to **Review**; the workbook does not promote safe transformations
@@ -509,6 +522,7 @@ contact Odoo while writing them.
 - [`tests/performance/test_preflight_scale.py`](../../../tests/performance/test_preflight_scale.py)
 - [`tests/performance/test_deferred_scope_scale.py`](../../../tests/performance/test_deferred_scope_scale.py)
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
+- [`tests/integration/artifacts/test_transformation_summary.py`](../../../tests/integration/artifacts/test_transformation_summary.py)
 - [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [Explicit company context and ordered identity checks](../../../tests/integration/odoo/test_company_context_identity.py)

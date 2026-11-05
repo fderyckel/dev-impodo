@@ -1305,7 +1305,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             / "web"
             / "templates"
             / "mapping"
-            / "_scalar_catalog.html"
+            / "_scalar_value_preparation.html"
         ).read_text(encoding="utf-8")
 
         builder = template.index("data-value-rule-builder")
@@ -1321,7 +1321,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
         source = (
             REPOSITORY_ROOT
             / "src" / "impodo" / "web" / "templates" / "mapping"
-            / "_scalar_catalog.html"
+            / "_scalar_value_preparation.html"
         ).read_text(encoding="utf-8")
         start = source.index('<div class="compact-control" data-rounding-policy>')
         end = source.index("{% set value_rules_configured", start)
@@ -1403,6 +1403,8 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("/mapping-save-recovery.js", script_template)
         self.assertIn("/mapping-order.js", script_template)
         self.assertIn("/mapping-value-match.js", script_template)
+        self.assertIn("/mapping-value-match-origins.js", script_template)
+        self.assertLess(script_template.index("/mapping-value-match-origins.js"), script_template.index("/mapping-value-match.js"))
         self.assertIn("/mapping-editor.js", script_template)
         self.assertIn("/mapping-formula-validation.js", script_template)
         self.assertIn("/mapping-value-rules.js", script_template)
@@ -1433,9 +1435,10 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("notice warning mapping-order-warnings", order_template)
         self.assertIn("Move up", order_template)
         self.assertIn("Move down", order_template)
-        self.assertIn('aria-controls="mapping-table-fields-{{ dataset_index }}"', dataset_template)
+        self.assertIn('data-mapping-task-panel="fields"', dataset_template)
+        self.assertIn('id="mapping-table-fields-{{ dataset_index }}"', dataset_template)
         self.assertIn("data-table-fields-panel", dataset_template)
-        self.assertIn("Close this table's fields", dataset_template)
+        self.assertIn("Match field values", dataset_template)
         self.assertIn(
             "identity_origin_{{ dataset_index }}_{{ loop.index0 }}",
             dataset_template,
@@ -1460,7 +1463,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertIn("[data-relationship-incoming-control][hidden]", styles)
         self.assertIn("[data-relationship-odoo-control][hidden]", styles)
         self.assertLess(
-            dataset_template.index("data-table-fields-toggle"),
+            dataset_template.index('data-mapping-task-panel="fields"'),
             dataset_template.index("data-table-fields-panel"),
         )
 

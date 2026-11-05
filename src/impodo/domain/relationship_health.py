@@ -224,6 +224,7 @@ def classify_relationship_health(
     target_keys: Iterable[tuple[object | None, ...]],
     incoming_key_counts: Mapping[tuple[str, ...], int],
     unresolved_choices: list[RelationshipChoiceResolution] | None = None,
+    choice_outcomes: dict[tuple[str, ...], str] | None = None,
 ) -> RelationshipHealthResult:
     """Classify exact choices with target-first and case-only safeguards."""
 
@@ -261,15 +262,21 @@ def classify_relationship_health(
         )
         if target_outcome == "exact" or (reuse_case_match and target_outcome == "case"):
             target += occurrence_count
+            if choice_outcomes is not None:
+                choice_outcomes[key] = "target"
             continue
         if target_outcome == "ambiguous":
             ambiguous += occurrence_count
+            if choice_outcomes is not None:
+                choice_outcomes[key] = "ambiguous"
             if unresolved_choices is not None:
                 unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.AMBIGUOUS, occurrence_count,
                     _lookup_count(key, target_counts, target_folded), 0, "target"))
             continue
         if target_outcome == "case":
             case_mismatch += occurrence_count
+            if choice_outcomes is not None:
+                choice_outcomes[key] = "case_only"
             if unresolved_choices is not None:
                 unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.CASE_ONLY, occurrence_count,
                     _lookup_count(key, target_counts, target_folded), 0, "target"))
@@ -300,6 +307,10 @@ def classify_relationship_health(
             if unresolved_choices is not None:
                 unresolved_choices.append(RelationshipChoiceResolution(key, RelationshipChoiceCause.MISSING, occurrence_count, 0, 0,
                     "target" if origin is ResolverOrigin.TARGET_CATALOG else "incoming" if origin is ResolverOrigin.DATASET else "both"))
+        if choice_outcomes is not None:
+            choice_outcomes[key] = {
+                "exact": "incoming", "ambiguous": "ambiguous", "case": "case_only",
+            }.get(incoming_outcome, "missing")
 
     return RelationshipHealthResult(
         owner_dataset_id=owner_dataset_id,

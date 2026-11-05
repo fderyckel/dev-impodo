@@ -28,6 +28,7 @@
         <small data-value-match-freshness-text></small>
       </details>
       <div data-value-match-results>
+        <p class="notice" data-value-match-incoming-notice hidden></p>
         <label class="value-match-company-filter" data-value-match-company-filter hidden>
           Filter Odoo choices by company
           <select><option value="">All available choices</option></select>
@@ -38,7 +39,8 @@
               <tr>
                 <th>Source choice</th>
                 <th>Rows</th>
-                <th>Odoo choice</th>
+                <th data-value-match-choice-heading>Odoo choice</th>
+                <th data-value-match-origin-heading hidden>Found in</th>
               </tr>
             </thead>
             <tbody data-value-match-rows></tbody>

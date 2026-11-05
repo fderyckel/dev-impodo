@@ -930,7 +930,22 @@ table**, select `sales_uoms`, and use **Match values** to confirm `UNI` to
 `UNI`, make `PCE` synonymous with `Unit`, or authorize an update to the Odoo
 record.
 
-Matching is case-sensitive. `KG` does not automatically match Odoo `kg`. When
+With the combined choice, **Match values** checks both Odoo and the selected
+incoming table. **Found in** identifies the origin of each match. For example,
+18 payment-term choices can show **18 of 18 matched · 11 in Odoo · 7 from
+payment_terms**. The summary counts different source choices; **Rows** shows
+how many source rows use each choice.
+
+Incoming matches appear automatically when the selected table has one included
+row with the required identifier. You can still choose a differently named
+Odoo record. **Use complete matches** keeps the incoming-table fallback and
+saves your Odoo choices. Missing or duplicate matches remain visible for
+correction. If the incoming table needs a saved matching rule, the dialog tells
+you to complete it first. Rules with additional scope or hierarchy components
+direct you to **Check saved relationships** for the complete check.
+
+For other linked record types, matching is case-sensitive. `KG` does not
+automatically match Odoo `kg`. When
 Impodo finds only a case-different Odoo candidate, it marks the value **Needs
 attention**. Use **Match values** to confirm that the two values identify the
 same Odoo record, or choose **Only another incoming table** when they must

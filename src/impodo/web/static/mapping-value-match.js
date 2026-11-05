@@ -93,6 +93,11 @@
     const resetValueMatchDialog = () => {
       blankCreate?.reset();
       window.impodoValueMatchCompany?.reset(valueMatchDialog);
+      const incomingNotice = valueMatchDialog.querySelector("[data-value-match-incoming-notice]");
+      if (incomingNotice) {
+        incomingNotice.hidden = true;
+        incomingNotice.textContent = "";
+      }
       if (valueMatchRows) {
         valueMatchRows.replaceChildren();
       }
@@ -139,6 +144,7 @@
       let blankChoice = `leave-blank:${window.crypto.randomUUID()}`;
       while (targetValues.has(blankChoice)) blankChoice = `leave-blank:${window.crypto.randomUUID()}`;
       activeValueMatch.blankChoice = blankChoice;
+      const origins = window.impodoValueMatchOrigins?.create(valueMatchDialog, payload, targetValues, blankChoice);
       const ambiguousCount = payload.ambiguous_values?.length || 0;
       const targetChoiceLabel = (choice) => {
         const value = String(choice.value);
@@ -149,15 +155,17 @@
         const selects = Array.from(
           valueMatchRows.querySelectorAll("select[data-source-value]")
         );
-        const matched = selects.filter((select) => select.value).length;
+        const combined = origins?.progress(selects);
+        const matched = combined?.matched ?? selects.filter((select) => select.value).length;
+        activeValueMatch.matchedCount = matched;
         const unavailableCount = selects.filter(
           (select) => select.selectedOptions[0]?.dataset.needsReview === "true"
         ).length;
         const remaining = Math.max(0, sourceChoices.length - matched);
         if (!retryValueMatch) {
-          const progress = !sourceChoices.length ? "No source values to match"
+          const progress = combined?.text || (!sourceChoices.length ? "No source values to match"
             : !targetChoices.length ? "No Odoo choices available"
-            : `${matched - unavailableCount} of ${sourceChoices.length} matched`;
+            : `${matched - unavailableCount} of ${sourceChoices.length} matched`);
           valueMatchStatus.textContent = [
             prefix,
             progress,
@@ -230,9 +238,8 @@
         select.setAttribute("aria-label", `Odoo choice for ${sourceValue}`);
 
         const savedTarget = existing.get(sourceValue);
-        const suggestedTarget = targetValues.has(sourceValue)
-          ? sourceValue
-          : "";
+        const suggestedTarget = origins ? origins.suggestion(sourceValue)
+          : targetValues.has(sourceValue) ? sourceValue : "";
         const selectedTarget =
           existing.has(sourceValue) && savedTarget === null && allowBlank
             ? blankChoice
@@ -275,6 +282,7 @@
         countCell.textContent = String(sourceChoice.count);
         targetCell.append(select);
         row.append(sourceCell, countCell, targetCell);
+        origins?.attach(row, sourceValue, select);
         valueMatchRows.append(row);
       }
 
@@ -341,6 +349,8 @@
 
       let sourceColumnKey;
       let businessKeyId = "";
+      let resolverOrigin = "target_catalog";
+      let incomingDatasetId = "";
       if (kind === "scalar") {
         const provider = row.querySelector("[data-value-source]");
         const source = row.querySelector('[name^="scalar_source_"]');
@@ -372,6 +382,15 @@
         }
         sourceColumnKey = selectedSources[0];
         businessKeyId = key.value;
+        resolverOrigin = origin.value;
+        if (resolverOrigin === "target_then_dataset") {
+          const incoming = row.querySelector('[name^="relation_dataset_"]');
+          if (!incoming?.value) {
+            requireChoice(row, incoming || origin, "Choose an incoming table first");
+            return;
+          }
+          incomingDatasetId = incoming.value;
+        }
       }
       row.querySelector("[data-value-match-prerequisite]").hidden = true;
 
@@ -420,6 +439,8 @@
       body.set("target_model", trigger.dataset.targetModel || "");
       body.set("target_field", trigger.dataset.targetField || "");
       body.set("business_key_id", businessKeyId);
+      body.set("resolver_origin", resolverOrigin);
+      body.set("incoming_dataset_id", incomingDatasetId);
       body.set("refresh", refresh ? "1" : "0");
       if (checkBlankDefault) body.set("check_blank_default", "1");
       body.set("selection_refreshes", selectionRefreshStorage.value);
@@ -551,10 +572,11 @@
         .closest("[data-scalar-mapping-row], [data-relation-mapping-row]")
         ?.querySelector("[data-value-match-summary]");
       if (summary) {
-        const remaining = activeValueMatch.sourceCount - mappings.length;
+        const matched = activeValueMatch.matchedCount ?? mappings.length;
+        const remaining = activeValueMatch.sourceCount - matched;
         summary.textContent = remaining
-          ? `${mappings.length} matched · ${remaining} still need review`
-          : `All ${mappings.length} populated source choice(s) matched`;
+          ? `${matched} matched · ${remaining} still need review`
+          : `All ${matched} populated source choice(s) matched`;
       }
       const trigger = activeValueMatch.trigger;
       activeValueMatch = null;

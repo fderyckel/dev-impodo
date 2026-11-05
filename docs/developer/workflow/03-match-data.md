@@ -1284,6 +1284,42 @@ performance improvement.
 
 ### Match linked records
 
+The combined **Match values** dialog submits `resolver_origin` and
+`incoming_dataset_id` to the value-choices route. The local source operation
+reads the selected table's saved source identity and row-inclusion policy.
+[`value_match_choices.py`](../../../src/impodo/application/workspace/mapping/value_match_choices.py)
+delegates per-choice classification to `classify_relationship_health`, so Odoo
+precedence, duplicate detection, and payment-term case handling share the early
+relationship check's rules. Flat extracted tables use the existing bounded
+lookup producer and its authoritative Unicode grouping. The incoming lookup
+key follows the same normalization as staging, including consumers in a joined
+table. Scoped and hierarchical shapes remain explicitly unchecked in this
+quick dialog and retain their complete relationship-check path.
+
+[`Pure classification tests`](../../../tests/application/workspace/mapping/test_value_match_choices.py)
+cover exact precedence, duplicate keys, case review, and generated lookup keys.
+
+The route closes the local database operation before reading Odoo. The dialog
+receives only ephemeral outcomes for its bounded source choices, rather than a
+new persisted reference catalogue. The
+[`origin controller`](../../../src/impodo/web/static/mapping-value-match-origins.js)
+shows the matched choice, origin, and combined counts. It keeps incoming
+matches usable when no Odoo choice exists and preserves unsaved overrides
+through refresh and retry. Applying the dialog serializes only Odoo aliases or
+explicit blank decisions; it preserves `target_then_dataset` and the incoming
+dataset identity. Preparation and Final review remain authoritative.
+
+[`Combined route tests`](../../../tests/integration/web/test_combined_value_match_choices.py)
+exercise Odoo 19 and 20 with local and remote readers, extracted terms, saved
+row exclusion, form saves, and workspace reopening. Their cold fixture permits
+12 physical opens, eight schema checks, and 200 SQL statements, including the
+single in-memory lookup producer. The tests assert that no local database owner
+or running event loop reaches the Odoo reader. The
+[`dialog regression`](../../../tests/e2e/mapping-value-match-origins.test.cjs)
+executes the actual controllers against a DOM fixture, covering mixed and
+all-incoming matches, missing and duplicate choices, saved aliases, reopening,
+and refresh recovery without launching a browser.
+
 Many2one and many2many relationships use one of three closed origins.
 `dataset` resolves through one incoming dataset, `target_catalog` resolves
 through existing-target business keys, and `target_then_dataset` checks the

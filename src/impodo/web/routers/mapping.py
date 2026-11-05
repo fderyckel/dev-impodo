@@ -43,6 +43,10 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.mapping.incoming_dependencies import (
     repair_unambiguous_incoming_dependencies,
 )
+from impodo.application.workspace.mapping.value_match_choices import (
+    combined_value_choices,
+    incoming_value_choices,
+)
 from impodo.domain.mapping.contracts import ReferenceKeyMapping, ResolverOrigin
 from impodo.domain.matching_order import (
     MatchingIdentityChoiceCause,
@@ -868,6 +872,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 "refresh",
                 "selection_refreshes",
                 "check_blank_default",
+                "resolver_origin",
+                "incoming_dataset_id",
             },
         )
         try:
@@ -885,6 +891,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             source_column_key = _text(form, "source_column_key")
             target_model = _text(form, "target_model")
             target_field = _text(form, "target_field")
+            origin = _text(form, "resolver_origin") or "target_catalog"
+            if origin not in {"target_catalog", "target_then_dataset"}:
+                raise WorkspaceError("Choose an option that checks existing Odoo records")
 
             def load_source_choices():
                 _require_mapping_idle(context, workspace_id)
@@ -903,6 +912,18 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     and source_column_key not in {item.stable_key for item in source_dataset.columns}
                 ):
                     raise WorkspaceError("Choose one current source column")
+                incoming = None
+                if kind == "relationship" and origin == "target_then_dataset":
+                    related_field = next((item for model in schema.models if model.name == target_model
+                                          for item in model.fields if item.name == target_field), None)
+                    draft = context.queries.get_mapping_working_draft(workspace_id)
+                    incoming = incoming_value_choices(
+                        context.categorical_coverage, workspace_id, selection,
+                        draft.definition if draft else None,
+                        context.queries.get_derived_entity_plan(workspace_id),
+                        dataset_id=_text(form, "incoming_dataset_id"),
+                        related_model=related_field.relation if related_field and related_field.relation else "",
+                    )
                 company_access = (
                     prepare_matching_access(
                         context, workspace_id, actor=actor, schema=schema,
@@ -935,15 +956,15 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                                 workspace_id, selection, dataset_id, source_column_key, policy,
                                 included_parent=parent,
                             )
-                            return workspace_state, schema, governance, choices, blank_count, company_access
+                            return workspace_state, schema, governance, choices, blank_count, company_access, incoming
                 choices = () if kind == "constant_relationship" else _source_value_choices(
                     context, workspace_id, dataset_id, source_column_key,
                 )
                 blank_count = max(0, source_dataset.row_count - sum(int(str(choice["count"])) for choice in choices))
-                return workspace_state, schema, governance, choices, blank_count, company_access
+                return workspace_state, schema, governance, choices, blank_count, company_access, incoming
 
             (
-                workspace_state, schema, governance, source_choices, blank_count, company_access,
+                workspace_state, schema, governance, source_choices, blank_count, company_access, incoming,
             ) = await run_local_operation(load_source_choices)
             model = next(
                 (item for item in schema.models if item.name == target_model),
@@ -963,6 +984,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             target_checked_at: str | None = None
             target_choices_reused = False
             selection_payload = {}
+            combined_payload = {}
             if kind == "scalar":
                 if field.type != "selection":
                     raise WorkspaceError("This Odoo field is not a choice field")
@@ -1047,6 +1069,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     actor=actor,
                 )
                 target_checked_at = checked_at.isoformat()
+                if incoming is not None:
+                    combined_payload = await run_in_threadpool(
+                        combined_value_choices,
+                        incoming, source_choices, target_choices, ambiguous_values,
+                        owner_dataset_id=dataset_id, target_field=target_field,
+                        related_model=field.relation, scoped_key=bool(key.scope_fields),
+                    )
             blank_fallback_available = (
                 kind == "relationship" and field.type == "many2one"
                 and field.required and not field.readonly and blank_count > 0
@@ -1070,6 +1099,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "target_checked_at": target_checked_at,
                     "target_choices_reused": target_choices_reused,
                     **selection_payload,
+                    **combined_payload,
                     "allow_blank": kind == "relationship" and not field.required,
                     "blank_source_count": blank_count if blank_fallback_available else 0,
                     "blank_odoo_default_verified": (

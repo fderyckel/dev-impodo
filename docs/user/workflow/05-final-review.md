@@ -167,6 +167,14 @@ problem by itself; **Cannot proceed** identifies a record that Impodo will hold
 back. Correct source data or rules in Impodo, then prepare and compare again.
 Editing a workbook cell does not change the saved data or proposed load.
 
+The first tab, **Review overview**, includes a **Stage 3 transformation summary**.
+It groups saved transformation effects by source dataset, Odoo field, and
+applied rule. Each row explains what Impodo did and counts the affected records.
+The summary covers all prepared records in the comparison, including records
+set aside from the load. A record can appear under several fields or rules,
+so these counts overlap. Only rules with recorded effects appear. If saved
+transformation details are unavailable, the summary says so.
+
 **Needs attention** is the workbook's action queue. Impodo sorts red **Must
 fix** items before amber **Review** items. Each row identifies the source
 dataset, record, field, final prepared value, reason, recommended action, and

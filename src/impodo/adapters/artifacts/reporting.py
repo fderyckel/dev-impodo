@@ -477,6 +477,10 @@ def _build_workbook(
             link.style = "Hyperlink"
             overview.print_area = f"A1:H{row_index}"
 
+    _write_transformation_summary(
+        overview, all_prepared_by_trace, cell_effects, review_evidence,
+    )
+
     temporary = workbook_path.with_name(f".{workbook_path.name}.partial")
     try:
         workbook.save(temporary)
@@ -980,6 +984,100 @@ def _write_review_overview(
     sheet.print_area = "A1:H24"
     sheet.sheet_view.showGridLines = False
     sheet.sheet_properties.tabColor = _COLORS["brand"]
+
+
+def _write_transformation_summary(
+    sheet,
+    prepared_by_trace: Mapping[str, PreparedRecord],
+    cell_effects: Mapping[tuple[str, str], tuple[ReviewWorkbookCellEffect, ...]],
+    evidence: ReviewWorkbookEvidence | None,
+) -> None:
+    """Summarize verified preparation effects without evaluating rules again."""
+
+    start_row = sheet.max_row + 2
+    sheet.merge_cells(
+        start_row=start_row, start_column=1, end_row=start_row, end_column=8,
+    )
+    sheet.cell(start_row, 1, "Stage 3 transformation summary")
+    _style_header(sheet, start_row, 1, 8, _COLORS["charcoal_dark"])
+
+    note_row = start_row + 1
+    sheet.merge_cells(
+        start_row=note_row, start_column=1, end_row=note_row, end_column=8,
+    )
+    note = sheet.cell(note_row, 1)
+    note.font = _BODY_FONT
+    note.fill = _PAPER_FILL
+    note.alignment = Alignment(vertical="top", wrap_text=True)
+    sheet.row_dimensions[note_row].height = 44
+    if evidence is None or not evidence.normalization_content_hash:
+        note.value = "Saved transformation details are unavailable for this comparison."
+        sheet.print_area = f"A1:H{note_row}"
+        return
+    if not cell_effects:
+        note.value = "No value changes were recorded in the saved preparation evidence."
+        sheet.print_area = f"A1:H{note_row}"
+        return
+    note.value = (
+        "Saved effects of your Stage 3 rules on all prepared records in this comparison, "
+        "including records set aside from the load. Each record is counted once per "
+        "field and rule, so counts can overlap. Only rules with recorded effects are listed."
+    )
+
+    grouped: Counter[tuple[str, str, str, str]] = Counter()
+    for effects in cell_effects.values():
+        grouped.update({
+            (effect.dataset, effect.target_field, effect.rule_name, effect.explanation)
+            for effect in effects
+        })
+    models = _dataset_models(prepared_by_trace.values())
+    header_row = start_row + 3
+    if header_row + len(grouped) > _EXCEL_MAX_ROW:
+        raise ReportGenerationError(
+            "The transformation summary exceeds the Excel row limit"
+        )
+    for column, title in (
+        (1, "Source dataset"),
+        (2, "Odoo field"),
+        (3, "Applied rule"),
+        (5, "What Impodo did"),
+        (8, "Affected records"),
+    ):
+        sheet.cell(header_row, column, title)
+    sheet.merge_cells(
+        start_row=header_row, start_column=3, end_row=header_row, end_column=4,
+    )
+    sheet.merge_cells(
+        start_row=header_row, start_column=5, end_row=header_row, end_column=7,
+    )
+    _style_header(sheet, header_row, 1, 8, _COLORS["prepared"])
+
+    for row_index, (key, count) in enumerate(
+        sorted(grouped.items()), start=header_row + 1,
+    ):
+        dataset, target_field, rule, explanation = key
+        values = (
+            (1, _dataset_label(dataset, evidence)),
+            (2, _field_label(dataset, target_field, models, evidence)),
+            (3, rule),
+            (5, explanation),
+            (8, count),
+        )
+        for column, value in values:
+            cell = sheet.cell(row_index, column, _safe_cell(value))
+            cell.font = _BODY_FONT
+            cell.fill = _SURFACE_FILL if row_index % 2 == 0 else _PAPER_FILL
+            cell.border = _THIN_BORDER
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+        sheet.merge_cells(
+            start_row=row_index, start_column=3, end_row=row_index, end_column=4,
+        )
+        sheet.merge_cells(
+            start_row=row_index, start_column=5, end_row=row_index, end_column=7,
+        )
+        sheet.cell(row_index, 8).number_format = "#,##0"
+        sheet.row_dimensions[row_index].height = 44
+    sheet.print_area = f"A1:H{sheet.max_row}"
 
 
 def _prepared_records_by_trace(

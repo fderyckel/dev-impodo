@@ -135,8 +135,15 @@ samples. Host load and application state differ from the isolated fixture, so
 the isolated after result must not be presented as a live 23.7-to-8.1-second
 improvement.
 
-The running server and browser session were preserved. Applying this fix to
-that process requires an approved restart; the existing split-build worker
-guard remains active. Live after timings therefore remain pending. No live
-workspace files, choices, or saved evidence were modified. Private benchmark
-copies are removed after the comparison.
+The approved supervised restart loaded the fix at the original address and
+retained the browser session: the replacement process served 72 authenticated
+health requests. Both runtime processes later disappeared without a recorded
+clean shutdown, and temporary verification environments were also cleared.
+Impodo was restored at the same address without opening a browser tab. Since
+the old sign-in secret existed only in memory, restoration requires a fresh
+sign-in in the existing tab. The server responds and enforces authentication.
+
+Live file-page and inspection timings remain pending an authenticated visit;
+health requests do not measure file loading. No live workspace files, choices,
+or saved evidence were modified by this task. Private benchmark copies were
+removed after the comparison. The split-build worker guard remains active.

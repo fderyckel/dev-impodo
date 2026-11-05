@@ -864,6 +864,20 @@ label.model-choice input {
   min-width: 17rem;
 }
 
+.value-match-table [data-value-match-origin-heading],
+.value-match-table [data-value-match-origin] {
+  min-width: 10rem;
+  overflow-wrap: anywhere;
+}
+
+.value-match-table [data-match-origin="missing"],
+.value-match-table [data-match-origin="ambiguous"],
+.value-match-table [data-match-origin="case_only"],
+.value-match-table [data-match-origin="unavailable"],
+.value-match-table [data-match-origin="review"] {
+  font-weight: 600;
+}
+
 .dialog-heading {
   display: flex;
   align-items: flex-start;
