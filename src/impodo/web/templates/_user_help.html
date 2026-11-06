@@ -17,3 +17,14 @@
 {% macro decision_help(help_id) -%}
   {{ user_help_link(decision_help_by_id[help_id], "decision-help-link") }}
 {%- endmacro %}
+
+{% macro inline_help(accessible_name, text) -%}
+  <details class="inline-user-help">
+    <summary aria-label="{{ accessible_name }}">
+      <svg class="ui-icon" aria-hidden="true" focusable="false">
+        <use href="{{ url_for('static', path='/bootstrap-icons.svg') }}#question-circle"></use>
+      </svg>
+    </summary>
+    <p>{{ text }}</p>
+  </details>
+{%- endmacro %}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from html.parser import HTMLParser
 from unittest.mock import patch
 
 from impodo.domain.odoo.company import OdooCompanySelection
@@ -13,6 +14,35 @@ from impodo.web.presenters.navigation import build_workspace_navigation
 from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
 from tests.support.hierarchy_correction import MappingForm
 from tests.support.identity import resolve_local_actor
+
+
+class _ModeControls(HTMLParser):
+    """Inspect rendered mode visibility and policies outside support disclosures."""
+
+    def __init__(self, markup):
+        super().__init__()
+        self.mode_panels = {}
+        self.details = []
+        self.blank_policies = {}
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        values = dict(attrs)
+        if tag == "details":
+            self.details.append(values.get("class", "").split())
+        for marker in ("data-mapping-create-policy", "data-mapping-update-summary"):
+            if marker in values:
+                self.mode_panels[marker] = "hidden" not in values
+        if tag == "select" and values.get("name", "").startswith(
+            ("scalar_null_", "relation_null_")
+        ):
+            self.blank_policies[values["name"]] = not any(
+                "technical-details" in classes for classes in self.details
+            )
+
+    def handle_endtag(self, tag):
+        if tag == "details":
+            self.details.pop()
 
 
 class MappingJourneyLocationTests(unittest.TestCase):
@@ -73,6 +103,12 @@ class MappingJourneyBrowserTests(ProjectSetupBrowserTestCase):
             "Choose company",
         )
         original_controls = MappingForm(initial.text).entries
+        controls = _ModeControls(initial.text)
+        self.assertFalse(controls.mode_panels["data-mapping-create-policy"])
+        self.assertTrue(controls.mode_panels["data-mapping-update-summary"])
+        self.assertTrue(controls.blank_policies)
+        self.assertTrue(all(controls.blank_policies.values()))
+        self.assertIn("/mapping-target-mode.js", initial.text)
         self.assertIn(["target_model_0", "res.partner"], original_controls)
         self.assertIn("relation_value_source_0_0", dict(original_controls))
         self.assertIn("scalar_source_0_1", dict(original_controls))

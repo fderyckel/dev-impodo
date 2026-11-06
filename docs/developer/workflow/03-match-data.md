@@ -50,6 +50,16 @@ The field grid presents the Odoo field, its value provider, and the preview in
 three columns. Value conversion and cleanup stay under **Prepare values**.
 The catalogue's **More field options** disclosure owns filtering and Odoo-field
 refresh; each field's **Support options** owns comparison and requiredness.
+Scalar and linked-field blank policies appear under **Blank source values**
+outside the support disclosure. Their control names, saved values, and defaults
+are unchanged, including when field catalogues are replaced during a search.
+The dataset template initially shows the existing-record policy only in
+`create` mode and the changed-field explanation only in `upsert` mode.
+`mapping-target-mode.js` updates these disclosures when the operator changes
+mode. It keeps hidden controls enabled and retains the entered create-only
+choice when the operator switches back. The form parser continues to accept
+`on_existing` only in create mode; update payloads still contain only material
+field differences. These display changes add no local database or Odoo calls.
 The existing page-read and mutation operation scopes remain unchanged.
 Save-and-continue uses the normal mutation receipt and advances only after
 the save is committed. It advances through the active table's available tasks,

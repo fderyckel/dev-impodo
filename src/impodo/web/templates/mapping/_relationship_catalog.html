@@ -22,7 +22,7 @@
               {% set relation_index = row.index %}
               {% set mapping = row.mapping %}
               {% set disposition = row.disposition %}
-              <details id="relationship-{{ dataset_index }}-{{ row.metadata.name }}" class="relationship-card" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}">
+              <details id="relationship-{{ dataset_index }}-{{ row.metadata.name }}" class="relationship-card{% if mapping and not disposition %} is-connected{% endif %}" data-relation-mapping-row data-relation-field-row data-target-field="{{ row.metadata.name }}" data-relation-search-text="{{ row.metadata.label|lower }} {{ row.metadata.name|lower }} {{ row.metadata.type|lower }} {{ (row.metadata.relation or '')|lower }}">
                 <summary>
                   <span><strong>{{ row.metadata.label }}</strong></span>
                   <span class="relationship-card-state">
@@ -280,6 +280,15 @@
                       </div>
                     {% endif %}
                     </div>
+                    <label>
+                      Blank source values
+                      <select name="relation_null_{{ dataset_index }}_{{ relation_index }}">
+                        {% set selected_relation_null = mapping.null_policy if mapping else 'distinct' %}
+                        {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
+                          <option value="{{ policy }}" {% if selected_relation_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
+                        {% endfor %}
+                      </select>
+                    </label>
                     <details class="technical-details">
                     <summary>Support options</summary>
                     <label><input type="checkbox" name="relation_compare_{{ dataset_index }}_{{ relation_index }}" value="1" {% if not mapping or mapping.compare %}checked{% endif %}> Compare with Odoo</label>
@@ -295,12 +304,6 @@
                       {% set selected_ambiguous = mapping.on_ambiguous if mapping else 'error' %}
                       <option value="error" {% if selected_ambiguous == 'error' %}selected{% endif %}>If several match: stop and ask</option>
                       <option value="warning" {% if selected_ambiguous == 'warning' %}selected{% endif %}>If several match: ask me to review</option>
-                    </select>
-                    <select name="relation_null_{{ dataset_index }}_{{ relation_index }}">
-                      {% set selected_relation_null = mapping.null_policy if mapping else 'distinct' %}
-                      {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
-                        <option value="{{ policy }}" {% if selected_relation_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
-                      {% endfor %}
                     </select>
                     </details>
                   </div>
