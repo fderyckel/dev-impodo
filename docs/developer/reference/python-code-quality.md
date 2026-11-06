@@ -94,6 +94,13 @@ Host-specific suites live below `tests/platform/` and run in separate workflows;
 they are not discovered by the portable repository gate. See
 [Platform support and testing](platform-support-and-testing.md).
 
+During platform stabilization, all repository workflows require manual dispatch
+by the maintainer. Pushes and pull requests do not start hosted jobs. Keep them
+disabled until the manual-trigger configuration is merged into `main`, then
+enable them for manual use. Select the intended branch when starting a run and
+record its exact commit. A manual-only trigger does not waive required checks
+or make an unexecuted check pass.
+
 ## Keep type diagnostics visible
 
 The repository has no Basedpyright baseline. Do not create one or run

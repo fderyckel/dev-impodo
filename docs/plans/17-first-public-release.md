@@ -37,10 +37,20 @@ As observed on 6 November 2026:
   development process. Repository-side enforcement and CI cost improvements
   still need implementation and verification.
 
-Keep these workflows disabled until the maintainer explicitly asks to resume
-them. Do not enable, dispatch, or rerun them, or change triggers to bypass the
-pause. Read-only status checks and local verification remain allowed. Preparing
-this plan does not authorize a billing change or a new paid runner.
+The maintainer subsequently chose manual-only hosted checks during platform
+stabilization. All repository workflows use only `workflow_dispatch`; pushes,
+pull requests, tags, and schedules must not start jobs. Keep the workflows
+disabled until that configuration reaches `main`, then enable them for manual
+use. The maintainer selects the workflow and branch and starts each run. Agents
+must not dispatch, rerun, or restore automatic triggers without an explicit
+request. Local checks remain required. This policy does not authorize a billing
+change or a new paid runner.
+
+GitHub's generated Dependency Graph job has a separate repository security
+setting. Its workflow cannot be made manual by editing the repository YAML.
+An administrator must review that setting to stop its automatic runs, including
+the effect on dependency alerts and dependency review. Do not report all Actions
+as manual-only while that generated job remains active.
 
 While Actions are paused, contributors may prepare changes, run local checks,
 and push authorized task branches. Keep pull requests unmerged and releases
@@ -161,7 +171,7 @@ one frozen candidate before delivery. Keep the full operating-system matrix
 and applicable platform checks as merge and release requirements. A passing
 subset does not establish that the complete candidate is ready.
 
-When hosted workflows are explicitly resumed, improve their execution order:
+When preparing later improvements to manually dispatched checks:
 
 - Run the fast repository checks before starting the expensive behavior matrix.
 - Cancel superseded runs for the same workflow and pull request. Keep unrelated
@@ -174,7 +184,8 @@ When hosted workflows are explicitly resumed, improve their execution order:
   evidence checks, platform coverage, or required diagnostics.
 
 These are proposed workflow changes, not a claim that the current YAML already
-implements them. The Actions pause remains in force during their preparation.
+implements those execution-order improvements. Manual dispatch remains the
+only permitted trigger during platform stabilization.
 
 ## Weekly release window
 

@@ -29,11 +29,17 @@ pull requests throughout the week and publish only from a verified `main`
 commit. Attach no custom artifact. Review a monthly cadence after eight
 successful source releases.
 
-The maintainer paused the three test workflows on 6 November 2026. Keep them
-disabled until explicitly authorized to resume them. Local verification and
-workflow proposals may continue; unavailable hosted checks remain release
-blockers. Branch protection, CI cost controls, packaging, and deployment work
-below remain separate implementation tasks.
+The maintainer paused the three test workflows on 6 November 2026 and then
+chose manual-only checks during stabilization. All repository workflows use
+only `workflow_dispatch`. Keep them disabled until that configuration reaches
+`main`, then enable them for the maintainer to dispatch each run. Agents must
+not start runs or restore automatic triggers without an explicit request.
+GitHub's generated Dependency Graph job requires a separate administrator
+decision; repository YAML cannot make it manual. Local verification remains
+required, and unavailable hosted checks remain release blockers. Automatic
+pull-request, mainline, and scheduled lanes proposed below require a later
+explicit decision to resume automation. Branch protection, CI cost controls,
+packaging, and deployment work remain separate implementation tasks.
 
 The primary outcome is not “more automation.” An evaluator should be able to
 answer these questions from GitHub without trusting a maintainer's private

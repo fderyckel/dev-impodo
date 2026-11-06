@@ -103,18 +103,6 @@ class LinuxContainerContractTests(unittest.TestCase):
         self.assertIn("supporting-image-quality:", workflow)
         self.assertIn("service: [postgres, proxy]", workflow)
         self.assertIn('config --format json', workflow)
-        for build_input in (
-            ".dockerignore",
-            "LICENSE",
-            "README.md",
-            "pyproject.toml",
-            "uv.lock",
-            "deploy/**",
-            "src/**",
-        ):
-            with self.subTest(build_input=build_input):
-                self.assertIn(f"- {build_input}", workflow)
-
         action_references = tuple(
             line.split("uses:", maxsplit=1)[1].split("#", maxsplit=1)[0].strip()
             for line in workflow.splitlines()
