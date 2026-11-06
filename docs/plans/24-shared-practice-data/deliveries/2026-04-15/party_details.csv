@@ -1,0 +1,19 @@
+Partition,RecId,Name,Status,Email,Phone,Memo
+PART-N,PTY-0001,Morrow North Assembly,Verified,north.01@morrow.example,001-202.555.0101,Invented training row 01; delivery 2026-04-15
+PART-N,PTY-0002,Morrow North Design,Verified,north.02@morrow.example,001-202.555.0102,Invented training row 02; delivery 2026-04-15
+PART-N,PTY-0003,Morrow Café Supply,Verified,north.03@morrow.example,001-202.555.0103,Invented training row 03; delivery 2026-04-15
+PART-N,PTY-0004,  Morrow North Metals  ,Verified,north.04@morrow.example,001-202.555.0104,Invented training row 04; delivery 2026-04-15
+PART-N,PTY-0005,Morrow North Packaging,Verified,,001-202.555.0105,Invented training row 05; delivery 2026-04-15
+PART-N,PTY-0006,Morrow North Studio,Verified,north.06@morrow.example,001-202.555.0106,Invented training row 06; delivery 2026-04-15
+PART-N,PTY-0007,Morrow North Modules,Verified,NORTH.07@MORROW.EXAMPLE,001-202.555.0107,Invented training row 07; delivery 2026-04-15
+PART-N,PTY-0008,Morrow North Workshop,Verified,north.08@morrow.example,001-202.555.0108,Invented training row 08; delivery 2026-04-15
+PART-N,PTY-0009,Morrow North Service,Verified,north.09@morrow.example,001-202.555.0109,Invented training row 09; delivery 2026-04-15
+PART-S,PTY-0001,Morrow South Assembly,Verified,south.01@morrow.example,001-202.555.0110,Invented training row 10; delivery 2026-04-15
+PART-S,PTY-0002,Morrow South Design,Verified,south.02@morrow.example,001-202.555.0111,Invented training row 11; delivery 2026-04-15
+PART-S,PTY-0003,Morrow South Supply,Verified,south.03@morrow.example,001-202.555.0112,Invented training row 12; delivery 2026-04-15
+PART-S,PTY-0004,Morrow South Metals,Verified,south.04@morrow.example,001-202.555.0113,Invented training row 13; delivery 2026-04-15
+PART-S,PTY-0005,Morrow South Packaging,Verified,south.05@morrow.example,001-202.555.0114,Invented training row 14; delivery 2026-04-15
+PART-S,PTY-0006,Morrow South Studio,Verified,south.06@morrow.example,001-202.555.0115,Invented training row 15; delivery 2026-04-15
+PART-S,PTY-0007,Morrow South Modules,Verified,south.07@morrow.example,001-202.555.0116,Invented training row 16; delivery 2026-04-15
+PART-S,PTY-0008,Morrow South Workshop,Verified,south.08@morrow.example,001-202.555.0117,Invented training row 17; delivery 2026-04-15
+PART-S,PTY-0009,Morrow South Service,Verified,south.09@morrow.example,001-202.555.0118,Invented training row 18; delivery 2026-04-15

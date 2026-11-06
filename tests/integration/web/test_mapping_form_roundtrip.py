@@ -11,6 +11,7 @@ from starlette.datastructures import FormData
 from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.contracts import (
     MappingDefinition,
+    MappingTargetMode,
     RelationshipMapping,
     RelationshipValueSource,
 )
@@ -309,6 +310,33 @@ class MappingFormRoundTripTests(unittest.TestCase):
         self.assertEqual(category.fields[0].source_column_key, "category.name")
         self.assertEqual(category.relationships[0].target_field, "parent_id")
         self.assertEqual(category.relationships[0].source_column_keys, ("category.parent",))
+
+    def test_modes_and_blank_policies_survive_reopening_for_both_majors(self):
+        datasets = self.parse(self.render_form(None, 0))
+        for version in ("19.0", "20.0"):
+            self.schema.odoo_version = version
+            for mode in (
+                MappingTargetMode.UPSERT,
+                MappingTargetMode.CREATE,
+                MappingTargetMode.REFERENCE,
+            ):
+                for policy in ("distinct", "equivalent", "ignore_source_null"):
+                    with self.subTest(version=version, mode=mode, policy=policy):
+                        category = replace(
+                            datasets[0],
+                            mode=mode,
+                            on_existing="unchanged" if mode is MappingTargetMode.CREATE else None,
+                            fields=tuple(replace(field, null_policy=policy) for field in datasets[0].fields),
+                            relationships=tuple(replace(link, null_policy=policy) for link in datasets[0].relationships),
+                        )
+                        self.assertTrue(category.fields)
+                        self.assertTrue(category.relationships)
+                        definition = canonicalize_mapping_definition(replace(
+                            self.definition, datasets=(category, *datasets[1:]),
+                        ))
+                        reopened = self.roundtrip(definition, 0)
+                        self.assertEqual(reopened.datasets, definition.datasets)
+                        self.assertEqual(reopened.content_hash, definition.content_hash)
 
     def test_excel_timestamp_date_format_survives_authoring_and_reopening(self):
         category, product = self.schema.models

@@ -2,28 +2,6 @@ name: Windows release quality
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - scripts/install-internal-release.ps1
-      - scripts/internal_release.py
-      - requirements.windows-py312.lock
-      - src/impodo/adapters/protected_evidence/project_security.py
-      - src/impodo/web/launcher.py
-      - tests/integration/protected_evidence/test_project_security.py
-      - tests/platform/windows/**
-      - .github/workflows/windows-release-quality.yml
-  pull_request:
-    paths:
-      - scripts/install-internal-release.ps1
-      - scripts/internal_release.py
-      - requirements.windows-py312.lock
-      - src/impodo/adapters/protected_evidence/project_security.py
-      - src/impodo/web/launcher.py
-      - tests/integration/protected_evidence/test_project_security.py
-      - tests/platform/windows/**
-      - .github/workflows/windows-release-quality.yml
 
 permissions:
   contents: read

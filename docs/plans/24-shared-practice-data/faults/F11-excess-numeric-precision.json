@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F11-excess-numeric-precision",
+  "base_file": "deliveries/2026-04-15/bom_rows.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "BOMRef": "MA-BOM-003",
+        "Sequence": "10"
+      },
+      "values": {
+        "Quantity": "0,123456789"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Numeric-precision advisory then write-field validation",
+    "result": "Compare exact prepared precision with current captured field capacity. Block only if a proposed write exceeds it; never round silently.",
+    "parameter": "Set captured target capacity lower than9 decimal places in the controlled target adapter."
+  }
+}

@@ -2,40 +2,6 @@ name: Linux server quality
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - .dockerignore
-      - LICENSE
-      - README.md
-      - pyproject.toml
-      - uv.lock
-      - deploy/**
-      - src/**
-      - tests/architecture/test_linux_container_contract.py
-      - tests/architecture/test_supporting_image_contract.py
-      - tests/platform/linux/**
-      - tests/integration/postgresql/**
-      - tests/integration/web/test_server_*.py
-      - tests/application/test_cross_store_coordination.py
-      - .github/workflows/linux-server-quality.yml
-  pull_request:
-    paths:
-      - .dockerignore
-      - LICENSE
-      - README.md
-      - pyproject.toml
-      - uv.lock
-      - deploy/**
-      - src/**
-      - tests/architecture/test_linux_container_contract.py
-      - tests/architecture/test_supporting_image_contract.py
-      - tests/platform/linux/**
-      - tests/integration/postgresql/**
-      - tests/integration/web/test_server_*.py
-      - tests/application/test_cross_store_coordination.py
-      - .github/workflows/linux-server-quality.yml
 
 permissions:
   contents: read

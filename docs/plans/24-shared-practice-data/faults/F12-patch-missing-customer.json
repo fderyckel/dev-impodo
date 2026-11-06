@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F12-patch-missing-customer",
+  "base_file": "patches/2026-05-20/customer_phone_patch.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "CustomerRef": "MA-N-0006"
+      },
+      "values": {
+        "CustomerRef": "MA-N-9999"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Comparison and load business controls",
+    "result": "A no-match may classify CREATE at comparison, but update-only load policy with maximum creates0 must block execution.",
+    "required_create_limit": 0
+  }
+}

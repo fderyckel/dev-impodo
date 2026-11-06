@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F15-scoped-target-ambiguity",
+  "base_file": null,
+  "mutations": [],
+  "target_seed_overlay": {
+    "operation": "duplicate_business_record",
+    "model": "fiscal_position",
+    "key": {
+      "company_code": "NORTH",
+      "name": "Domestic"
+    }
+  },
+  "expected": {
+    "stage": "Relationship lookup",
+    "result": "Report ambiguity within the complete key/scope. The existing SOUTH/Domestic is not itself ambiguity for NORTH/Domestic."
+  }
+}

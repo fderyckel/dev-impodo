@@ -5,11 +5,25 @@ from __future__ import annotations
 import sys
 import unittest
 
+import yaml
+
 from scripts.check_repository_quality import CHECKS
 from tests.support.paths import REPOSITORY_ROOT
 
 
 class RepositoryQualityContractTests(unittest.TestCase):
+    def test_hosted_workflows_run_only_on_manual_dispatch(self) -> None:
+        directory = REPOSITORY_ROOT / ".github" / "workflows"
+        workflows = sorted((*directory.glob("*.yml"), *directory.glob("*.yaml")))
+        self.assertTrue(workflows)
+        for path in workflows:
+            with self.subTest(workflow=path.name):
+                # BaseLoader keeps the GitHub event key "on" as a string.
+                workflow = yaml.load(
+                    path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader
+                )
+                self.assertEqual(set(workflow["on"]), {"workflow_dispatch"})
+
     def test_complete_gate_owns_every_repository_guardrail_family(self) -> None:
         commands = dict(CHECKS)
 

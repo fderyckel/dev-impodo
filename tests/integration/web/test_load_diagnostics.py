@@ -8,6 +8,7 @@ import re
 import tempfile
 import time
 import unittest
+from contextlib import ExitStack, closing
 from dataclasses import replace
 from datetime import UTC, datetime
 from io import BytesIO
@@ -17,6 +18,7 @@ from unittest.mock import patch
 from uuid import uuid4
 from zipfile import ZipFile
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.load_jobs import (
@@ -36,14 +38,14 @@ from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     WriteFailureCode,
 )
-from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.domain.execution_snapshot import FieldIntent
 from impodo.domain.odoo.contracts import (
     ConnectorAuthenticationError,
     ConnectorAuthorizationError,
     ConnectorTransportError,
 )
-from impodo.domain.execution_snapshot import FieldIntent
+from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.diagnostics import (
@@ -59,7 +61,6 @@ from impodo.web.load_diagnostics import (
 from tests.application.workspace.execution import test_service as execution_fixtures
 from tests.support import browser_scenarios
 from tests.support.identity import resolve_local_actor
-from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 
 
 def _bundle(recorder, *, attempt_id=None, max_records=5_000):
@@ -136,9 +137,14 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             (ConnectorTransportError("PRIVATE_URL"), "LOAD_ODOO_READ_TRANSPORT_FAILED"),
         )
         for error, code in cases:
-            with self.subTest(code=code), tempfile.TemporaryDirectory() as directory:
-                recorder = LocalDiagnosticRecorder(directory)
-                self.addCleanup(recorder.close)
+            with (
+                self.subTest(code=code),
+                tempfile.TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
+                recorder = resources.enter_context(
+                    closing(LocalDiagnosticRecorder(directory))
+                )
 
                 def work(*_args):
                     if isinstance(error, ConnectorTransportError):
@@ -160,9 +166,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_recording_failure_count_and_terminal_fallback_expose_lost_event_writes(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             event_recorder = recorder._load_recorders[LOAD_EVENT_LOG]
             with (
@@ -199,9 +209,11 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                 with (
                     self.subTest(major=major, transfer=transfer),
                     tempfile.TemporaryDirectory() as directory,
+                    ExitStack() as resources,
                 ):
-                    recorder = LocalDiagnosticRecorder(directory)
-                    self.addCleanup(recorder.close)
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
                     observed = []
 
                     def wrap(original, action):
@@ -291,9 +303,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                     )
 
     def test_legacy_failure_remains_explicitly_unexplained(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             recorder.record_operation_stage(
                 "odoo_load",
                 "write",
@@ -309,13 +325,17 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_preparation_failure_identifies_the_attempted_field_without_exporting_its_value(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
             snapshot = execution_fixtures._snapshot()
             service, _journal = execution_fixtures.ExecutionServiceTests()._service(
                 snapshot
             )
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             row = replace(
                 snapshot.rows[-1],
                 fields=(
@@ -341,6 +361,7 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                 with (
                     self.subTest(major=major, recipe=recipe),
                     tempfile.TemporaryDirectory() as directory,
+                    ExitStack() as resources,
                 ):
                     original = replace(
                         execution_fixtures._snapshot(), target_odoo_version=f"{major}.0"
@@ -379,8 +400,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                             item.model for item in scope.models if item.write_fields
                         ),
                     )
-                    recorder = LocalDiagnosticRecorder(directory)
-                    self.addCleanup(recorder.close)
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
 
                     def work(_access, writing, _verifying):
                         run = service.execute_transfer(
@@ -417,7 +439,10 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_failed_verification_keeps_commits_and_does_not_recommend_another_load(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
             snapshot = execution_fixtures._snapshot()
             service, _journal = execution_fixtures.ExecutionServiceTests()._service(
                 snapshot
@@ -425,8 +450,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             executor = execution_fixtures._Executor(
                 execution_api_scope(snapshot).semantic_hash
             )
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def work(_access, writing, _verifying):
                 run = service.execute(
@@ -491,6 +517,7 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                     with (
                         self.subTest(major=major, mode=mode, recipe=recipe),
                         tempfile.TemporaryDirectory() as directory,
+                        ExitStack() as resources,
                     ):
                         snapshot = replace(
                             execution_fixtures._snapshot(),
@@ -504,8 +531,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                         executor = execution_fixtures._Executor(
                             execution_api_scope(snapshot).semantic_hash
                         )
-                        recorder = LocalDiagnosticRecorder(directory)
-                        self.addCleanup(recorder.close)
+                        recorder = resources.enter_context(
+                            closing(LocalDiagnosticRecorder(directory))
+                        )
 
                         def work(_access, _writing, _verifying):
                             service.execute(
@@ -553,6 +581,7 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                 with (
                     self.subTest(major=major, mode=mode),
                     tempfile.TemporaryDirectory() as directory,
+                    ExitStack() as resources,
                 ):
                     snapshot = replace(
                         execution_fixtures._snapshot(), target_odoo_version=f"{major}.0"
@@ -565,8 +594,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                     executor = execution_fixtures._Executor(
                         execution_api_scope(snapshot).semantic_hash, unknown=True
                     )
-                    recorder = LocalDiagnosticRecorder(directory)
-                    self.addCleanup(recorder.close)
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
 
                     def work(_access, writing, verifying):
                         run = service.execute(
@@ -596,7 +626,11 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
 
     def test_rejection_after_commits_keeps_specific_odoo_reason_and_totals(self):
         for major in (19, 20):
-            with self.subTest(major=major), tempfile.TemporaryDirectory() as directory:
+            with (
+                self.subTest(major=major),
+                tempfile.TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
                 snapshot = replace(
                     execution_fixtures._snapshot(), target_odoo_version=f"{major}.0"
                 )
@@ -615,8 +649,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                         "private server payload", diagnostic=diagnostic
                     ),
                 )
-                recorder = LocalDiagnosticRecorder(directory)
-                self.addCleanup(recorder.close)
+                recorder = resources.enter_context(
+                    closing(LocalDiagnosticRecorder(directory))
+                )
 
                 def work(_access, writing, _verifying):
                     run = service.execute(
@@ -639,7 +674,10 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_fatal_exception_after_send_retains_original_failure_if_journal_capture_fails(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
             snapshot = execution_fixtures._snapshot()
             service, journal = execution_fixtures.ExecutionServiceTests()._service(
                 snapshot
@@ -647,8 +685,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             executor = execution_fixtures._Executor(
                 execution_api_scope(snapshot).semantic_hash
             )
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def crash(model, values):
                 journal.get_run = lambda *_args: (_ for _ in ()).throw(
@@ -685,8 +724,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_terminal_failure_survives_restart_request_flood_and_missing_event_log(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def work(*_args):
                 raise WorkspaceError(
@@ -704,8 +748,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                 )
             recorder.close()
             (Path(directory) / LOAD_EVENT_LOG).unlink()
-            reopened = LocalDiagnosticRecorder(directory)
-            self.addCleanup(reopened.close)
+            reopened = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             members, attempts = _bundle(reopened, max_records=5)
             self.assertEqual(attempts[0]["attempt_id"], observer.attempt_id)
             self.assertIn("The load preview changed", members["diagnosis.md"])
@@ -721,9 +766,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_limits_incomplete_attempts_selection_and_unknown_custom_reasons_are_explicit(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             first = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             with bind_load_observation(first):
                 with patch("impodo.web.load_diagnostics.MAX_ATTEMPT_EVENTS", 3):
@@ -742,9 +791,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             self.assertEqual(attempts[0]["transport_observation"], "UNKNOWN")
 
     def test_exception_causes_and_tampered_logs_cannot_export_messages_or_locals(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             with bind_load_observation(observer):
                 try:
@@ -774,9 +827,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
 
 class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
     async def test_overlapping_requests_keep_their_own_attempt_and_failure(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             expected = {}
 
             async def app(scope, _receive, send):
@@ -830,9 +887,13 @@ class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
     async def test_rejected_submission_is_correlated_and_thread_context_is_restored(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             captured = {}
 
             async def app(scope, _receive, send):
@@ -875,11 +936,15 @@ class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("private request value", str(members))
 
     async def test_redirect_to_background_worker_keeps_the_failure_correlated(self):
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             manager = LoadJobManager()
-            self.addCleanup(manager.shutdown)
+            resources.callback(manager.shutdown)
             workspace_id = str(uuid4())
             messages = []
 
@@ -940,9 +1005,13 @@ class LoadDiagnosticPageTests(browser_scenarios.ProjectSetupBrowserTestCase):
             name="Diagnostic review", source_system="Other"
         )
         actor = resolve_local_actor(context)
-        with tempfile.TemporaryDirectory() as directory:
-            recorder = LocalDiagnosticRecorder(directory)
-            self.addCleanup(recorder.close)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             self.app.state.diagnostic_recorder = recorder
             observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
 

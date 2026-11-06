@@ -1,4 +1,4 @@
-        {% from "_user_help.html" import decision_help with context %}
+        {% from "_user_help.html" import decision_help, inline_help with context %}
         {% set mapping_journey = mapping_journey if mapping_journey is defined else {'task': 'rows'} %}
         {% set dataset_index = view.index %}
         <section
@@ -20,9 +20,7 @@
               </p>
             </div>
             <div>
-              {% if view.active %}
-                <span class="status registered">Editing this table</span>
-              {% else %}
+              {% if not view.active %}
                 <a class="button secondary" href="{{ view.edit_url }}" data-mapping-table-link>Edit this table</a>
               {% endif %}
               <details class="technical-details">
@@ -68,29 +66,35 @@
           </div>
           {% else %}
           <div class="form-grid">
-            <label>
-              Send these rows to
-              <select name="target_model_{{ dataset_index }}" data-target-model>
+            <div class="field-with-inline-help">
+              <div class="field-label-with-help">
+                <label for="target-model-{{ dataset_index }}">Send these rows to</label>
+                {{ inline_help("Help with the destination record type", "Changing this choice refreshes the available Odoo fields.") }}
+              </div>
+              <select id="target-model-{{ dataset_index }}" name="target_model_{{ dataset_index }}" data-target-model>
                 {% for model in view.models %}
                   <option value="{{ model.name }}" {% if model.name == view.selected_model %}selected{% endif %}>
                     {{ model.label }}
                   </option>
                 {% endfor %}
               </select>
-              <small>Changing this choice refreshes the available Odoo fields.</small>
-            </label>
+            </div>
             <label>
               What should Impodo prepare?
-              <select name="mode_{{ dataset_index }}">
+              <select name="mode_{{ dataset_index }}" data-mapping-target-mode>
                 {% set selected_mode = view.mapping.mode.value if view.mapping else 'upsert' %}
                 <option value="upsert" {% if selected_mode == 'upsert' %}selected{% endif %}>Create new records or update matches</option>
                 <option value="create" {% if selected_mode == 'create' %}selected{% endif %}>Create new records only</option>
                 <option value="reference" {% if selected_mode == 'reference' %}selected{% endif %}>Use existing Odoo records only</option>
               </select>
-              <small>This sets the intended result. Nothing is sent to Odoo on this screen.</small>
             </label>
           </div>
-          <details class="technical-evidence advanced-matching-options">
+          <details class="technical-details" data-mapping-update-summary {% if selected_mode != 'upsert' %}hidden{% endif %}>
+            <summary>How updates work</summary>
+            <p>Updates use matched fields whose values differ.</p>
+            <p>Set <strong>Blank source values</strong> per field in <strong>Match fields</strong> and <strong>Connect linked values</strong>.</p>
+          </details>
+          <details class="technical-evidence advanced-matching-options" data-mapping-create-policy {% if selected_mode != 'create' %}hidden{% endif %}>
             <summary>When a record already exists</summary>
             <label>
               If a record already exists while using “Create new records only”

@@ -784,10 +784,13 @@ def _mapping_datasets_from_form(
                 )
                 if item in source_columns
             )
-            provider_text = _text(
-                form,
-                f"relation_value_source_{dataset_index}_{relation_index}",
+            provider_field = (
+                f"relation_value_source_{dataset_index}_{relation_index}"
             )
+            provider_text = _text(form, provider_field)
+            # An explicit clear wins over source values retained by hidden controls.
+            if provider_field in form and not provider_text:
+                continue
             if not provider_text and not selected_sources:
                 continue
             value_source = RelationshipValueSource(

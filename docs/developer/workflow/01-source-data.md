@@ -124,8 +124,9 @@ operation's editor and review together. `derived-journey.js` presents the
 review, retains the editor, and uses the existing save route for **Use this
 table**. Saved results appear in compact summaries, with a hierarchy kept in
 its own result context. **Save and add another** saves the current valid review
-before opening another source choice; **Save and continue** saves it before
-opening Odoo data. Editing its inputs requires a new review. The browser
+before opening another source choice. **Save and review changes** saves it and
+focuses the **Saved changes** summary. A separate **Continue to Odoo data**
+action opens Stage 2. Editing its inputs requires a new review. The browser
 protects pending work during navigation;
 the save command remains the authority for accepting it.
 
@@ -650,10 +651,12 @@ datasets.
 File mode completes when a source selection exists and then unlocks Odoo data.
 The file-source gate describes saved evidence; it cannot observe browser-only
 changes. The source-task coordinator therefore reviews pending inputs and
-saves the current accepted result before continuing. The save routes accept
-only the allowlisted `return_to=schema` destination and redirect there after
-their existing version-checked save succeeds. Completed rules do not need
-another save, which would invalidate downstream mapping and preparation.
+saves the current accepted result before showing **Saved changes**. The browser
+leaves `return_to` empty so saving stays in Stage 1. The user then selects
+**Continue to Odoo data** to open Stage 2 through its existing navigation gates.
+The save routes retain the allowlisted `return_to=schema` destination for
+explicit callers. Completed rules do not need another save, which would
+invalidate downstream mapping and preparation.
 
 Odoo mode deliberately reverses the first two responsibilities. **Select data
 to download** captures eligible fields and model-specific plans, then

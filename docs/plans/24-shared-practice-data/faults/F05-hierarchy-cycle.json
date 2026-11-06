@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F05-hierarchy-cycle",
+  "base_file": "deliveries/2026-04-15/categories.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "CategoryKey": "CAT-01"
+      },
+      "values": {
+        "ParentCategoryKey": "CAT-03"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Check matches or preparation cycle validation",
+    "result": "Block the cycle CAT-01→CAT-03→CAT-02→CAT-01; never recurse indefinitely or invent a root."
+  }
+}

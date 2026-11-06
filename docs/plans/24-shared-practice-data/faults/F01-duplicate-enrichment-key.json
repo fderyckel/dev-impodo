@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F01-duplicate-enrichment-key",
+  "base_file": "deliveries/2026-04-15/party_details.csv",
+  "mutations": [
+    {
+      "operation": "duplicate_row",
+      "key": {
+        "Partition": "PART-N",
+        "RecId": "PTY-0001"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Source combination review",
+    "result": "Block cardinality; do not choose the first row or multiply customer records.",
+    "affected_customer_refs": [
+      "MA-N-0001"
+    ]
+  }
+}

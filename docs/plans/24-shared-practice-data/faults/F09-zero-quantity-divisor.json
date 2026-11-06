@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F09-zero-quantity-divisor",
+  "base_file": "deliveries/2026-04-15/bom_rows.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "BOMRef": "MA-BOM-002",
+        "Sequence": "10"
+      },
+      "values": {
+        "QuantitySeries": "0"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Rule review or preparation",
+    "result": "Stop division-by-zero or fail an explicit business check; do not silently substitute1.",
+    "required_owner": "Functional owner must decide the intended quantity."
+  }
+}

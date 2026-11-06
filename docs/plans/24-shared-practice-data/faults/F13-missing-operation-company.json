@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F13-missing-operation-company",
+  "base_file": null,
+  "mutations": [],
+  "runtime_setup": {
+    "operation_company": "unset",
+    "journey": [
+      "Stage2→Stage3 first entry",
+      "Stage2→Stage3 return with remembered scroll",
+      "direct company fragment link"
+    ]
+  },
+  "expected": {
+    "stage": "Match data",
+    "result": "Bring the required company choice into view before load eligibility; retain field inputs."
+  }
+}

@@ -54,6 +54,17 @@ validation. **More field options** contains the matched-field and read-only
 filters and the action to check for changed Odoo fields. A field's
 **Support options** contains its comparison and required-value settings.
 
+In **Choose rows**, **Create new records or update matches** updates only
+matched fields whose values differ from Odoo. Other fields stay unchanged.
+**When a record already exists** appears only for **Create new records only**.
+Choose whether an existing match stops for review or stays unchanged.
+
+Review **Blank source values** beside each field's value choices in **Match
+fields** and **Connect linked values**. For a field that holds one value,
+**Ignore blank source values** keeps the existing Odoo value when the prepared
+source value is blank. Other blank policies can clear it. For lists of linked
+records, also review whether to replace, add to, or remove from the current list.
+
 ![Match fields shows Odoo fields, value choices and previews in three columns, with Prepare values and More field options collapsed.](../../images/user/11t-stage3-match-fields.png)
 
 Use **Let Odoo choose** only when the checked target supplies a default, or
@@ -669,7 +680,9 @@ splitting a selected record into those matching fields.
 For source cells that are already empty, leave **Must have a value** unchecked
 in the linked field's **Support options**. For example, a customer with no
 Company chain remains in the import with that optional link empty. There is
-no extra blank-handling dropdown. **Required for new records** requires a
+no additional required decision for that optional blank. Use **Blank source
+values** to choose how an empty cell affects an existing record.
+**Required for new records** requires a
 value only when Impodo creates a record; Odoo's own required fields still
 apply. Populated source values must match a valid record.
 

@@ -38,6 +38,21 @@ itself host-specific.
 
 ## Continuous integration lanes
 
+During platform stabilization, all three repository workflows start only through
+`workflow_dispatch`. Pushes, pull requests, tags, and schedules do not start them.
+The maintainer chooses the workflow and branch under **Actions**, then selects
+**Run workflow**. New manual-trigger definitions must reach `main` before GitHub
+offers them. Keep the workflows disabled until that configuration is merged;
+enabling a workflow afterward permits manual dispatch without starting a run.
+Contributors must not dispatch or rerun checks on the maintainer's behalf
+without an explicit request. Local verification remains required.
+
+The generated Dependency Graph job is controlled separately by GitHub's
+repository security settings. It cannot be converted to `workflow_dispatch` by
+editing these files. Disabling that automatic job requires a repository
+administrator to review the dependency-graph setting and its effect on
+dependency alerts and review.
+
 `.github/workflows/python-quality.yml` runs the complete repository gate and a
 separate portable behavioral matrix on `ubuntu-latest`, `macos-latest`, and
 `windows-latest`. Each host runs four behavioral shards. The behavioral command
@@ -52,9 +67,9 @@ requirements. Its final `quality` job preserves the required
 Host-owned suites run separately:
 
 - `.github/workflows/windows-release-quality.yml` runs the Windows installer
-  tests when the installer or its release inputs change.
+  tests when the maintainer dispatches it.
 - `.github/workflows/linux-server-quality.yml` runs Linux permission and server
-  integration tests when the deployment or server composition changes. The
+  integration tests when the maintainer dispatches it. The
   Linux job builds the repository-owned supporting images and starts a
   disposable PostgreSQL container for live control-plane repository contracts;
   those tests use only fictional records and do not
