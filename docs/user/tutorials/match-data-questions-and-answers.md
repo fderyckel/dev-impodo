@@ -34,6 +34,10 @@ Choose one of these outcomes:
 | **Create new records only** | Every incoming row must create a new record. | Under **When a record already exists**, choose whether to stop for review or leave that existing record unchanged. |
 | **Use existing Odoo records only** | The table is a lookup or reference list, not a list to create. | Every used key must resolve to one existing Odoo record. |
 
+**When a record already exists** appears only for **Create new records only**.
+With **Create new records or update matches**, Impodo updates only matched
+fields whose values differ. Fields outside those changes stay unchanged.
+
 ![Current Match data screen showing the table outcome, source identity, and Odoo matching-rule controls.](../../images/user/10-mapping-identity.png)
 
 🔵 Notice the two panels in the screenshot: the left panel identifies an
@@ -399,14 +403,17 @@ wrong link would damage the migration.
 
 Open **Support options** when the normal mapping needs an extra instruction.
 You can choose whether to compare the field with Odoo, check it without
-preparing it, require a value, require it only for new records, and state how
-to treat source blanks.
+preparing it, require a value, or require it only for new records.
+
+Choose **Blank source values** beside the field's value choices in **Match
+fields** or **Connect linked values**. You do not need to open **Support
+options** to review this choice.
 
 | Blank-value choice | Meaning |
 | --- | --- |
 | **Keep source and Odoo blanks separate** | A blank source value and a blank Odoo value retain their separate meaning. |
 | **Treat blank values as the same** | Treat two blanks as equal for this field. |
-| **Ignore blank source values** | Do not use a blank source value as a value to compare. |
+| **Ignore blank source values** | For a field that holds one value, keep the existing Odoo value when the prepared source value is blank. |
 
 🟡 For an update, blank can mean “clear the Odoo field,” “leave it unchanged,”
 or “this row is incomplete.” Decide that meaning with the owner before you

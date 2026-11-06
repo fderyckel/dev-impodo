@@ -1,0 +1,239 @@
+{
+  "schema_version": 1,
+  "corpus_id": "morrow-assembly-practice-draft-v1",
+  "status": "proposal_assets_not_release_qualified",
+  "counts": {
+    "csv_files": 17,
+    "source_rows_total": 250,
+    "baseline_rows": 182,
+    "fresh_delivery_rows": 62,
+    "phone_patch_rows": 6,
+    "fault_overlays": 18,
+    "target_overlays": 1
+  },
+  "integrity": "SHA256 covers each listed file byte-for-byte. manifest.json itself and parent-owned prose are excluded.",
+  "files": [
+    {
+      "path": "data-dictionary.json",
+      "bytes": 3492,
+      "sha256": "a8a80e984fd6e4478927e72d3cba9e0d301acd2328a5d783c9311c9473728d67"
+    },
+    {
+      "path": "deliveries/2026-04-15/accounts.csv",
+      "bytes": 560,
+      "sha256": "e59180cb05946cdec6d53a05be4064cee989985c921eae12c8f7117ecba88bf9",
+      "data_rows": 8
+    },
+    {
+      "path": "deliveries/2026-04-15/addresses.csv",
+      "bytes": 2074,
+      "sha256": "09d4d4d835bf8590ac0b7916cfd3ab4509929767e42caa90141c6b04dd335147",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/bom_operations.csv",
+      "bytes": 813,
+      "sha256": "31b623a92d2dc9b7b8f560808d539912f784740bea5293f22230507382e213ef",
+      "data_rows": 12
+    },
+    {
+      "path": "deliveries/2026-04-15/bom_rows.csv",
+      "bytes": 3199,
+      "sha256": "9c738fccf607ab190e42b94fa7bef09f9cd50688576996faa4c8a6204e8b22dc",
+      "data_rows": 24
+    },
+    {
+      "path": "deliveries/2026-04-15/categories.csv",
+      "bytes": 431,
+      "sha256": "cf04d0fef1f3ea7f3c2b7a07d3bf867fecafd333c297d29e9ca089c7fc78600c",
+      "data_rows": 12
+    },
+    {
+      "path": "deliveries/2026-04-15/customers_core.csv",
+      "bytes": 2235,
+      "sha256": "6fabbf4116ae8324366f1a8ab12d9b598ad534b6121c81c2478f1f1399f81fff",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/party_details.csv",
+      "bytes": 2420,
+      "sha256": "a5be72c3c9d19bf6f52571821f9e819aa529d697ce922a3fe6f0a752313896f5",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/payment_term_lines.csv",
+      "bytes": 242,
+      "sha256": "f39d4d8cd9aa5be28d94f84b5e9503879efe0216400003508f39227403fb0407",
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-04-15/payment_terms.csv",
+      "bytes": 130,
+      "sha256": "4510080ba6304050f5ac0e67cd94f87a368f55fa9e39006eea3434e2c2b2a8f8",
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-04-15/product_details.csv",
+      "bytes": 3726,
+      "sha256": "060a233fb78f91f3892dcf184c4b915569a6f1a878d8b5a37d8c983b6d67842b",
+      "data_rows": 32
+    },
+    {
+      "path": "deliveries/2026-04-15/products_core.csv",
+      "bytes": 3536,
+      "sha256": "4274d9ed593c6cd23809ad74775420204dcc85b0de9c3df10efc217a36130786",
+      "data_rows": 32
+    },
+    {
+      "path": "deliveries/2026-05-15/addresses.csv",
+      "bytes": 2074,
+      "sha256": "09d4d4d835bf8590ac0b7916cfd3ab4509929767e42caa90141c6b04dd335147",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/customers_core.csv",
+      "bytes": 2236,
+      "sha256": "8542c8bcceda1c020d5cb6fa6f36a024c583110f15813e3ece3fb7f22ccb01a5",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/party_details.csv",
+      "bytes": 2420,
+      "sha256": "8ea4f62994465b744ecc1a04a017647e06a76aaaa19bfa7c56fb8772c1efd0b7",
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/payment_term_lines.csv",
+      "bytes": 242,
+      "sha256": "f39d4d8cd9aa5be28d94f84b5e9503879efe0216400003508f39227403fb0407",
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-05-15/payment_terms.csv",
+      "bytes": 130,
+      "sha256": "4510080ba6304050f5ac0e67cd94f87a368f55fa9e39006eea3434e2c2b2a8f8",
+      "data_rows": 4
+    },
+    {
+      "path": "exercise-contracts.json",
+      "bytes": 19729,
+      "sha256": "766653041b40d287ecf7770810906098209ffdfa299f1ab6be41f860f98a7083"
+    },
+    {
+      "path": "expected-business-results.json",
+      "bytes": 58718,
+      "sha256": "ad652d63a751e9cea8dfcf2f13327c73605c26b882a77ea0547fc4bdf8e62799"
+    },
+    {
+      "path": "faults/F01-duplicate-enrichment-key.json",
+      "bytes": 577,
+      "sha256": "b28a1c3e908169bb3f61182ce4ea70de1efdf16ba551fe35f13d00a463855f69"
+    },
+    {
+      "path": "faults/F02-missing-required-enrichment.json",
+      "bytes": 576,
+      "sha256": "ac8d5d3b976f897619607cd85eacb384655c41bced792c69cd26bdc6c7bb138b"
+    },
+    {
+      "path": "faults/F03-missing-hierarchy-parent.json",
+      "bytes": 548,
+      "sha256": "9c89cec6738e6f7c4ac10fcdfc2b33cf32c44cea907473298fc7c16d0487ae64"
+    },
+    {
+      "path": "faults/F04-root-zero-is-not-blank.json",
+      "bytes": 734,
+      "sha256": "6328c7d824e0e6f1b9b9fef5adf4541ff32a7e80c01f00a0c97c26585e805578"
+    },
+    {
+      "path": "faults/F05-hierarchy-cycle.json",
+      "bytes": 582,
+      "sha256": "0acaaada9a52fffaf967f63d4b415b9dc118c2f6f35084f81730c670e9682e0d"
+    },
+    {
+      "path": "faults/F06-new-choice-recipe.json",
+      "bytes": 614,
+      "sha256": "6e3cbfa46df399c66fab546a080cb1346e419df7bf6e54e93c4427a3c19f672e"
+    },
+    {
+      "path": "faults/F07-unresolved-unit.json",
+      "bytes": 610,
+      "sha256": "98ee4fd8e2868d30c0d48dbafd240c88c23e9b8aba9373628d7207ab89f6eca3"
+    },
+    {
+      "path": "faults/F08-missing-bom-component.json",
+      "bytes": 880,
+      "sha256": "8f2a34180d73c1de2661b44f2ae228b599893b62a85c1c1ebcac3fc5781cc2f8"
+    },
+    {
+      "path": "faults/F09-zero-quantity-divisor.json",
+      "bytes": 652,
+      "sha256": "5810a46cb293811e9b4f8f2af7b0d9305713e642e1c4c976dd16e257b73c4fd7"
+    },
+    {
+      "path": "faults/F10-unsupported-product-choice.json",
+      "bytes": 581,
+      "sha256": "77985f87ea74d08c629ea929cfa21f927965234c44bf6e8dadf78e9b84f906c0"
+    },
+    {
+      "path": "faults/F11-excess-numeric-precision.json",
+      "bytes": 769,
+      "sha256": "f56bb9a35bdfae378e67b52602d69823e38fb77ae90964884f499dcc0da43a07"
+    },
+    {
+      "path": "faults/F12-patch-missing-customer.json",
+      "bytes": 642,
+      "sha256": "1464c7da9831593aa069f82d6680b089650355937da8d48b9ecec8b540cecfc1"
+    },
+    {
+      "path": "faults/F13-missing-operation-company.json",
+      "bytes": 561,
+      "sha256": "9ae282f5da1cc2550a2ca291e7a47125781d96a70e08ad291adf58c1d317e4b0"
+    },
+    {
+      "path": "faults/F14-stale-supporting-choice.json",
+      "bytes": 866,
+      "sha256": "747e7cdd29d483f0c44d7f0682715a21773281557c0d99ac4c611cf0c8506968"
+    },
+    {
+      "path": "faults/F15-scoped-target-ambiguity.json",
+      "bytes": 571,
+      "sha256": "a813d41525a17c585966a9180261a9c7dd230a0286c869764f30bb4ab794b6dd"
+    },
+    {
+      "path": "faults/F16-partial-target-list.json",
+      "bytes": 541,
+      "sha256": "8a641d695369d1b37857232df27626c2f45a42213e8df9faa320cbe82bd377a8"
+    },
+    {
+      "path": "faults/F17-lost-write-reply.json",
+      "bytes": 665,
+      "sha256": "a9e28abd5d89b3fc3162cdc98ac2ec4ea056ef89b787490f3f76397cc3a3f5a2"
+    },
+    {
+      "path": "faults/F18-wrong-join-without-partition.json",
+      "bytes": 502,
+      "sha256": "28e731b5ec4f165249cd8f5cf93d8f7ad739f799a5b9d2a75c5eb8e58cb6c275"
+    },
+    {
+      "path": "patches/2026-05-20/customer_phone_patch.csv",
+      "bytes": 156,
+      "sha256": "8de35d076b5d467e7d35cddc17b6b1121f5ae63655cc267e6ad4c9ac45dc487d",
+      "data_rows": 6
+    },
+    {
+      "path": "target-overlays/vendor-term-repair.json",
+      "bytes": 3654,
+      "sha256": "d7991a0ac563faeb21b2ad5f4070596f5d0d59108ada386b9f11404ed1189f73"
+    },
+    {
+      "path": "target-seed-projection.json",
+      "bytes": 15467,
+      "sha256": "b83c065fa94d90ac51399a6cbf68af4a1dbfded9dd17d8e4a2e654fcb6a41882"
+    },
+    {
+      "path": "validation-evidence.json",
+      "bytes": 1275,
+      "sha256": "0546d7bc03bbeb47a0800abcae43347e2d4d506801e71cb3a6180ac72a0403db"
+    }
+  ]
+}

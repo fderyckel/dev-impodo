@@ -48,6 +48,16 @@
     <section class="next-action-card blocked" data-load-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
       <div><p class="eyebrow">Transfer stopped</p><h2>Review the durable journal before continuing</h2><p data-load-failure>{{ job.failure_message }}</p><p><strong>Do not start another transfer.</strong> A completed Odoo call may already have changed records.</p></div>
       <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/transfer-load/outcome">Open saved outcome</a>
+      {% if job.support_reference %}
+      <div>
+        <p>Support reference: <code>{{ job.support_reference }}</code></p>
+        <form method="post" action="/diagnostics/bundle">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="attempt_id" value="{{ job.support_reference }}">
+          <button class="button secondary" type="submit">Create diagnostic bundle</button>
+        </form>
+      </div>
+      {% endif %}
     </section>
     <section class="next-action-card ready" data-load-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
       <div><p class="eyebrow">Next action</p><h2>Verify the saved destination result</h2><p>The verification result will open automatically.</p></div>

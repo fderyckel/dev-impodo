@@ -11,6 +11,7 @@ from starlette.concurrency import run_in_threadpool
 from ..context import LifecycleRouteContext
 from ..diagnostics import create_diagnostic_bundle
 from ..forms import _secure_form
+from ..load_diagnostics import safe_uuid
 from ..presenters.common import _render
 from ..security import require_session
 
@@ -41,7 +42,10 @@ def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:
     @router.post("/diagnostics/bundle")
     async def diagnostic_bundle(request: Request):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token"})
+        _secure_form(request, form, {"csrf_token", "attempt_id"})
+        attempt_id = safe_uuid(form.get("attempt_id"))
+        if form.get("attempt_id") and attempt_id is None:
+            raise HTTPException(status_code=422, detail="Invalid support reference")
         recorder = request.app.state.diagnostic_recorder
         if recorder is None:
             raise HTTPException(
@@ -54,6 +58,8 @@ def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:
             create_diagnostic_bundle,
             recorder.path.parent,
             build_contract=request.app.state.build_contract,
+            attempt_id=attempt_id,
+            capture_failure_count=recorder.capture_failure_count,
         )
         return Response(
             content=payload,

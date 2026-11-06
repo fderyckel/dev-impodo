@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F07-unresolved-unit",
+  "base_file": "deliveries/2026-04-15/products_core.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "ProductRef": "MA-P-0009"
+      },
+      "values": {
+        "UnitLabel": "MORROW_UNKNOWN_UNIT"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Relationship check or comparison",
+    "result": "Block unresolved required unit; do not fabricate or pick another unit.",
+    "affected_product_refs": [
+      "MA-P-0009"
+    ]
+  }
+}

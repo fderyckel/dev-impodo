@@ -392,8 +392,17 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             self.columns["Id"]
         )
         self._review(panel)
+        expect(self.next).to_have_text("Save and review changes")
         self.next.click()
-        self.page.wait_for_url(f"**/workspaces/{self.workspace_id}/schema")
+        self.page.wait_for_url(f"**{self.path}#saved-source-changes")
+        summary = self.page.get_by_role("heading", name="Saved changes", exact=True)
+        expect(summary).to_be_in_viewport()
+        expect(summary).to_be_focused()
+        expect(self.state).to_have_text("Saved")
+        expect(self.page.locator("[data-source-saved]")).to_have_count(4)
+        expect(self.next).to_have_text("Continue to Odoo data")
+        expect(self.next).to_be_in_viewport()
+        self._capture("06l-stage1-saved-changes.png")
         self.assertEqual(self._plan().version, 4)
         effective = self.fixture.context.queries.get_mapping_source_selection(
             self.workspace_id
@@ -407,6 +416,9 @@ class SourceJourneyBrowserTests(unittest.TestCase):
                 "source_items",
             }.issubset({item.name for item in effective.datasets})
         )
+        self.next.click()
+        self.page.wait_for_url(f"**/workspaces/{self.workspace_id}/schema")
+        self.assertEqual(self._plan().version, 4)
 
     def _reopen_and_narrow_layout(self):
         self.page.goto(f"{self.base}{self.path}", wait_until="networkidle")

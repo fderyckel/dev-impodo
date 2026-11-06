@@ -170,8 +170,8 @@ document.addEventListener("DOMContentLoaded", () => {
       : dirty ? "Unsaved changes" : ready ? "Ready to use"
       : pendingReview() ? "Needs attention" : "Saved";
     next.textContent = dirty || (pendingReview() && !ready) ? "Review result"
-      : ready ? "Save and continue" : "Continue to Odoo data";
-    next.setAttribute("aria-label", ready ? "Save and continue to Odoo data" : next.textContent);
+      : ready ? "Save and review changes" : "Continue to Odoo data";
+    next.setAttribute("aria-label", next.textContent);
     next.setAttribute("aria-disabled", String(busy || uncertain));
     if (another) another.disabled = busy || uncertain;
     if (another) another.textContent = ready ? "Save and add another" : "Add another change";
@@ -260,8 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
     update();
     const body = new FormData(form);
     submittedVersion = body.get("expected_parent_version") || "";
-    // Confirm the saved source result before ordinary navigation follows the
-    // Authoring or Recipe-run destination's existing gates and redirects.
+    // Every save returns to Stage 1. Continuing to Stage 2 is a separate action.
     body.set("return_to", "");
     document.dispatchEvent(new CustomEvent("impodo:operation-started"));
     try {
@@ -277,10 +276,11 @@ document.addEventListener("DOMContentLoaded", () => {
         const card = Array.from(html.querySelectorAll("[data-source-saved]")).find(
           (element) => element.dataset.sourceName === name
         );
-        url.hash = card?.id || "saved-source-changes";
+        url.hash = destination === "summary" ? "saved-source-changes"
+          : card?.id || "saved-source-changes";
         try { sessionStorage.setItem(storageKey, destination); } catch { /* Navigation still works. */ }
         leaving = true;
-        location.assign(destination === "schema" ? next.href : url.href);
+        location.assign(url.href);
         return;
       }
       if (response.status === 422 || response.status === 409 || response.status === 403) {
@@ -387,7 +387,7 @@ document.addEventListener("DOMContentLoaded", () => {
     event.preventDefault();
     if (busy || uncertain) return;
     const review = validReview();
-    if (review) save(review.querySelector("form[data-source-save]"), "schema");
+    if (review) save(review.querySelector("form[data-source-save]"), "summary");
     else reviewCurrent();
   });
   another?.addEventListener("click", () => {

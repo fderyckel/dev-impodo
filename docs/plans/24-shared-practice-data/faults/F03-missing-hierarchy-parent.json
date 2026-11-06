@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F03-missing-hierarchy-parent",
+  "base_file": "deliveries/2026-04-15/categories.csv",
+  "mutations": [
+    {
+      "operation": "delete_row",
+      "key": {
+        "CategoryKey": "CAT-02"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Check matches",
+    "result": "Report the populated missing incoming parent before preparation; do not promote CAT-03 to a root.",
+    "direct_category_keys": [
+      "CAT-03"
+    ]
+  }
+}

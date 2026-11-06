@@ -1,0 +1,13 @@
+CategoryKey,ParentCategoryKey,Name,Code,Active
+CAT-01,,Components,CAT-01,yes
+CAT-02,CAT-01,Metals,CAT-02,yes
+CAT-03,CAT-02,Assembly,CAT-03,yes
+CAT-04,CAT-01,Polymers,CAT-04,yes
+CAT-05,CAT-04,Assembly,CAT-05,yes
+CAT-06,CAT-01,Packaging,CAT-06,yes
+CAT-07,,Finished,CAT-07,yes
+CAT-08,CAT-07,Modules,CAT-08,yes
+CAT-09,CAT-07,Kits,CAT-09,yes
+CAT-10,,Services,CAT-10,yes
+CAT-11,CAT-10,Design,CAT-11,yes
+CAT-12,CAT-10,Assembly,CAT-12,yes

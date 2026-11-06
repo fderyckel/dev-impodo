@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F17-lost-write-reply",
+  "base_file": null,
+  "mutations": [],
+  "runtime_setup": {
+    "disposable_target_only": true,
+    "fault": "Commit creation of NORTH/NET45, then lose its response before the client records a definitive result."
+  },
+  "expected": {
+    "stage": "Load recovery",
+    "result": "Record an uncertain outcome, assess read-back with current evidence, and do not blindly retry create or duplicate the term.",
+    "adapter_status": "Requires controlled write adapter; source data alone cannot reproduce a lost reply."
+  }
+}

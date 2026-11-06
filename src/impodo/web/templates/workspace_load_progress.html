@@ -110,6 +110,16 @@
         <a class="button primary" href="/workspaces/{{ job.workspace_id }}/load/outcome">Review and recover saved load</a>
         <a class="button secondary" href="/projects">Return to projects</a>
       </div>
+      {% if job.support_reference %}
+      <div>
+        <p>Support reference: <code>{{ job.support_reference }}</code></p>
+        <form method="post" action="/diagnostics/bundle">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="attempt_id" value="{{ job.support_reference }}">
+          <button class="button secondary" type="submit">Create diagnostic bundle</button>
+        </form>
+      </div>
+      {% endif %}
     </section>
 
     <section class="next-action-card ready" data-load-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>

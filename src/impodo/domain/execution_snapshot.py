@@ -879,8 +879,9 @@ def _incoming_update_resolution_index(
                     Classification.AMBIGUOUS,
                 }:
                     continue
+                referenced_dataset = plan.dataset(referenced.dataset)
                 business_reference = BusinessReference(
-                    model=plan.dataset(referenced.dataset).target.model,
+                    model=referenced_dataset.target.model,
                     key=decision.business_identity,
                     scope=decision.business_scope,
                 )
@@ -889,15 +890,27 @@ def _incoming_update_resolution_index(
                     key=source_key,
                     dataset=value.dataset,
                 )
-                index_key = (
-                    owner.dataset,
-                    owner.source_row,
-                    field,
-                    canonical_json_bytes(portable_value(business_reference)),
+                shaped_reference = replace(
+                    business_reference,
+                    target_fields=_identity_fields(
+                        referenced_dataset.target_identity.components
+                    ),
+                    target_scope_fields=_identity_fields(
+                        referenced_dataset.target_identity.scope
+                    ),
                 )
-                previous = index.setdefault(index_key, incoming)
-                if previous != incoming:
-                    raise ValueError("Incoming update resolution evidence conflicts")
+                # Current comparisons retain governed field paths; historical
+                # comparisons used only the same model, business key and scope.
+                for reference in (business_reference, shaped_reference):
+                    index_key = (
+                        owner.dataset,
+                        owner.source_row,
+                        field,
+                        canonical_json_bytes(portable_value(reference)),
+                    )
+                    previous = index.setdefault(index_key, incoming)
+                    if previous != incoming:
+                        raise ValueError("Incoming update resolution evidence conflicts")
     return index
 
 

@@ -513,6 +513,10 @@ label.checkbox input {
   padding: 1rem 1.2rem;
 }
 
+.relationship-card.is-connected {
+  border-left-color: #4d7c5b;
+}
+
 .relationship-card > summary {
   cursor: pointer;
   list-style-position: inside;

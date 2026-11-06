@@ -69,7 +69,7 @@ class NestedIdentityLookup:
                 continue
             previous = self.relations.setdefault((model, name), value.model)
             if previous != value.model:
-                raise WorkspaceError("Reviewed parent identity models conflict")
+                raise WorkspaceError("Reviewed parent identity models conflict", load_failure_code='LOAD_REVIEWED_PARENT_IDENTITY_MODELS_CONFLICT')
             if value.target_fields:
                 self._register(
                     value.model,
@@ -96,7 +96,7 @@ class NestedIdentityLookup:
                 if related_model is None:
                     raise WorkspaceError(
                         "An ancestor lookup is outside the reviewed identity"
-                    )
+                    , load_failure_code='LOAD_AN_ANCESTOR_LOOKUP_IS_OUTSIDE_THE_REVIEWED_IDENTITY')
                 parents.setdefault(head, []).append((remaining, operator, value))
             for head, conditions in parents.items():
                 wanted.setdefault(self.relations[(model, head)], set()).add(
@@ -123,12 +123,12 @@ class NestedIdentityLookup:
                     related_model, translated[start : start + self.page_size]
                 )
                 if len(results) != len(originals):
-                    raise WorkspaceError("Odoo returned incomplete ancestor identities")
+                    raise WorkspaceError("Odoo returned incomplete ancestor identities", load_failure_code='LOAD_ODOO_RETURNED_INCOMPLETE_ANCESTOR_IDENTITIES')
                 for original, identifiers in zip(originals, results, strict=True):
                     if len(identifiers) != 1:
                         raise WorkspaceError(
                             "An ancestor business key is missing or ambiguous; compare again"
-                        )
+                        , load_failure_code='LOAD_AN_ANCESTOR_BUSINESS_KEY_IS_MISSING_OR_AMBIGUOUS_COMPARE_AGAIN')
                     self.cache[(related_model, original)] = identifiers
         result = []
         for direct, parents in split:

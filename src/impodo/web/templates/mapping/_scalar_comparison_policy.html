@@ -1,4 +1,13 @@
 <div class="policy-cell">
+  <label>
+    Blank source values
+    <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
+      {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
+      {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
+        <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
+      {% endfor %}
+    </select>
+  </label>
   <details class="technical-details">
   <summary>Support options</summary>
   {% if row.metadata.readonly and row.metadata.stored and not view.odoo_pinned %}
@@ -10,11 +19,5 @@
   {% endif %}
   <label><input type="checkbox" name="scalar_required_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required %}checked{% endif %}> Must have a value</label>
   {% if not view.odoo_pinned and not row.metadata.readonly %}<label><input type="checkbox" name="scalar_required_create_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.required_on_create %}checked{% endif %}> Required for new records</label>{% endif %}
-  <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">
-    {% set scalar_null = mapping.null_policy if mapping else 'distinct' %}
-    {% for policy in ('distinct', 'equivalent', 'ignore_source_null') %}
-      <option value="{{ policy }}" {% if scalar_null == policy %}selected{% endif %}>{% if policy == 'distinct' %}Keep source and Odoo blanks separate{% elif policy == 'equivalent' %}Treat blank values as the same{% else %}Ignore blank source values{% endif %}</option>
-    {% endfor %}
-  </select>
   </details>
 </div>

@@ -44,6 +44,8 @@ class LoadControlRepository(Protocol):
     ) -> tuple[ExecutionRowAttempt, ...]: ...
 
 
+from .load_observation import observe_load_transport
+
 PreparedCreate = tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
 
 
@@ -101,13 +103,15 @@ def create_transport_results(
         begin(tuple(item[0] for item in group))
         try:
             values: tuple[Mapping[str, Any], ...] = tuple(item[1] for item in group)
-            identifiers = (
-                executor.load_create_rows(
-                    model, values, tuple(item[0].proposed_external_id for item in group)
+            fields = tuple(sorted({field for value in values for field in value}))
+            with observe_load_transport(model, "load" if import_create else "create", fields, len(group)):
+                identifiers = (
+                    executor.load_create_rows(
+                        model, values, tuple(item[0].proposed_external_id for item in group)
+                    )
+                    if import_create
+                    else executor.create_rows(model, values)
                 )
-                if import_create
-                else executor.create_rows(model, values)
-            )
         except OdooWriteOutcomeUnknown as error:
             yield CreateTransportResult(group, error=error)
             return

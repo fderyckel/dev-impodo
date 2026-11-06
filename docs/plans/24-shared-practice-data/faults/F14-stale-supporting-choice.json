@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F14-stale-supporting-choice",
+  "base_file": null,
+  "mutations": [],
+  "runtime_setup": {
+    "action": "After saving supporting choices and entering unsaved mapping changes, refresh target evidence that materially changes the selected company, related-choice meaning, or effective permission scope. A key-only renewal with unchanged access is the separate control below."
+  },
+  "expected": {
+    "stage": "Match data recovery",
+    "result": "For materially changed meaning, name the stale choice, preserve unsaved mappings, reopen its correction, and require fresh confirmation.",
+    "unchanged_access_control": "Renew only the key or recheck unchanged access; retain still-valid supporting choices without needless reconfirmation."
+  }
+}

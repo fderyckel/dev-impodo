@@ -43,6 +43,64 @@
   vertical-align: middle;
 }
 
+.field-with-inline-help {
+  min-width: 0;
+  margin: 1.1rem 0;
+  font-weight: 650;
+}
+
+.field-label-with-help {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: .35rem;
+}
+
+.field-label-with-help > label {
+  margin: 0;
+}
+
+.inline-user-help {
+  flex: 0 0 auto;
+}
+
+.inline-user-help > summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  color: var(--muted);
+  list-style: none;
+  cursor: pointer;
+}
+
+.inline-user-help > summary::-webkit-details-marker {
+  display: none;
+}
+
+.inline-user-help > summary:focus-visible {
+  outline: 3px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.inline-user-help > p {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 5;
+  width: 100%;
+  max-width: 24rem;
+  margin: .3rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  padding: .65rem .75rem;
+  font-size: .9rem;
+  font-weight: 400;
+}
+
 .user-help-groups {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

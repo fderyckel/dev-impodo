@@ -37,9 +37,19 @@ from impodo.adapters.odoo.connectors import (
     observe_json2_read_failures,
 )
 from impodo.application.shared.build_contract import ApplicationBuildContract
+from impodo.application.workspace.execution.load_observation import (
+    bind_load_observation,
+    record_load_failure,
+)
 from impodo.domain.execution.load_control import FailureWindow, LoadControl
 from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.mutations import MappingMutationAction
+from impodo.web.load_diagnostic_bundle import load_bundle_members
+from impodo.web.load_diagnostics import (
+    LOAD_EVENT_LOG,
+    LOAD_SUMMARY_LOG,
+    new_load_observation,
+)
 from impodo.web.supporting_access_diagnostics import sanitize_supporting_access
 from impodo.web.supporting_diagnostics import sanitize_supporting_failure
 
@@ -53,7 +63,7 @@ DEFAULT_BACKUP_COUNT = 5
 DEFAULT_SLOW_REQUEST_SECONDS = 2.0
 DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS = 0.25
 REQUEST_ID_HEADER = "X-Impodo-Request-ID"
-DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 2
+DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 3
 DEFAULT_MAX_BUNDLE_RECORDS = 5_000
 DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES = 64 * 1024
 _MAPPING_ACTIONS = {item.value for item in MappingMutationAction}
@@ -128,6 +138,7 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
         )
         self.lock_path = primary_path.parent / lock_name
         self._process_lock_stream = None
+        self.write_failure_count = 0
         super().__init__(
             primary_path,
             maxBytes=max_bytes,
@@ -172,14 +183,14 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
                 self._apply_private_output_permissions()
         except (OSError, TimeoutError, ValueError):
             # Optional diagnostics must never delay or break the application.
+            self.write_failure_count += 1
             return
         finally:
             self._close_output_stream()
 
     def handleError(self, record: logging.LogRecord) -> None:
         """Keep logging's internal error path off the operator console."""
-
-        return
+        self.write_failure_count += 1
 
     def close(self) -> None:
         self._close_output_stream()
@@ -282,7 +293,7 @@ class LocalDiagnosticRecorder:
         if log_name != DIAGNOSTIC_LOG_NAME and not re.fullmatch(
             rf"{re.escape(DIAGNOSTIC_LOG_NAME)}\.process-[1-9][0-9]*",
             log_name,
-        ):
+        ) and log_name not in {LOAD_EVENT_LOG, LOAD_SUMMARY_LOG}:
             raise ValueError("Diagnostic log name is invalid")
 
         resolved_directory = Path(directory)
@@ -291,6 +302,8 @@ class LocalDiagnosticRecorder:
         self.slow_request_seconds = float(slow_request_seconds)
         self._lock = Lock()
         self._closed = False
+        self._load_recorders: dict[str, LocalDiagnosticRecorder] = {}
+        self._capture_setup_failures = 0
         self._logger = logging.getLogger(f"impodo.local_diagnostics.{uuid4()}")
         self._logger.setLevel(logging.INFO)
         self._logger.propagate = False
@@ -542,6 +555,8 @@ class LocalDiagnosticRecorder:
             self._handler.flush()
             self._handler.close()
             self._logger.removeHandler(self._handler)
+            for recorder in self._load_recorders.values():
+                recorder.close()
 
     def flush(self) -> None:
         """Flush current records so an exported bundle sees completed writes."""
@@ -551,8 +566,33 @@ class LocalDiagnosticRecorder:
                 return
             try:
                 self._handler.flush()
+                for recorder in self._load_recorders.values():
+                    recorder.flush()
             except (OSError, ValueError):
                 return
+
+    def load_observation(self, *, action: str, request_id: str):
+        """Open independent bounded histories for load events and summaries."""
+        with self._lock:
+            try:
+                for name in (LOAD_EVENT_LOG, LOAD_SUMMARY_LOG):
+                    if name not in self._load_recorders:
+                        self._load_recorders[name] = LocalDiagnosticRecorder(self.path.parent, log_name=name)
+            except (OSError, ValueError):
+                self._capture_setup_failures += 1
+                raise
+        return new_load_observation(
+            self._load_recorders[LOAD_EVENT_LOG]._write,
+            self._load_recorders[LOAD_SUMMARY_LOG]._write,
+            action=action, request_id=request_id,
+        )
+
+    @property
+    def capture_failure_count(self) -> int:
+        """Report observed storage failures without masking their coverage gap."""
+        return self._capture_setup_failures + self._handler.write_failure_count + sum(
+            recorder.capture_failure_count for recorder in self._load_recorders.values()
+        )
 
     def _write(self, payload: dict[str, Any]) -> None:
         envelope = {
@@ -576,6 +616,7 @@ class LocalDiagnosticRecorder:
                 self._handler.flush()
             except (OSError, ValueError):
                 # Diagnostics must never make the local application unavailable.
+                self._handler.write_failure_count += 1
                 return
 
     @staticmethod
@@ -607,6 +648,18 @@ class RequestDiagnosticsMiddleware:
         request_id = str(uuid4())
         state = scope.setdefault("state", {})
         state["diagnostic_request_id"] = request_id
+        observer = None
+        if scope.get("method") == "POST":
+            match = re.fullmatch(r"/workspaces/[^/]+/(load|transfer-load)(/recover|/reconcile|/reverify|/recovery/check|/stop)?", str(scope.get("path", "")))
+            if match is not None:
+                action = {None: "LOAD", "/recover": "RECOVER", "/reconcile": "VERIFY", "/reverify": "VERIFY", "/recovery/check": "CHECK_RECOVERY", "/stop": "STOP"}[match.group(2)]
+                if match.group(1) == "transfer-load":
+                    action = "TRANSFER_" + action
+                try:
+                    observer = self.recorder.load_observation(action=action, request_id=request_id)
+                    state["diagnostic_attempt_id"] = observer.attempt_id
+                except (OSError, ValueError):
+                    self.recorder.record_lifecycle("load_diagnostic_capture_failed")
         started = perf_counter()
         status_code = 500
         exception_class: str | None = None
@@ -624,6 +677,8 @@ class RequestDiagnosticsMiddleware:
                 status_code = int(message["status"])
                 headers = MutableHeaders(scope=message)
                 headers[REQUEST_ID_HEADER] = request_id
+                if observer is not None:
+                    headers["X-Impodo-Support-Reference"] = observer.attempt_id
                 database_header = ", ".join(
                     f"{name};dur={duration:.3f}"
                     for name, duration in database_timings.server_timings_ms().items()
@@ -643,13 +698,19 @@ class RequestDiagnosticsMiddleware:
         with (
             observe_json2_read_failures(record_json2_failure),
             collect_duckdb_request_timings() as database_timings,
+            bind_load_observation(observer),
         ):
             try:
                 await self.app(scope, receive, diagnostic_send)
             except BaseException as error:
                 exception_class = type(error).__name__
+                record_load_failure(error)
                 raise
             finally:
+                if observer is not None and not observer.enqueued and not observer.terminal:
+                    observer.terminal = True
+                    observer.emit("terminal", outcome="FAILED" if status_code >= 400 else "COMPLETED",
+                        reason="SUBMISSION_REJECTED" if status_code >= 400 else "")
                 route = scope.get("route")
                 route_template = getattr(route, "path", "<unmatched>")
                 self.recorder.record_request(
@@ -706,12 +767,15 @@ def create_diagnostic_bundle(
     *,
     build_contract: ApplicationBuildContract,
     max_records: int = DEFAULT_MAX_BUNDLE_RECORDS,
+    attempt_id: str | None = None,
+    capture_failure_count: int = 0,
 ) -> bytes:
     """Create a bounded ZIP whose contents cannot carry business data."""
 
     if max_records < 1:
         raise ValueError("Diagnostic bundle record limit must be positive")
     records: list[dict[str, Any]] = []
+    input_issues = {"malformed_record_count": 0, "oversize_record_count": 0, "unreadable_file_count": 0}
     for path in sorted(Path(directory).glob(f"{DIAGNOSTIC_LOG_NAME}*")):
         if not path.is_file():
             continue
@@ -719,15 +783,20 @@ def create_diagnostic_bundle(
             with path.open("rb") as stream:
                 for raw_line in stream:
                     if len(raw_line) > DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES:
+                        input_issues["oversize_record_count"] += 1
                         continue
                     try:
                         candidate = json.loads(raw_line.decode("utf-8"))
                     except (UnicodeDecodeError, json.JSONDecodeError):
+                        input_issues["malformed_record_count"] += 1
                         continue
                     safe = _sanitize_diagnostic_record(candidate)
                     if safe is not None:
                         records.append(safe)
+                    else:
+                        input_issues["malformed_record_count"] += 1
         except OSError:
+            input_issues["unreadable_file_count"] += 1
             continue
 
     records.sort(key=lambda item: str(item.get("recorded_at", "")))
@@ -749,6 +818,7 @@ def create_diagnostic_bundle(
             and item.get("operation") == "odoo_load" and item.get("stage") == "write_result")
         or (isinstance(item.get("status_code"), int) and item["status_code"] >= 400)
     ][-100:]
+    available_record_count = len(records)
     records = records[-max_records:]
     slow_records = [
         item
@@ -761,6 +831,7 @@ def create_diagnostic_bundle(
             "operation_stage_completed",
         }
     ][-100:]
+    load_members, load_coverage = load_bundle_members(directory, failure_records, attempt_id=attempt_id)
     created_at = _utc_timestamp()
     manifest = {
         "diagnostic_bundle_schema_version": DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
@@ -784,6 +855,17 @@ def create_diagnostic_bundle(
         "slow_record_count": len(slow_records),
         "failure_record_count": len(failure_records),
         "supporting_access_record_count": len(supporting_access_records),
+        "load_evidence": load_coverage,
+        "recording_failure_count_current_session": max(0, capture_failure_count),
+        "coverage": {
+            **input_issues,
+            "general": {"first_recorded_at": records[0]["recorded_at"] if records else None,
+                "last_recorded_at": records[-1]["recorded_at"] if records else None,
+                "omitted_record_count": max(0, available_record_count - len(records)), "max_records": max_records},
+            "failures": {"first_recorded_at": failure_records[0]["recorded_at"] if failure_records else None,
+                "last_recorded_at": failure_records[-1]["recorded_at"] if failure_records else None, "max_records": 100},
+            "history_before_retained_logs": "unavailable; rotated records may have expired",
+        },
         "privacy": (
             "Operational and technical schema metadata only, including model and field identifiers. "
             "Source rows, formulas, credentials, "
@@ -797,6 +879,8 @@ def create_diagnostic_bundle(
     )
     buffer = BytesIO()
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in load_members.items():
+            archive.writestr(name, content)
         archive.writestr(
             "supporting-access.json",
             json.dumps(supporting_access_records, ensure_ascii=True, sort_keys=True, indent=2),

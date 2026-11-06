@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F06-new-choice-recipe",
+  "base_file": "deliveries/2026-05-15/customers_core.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "CustomerRef": "MA-N-0003"
+      },
+      "values": {
+        "LanguageLabel": "Unmapped practice language"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Recipe current-value review",
+    "result": "Require explicit matching; keep the immutable Recipe unchanged.",
+    "affected_customer_refs": [
+      "MA-N-0003"
+    ]
+  }
+}

@@ -86,6 +86,14 @@ from impodo.domain.workspace.workbench import (
 
 from .business_review import BusinessIntentReview
 from .identity_lookups import NestedIdentityLookup
+from .load_observation import (
+    current_load_observation,
+    emit_load_evidence,
+    observe_journal_batch,
+    observe_load_context,
+    observe_load_journal,
+    observe_load_transport,
+)
 from .load_transport import (
     DependentCompletions,
     LoadControlRepository,
@@ -121,10 +129,10 @@ def _targeted_recovery_row_ids(
     }
     attempts = {item.row_id: item for item in run.rows}
     if set(rows) != set(attempts):
-        raise WorkspaceError("The saved load rows do not match the preview")
+        raise WorkspaceError("The saved load rows do not match the preview", load_failure_code='LOAD_THE_SAVED_LOAD_ROWS_DO_NOT_MATCH_THE_PREVIEW')
     for item in attempts.values():
         if item.status is ExecutionRowStatus.COMMITTED and item.odoo_id is None:
-            raise WorkspaceError("A committed load row has no Odoo record")
+            raise WorkspaceError("A committed load row has no Odoo record", load_failure_code='LOAD_A_COMMITTED_LOAD_ROW_HAS_NO_ODOO_RECORD')
 
     by_model: dict[str, set[str]] = {}
     by_dataset: dict[str, set[str]] = {}
@@ -199,7 +207,7 @@ def _targeted_recovery_row_ids(
             expanded_datasets.add(dataset)
         unknown_ids = related_ids.difference(snapshot_row_ids)
         if unknown_ids:
-            raise WorkspaceError("A recovery dependency is missing from the preview")
+            raise WorkspaceError("A recovery dependency is missing from the preview", load_failure_code='LOAD_A_RECOVERY_DEPENDENCY_IS_MISSING_FROM_THE_PREVIEW')
         new_ids = related_ids.intersection(rows).difference(visited)
         visited.update(new_ids)
         pending.extend(new_ids)
@@ -733,7 +741,7 @@ class ExecutionService:
         self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
         workspace = self.workspaces.get(workspace_id)
         if workspace.source_mode is SourceMode.ODOO:
-            raise WorkspaceError("Use the transfer recovery action for an Odoo-to-Odoo load")
+            raise WorkspaceError("Use the transfer recovery action for an Odoo-to-Odoo load", load_failure_code='LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_ODOO_TO_ODOO_LOAD')
         preview = self.current_preview(workspace_id, actor=actor)
         run = self.journal.get_current_run(workspace_id)
         if (
@@ -743,7 +751,7 @@ class ExecutionService:
             or run.status is not ExecutionRunStatus.RUNNING
             or run.snapshot_hash == expected_snapshot_hash
         ):
-            raise WorkspaceError("The interrupted load or fresh comparison is no longer current")
+            raise WorkspaceError("The interrupted load or fresh comparison is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_OR_FRESH_COMPARISON_IS_NO_LONGER_CURRENT')
         _validate_read_identity(preview, read_identity, read_credential_binding_hash, required=True)
         _validate_write_identity(preview, write_identity, write_credential_binding_hash, required=True)
         if (
@@ -754,7 +762,7 @@ class ExecutionService:
             or read_identity.principal_hash != write_identity.principal_hash
             or read_identity.context_hash != write_identity.context_hash
         ):
-            raise WorkspaceError("Fresh recovery requires the original loading key and principal on the same target")
+            raise WorkspaceError("Fresh recovery requires the original loading key and principal on the same target", load_failure_code='LOAD_FRESH_RECOVERY_REQUIRES_THE_ORIGINAL_LOADING_KEY_AND_PRINCIPAL_ON_THE_SAME_TARGET')
         original = self.preflight.execution_snapshot(workspace_id, run.preflight_run_id)
         def identity(row):
             # Preparation trace hashes include mapping and schema lineage, so
@@ -765,25 +773,25 @@ class ExecutionService:
                     _portable_key(row.business_scope))
         fresh = {identity(row): row for row in preview.snapshot.rows}
         if len(fresh) != len(preview.snapshot.rows) or set(fresh) != {identity(row) for row in original.rows}:
-            raise WorkspaceError("Fresh recovery must account for the same original prepared rows and identities")
+            raise WorkspaceError("Fresh recovery must account for the same original prepared rows and identities", load_failure_code='LOAD_FRESH_RECOVERY_MUST_ACCOUNT_FOR_THE_SAME_ORIGINAL_PREPARED_ROWS_AND_IDENTITIES')
         original_by_id = {row.row_id: row for row in original.rows}
         for attempt in run.rows:
             row = original_by_id.get(attempt.row_id)
             if row is None or row.disposition != "CREATE" or attempt.operation != "CREATE":
-                raise WorkspaceError("Fresh recovery supports interrupted create loads only")
+                raise WorkspaceError("Fresh recovery supports interrupted create loads only", load_failure_code='LOAD_FRESH_RECOVERY_SUPPORTS_INTERRUPTED_CREATE_LOADS_ONLY')
             compared = fresh[identity(row)]
             if compared.disposition not in {"CREATE", "UPDATE", "UNCHANGED"} or compared.target_match_count != (
                 0 if compared.disposition == "CREATE" else 1
             ):
-                raise WorkspaceError("Fresh recovery requires an unambiguous current Odoo comparison")
+                raise WorkspaceError("Fresh recovery requires an unambiguous current Odoo comparison", load_failure_code='LOAD_FRESH_RECOVERY_REQUIRES_AN_UNAMBIGUOUS_CURRENT_ODOO_COMPARISON')
             if attempt.odoo_id is not None and compared.target_binding_hash != target_record_binding_hash(
                 attempt.target_model, attempt.odoo_id
             ):
-                raise WorkspaceError("Fresh comparison no longer matches an original Odoo receipt")
+                raise WorkspaceError("Fresh comparison no longer matches an original Odoo receipt", load_failure_code='LOAD_FRESH_COMPARISON_NO_LONGER_MATCHES_AN_ORIGINAL_ODOO_RECEIPT')
             if attempt.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED} and (
                 attempt.odoo_id is None or compared.disposition == "CREATE"
             ):
-                raise WorkspaceError("An originally accepted Odoo record is missing from the fresh comparison")
+                raise WorkspaceError("An originally accepted Odoo record is missing from the fresh comparison", load_failure_code='LOAD_AN_ORIGINALLY_ACCEPTED_ODOO_RECORD_IS_MISSING_FROM_THE_FRESH_COMPARISON')
         return self.journal.close_interrupted_run_for_recomparison(
             workspace_id, run, preview.snapshot.preflight_run_id, actor=actor,
         )
@@ -797,14 +805,14 @@ class ExecutionService:
         if recovery_run_id:
             run = self.journal.get_run(workspace_id, recovery_run_id)
             if run is None or run.snapshot_hash != expected_snapshot_hash or run.status is not ExecutionRunStatus.RUNNING:
-                raise WorkspaceError("The interrupted load changed before recovery")
+                raise WorkspaceError("The interrupted load changed before recovery", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_CHANGED_BEFORE_RECOVERY')
             self.preflight.require_business_intent_approval(workspace_id, run)
             return
         assessment = self.preflight.current_business_intent_assessment(workspace_id, expected_snapshot_hash)
         if assessment is None or not assessment.ready:
             raise WorkspaceError(_business_intent_error(assessment))
         if not expected_assessment_hash or assessment.content_hash != expected_assessment_hash:
-            raise WorkspaceError("Business expectations changed after confirmation; review them again")
+            raise WorkspaceError("Business expectations changed after confirmation; review them again", load_failure_code='LOAD_BUSINESS_EXPECTATIONS_CHANGED_AFTER_CONFIRMATION_REVIEW_THEM_AGAIN')
 
     def execute(
         self,
@@ -838,18 +846,19 @@ class ExecutionService:
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
                 "Use the confirmed transfer route for an Odoo-to-Odoo load."
-            )
+            , load_failure_code='LOAD_USE_THE_CONFIRMED_TRANSFER_ROUTE_FOR_AN_ODOO_TO_ODOO_LOAD')
         create_batch_rows = validated_create_batch_rows(batch_rows)
         preview = self.current_preview(workspace_id, actor=actor)
         if preview is None:
-            raise WorkspaceError("Compare the prepared data with Odoo first")
+            raise WorkspaceError("Compare the prepared data with Odoo first", load_failure_code='LOAD_PREVIEW_MISSING')
         snapshot = preview.snapshot
+        observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
         if snapshot.semantic_hash != expected_snapshot_hash:
-            raise WorkspaceError("The load preview changed. Review it again.")
+            raise WorkspaceError("The load preview changed. Review it again.", load_failure_code='LOAD_PREVIEW_CHANGED')
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
         if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
-            raise WorkspaceError("Business expectations changed after confirmation; review them again")
+            raise WorkspaceError("Business expectations changed after confirmation; review them again", load_failure_code='LOAD_BUSINESS_EXPECTATIONS_CHANGED_AFTER_CONFIRMATION_REVIEW_THEM_AGAIN')
         self._validate_execution_scope(workspace_state, preview, executor)
         _validate_write_identity(
             preview,
@@ -931,7 +940,7 @@ class ExecutionService:
             run = replace(run, load_control=control)
         else:
             if rejection_policy is not RejectionPolicy.STOP:
-                raise WorkspaceError("Load continuation is unavailable for this journal")
+                raise WorkspaceError("Load continuation is unavailable for this journal", load_failure_code='LOAD_LOAD_CONTINUATION_IS_UNAVAILABLE_FOR_THIS_JOURNAL')
             self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
         return self._continue_run(
             workspace_state,
@@ -982,7 +991,7 @@ class ExecutionService:
         )
         source_workspace = self.workspaces.get(workspace_id)
         if source_workspace.source_mode is not SourceMode.ODOO:
-            raise WorkspaceError("The destination load requires a frozen Odoo source")
+            raise WorkspaceError("The destination load requires a frozen Odoo source", load_failure_code='LOAD_THE_DESTINATION_LOAD_REQUIRES_A_FROZEN_ODOO_SOURCE')
         report = source_workspace.transfer_preflight_report
         if (
             report is None
@@ -994,8 +1003,9 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The destination preflight changed. Run it again before loading."
-            )
+            , load_failure_code='LOAD_THE_DESTINATION_PREFLIGHT_CHANGED_RUN_IT_AGAIN_BEFORE_LOADING')
         destination_workspace = transfer_destination_workspace(source_workspace)
+        observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
         create_batch_rows = validated_create_batch_rows(batch_rows)
         current = self.journal.get_current_run(workspace_id)
         preview = ExecutionPreview(
@@ -1012,7 +1022,7 @@ class ExecutionService:
         if current is not None:
             raise WorkspaceError(
                 "This approved transfer already has a load journal. Verify its outcome."
-            )
+            , load_failure_code='LOAD_THIS_APPROVED_TRANSFER_ALREADY_HAS_A_LOAD_JOURNAL_VERIFY_ITS_OUTCOME')
         self._validate_execution_scope(destination_workspace, preview, executor)
         _validate_read_identity(
             preview,
@@ -1032,13 +1042,13 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The destination transfer key changed principal or company context"
-            )
+            , load_failure_code='LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT')
 
         write_rows = tuple(
             row for row in snapshot.rows if row.disposition in {"CREATE", "UPDATE"}
         )
         if not write_rows:
-            raise WorkspaceError("This approved transfer has no records to load")
+            raise WorkspaceError("This approved transfer has no records to load", load_failure_code='LOAD_THIS_APPROVED_TRANSFER_HAS_NO_RECORDS_TO_LOAD')
         metadata = {item.dataset: item for item in snapshot.datasets}
         by_source = {
             (row.dataset, _portable_key(row.source_identity)): row
@@ -1132,16 +1142,17 @@ class ExecutionService:
             raise WorkspaceError(
                 "Use the transfer recovery action for an interrupted "
                 "Odoo-to-Odoo load."
-            )
+            , load_failure_code='LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD')
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
-            raise WorkspaceError("The interrupted load preview is no longer current")
+            raise WorkspaceError("The interrupted load preview is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT')
         if not assess_odoo_operation(
             snapshot.target_odoo_version, OdooOperation.RECOVER,
         ).allowed:
             raise WorkspaceError(
                 "This Odoo version is not enabled for the schema-bound load path"
-            )
+            , load_failure_code='LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH')
+        observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
         run = self.journal.get_run(workspace_id, expected_execution_run_id)
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         if (
@@ -1155,7 +1166,7 @@ class ExecutionService:
             or run.target_hash != snapshot.target_hash
             or run.target_database != snapshot.target_database
         ):
-            raise WorkspaceError("The interrupted load or preview is no longer current")
+            raise WorkspaceError("The interrupted load or preview is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT')
         self.preflight.require_business_intent_approval(workspace_id, run)
         paused_control = run.load_control
         paused = paused_control is not None and paused_control.state is LoadControlState.PAUSED
@@ -1163,15 +1174,15 @@ class ExecutionService:
             self.load_controls is None
             or expected_load_control_hash != paused_control.content_hash
         ):
-            raise WorkspaceError("Review the paused load before continuing the next group")
+            raise WorkspaceError("Review the paused load before continuing the next group", load_failure_code='LOAD_REVIEW_THE_PAUSED_LOAD_BEFORE_CONTINUING_THE_NEXT_GROUP')
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError(
                 "The recovery writer points to a different Odoo target"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET')
         if executor.scope_hash != execution_api_scope(snapshot).semantic_hash:
             raise WorkspaceError(
                 "The recovery writer is not bound to this reviewed load preview"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_REVIEWED_LOAD_PREVIEW')
         _require_resume_write_identity(
             run,
             write_identity,
@@ -1202,11 +1213,11 @@ class ExecutionService:
             )
             run = self.journal.get_run(workspace_id, run.run_id)
             if run is None:
-                raise WorkspaceError("The recovered load journal could not be reloaded")
+                raise WorkspaceError("The recovered load journal could not be reloaded", load_failure_code='LOAD_THE_RECOVERED_LOAD_JOURNAL_COULD_NOT_BE_RELOADED')
 
         if paused:
             if self.load_controls is None:
-                raise WorkspaceError("This load has no durable continuation control")
+                raise WorkspaceError("This load has no durable continuation control", load_failure_code='LOAD_THIS_LOAD_HAS_NO_DURABLE_CONTINUATION_CONTROL')
             control = self.load_controls.resume_load_control(
                 workspace_id, run.run_id, expected_hash=expected_load_control_hash, actor=actor,
             )
@@ -1260,17 +1271,17 @@ class ExecutionService:
             raise WorkspaceError(
                 "Use the transfer recovery action for an interrupted "
                 "Odoo-to-Odoo load."
-            )
+            , load_failure_code='LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD')
         snapshot = self.preflight.current_execution_snapshot(workspace_id)
         if snapshot is None:
-            raise WorkspaceError("The interrupted load preview is no longer current")
+            raise WorkspaceError("The interrupted load preview is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT')
         if not assess_odoo_operation(
             snapshot.target_odoo_version,
             OdooOperation.RECOVER,
         ).allowed:
             raise WorkspaceError(
                 "This Odoo version is not enabled for the schema-bound load path"
-            )
+            , load_failure_code='LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH')
         run = self.journal.get_run(workspace_id, expected_execution_run_id)
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         if (
@@ -1284,7 +1295,7 @@ class ExecutionService:
             or run.target_hash != snapshot.target_hash
             or run.target_database != snapshot.target_database
         ):
-            raise WorkspaceError("The interrupted load or preview is no longer current")
+            raise WorkspaceError("The interrupted load or preview is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT')
         _require_resume_write_identity(
             run,
             write_identity,
@@ -1380,7 +1391,7 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The interrupted transfer preview or preflight is no longer current"
-            )
+            , load_failure_code='LOAD_THE_INTERRUPTED_TRANSFER_PREVIEW_OR_PREFLIGHT_IS_NO_LONGER_CURRENT')
         run = self.journal.get_run(workspace_id, expected_execution_run_id)
         current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
         if (
@@ -1396,9 +1407,10 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The interrupted transfer journal is no longer current"
-            )
+            , load_failure_code='LOAD_THE_INTERRUPTED_TRANSFER_JOURNAL_IS_NO_LONGER_CURRENT')
 
         destination_workspace = transfer_destination_workspace(source_workspace)
+        observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
         preview = ExecutionPreview(
             snapshot=snapshot,
             datasets=(),
@@ -1414,11 +1426,11 @@ class ExecutionService:
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError(
                 "The recovery writer points to a different Odoo target"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET')
         if executor.scope_hash != preview.api_scope.semantic_hash:
             raise WorkspaceError(
                 "The recovery writer is not bound to this transfer preview"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_TRANSFER_PREVIEW')
         _validate_read_identity(
             preview,
             read_identity,
@@ -1443,12 +1455,12 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The destination transfer key changed principal or company context"
-            )
+            , load_failure_code='LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT')
         if recovery.verification_credential_binding_hash != credential_binding_hash:
             raise WorkspaceError(
                 "The recovery evidence was collected with another destination "
                 "transfer key"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_EVIDENCE_WAS_COLLECTED_WITH_ANOTHER_DESTINATION_TRANSFER_KEY')
 
         recovery = ReconciliationRun.from_json(recovery.to_json())
         recovery_hash = recovery.semantic_hash
@@ -1489,7 +1501,7 @@ class ExecutionService:
             if run is None:
                 raise WorkspaceError(
                     "The recovered transfer journal could not be reloaded"
-                )
+                , load_failure_code='LOAD_THE_RECOVERED_TRANSFER_JOURNAL_COULD_NOT_BE_RELOADED')
 
         by_source = {
             (row.dataset, _portable_key(row.source_identity)): row
@@ -1517,7 +1529,7 @@ class ExecutionService:
         """Authorize a durable stop for the exact current load."""
         self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
         if self.load_controls is None:
-            raise WorkspaceError("Durable load stopping is unavailable")
+            raise WorkspaceError("Durable load stopping is unavailable", load_failure_code='LOAD_DURABLE_LOAD_STOPPING_IS_UNAVAILABLE')
         control = self.load_controls.request_load_stop(workspace_id, run_id, actor=actor)
         saved = self.journal.get_run(workspace_id, run_id)
         if saved is not None and not saved.in_flight_count and saved.status is ExecutionRunStatus.RUNNING:
@@ -1536,6 +1548,7 @@ class ExecutionService:
         protected_values: Mapping[str, Any] | None = None, create_with_external_ids: bool = False,
     ) -> ExecutionRun:
         """End new transport at a durable pause/stop while retaining all receipts."""
+        observe_load_journal(run, projection="INITIAL")
         try:
             return self._transport_run(workspace_state, snapshot, run, executor, actor,
                 identity_cache=identity_cache, progress=progress, protected_values=protected_values,
@@ -1550,7 +1563,7 @@ class ExecutionService:
             ):
                 raise
             if saved is None or saved.load_control is None or saved.in_flight_count:
-                raise WorkspaceError("The halted load needs read-back before continuation") from None
+                raise WorkspaceError("The halted load needs read-back before continuation", load_failure_code='LOAD_THE_HALTED_LOAD_NEEDS_READ_BACK_BEFORE_CONTINUATION') from None
             if saved.status is not ExecutionRunStatus.RUNNING:
                 if progress is not None:
                     progress(saved)
@@ -1566,6 +1579,17 @@ class ExecutionService:
             if progress is not None:
                 progress(saved)
             return saved
+        finally:
+            if current_load_observation() is not None:
+                try:
+                    observed_run = self.journal.get_run(run.workspace_id, run.run_id)
+                except Exception as capture_error:  # noqa: BLE001 - optional evidence read
+                    emit_load_evidence("capture_failed", exception_class=type(capture_error).__name__)
+                else:
+                    if observed_run is not None:
+                        observe_load_journal(observed_run, projection="FINAL")
+                    else:
+                        emit_load_evidence("capture_failed", reason="JOURNAL_UNAVAILABLE")
 
     def _transport_run(
         self,
@@ -1846,7 +1870,7 @@ class ExecutionService:
 
                     def rolled_back(group_rows: tuple[ExecutionRow, ...], error: OdooWriteRejected) -> None:
                         if self.load_controls is None:
-                            raise WorkspaceError("Load isolation has no durable journal")
+                            raise WorkspaceError("Load isolation has no durable journal", load_failure_code='LOAD_LOAD_ISOLATION_HAS_NO_DURABLE_JOURNAL')
                         retries = self.load_controls.record_rejected_batch(
                             workspace_id, run.run_id, tuple(recorded[row.row_id] for row in group_rows), error)
                         recorded.update({item.row_id: item for item in retries})
@@ -1975,7 +1999,8 @@ class ExecutionService:
                     )
                     next_transport_batch += 1
                     try:
-                        executor.update_row(row.target_model, record_id, values)
+                        with observe_load_transport(row.target_model, "write", tuple(values), 1):
+                            executor.update_row(row.target_model, record_id, values)
                     except OdooWriteOutcomeUnknown as error:
                         outcome = replace(
                             recorded[row.row_id],
@@ -2096,12 +2121,12 @@ class ExecutionService:
             or recovery.target_hash != run.target_hash
             or recovery.target_database != run.target_database
         ):
-            raise WorkspaceError("The recovery report belongs to another load")
+            raise WorkspaceError("The recovery report belongs to another load", load_failure_code='LOAD_THE_RECOVERY_REPORT_BELONGS_TO_ANOTHER_LOAD')
         allowed_scopes = (
             {"FULL", "RECOVERY_TARGETED"} if targeted else {"FULL"}
         )
         if recovery.readback_scope not in allowed_scopes:
-            raise WorkspaceError("The recovery report has an invalid read-back scope")
+            raise WorkspaceError("The recovery report has an invalid read-back scope", load_failure_code='LOAD_THE_RECOVERY_REPORT_HAS_AN_INVALID_READ_BACK_SCOPE')
         expected_identity = (
             run.write_principal_hash,
             run.write_permission_hash,
@@ -2120,7 +2145,7 @@ class ExecutionService:
         ):
             raise WorkspaceError(
                 "The recovery report used another Odoo principal or context"
-            )
+            , load_failure_code='LOAD_THE_RECOVERY_REPORT_USED_ANOTHER_ODOO_PRINCIPAL_OR_CONTEXT')
         rows = {
             row.row_id: row
             for row in snapshot.rows
@@ -2142,7 +2167,7 @@ class ExecutionService:
                 and set(outcomes) != set(rows)
             )
         ):
-            raise WorkspaceError("The recovery report does not cover every load row")
+            raise WorkspaceError("The recovery report does not cover every load row", load_failure_code='LOAD_THE_RECOVERY_REPORT_DOES_NOT_COVER_EVERY_LOAD_ROW')
 
         recovery_hash = recovery.semantic_hash
         recovered = []
@@ -2158,15 +2183,15 @@ class ExecutionService:
                     ExecutionRowStatus.PLANNED,
                     ExecutionRowStatus.RETRY_READY,
                 }:
-                    raise WorkspaceError("Recovery omitted an unfinished load row")
+                    raise WorkspaceError("Recovery omitted an unfinished load row", load_failure_code='LOAD_RECOVERY_OMITTED_AN_UNFINISHED_LOAD_ROW')
                 recovered.append(replace(attempt, recovery_hash=recovery_hash))
                 continue
             if outcome.execution_status != attempt.status.value:
-                raise WorkspaceError("The recovery report is stale")
+                raise WorkspaceError("The recovery report is stale", load_failure_code='LOAD_THE_RECOVERY_REPORT_IS_STALE')
             if outcome.target_model != attempt.target_model:
-                raise WorkspaceError("The recovery report changed a target model")
+                raise WorkspaceError("The recovery report changed a target model", load_failure_code='LOAD_THE_RECOVERY_REPORT_CHANGED_A_TARGET_MODEL')
             if outcome.operation != attempt.operation:
-                raise WorkspaceError("The recovery report changed a write operation")
+                raise WorkspaceError("The recovery report changed a write operation", load_failure_code='LOAD_THE_RECOVERY_REPORT_CHANGED_A_WRITE_OPERATION')
 
             status = attempt.status
             odoo_id = attempt.odoo_id
@@ -2197,17 +2222,17 @@ class ExecutionService:
                 ):
                     raise WorkspaceError(
                         "A completed earlier component no longer matches Odoo"
-                    )
+                    , load_failure_code='LOAD_A_COMPLETED_EARLIER_COMPONENT_NO_LONGER_MATCHES_ODOO')
             elif status in {
                 ExecutionRowStatus.PLANNED,
                 ExecutionRowStatus.RETRY_READY,
             }:
                 if outcome.status is not ReconciliationRowStatus.NOT_WRITTEN:
-                    raise WorkspaceError("An unstarted row has conflicting recovery evidence")
+                    raise WorkspaceError("An unstarted row has conflicting recovery evidence", load_failure_code='LOAD_AN_UNSTARTED_ROW_HAS_CONFLICTING_RECOVERY_EVIDENCE')
             elif status is ExecutionRowStatus.IN_FLIGHT:
                 if outcome.status is ReconciliationRowStatus.VERIFIED:
                     if outcome.odoo_id is None:
-                        raise WorkspaceError("Recovery found no durable Odoo receipt")
+                        raise WorkspaceError("Recovery found no durable Odoo receipt", load_failure_code='LOAD_RECOVERY_FOUND_NO_DURABLE_ODOO_RECEIPT')
                     status = (
                         ExecutionRowStatus.PARTIALLY_APPLIED
                         if projection_pending or deferred_fields
@@ -2252,7 +2277,7 @@ class ExecutionService:
                 else:
                     raise WorkspaceError(
                         "The interrupted Odoo outcome is not safe to resume"
-                    )
+                    , load_failure_code='LOAD_THE_INTERRUPTED_ODOO_OUTCOME_IS_NOT_SAFE_TO_RESUME')
             elif status is ExecutionRowStatus.PARTIALLY_APPLIED:
                 if (
                     outcome.status is ReconciliationRowStatus.VERIFIED
@@ -2277,7 +2302,7 @@ class ExecutionService:
                 else:
                     raise WorkspaceError(
                         "The partial relationship result is not safe to resume"
-                    )
+                    , load_failure_code='LOAD_THE_PARTIAL_RELATIONSHIP_RESULT_IS_NOT_SAFE_TO_RESUME')
             elif (
                 run.load_control is not None
                 and run.load_control.policy is RejectionPolicy.CONTINUE
@@ -2292,7 +2317,7 @@ class ExecutionService:
             else:
                 raise WorkspaceError(
                     "This stopped load cannot resume; run Check changes again"
-                )
+                , load_failure_code='LOAD_THIS_STOPPED_LOAD_CANNOT_RESUME_RUN_CHECK_CHANGES_AGAIN')
             recovered.append(
                 replace(
                     attempt,
@@ -2329,13 +2354,13 @@ class ExecutionService:
         if workspace_state.source_mode is SourceMode.ODOO:
             raise WorkspaceError(
                 "Use the transfer outcome to complete an Odoo-to-Odoo load."
-            )
+            , load_failure_code='LOAD_USE_THE_TRANSFER_OUTCOME_TO_COMPLETE_AN_ODOO_TO_ODOO_LOAD')
         preview = self.current_preview(workspace_id, actor=actor)
         if preview is None:
-            raise WorkspaceError("Compare the prepared data with Odoo first")
+            raise WorkspaceError("Compare the prepared data with Odoo first", load_failure_code='LOAD_PREVIEW_MISSING')
         snapshot = preview.snapshot
         if snapshot.semantic_hash != expected_snapshot_hash:
-            raise WorkspaceError("The comparison changed. Review it again.")
+            raise WorkspaceError("The comparison changed. Review it again.", load_failure_code='LOAD_THE_COMPARISON_CHANGED_REVIEW_IT_AGAIN')
         if preview.current_run is not None:
             if (
                 preview.current_run.status is ExecutionRunStatus.COMPLETED
@@ -2344,15 +2369,15 @@ class ExecutionService:
                 return preview.current_run
             raise WorkspaceError(
                 "This comparison already has a load result. Review that result first."
-            )
+            , load_failure_code='LOAD_THIS_COMPARISON_ALREADY_HAS_A_LOAD_RESULT_REVIEW_THAT_RESULT_FIRST')
         if preview.scope_error and preview.scope_error != NO_WRITE_ROWS_MESSAGE:
             raise WorkspaceError(preview.scope_error)
         if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
-            raise WorkspaceError("Business expectations changed after confirmation; review them again")
+            raise WorkspaceError("Business expectations changed after confirmation; review them again", load_failure_code='LOAD_BUSINESS_EXPECTATIONS_CHANGED_AFTER_CONFIRMATION_REVIEW_THEM_AGAIN')
         if not preview.can_complete_without_load:
             raise WorkspaceError(
                 "Only a complete comparison with no proposed Odoo changes can finish here"
-            )
+            , load_failure_code='LOAD_ONLY_A_COMPLETE_COMPARISON_WITH_NO_PROPOSED_ODOO_CHANGES_CAN_FINISH_HERE')
         started_at = datetime.now(UTC)
         run = ExecutionRun(
             run_id=str(uuid4()),
@@ -2408,16 +2433,16 @@ class ExecutionService:
                     if len(matches) != len(page):
                         raise WorkspaceError(
                             "Odoo returned an incomplete create-key check"
-                        )
+                        , load_failure_code='LOAD_ODOO_RETURNED_AN_INCOMPLETE_CREATE_KEY_CHECK')
                     if any(identifiers for identifiers in matches):
                         raise WorkspaceError(
                             "An Odoo business key marked for creation now exists; "
                             "run destination preflight again"
-                        )
+                        , load_failure_code='LOAD_AN_ODOO_BUSINESS_KEY_MARKED_FOR_CREATION_NOW_EXISTS_RUN_DESTINATION_PREFLIGHT_AGAIN')
         except OdooWriteRejected as error:
             raise WorkspaceError(
                 "Odoo create-key verification failed before loading"
-            ) from error
+            , load_failure_code='LOAD_ODOO_CREATE_KEY_VERIFICATION_FAILED_BEFORE_LOADING') from error
 
     @staticmethod
     def _resolve_identity_crosswalk(
@@ -2459,7 +2484,7 @@ class ExecutionService:
             ):
                 raise WorkspaceError(
                     "The reviewed Odoo identity bindings conflict"
-                )
+                , load_failure_code='LOAD_THE_REVIEWED_ODOO_IDENTITY_BINDINGS_CONFLICT')
             if not current["expected"]:
                 current["expected"] = expected_binding_hash
             current["aliases"].update(aliases)
@@ -2499,14 +2524,14 @@ class ExecutionService:
                         if value.dataset is None:
                             raise WorkspaceError(
                                 "An incoming relationship is incomplete"
-                            )
+                            , load_failure_code='LOAD_INCOMING_RELATIONSHIP_INCOMPLETE')
                         referenced = by_source.get(
                             (value.dataset, _portable_key(value.key))
                         )
                         if referenced is None:
                             raise WorkspaceError(
                                 "A related prepared row could not be found"
-                            )
+                            , load_failure_code='LOAD_RELATED_PREPARED_ROW_MISSING')
                         if referenced.disposition != "CREATE":
                             add_row(referenced)
                         continue
@@ -2515,7 +2540,7 @@ class ExecutionService:
                     else:
                         raise WorkspaceError(
                             "A relationship is not expressed by a business key"
-                        )
+                        , load_failure_code='LOAD_A_RELATIONSHIP_IS_NOT_EXPRESSED_BY_A_BUSINESS_KEY')
                     domain = _identity_domain(
                         intent.related_identity_fields,
                         key,
@@ -2553,7 +2578,7 @@ class ExecutionService:
                     if len(matches) != len(page):
                         raise WorkspaceError(
                             "Odoo returned an incomplete identity crosswalk"
-                        )
+                        , load_failure_code='LOAD_ODOO_RETURNED_AN_INCOMPLETE_IDENTITY_CROSSWALK')
                     for requirement, identifiers in zip(
                         page,
                         matches,
@@ -2571,13 +2596,13 @@ class ExecutionService:
                         ) != expected:
                             raise WorkspaceError(
                                 "An Odoo business key now targets a different record; compare again"
-                            )
+                            , load_failure_code='LOAD_AN_ODOO_BUSINESS_KEY_NOW_TARGETS_A_DIFFERENT_RECORD_COMPARE_AGAIN')
                         for alias in requirement["aliases"]:
                             identity_cache[alias] = identifier
         except OdooWriteRejected as error:
             raise WorkspaceError(
                 "Odoo identity verification failed before loading"
-            ) from error
+            , load_failure_code='LOAD_ODOO_IDENTITY_VERIFICATION_FAILED_BEFORE_LOADING') from error
         return identity_cache
 
     @staticmethod
@@ -2607,7 +2632,7 @@ class ExecutionService:
                 ):
                     raise WorkspaceError(
                         "A required Odoo create receipt was not journalled"
-                    )
+                    , load_failure_code='LOAD_A_REQUIRED_ODOO_CREATE_RECEIPT_WAS_NOT_JOURNALLED')
                 if intent.incoming_projection_field and not any(
                     receipt.projection_field
                     == intent.incoming_projection_field
@@ -2616,7 +2641,7 @@ class ExecutionService:
                 ):
                     raise WorkspaceError(
                         "A generated Odoo relationship receipt was not journalled"
-                    )
+                    , load_failure_code='LOAD_A_GENERATED_ODOO_RELATIONSHIP_RECEIPT_WAS_NOT_JOURNALLED')
 
     def _start_transport_batch(
         self,
@@ -2634,7 +2659,7 @@ class ExecutionService:
         """Persist one exact in-flight transport batch before sending it."""
 
         if phase not in {"CREATE", "UPDATE", "COMPLETION"}:
-            raise WorkspaceError("Execution transport phase is invalid")
+            raise WorkspaceError("Execution transport phase is invalid", load_failure_code='LOAD_EXECUTION_TRANSPORT_PHASE_IS_INVALID')
         attempts = tuple(
             replace(
                 recorded[row.row_id],
@@ -2655,6 +2680,7 @@ class ExecutionService:
             run_id,
             attempts,
         )
+        observe_journal_batch(attempts)
         recorded.update({item.row_id: item for item in attempts})
 
     @staticmethod
@@ -2668,25 +2694,25 @@ class ExecutionService:
             OdooConnectionMode.LOCAL,
             OdooConnectionMode.REMOTE,
         }:
-            raise WorkspaceError("Configure the exact Odoo load target first")
+            raise WorkspaceError("Configure the exact Odoo load target first", load_failure_code='LOAD_CONFIGURE_THE_EXACT_ODOO_LOAD_TARGET_FIRST')
         if preview.current_run is not None:
             raise WorkspaceError(
                 "This preview was already loaded. Compare with Odoo again first."
-            )
+            , load_failure_code='LOAD_THIS_PREVIEW_WAS_ALREADY_LOADED_COMPARE_WITH_ODOO_AGAIN_FIRST')
         if preview.scope_error:
             raise WorkspaceError(preview.scope_error)
         if not preview.can_load:
             raise WorkspaceError(
                 "Resolve every blocked or ambiguous row before loading"
-            )
+            , load_failure_code='LOAD_RESOLVE_EVERY_BLOCKED_OR_AMBIGUOUS_ROW_BEFORE_LOADING')
         if executor.target_hash != snapshot.target_hash:
             raise WorkspaceError(
                 "The load connection points to a different Odoo target"
-            )
+            , load_failure_code='LOAD_THE_LOAD_CONNECTION_POINTS_TO_A_DIFFERENT_ODOO_TARGET')
         if executor.scope_hash != preview.api_scope.semantic_hash:
             raise WorkspaceError(
                 "The writer is not bound to this reviewed load preview"
-            )
+            , load_failure_code='LOAD_THE_WRITER_IS_NOT_BOUND_TO_THIS_REVIEWED_LOAD_PREVIEW')
 
     @staticmethod
     def _deferred_create_intents(
@@ -2748,7 +2774,7 @@ class ExecutionService:
                         ):
                             raise WorkspaceError(
                                 "A generated relationship source was not created"
-                            )
+                            , load_failure_code='LOAD_A_GENERATED_RELATIONSHIP_SOURCE_WAS_NOT_CREATED')
                         source_id = attempt.odoo_id
                     else:
                         source_id = self._find_row_id(
@@ -2788,7 +2814,7 @@ class ExecutionService:
                 if len(projected_ids) != len(page):
                     raise WorkspaceError(
                         "Odoo generated-record read-back was incomplete"
-                    )
+                    , load_failure_code='LOAD_ODOO_GENERATED_RECORD_READ_BACK_WAS_INCOMPLETE')
                 observed.extend(
                     (
                         row,
@@ -2820,7 +2846,7 @@ class ExecutionService:
             if attempt.status is not ExecutionRowStatus.PARTIALLY_APPLIED:
                 raise WorkspaceError(
                     "A generated relationship source journal is inconsistent"
-                )
+                , load_failure_code='LOAD_A_GENERATED_RELATIONSHIP_SOURCE_JOURNAL_IS_INCONSISTENT')
             receipts = {
                 (item.projection_field, item.target_model): item
                 for item in attempt.projected_receipts
@@ -2831,7 +2857,7 @@ class ExecutionService:
                 if previous is not None and previous.odoo_id != receipt.odoo_id:
                     raise WorkspaceError(
                         "An Odoo generated-record receipt changed"
-                    )
+                    , load_failure_code='LOAD_AN_ODOO_GENERATED_RECORD_RECEIPT_CHANGED')
                 receipts[key] = receipt
             missing = requirements.get(row_id, frozenset()).difference(receipts)
             waiting_for_relationships = row_id in deferred_by_row
@@ -2954,10 +2980,11 @@ class ExecutionService:
             if attempt.odoo_id != record_id:
                 raise WorkspaceError(
                     "The deferred relationship target changed in the execution journal"
-                )
+                , load_failure_code='LOAD_THE_DEFERRED_RELATIONSHIP_TARGET_CHANGED_IN_THE_EXECUTION_JOURNAL')
             progress()
             try:
-                executor.update_row(row.target_model, record_id, values)
+                with observe_load_transport(row.target_model, "write", tuple(values), 1):
+                    executor.update_row(row.target_model, record_id, values)
             except OdooWriteOutcomeUnknown as error:
                 outcome = replace(
                     attempt,
@@ -3068,7 +3095,7 @@ class ExecutionService:
                     executor,
                 )
         if not values:
-            raise WorkspaceError("A planned write has no permitted field values")
+            raise WorkspaceError("A planned write has no permitted field values", load_failure_code='LOAD_A_PLANNED_WRITE_HAS_NO_PERMITTED_FIELD_VALUES')
         return values
 
     def _import_relation_value(
@@ -3133,7 +3160,7 @@ class ExecutionService:
                 if value.dataset is None:
                     raise WorkspaceError(
                         "An incoming relationship has no source table identity"
-                    )
+                    , load_failure_code='LOAD_AN_INCOMING_RELATIONSHIP_HAS_NO_SOURCE_TABLE_IDENTITY')
                 referenced = by_source.get(
                     (value.dataset, _portable_key(value.key))
                 )
@@ -3279,7 +3306,7 @@ class ExecutionService:
     ) -> int:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
-                raise WorkspaceError("An incoming relationship is incomplete")
+                raise WorkspaceError("An incoming relationship is incomplete", load_failure_code='LOAD_INCOMING_RELATIONSHIP_INCOMPLETE')
             source_key = (
                 value.dataset,
                 _portable_key(value.key),
@@ -3292,13 +3319,13 @@ class ExecutionService:
                 (value.dataset, _portable_key(value.key))
             )
             if referenced is None:
-                raise WorkspaceError("A related prepared row could not be found")
+                raise WorkspaceError("A related prepared row could not be found", load_failure_code='LOAD_RELATED_PREPARED_ROW_MISSING')
             if intent.incoming_projection_field:
                 raise WorkspaceError(
                     "A generated Odoo relationship receipt was not journalled"
-                )
+                , load_failure_code='LOAD_A_GENERATED_ODOO_RELATIONSHIP_RECEIPT_WAS_NOT_JOURNALLED')
             if referenced.disposition == "CREATE":
-                raise WorkspaceError("A related Odoo create did not complete")
+                raise WorkspaceError("A related Odoo create did not complete", load_failure_code='LOAD_A_RELATED_ODOO_CREATE_DID_NOT_COMPLETE')
             related_id = self._find_row_id(
                 referenced,
                 metadata[referenced.dataset],
@@ -3317,7 +3344,7 @@ class ExecutionService:
         if isinstance(value, BusinessReference | LogicalReference):
             key, scope = value.key, value.scope
         else:
-            raise WorkspaceError("A relationship is not expressed by a business key")
+            raise WorkspaceError("A relationship is not expressed by a business key", load_failure_code='LOAD_A_RELATIONSHIP_IS_NOT_EXPRESSED_BY_A_BUSINESS_KEY')
         domain = _identity_domain(
             intent.related_identity_fields,
             key,
@@ -3369,7 +3396,7 @@ class ExecutionService:
             return identity_cache[cache_key]
         raise WorkspaceError(
             "The reviewed Odoo identity crosswalk is incomplete"
-        )
+        , load_failure_code='LOAD_THE_REVIEWED_ODOO_IDENTITY_CROSSWALK_IS_INCOMPLETE')
 
     def _record_blocked(
         self,
@@ -3407,7 +3434,7 @@ def _identity_domain(
         or len(identity_fields) != len(identity)
         or len(scope_fields) != len(scope)
     ):
-        raise WorkspaceError("The Odoo business-key shape is incomplete")
+        raise WorkspaceError("The Odoo business-key shape is incomplete", load_failure_code='LOAD_THE_ODOO_BUSINESS_KEY_SHAPE_IS_INCOMPLETE')
     terms: list[tuple[str, str, Any]] = []
     for field_name, value in zip(
             (*identity_fields, *scope_fields),
@@ -3464,13 +3491,13 @@ def validated_create_batch_rows(value: int | str) -> int:
     """Return one bounded Odoo request size chosen for this load run."""
 
     if isinstance(value, bool):
-        raise WorkspaceError("Rows per Odoo batch must be a whole number")
+        raise WorkspaceError("Rows per Odoo batch must be a whole number", load_failure_code='LOAD_ROWS_PER_ODOO_BATCH_MUST_BE_A_WHOLE_NUMBER')
     try:
         batch_rows = int(value)
     except (TypeError, ValueError) as error:
-        raise WorkspaceError("Rows per Odoo batch must be a whole number") from error
+        raise WorkspaceError("Rows per Odoo batch must be a whole number", load_failure_code='LOAD_ROWS_PER_ODOO_BATCH_MUST_BE_A_WHOLE_NUMBER') from error
     if str(value).strip() != str(batch_rows):
-        raise WorkspaceError("Rows per Odoo batch must be a whole number")
+        raise WorkspaceError("Rows per Odoo batch must be a whole number", load_failure_code='LOAD_ROWS_PER_ODOO_BATCH_MUST_BE_A_WHOLE_NUMBER')
     if batch_rows < 1 or batch_rows > MAX_CREATE_BATCH_ROWS:
         raise WorkspaceError(
             f"Rows per Odoo batch must be between 1 and {MAX_CREATE_BATCH_ROWS}"
@@ -3491,18 +3518,18 @@ def _validate_write_identity(
         if required:
             raise WorkspaceError(
                 "Probe the separate remote write credential before loading"
-            )
+            , load_failure_code='LOAD_PROBE_THE_SEPARATE_REMOTE_WRITE_CREDENTIAL_BEFORE_LOADING')
         if credential_binding_hash:
-            raise WorkspaceError("The write credential has no principal evidence")
+            raise WorkspaceError("The write credential has no principal evidence", load_failure_code='LOAD_THE_WRITE_CREDENTIAL_HAS_NO_PRINCIPAL_EVIDENCE')
         return
     if not credential_binding_hash:
-        raise WorkspaceError("The write principal has no credential-generation binding")
+        raise WorkspaceError("The write principal has no credential-generation binding", load_failure_code='LOAD_THE_WRITE_PRINCIPAL_HAS_NO_CREDENTIAL_GENERATION_BINDING')
     expected_readable = tuple(item.model for item in preview.api_scope.models)
     expected_writable = tuple(
         item.model for item in preview.api_scope.models if item.write_fields
     )
     if identity.target_hash != preview.snapshot.target_hash:
-        raise WorkspaceError("The write principal belongs to a different Odoo target")
+        raise WorkspaceError("The write principal belongs to a different Odoo target", load_failure_code='LOAD_THE_WRITE_PRINCIPAL_BELONGS_TO_A_DIFFERENT_ODOO_TARGET')
     if (
         preview.snapshot.read_context_hash
         and identity.context_hash != preview.snapshot.read_context_hash
@@ -3510,11 +3537,11 @@ def _validate_write_identity(
         raise WorkspaceError(
             "The write credential does not use the reviewed Odoo company context; "
             "check the Odoo access and compare again"
-        )
+        , load_failure_code='LOAD_THE_WRITE_CREDENTIAL_DOES_NOT_USE_THE_REVIEWED_ODOO_COMPANY_CONTEXT_CHECK_THE_ODOO_ACCESS_AND_COMPARE_AGAIN')
     if identity.readable_models != expected_readable:
-        raise WorkspaceError("The write principal read-back scope changed")
+        raise WorkspaceError("The write principal read-back scope changed", load_failure_code='LOAD_THE_WRITE_PRINCIPAL_READ_BACK_SCOPE_CHANGED')
     if identity.writable_models != expected_writable:
-        raise WorkspaceError("The write principal model scope changed")
+        raise WorkspaceError("The write principal model scope changed", load_failure_code='LOAD_THE_WRITE_PRINCIPAL_MODEL_SCOPE_CHANGED')
     hashes = (
         credential_binding_hash,
         identity.principal_hash,
@@ -3522,7 +3549,7 @@ def _validate_write_identity(
         identity.context_hash,
     )
     if not all(_SHA256.fullmatch(value) for value in hashes):
-        raise WorkspaceError("Execution write-identity evidence is invalid")
+        raise WorkspaceError("Execution write-identity evidence is invalid", load_failure_code='LOAD_EXECUTION_WRITE_IDENTITY_EVIDENCE_IS_INVALID')
 
 
 def _require_resume_write_identity(
@@ -3543,16 +3570,16 @@ def _require_resume_write_identity(
         if required:
             raise WorkspaceError(
                 "The interrupted load has no approved remote write identity"
-            )
+            , load_failure_code='LOAD_THE_INTERRUPTED_LOAD_HAS_NO_APPROVED_REMOTE_WRITE_IDENTITY')
         if identity is not None or credential_binding_hash:
             raise WorkspaceError(
                 "The local load cannot acquire a remote write identity during recovery"
-            )
+            , load_failure_code='LOAD_THE_LOCAL_LOAD_CANNOT_ACQUIRE_A_REMOTE_WRITE_IDENTITY_DURING_RECOVERY')
         return
     if identity is None:
         raise WorkspaceError(
             "Re-probe the approved write principal before resuming"
-        )
+        , load_failure_code='LOAD_RE_PROBE_THE_APPROVED_WRITE_PRINCIPAL_BEFORE_RESUMING')
     actual = (
         identity.principal_hash,
         identity.permission_hash,
@@ -3565,7 +3592,7 @@ def _require_resume_write_identity(
     ):
         raise WorkspaceError(
             "The write principal, permission, or context changed after interruption"
-        )
+        , load_failure_code='LOAD_THE_WRITE_PRINCIPAL_PERMISSION_OR_CONTEXT_CHANGED_AFTER_INTERRUPTION')
 
 
 def _validate_read_identity(
@@ -3582,9 +3609,9 @@ def _validate_read_identity(
         if required:
             raise WorkspaceError(
                 "Re-probe the current Odoo read key before loading"
-            )
+            , load_failure_code='LOAD_RE_PROBE_THE_CURRENT_ODOO_READ_KEY_BEFORE_LOADING')
         if credential_binding_hash:
-            raise WorkspaceError("The read credential has no principal evidence")
+            raise WorkspaceError("The read credential has no principal evidence", load_failure_code='LOAD_THE_READ_CREDENTIAL_HAS_NO_PRINCIPAL_EVIDENCE')
         return
     expected = (
         snapshot.read_credential_binding_hash,
@@ -3599,7 +3626,7 @@ def _validate_read_identity(
         identity.context_hash,
     )
     if not all(_SHA256.fullmatch(value) for value in (*expected, *actual)):
-        raise WorkspaceError("Execution read-identity evidence is incomplete")
+        raise WorkspaceError("Execution read-identity evidence is incomplete", load_failure_code='LOAD_EXECUTION_READ_IDENTITY_EVIDENCE_IS_INCOMPLETE')
     if (
         actual != expected
         or identity.target_hash != snapshot.target_hash
@@ -3608,7 +3635,7 @@ def _validate_read_identity(
         raise WorkspaceError(
             "The Odoo read key, principal, permissions, or context changed; "
             "refresh the schema and compare again"
-        )
+        , load_failure_code='LOAD_THE_ODOO_READ_KEY_PRINCIPAL_PERMISSIONS_OR_CONTEXT_CHANGED_REFRESH_THE_SCHEMA_AND_COMPARE_AGAIN')
 
 
 def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
@@ -4223,10 +4250,10 @@ def _odoo_scalar(value: Any) -> Any:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, BusinessReference | LogicalReference):
-        raise WorkspaceError("A relational business key cannot be used as a scalar")
+        raise WorkspaceError("A relational business key cannot be used as a scalar", load_failure_code='LOAD_A_RELATIONAL_BUSINESS_KEY_CANNOT_BE_USED_AS_A_SCALAR')
     if value is None or type(value) in {str, int, bool, float}:
         return value
-    raise WorkspaceError("A prepared value is not supported by the Odoo API")
+    raise WorkspaceError("A prepared value is not supported by the Odoo API", load_failure_code='LOAD_A_PREPARED_VALUE_IS_NOT_SUPPORTED_BY_THE_ODOO_API')
 
 
 def _odoo_import_scalar(value: Any) -> str:
@@ -4242,14 +4269,14 @@ def _odoo_import_scalar(value: Any) -> str:
     if isinstance(value, date):
         return value.isoformat()
     if isinstance(value, BusinessReference | LogicalReference):
-        raise WorkspaceError("A relational business key cannot be used as a scalar")
+        raise WorkspaceError("A relational business key cannot be used as a scalar", load_failure_code='LOAD_A_RELATIONAL_BUSINESS_KEY_CANNOT_BE_USED_AS_A_SCALAR')
     if value is None:
         return ""
     if type(value) is bool:
         return "1" if value else "0"
     if type(value) in {str, int, float}:
         return str(value)
-    raise WorkspaceError("A prepared value is not supported by the Odoo API")
+    raise WorkspaceError("A prepared value is not supported by the Odoo API", load_failure_code='LOAD_A_PREPARED_VALUE_IS_NOT_SUPPORTED_BY_THE_ODOO_API')
 
 
 def _portable_key(value: tuple[Any, ...]) -> str:

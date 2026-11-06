@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F04-root-zero-is-not-blank",
+  "base_file": "deliveries/2026-04-15/categories.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "CategoryKey": "CAT-01"
+      },
+      "values": {
+        "ParentCategoryKey": "0"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Check matches",
+    "result": "Report the unresolved populated parent0; retain source evidence; no approval of an empty prepared result.",
+    "direct_category_keys": [
+      "CAT-01"
+    ],
+    "descendant_category_keys": [
+      "CAT-02",
+      "CAT-03",
+      "CAT-04",
+      "CAT-05",
+      "CAT-06"
+    ]
+  }
+}

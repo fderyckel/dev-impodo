@@ -23,6 +23,10 @@ from starlette.concurrency import run_in_threadpool
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
+from impodo.application.workspace.execution.load_observation import (
+    observe_load_stage,
+    record_load_failure,
+)
 from impodo.domain.correction_origin import CorrectionOriginError
 from impodo.domain.execution.load_control import LoadControlState, RejectionPolicy
 from impodo.domain.execution.models import (
@@ -105,11 +109,11 @@ def _probe_remote_write_identity_sync(
     if schema is None or not schema.read_context_hash:
         raise WorkspaceError(
             "Refresh the remote Odoo schema identity before configuring a load"
-        )
+        , load_failure_code='LOAD_REFRESH_THE_REMOTE_ODOO_SCHEMA_IDENTITY_BEFORE_CONFIGURING_A_LOAD')
     if identity.context_hash != schema.read_context_hash:
         raise WorkspaceError(
             "The write credential does not use the reviewed Odoo context"
-        )
+        , load_failure_code='LOAD_THE_WRITE_CREDENTIAL_DOES_NOT_USE_THE_REVIEWED_ODOO_CONTEXT')
     return identity
 
 
@@ -137,7 +141,7 @@ def _probe_read_identity_sync(
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
     if not preview.snapshot.readable_models:
-        raise WorkspaceError("Refresh the remote Odoo schema and compare again")
+        raise WorkspaceError("Refresh the remote Odoo schema and compare again", load_failure_code='LOAD_REFRESH_THE_REMOTE_ODOO_SCHEMA_AND_COMPARE_AGAIN')
     return context.read_identity_probe(
         workspace_state,
         api_key,
@@ -374,7 +378,8 @@ def _diagnostic_load_stage(
 
     started = perf_counter()
     try:
-        yield
+        with observe_load_stage(stage):
+            yield
     except Exception as error:
         if recorder is not None:
             recorder.record_operation_stage(
@@ -847,7 +852,7 @@ def build_execution_router(
         def complete():
             context.cutover_plans.assert_application_can_execute(workspace_id, actor=actor)
             if not _text(form, "intent_assessment_hash"):
-                raise WorkspaceError("Review business expectations before completing this comparison")
+                raise WorkspaceError("Review business expectations before completing this comparison", load_failure_code='LOAD_REVIEW_BUSINESS_EXPECTATIONS_BEFORE_COMPLETING_THIS_COMPARISON')
             return context.execution.complete_no_changes(
                 workspace_id, expected_snapshot_hash=_text(form, "snapshot_hash"),
                 expected_intent_assessment_hash=_text(form, "intent_assessment_hash"), actor=actor,
@@ -1012,7 +1017,7 @@ def build_execution_router(
                 ):
                     raise WorkspaceError(
                         "The interrupted Odoo load is no longer current"
-                    )
+                    , load_failure_code='LOAD_THE_INTERRUPTED_ODOO_LOAD_IS_NO_LONGER_CURRENT')
                 credential_owner = context.target_credential_workspace(
                     workspace_id,
                     workspace_state=workspace_state,
@@ -1047,7 +1052,7 @@ def build_execution_router(
                         raise WorkspaceError(
                             "This interrupted load has no saved identity evidence "
                             "for safe loading-key reauthorization"
-                        )
+                        , load_failure_code='LOAD_THIS_INTERRUPTED_LOAD_HAS_NO_SAVED_IDENTITY_EVIDENCE_FOR_SAFE_LOADING_KEY_REAUTHORIZATION')
                     prepared_credential = prepare_target_credential(
                         context.secret_store,
                         credential_owner,
@@ -1174,6 +1179,7 @@ def build_execution_router(
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            record_load_failure(error)
             return await run_in_threadpool(
                 render,
                 request,
@@ -1263,9 +1269,9 @@ def build_execution_router(
             try:
                 rejection_policy = RejectionPolicy(_text(form, "rejection_policy") or "STOP")
             except ValueError as error:
-                raise WorkspaceError("Choose how to handle rejected records") from error
+                raise WorkspaceError("Choose how to handle rejected records", load_failure_code='LOAD_CHOOSE_HOW_TO_HANDLE_REJECTED_RECORDS') from error
             if _text(form, "rejection_policy") and _text(form, "load_policy_version") != "1":
-                raise WorkspaceError("The load policy changed; review confirmation again")
+                raise WorkspaceError("The load policy changed; review confirmation again", load_failure_code='LOAD_THE_LOAD_POLICY_CHANGED_REVIEW_CONFIRMATION_AGAIN')
             with _diagnostic_load_stage(
                 diagnostic_recorder,
                 "submission_preview",
@@ -1276,12 +1282,12 @@ def build_execution_router(
                     actor=actor,
                 )
             if preview is None:
-                raise WorkspaceError("Compare the prepared data with Odoo first")
+                raise WorkspaceError("Compare the prepared data with Odoo first", load_failure_code='LOAD_PREVIEW_MISSING')
             if preview.scope_error:
                 raise WorkspaceError(preview.scope_error)
             snapshot_hash = _text(form, "snapshot_hash")
             if snapshot_hash != preview.snapshot.semantic_hash:
-                raise WorkspaceError("The load preview changed. Review it again.")
+                raise WorkspaceError("The load preview changed. Review it again.", load_failure_code='LOAD_PREVIEW_CHANGED')
             recovery_run_id = _text(form, "execution_run_id") if recovering else ""
             intent_assessment_hash = _text(form, "intent_assessment_hash") if not recovering else ""
             await run_local_operation(
@@ -1296,13 +1302,13 @@ def build_execution_router(
                 (prior_run is not None and prior_run.run_id != prior_run_id)
                 or (prior_run_id and prior_run is None)
             ):
-                raise WorkspaceError("Review the interrupted prior load before confirming this fresh comparison")
+                raise WorkspaceError("Review the interrupted prior load before confirming this fresh comparison", load_failure_code='LOAD_REVIEW_THE_INTERRUPTED_PRIOR_LOAD_BEFORE_CONFIRMING_THIS_FRESH_COMPARISON')
             if recovering and (
                 preview.current_run is None
                 or preview.current_run.run_id != recovery_run_id
                 or preview.current_run.status is not ExecutionRunStatus.RUNNING
             ):
-                raise WorkspaceError("The interrupted Odoo load is no longer current")
+                raise WorkspaceError("The interrupted Odoo load is no longer current", load_failure_code='LOAD_THE_INTERRUPTED_ODOO_LOAD_IS_NO_LONGER_CURRENT')
             with _diagnostic_load_stage(
                 diagnostic_recorder,
                 "submission_credentials",
@@ -1326,7 +1332,7 @@ def build_execution_router(
                     ):
                         raise WorkspaceError(
                             "Refresh the remote Odoo schema and compare again"
-                        )
+                        , load_failure_code='LOAD_REFRESH_THE_REMOTE_ODOO_SCHEMA_AND_COMPARE_AGAIN')
                 submitted_key = _text(form, "write_api_key") or _text(
                     form,
                     "api_key",
@@ -1356,7 +1362,7 @@ def build_execution_router(
                     raise WorkspaceError(
                         "Run Check recovery and confirm the current recovery plan "
                         "before resuming"
-                    )
+                    , load_failure_code='LOAD_RUN_CHECK_RECOVERY_AND_CONFIRM_THE_CURRENT_RECOVERY_PLAN_BEFORE_RESUMING')
                 if prior_run_id and (
                     prior_run is None
                     or submitted_key
@@ -1366,7 +1372,7 @@ def build_execution_router(
                 ):
                     raise WorkspaceError(
                         "Fresh recovery requires the original saved loading key"
-                    )
+                    , load_failure_code='LOAD_FRESH_RECOVERY_REQUIRES_THE_ORIGINAL_SAVED_LOADING_KEY')
                 if not submitted_key and saved_write_credential is None:
                     raise SecretStoreError(
                         "Recovery requires the original saved loading key. "
@@ -1414,7 +1420,7 @@ def build_execution_router(
                     if expected_write_credential is None:
                         raise WorkspaceError(
                             "Recovery requires the original saved loading key"
-                        )
+                        , load_failure_code='LOAD_RECOVERY_REQUIRES_THE_ORIGINAL_SAVED_LOADING_KEY')
                     current_preview = context.execution.current_preview(
                         workspace_id,
                         actor=actor,
@@ -1445,7 +1451,7 @@ def build_execution_router(
                         raise WorkspaceError(
                             "The interrupted load, preview, or loading key changed "
                             "before recovery began"
-                        )
+                        , load_failure_code='LOAD_THE_INTERRUPTED_LOAD_PREVIEW_OR_LOADING_KEY_CHANGED_BEFORE_RECOVERY_BEGAN')
                     context.cutover_plans.assert_application_can_execute(
                         workspace_id, actor=actor,
                     )
@@ -1510,7 +1516,7 @@ def build_execution_router(
                     if read_identity is None or write_identity is None:
                         raise WorkspaceError(
                             "Fresh recovery requires a verified remote Odoo identity"
-                        )
+                        , load_failure_code='LOAD_FRESH_RECOVERY_REQUIRES_A_VERIFIED_REMOTE_ODOO_IDENTITY')
                     with _diagnostic_load_stage(diagnostic_recorder, "close_prior_interrupted_load"):
                         context.execution.close_interrupted_run_for_recomparison(
                             workspace_id,
@@ -1550,7 +1556,7 @@ def build_execution_router(
                         if recovery is None:
                             raise WorkspaceError(
                                 "The recovery assessment is missing"
-                            )
+                            , load_failure_code='LOAD_THE_RECOVERY_ASSESSMENT_IS_MISSING')
                         run = context.execution.resume(
                             workspace_id,
                             expected_execution_run_id=recovery_run_id,
@@ -1567,7 +1573,7 @@ def build_execution_router(
                         )
                     else:
                         if batch_rows is None:
-                            raise WorkspaceError("The load batch size is missing")
+                            raise WorkspaceError("The load batch size is missing", load_failure_code='LOAD_THE_LOAD_BATCH_SIZE_IS_MISSING')
                         run = context.execution.execute(
                             workspace_id,
                             expected_snapshot_hash=snapshot_hash,
@@ -1702,6 +1708,7 @@ def build_execution_router(
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            record_load_failure(error)
             return await run_in_threadpool(
                 render,
                 request,
@@ -1757,7 +1764,7 @@ def build_execution_router(
                 actor=actor,
             )
             if preview is None:
-                raise WorkspaceError("Compare the prepared data with Odoo first")
+                raise WorkspaceError("Compare the prepared data with Odoo first", load_failure_code='LOAD_PREVIEW_MISSING')
             submitted_key = _text(form, "write_api_key") or _text(
                 form,
                 "api_key",
@@ -1831,6 +1838,7 @@ def build_execution_router(
             SecretStoreError,
             WorkspaceError,
         ) as error:
+            record_load_failure(error)
             return await run_in_threadpool(
                 render,
                 request,
@@ -2304,6 +2312,7 @@ def _job_payload(job: LoadJob) -> dict[str, object]:
         "completion_warning": job.completion_warning,
         "completion_warning_code": job.completion_warning_code,
         "failure_message": job.failure_message,
+        "support_reference": job.support_reference,
         "redirect_url": (
             f"/workspaces/{job.workspace_id}/load/outcome"
             if job.status is LoadJobStatus.SUCCEEDED
