@@ -54,8 +54,9 @@ Open **Source data**, then **Separate combined information**.
 Work on one change at a time. Review its result, then select **Use this table**
 to save it. The result appears under **Saved changes**. Use **Add another
 change** for the next source choice. From a ready review, **Save and add
-another** saves the result and opens those choices, while **Save and continue**
-saves it and opens **Odoo data**. If you edit a reviewed choice,
+another** saves the result and opens those choices. **Save and review changes**
+saves it and shows the **Saved changes** summary. Review the summary, then select
+**Continue to Odoo data** to open Stage 2. If you edit a reviewed choice,
 Impodo asks you to **Review result** again before saving it.
 
 The question mark beside **What does your source contain?** opens the choices

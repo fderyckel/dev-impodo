@@ -43,10 +43,11 @@ result. Select **Add another change** to work on the next table.
 From a ready review, **Save and add another** saves that result and opens the
 source choices together.
 
-When you finish, select **Continue to Odoo data**. If your current selections
-need checking, the action becomes **Review result**. After that review,
-**Save and continue** saves the accepted change before opening **Odoo data**
-in Stage 2. You do not need to save completed changes again.
+When you finish a change, select **Save and review changes** to save it and
+see the **Saved changes** summary. If your current selections need checking,
+the action becomes **Review result** first. From the summary, select
+**Continue to Odoo data** to open Stage 2. You do not need to save completed
+changes again.
 
 Choose **Combine tables** when one primary frozen
 table and up to nine added tables describe the same business record. Name the

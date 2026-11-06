@@ -186,8 +186,15 @@ class SourceSaveRecoveryBrowserTests(unittest.TestCase):
         self.page.goto(f"{self.base}{self.preview_path}")
         expect(self.state).to_have_text("Ready to use")
 
-    def test_continue_confirms_save_before_ordinary_next_page_navigation(self):
+    def test_final_save_shows_summary_before_separate_next_page_navigation(self):
         self.mode = "success"
+        stage_two_requests = []
+        self.page.on(
+            "request",
+            lambda request: stage_two_requests.append(request.url)
+            if urlsplit(request.url).path.endswith("/schema")
+            else None,
+        )
         # Supply the successful response after the save redirect has completed.
         # Real HTTP redirect chains are covered by the authenticated journey.
         self.page.add_init_script("""(() => {
@@ -201,19 +208,24 @@ class SourceSaveRecoveryBrowserTests(unittest.TestCase):
           };
         })();""")
         self._open_review()
-        self.page.locator("[data-source-next]").click()
-        try:
-            self.page.wait_for_url(f"{self.base}/workspaces/recovery-fixture/schema")
-        except PlaywrightTimeoutError:
-            self.fail(
-                f"Continue stayed at {self.page.url}; state={self.state.text_content()}; notice={self.notice.text_content()}; saves={len(self.save_posts)}; reads={self.reads}; errors={self.errors}"
-            )
+        self.page.get_by_role("link", name="Save and review changes", exact=True).click()
+        self.page.wait_for_url(f"{self.base}{self.path}#saved-source-changes")
+        summary = self.page.get_by_role("heading", name="Saved changes", exact=True)
+        expect(summary).to_be_visible()
+        expect(summary).to_be_focused()
+        expect(self.state).to_have_text("Saved")
+        self.assertEqual(stage_two_requests, [])
+        self.assertEqual(self.version, "8")
+        self.assertEqual(len(self.save_posts), 1)
+        self.page.get_by_role("link", name="Continue to Odoo data", exact=True).click()
+        self.page.wait_for_url(f"{self.base}/workspaces/recovery-fixture/schema")
         expect(
             self.page.get_by_role("heading", name="Recipe Odoo requirements")
         ).to_be_visible()
         self.assertEqual(self.version, "8")
         self.assertIn(self.path, self.reads)
         self.assertEqual(len(self.save_posts), 1)
+        self.assertEqual(len(stage_two_requests), 1)
 
     def _lose_save(self, mode):
         self.mode = mode
