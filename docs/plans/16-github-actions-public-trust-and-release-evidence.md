@@ -23,12 +23,23 @@ because it appears in this plan.
 
 ## Release-first sequencing decision
 
-Start with the source-only GitHub Release described in the
-[first public release plan](17-first-public-release.md). Publish the first
-release immediately from the next clean and green `main` commit, then use a
-weekly cadence before moving to monthly releases. Attach no custom artifact.
-Resume the broader pull-request, packaged-release, container, and deployment
-work in this plan after the source-release cadence is repeatable.
+Follow the approved [weekly source-release process](17-first-public-release.md),
+which continues from the existing `v26.10.4` baseline. Integrate small verified
+pull requests throughout the week and publish only from a verified `main`
+commit. Attach no custom artifact. Review a monthly cadence after eight
+successful source releases.
+
+The maintainer paused the three test workflows on 6 November 2026 and then
+chose manual-only checks during stabilization. All repository workflows use
+only `workflow_dispatch`. Keep them disabled until that configuration reaches
+`main`, then enable them for the maintainer to dispatch each run. Agents must
+not start runs or restore automatic triggers without an explicit request.
+GitHub's generated Dependency Graph job requires a separate administrator
+decision; repository YAML cannot make it manual. Local verification remains
+required, and unavailable hosted checks remain release blockers. Automatic
+pull-request, mainline, and scheduled lanes proposed below require a later
+explicit decision to resume automation. Branch protection, CI cost controls,
+packaging, and deployment work remain separate implementation tasks.
 
 The primary outcome is not “more automation.” An evaluator should be able to
 answer these questions from GitHub without trusting a maintainer's private
@@ -45,9 +56,10 @@ process:
 
 Implement the work in this order:
 
-1. Publish the source-only `v0.1.0` GitHub Release described in the
-   [first public release plan](17-first-public-release.md), with no custom
-   assets, and establish its weekly-then-monthly cadence.
+1. Apply the [weekly source-release process](17-first-public-release.md), using
+   `YY.MM.W` calendar versions, isolated worktrees on `feat/`, `fix/`, or
+   `release/` branches, reviewed pull requests, and source-only releases without
+   custom assets.
 2. Protect `main` with a public ruleset that requires a pull request, one
    stable aggregate CI check, resolved review conversations, and no force
    pushes or deletions.
@@ -247,7 +259,7 @@ unless they have a deterministic local substitute.
 
 ### Release workflow
 
-Trigger a release only from a protected semantic-version tag or a manually
+Trigger a release only from a protected calendar-version tag or a manually
 approved release environment after the exact `main` commit has passed mainline
 evidence. The release workflow should:
 
