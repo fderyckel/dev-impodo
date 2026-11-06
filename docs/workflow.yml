@@ -961,6 +961,11 @@ stages:
       - src/impodo/domain/execution/generated_name_repair.py::plan_generated_name_repairs
       - src/impodo/adapters/odoo/write_diagnostics.py::import_rejection_diagnostic
       - src/impodo/web/routers/execution.py::_record_write_diagnostics
+      - src/impodo/application/workspace/execution/load_observation.py::LoadObservation
+      - src/impodo/application/workspace/execution/load_observation.py::observe_load_transport
+      - src/impodo/application/workspace/execution/load_observation.py::observe_load_journal
+      - src/impodo/web/load_diagnostics.py::new_load_observation
+      - src/impodo/web/load_diagnostic_bundle.py::load_bundle_members
       - src/impodo/adapters/odoo/writer.py::Json2WriteExecutor.find_ids_many
       - src/impodo/domain/relationship_dependencies.py::extract_dataset_dependency_edges
       - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
@@ -1043,6 +1048,7 @@ stages:
       - tests/integration/web/test_load_workflow.py
       - tests/integration/web/test_load_recovery.py
       - tests/integration/web/test_load_controls.py
+      - tests/integration/web/test_load_diagnostics.py
       - tests/integration/duckdb/test_execution_load_control.py
       - tests/integration/duckdb/test_load_control_upgrade.py
       - tests/domain/execution/test_load_control.py

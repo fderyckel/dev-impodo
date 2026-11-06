@@ -20,6 +20,7 @@ from impodo.application.workspace.execution.load_jobs import (
     LoadJobResult,
     LoadJobStateError,
 )
+from impodo.application.workspace.execution.load_observation import record_load_failure
 from impodo.application.workspace.execution.service import (
     execution_api_scope,
     validated_create_batch_rows,
@@ -59,7 +60,10 @@ def _current_evidence(context: WebContext, workspace_id: str):
     selection = context.queries.get_source_selection(workspace_id)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
     if selection is None or schema is None:
-        raise WorkspaceError("Freeze the Odoo source before preparing the load")
+        raise WorkspaceError(
+            "Freeze the Odoo source before preparing the load",
+            load_failure_code="LOAD_FREEZE_THE_ODOO_SOURCE_BEFORE_PREPARING_THE_LOAD",
+        )
     return selection, schema
 
 
@@ -72,7 +76,10 @@ def _destination_models(selection) -> tuple[str, ...]:
         )
     )
     if len(models) != len(selection.datasets):
-        raise WorkspaceError("The destination load requires frozen Odoo source tables")
+        raise WorkspaceError(
+            "The destination load requires frozen Odoo source tables",
+            load_failure_code="LOAD_THE_DESTINATION_LOAD_REQUIRES_FROZEN_ODOO_SOURCE_TABLES",
+        )
     return models
 
 
@@ -124,6 +131,7 @@ def _job_payload(job) -> dict[str, object]:
         "completion_warning": job.completion_warning,
         "completion_warning_code": job.completion_warning_code,
         "failure_message": job.failure_message,
+        "support_reference": job.support_reference,
         "redirect_url": (
             f"/workspaces/{job.workspace_id}/transfer-load/outcome"
             if job.status.value == "SUCCEEDED"
@@ -202,7 +210,8 @@ def _verify_transfer_result(
         ReadinessError,
         WorkspaceError,
         WorkspaceStateError,
-    ):
+    ) as error:
+        record_load_failure(error, stage="verification")
         return False
     return not (verification.unknown_count or verification.fallout_count)
 
@@ -234,11 +243,15 @@ def _protected_create_values(
             continue
         if item.value is None:
             raise WorkspaceError(
-                f"Protected create-only value is missing for {item.model}.{item.field_name}"
+                f"Protected create-only value is missing for {item.model}.{item.field_name}",
+                load_failure_code="LOAD_PROTECTED_CREATE_ONLY_VALUE_IS_MISSING_FOR_CONTEXT_CONTEXT",
             )
         previous = values.get(item.value_hash, item.value)
         if previous != item.value:
-            raise WorkspaceError("Protected create-only values are inconsistent")
+            raise WorkspaceError(
+                "Protected create-only values are inconsistent",
+                load_failure_code="LOAD_PROTECTED_CREATE_ONLY_VALUES_ARE_INCONSISTENT",
+            )
         values[item.value_hash] = item.value
     return values
 
@@ -391,7 +404,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 )
             if context.execution.current_transfer_run(workspace_id) is not None:
                 raise WorkspaceError(
-                    "This transfer already has a load journal. Verify its outcome."
+                    "This transfer already has a load journal. Verify its outcome.",
+                    load_failure_code="LOAD_THIS_TRANSFER_ALREADY_HAS_A_LOAD_JOURNAL_VERIFY_ITS_OUTCOME",
                 )
             credential = get_target_credential(
                 context.secret_store,
@@ -500,7 +514,10 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             if len(captured_records) != 1:
-                raise WorkspaceError("The final destination read was incomplete")
+                raise WorkspaceError(
+                    "The final destination read was incomplete",
+                    load_failure_code="LOAD_THE_FINAL_DESTINATION_READ_WAS_INCOMPLETE",
+                )
             snapshot = await run_in_threadpool(
                 context.transfer_execution.compile,
                 workspace,
@@ -528,6 +545,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             ValueError,
         ) as error:
+            record_load_failure(error)
             return _render_transfer(
                 request,
                 context,
@@ -617,7 +635,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 or snapshot.semantic_hash != _text(form, "snapshot_hash")
             ):
                 raise WorkspaceError(
-                    "The exact transfer preview changed. Prepare it again before loading."
+                    "The exact transfer preview changed. Prepare it again before loading.",
+                    load_failure_code="LOAD_THE_EXACT_TRANSFER_PREVIEW_CHANGED_PREPARE_IT_AGAIN_BEFORE_LOADING",
                 )
             credential = get_target_credential(
                 context.secret_store,
@@ -645,7 +664,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             def run_load(authorized_workspace, report_writing, report_verifying):
                 if authorized_workspace != access_context:
                     raise WorkspaceError(
-                        "The authorized workspace changed before the load began"
+                        "The authorized workspace changed before the load began",
+                        load_failure_code="LOAD_THE_AUTHORIZED_WORKSPACE_CHANGED_BEFORE_THE_LOAD_BEGAN",
                     )
                 current = context.queries.get(workspace_id)
                 if current.revision != expected_revision:
@@ -669,7 +689,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     != report.content_hash
                 ):
                     raise WorkspaceError(
-                        "The confirmed transfer changed before the load began"
+                        "The confirmed transfer changed before the load began",
+                        load_failure_code="LOAD_THE_CONFIRMED_TRANSFER_CHANGED_BEFORE_THE_LOAD_BEGAN",
                     )
                 destination = replace(
                     transfer_destination_workspace(current),
@@ -746,6 +767,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             WorkspaceError,
             WorkspaceStateError,
         ) as error:
+            record_load_failure(error)
             current = context.queries.get(workspace_id)
             try:
                 current_selection, current_schema = _current_evidence(
@@ -876,7 +898,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             ):
                 raise WorkspaceError(
                     "The interrupted transfer, preview, or preflight is no "
-                    "longer current"
+                    "longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_PREVIEW_OR_PREFLIGHT_IS_NO_LONGER_CURRENT_9AE19DEE",
                 )
             credential = get_target_credential(
                 context.secret_store,
@@ -904,7 +927,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             def run_recovery(authorized_workspace, report_writing, report_verifying):
                 if authorized_workspace != access_context:
                     raise WorkspaceError(
-                        "The authorized workspace changed before recovery began"
+                        "The authorized workspace changed before recovery began",
+                        load_failure_code="LOAD_THE_AUTHORIZED_WORKSPACE_CHANGED_BEFORE_RECOVERY_BEGAN",
                     )
                 current = context.queries.get(workspace_id)
                 if current.revision != expected_revision:
@@ -932,7 +956,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     or current_report.content_hash != report.content_hash
                 ):
                     raise WorkspaceError(
-                        "The interrupted transfer changed before recovery began"
+                        "The interrupted transfer changed before recovery began",
+                        load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_CHANGED_BEFORE_RECOVERY_BEGAN",
                     )
                 destination = replace(
                     transfer_destination_workspace(current),
@@ -1026,6 +1051,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             WorkspaceError,
             WorkspaceStateError,
         ) as error:
+            record_load_failure(error)
             try:
                 _current_evidence(context, workspace_id)
             except WorkspaceError:
@@ -1056,7 +1082,10 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
         try:
             run = context.execution.current_transfer_run(workspace_id)
             if run is None or run.run_id != _text(form, "execution_run_id"):
-                raise WorkspaceError("The saved transfer outcome is no longer current")
+                raise WorkspaceError(
+                    "The saved transfer outcome is no longer current",
+                    load_failure_code="LOAD_THE_SAVED_TRANSFER_OUTCOME_IS_NO_LONGER_CURRENT",
+                )
             credential = get_target_credential(
                 context.secret_store,
                 workspace,
@@ -1108,6 +1137,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             WorkspaceError,
             WorkspaceStateError,
         ) as error:
+            record_load_failure(error)
             return _render_transfer(
                 request,
                 context,

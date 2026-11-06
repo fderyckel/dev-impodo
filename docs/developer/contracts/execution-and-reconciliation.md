@@ -295,6 +295,38 @@ their saved explanations. Both projections use the loaded execution journal
 without opening another database connection or making an Odoo request.
 A historic error that was discarded cannot be reconstructed.
 
+Confirmed load actions also create an opaque diagnostic attempt before
+submission checks. The shared load manager carries that observation explicitly
+into its worker. Conventional loads, transfers, and Recipe loads use the same
+execution and transport observation boundaries. A worker failure must retain
+its coded guard reason, bounded causal exception types, and package-relative
+source frames without arbitrary exception messages or stack locals.
+
+Transport observations distinguish no write call started, a call started, and
+an uncertain outcome. A returned call is not independent verification. The
+journal remains the authority for persisted row outcomes. Capture retains an
+initial journal projection and makes at most one additional journal read when
+transport ends, including an exceptional exit. If that read fails, the
+original failure survives and the earlier totals are explicitly incomplete.
+Diagnostic failures must not change authorization, writes, receipts, journal
+transactions, or recovery decisions.
+
+Bundle schema 3 retains the existing five members and adds
+`load-attempts.json`, `load-events.jsonl`, and `diagnosis.md`. The summary derives
+its explanation and next action from validated evidence and references the
+retained event IDs. Unknown conditions remain unknown. Recording and export
+both enforce the closed diagnostic schema. Exact source values and arbitrary
+Odoo server messages remain outside routine diagnostics.
+
+Load events and terminal summaries use independent rotating local histories.
+The exporter selects up to 100 attempts and 10,000 events from the last
+30 days. Capture retains up to 2,000 ordinary events per attempt, with priority
+for failure and terminal evidence. Limits, missing recorded events, malformed
+records, unreadable files, and observed recording failures are disclosed.
+An attempt without a retained terminal event does not establish success,
+failure, or safe retry. These histories explain execution; they never replace
+the journal or authorize another operation.
+
 `plan_generated_name_repairs` is an export-only helper for a flat generated
 list whose confirmed load used its normalized key as the target name. It
 requires the exact mapping, rule, unambiguous original display candidates, and

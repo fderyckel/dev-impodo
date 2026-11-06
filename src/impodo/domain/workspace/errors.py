@@ -12,6 +12,10 @@ from impodo.domain.workspace.workbench import WorkspaceStateError
 class WorkspaceError(WorkspaceStateError):
     """Raised for expected stale, conflicting, or incomplete workspace state."""
 
+    def __init__(self, message: str, *, load_failure_code: str = "") -> None:
+        super().__init__(message)
+        self.load_failure_code = load_failure_code
+
 
 class OdooModelCatalogRefreshRequired(WorkspaceError):
     """Field capture needs fresh model discovery under the current read access."""

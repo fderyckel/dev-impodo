@@ -29,6 +29,14 @@ from impodo.domain.execution.models import (
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
 from impodo.domain.shared.access import Actor
 
+from .load_observation import (
+    LoadObservation,
+    bind_load_observation,
+    current_load_observation,
+    observe_load_stage,
+    record_load_failure,
+)
+
 
 class LoadJobNotFoundError(LookupError):
     """Raised when a load job is missing or belongs to another workspace."""
@@ -66,6 +74,7 @@ class LoadJobManager:
         self._lock = RLock()
         self._condition = Condition(self._lock)
         self._jobs: dict[str, LoadJob] = {}
+        self._observations: dict[str, LoadObservation] = {}
         self._pending: deque[tuple[str, Actor, LoadWork]] = deque()
         self._stopping = False
         self._worker: Thread | None = None
@@ -155,7 +164,16 @@ class LoadJobManager:
                     _job_from_run(job, recovery_run, phase=LoadPhase.CHECKING_TARGET),
                     message="Checking saved Odoo results before resuming",
                 )
+            previous = self.latest(workspace_id)
             self._jobs[job.job_id] = job
+            if (observer := current_load_observation()) is not None:
+                observer.enqueued = True
+                self._observations[job.job_id] = observer
+                job = replace(job, support_reference=observer.attempt_id)
+                self._jobs[job.job_id] = job
+                observer.emit("enqueued", job_id=job.job_id,
+                    previous_attempt_id=previous.support_reference if previous and previous.job_id != job.job_id else "",
+                    entry_point="RECIPE" if access_context.recipe_application_id else "AUTHORING")
             self._pending.append((job.job_id, actor, work))
             if self._worker is None:
                 self._worker = Thread(
@@ -236,6 +254,9 @@ class LoadJobManager:
                     "Impodo stopped before this queued load began. No Odoo records "
                     "were changed by this attempt.",
                 )
+                if (observer := self._observations.pop(job_id, None)) is not None:
+                    observer.terminal = True
+                    observer.emit("terminal", outcome="DISCARDED", reason="QUEUED_SHUTDOWN")
             self._condition.notify_all()
         if self._worker is not None:
             self._worker.join(timeout=0.25)
@@ -251,22 +272,33 @@ class LoadJobManager:
                 started = self._mark_running(job_id)
                 access_context = self._jobs[job_id].access_context
             self._notify(started, actor)
-            try:
-                with bind_workspace_access_context(access_context):
-                    result = work(
-                        access_context,
-                        partial(self._report_writing, job_id),
-                        partial(self._report_verifying, job_id),
-                    )
-            except Exception as error:  # noqa: BLE001 - background-job boundary
-                with self._lock:
-                    finished = self._finish_failed(
-                        job_id,
-                        _safe_failure_message(error),
-                    )
-            else:
-                with self._lock:
-                    finished = self._finish_succeeded(job_id, result)
+            observer = self._observations.get(job_id)
+            with bind_load_observation(observer):
+                if observer is not None:
+                    observer.emit("worker_started")
+            with bind_load_observation(observer):
+                try:
+                    with bind_workspace_access_context(access_context), observe_load_stage("worker"):
+                        result = work(
+                            access_context,
+                            partial(self._report_writing, job_id),
+                            partial(self._report_verifying, job_id),
+                        )
+                except Exception as error:  # noqa: BLE001 - background-job boundary
+                    record_load_failure(error)
+                    with self._lock:
+                        finished = self._finish_failed(
+                            job_id,
+                            _safe_failure_message(error),
+                        )
+                else:
+                    with self._lock:
+                        finished = self._finish_succeeded(job_id, result)
+            if observer is not None:
+                observer.terminal = True
+                observer.emit("verification", verification_complete=finished.verification_complete)
+                observer.emit("terminal", outcome=finished.status.value, execution_run_id=finished.execution_run_id)
+                self._observations.pop(job_id, None)
             self._notify(finished, actor)
 
     def _mark_running(self, job_id: str) -> LoadJob:
