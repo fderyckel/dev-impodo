@@ -1,0 +1,501 @@
+{
+  "schema_version": 1,
+  "status": "draft_business_exercises_not_executable_scenarios",
+  "baseline_delivery": "2026-04-15",
+  "fresh_delivery": "2026-05-15",
+  "exercises": [
+    {
+      "id": "P01-customer-enrichment",
+      "source_files": [
+        "deliveries/2026-04-15/customers_core.csv",
+        "deliveries/2026-04-15/party_details.csv",
+        "deliveries/2026-04-15/addresses.csv"
+      ],
+      "goal": "Combine partial views of the same customers without confusing source identity, foreign keys, and field authority.",
+      "models": [
+        "res.partner"
+      ],
+      "primary_grain": [
+        "Partition",
+        "CustomerRef"
+      ],
+      "joins": [
+        {
+          "primary": [
+            "Partition",
+            "Party"
+          ],
+          "added_file": "party_details.csv",
+          "added": [
+            "Partition",
+            "RecId"
+          ],
+          "cardinality": "exactly_one"
+        },
+        {
+          "primary": [
+            "Partition",
+            "Party"
+          ],
+          "added_file": "addresses.csv",
+          "added": [
+            "Partition",
+            "Party"
+          ],
+          "cardinality": "exactly_one"
+        }
+      ],
+      "expected_counts": {
+        "primary_rows": 18,
+        "combined_customer_rows": 18,
+        "matched_party_rows": 18,
+        "matched_address_rows": 18,
+        "unmatched_rows": 0,
+        "multiplied_rows": 0
+      },
+      "field_authority": {
+        "customer_name": "party_details.Name",
+        "customer_ref": "customers_core.CustomerRef",
+        "customer_email": "party_details.Email",
+        "customer_phone": "party_details.Phone",
+        "address": "addresses",
+        "account_num": "customers_core.AccountNum"
+      },
+      "collisions_requiring_explicit_projection": [
+        "RecId",
+        "Name",
+        "Status"
+      ],
+      "decisions": [
+        "Keep source AccountNum as text; 0001 must not become 1.",
+        "Use globally unique CustomerRef for Odoo res.partner.ref. Company operation context is a separate choice.",
+        "Choose explicit output names for other RecId, Name, and Status fields; do not coalesce.",
+        "Lowercase email, clean phones, uppercase countries, trim names, and replace the exact placeholder UNKNOW with blank.",
+        "Choose an explicit blank policy for empty email and optional Chain."
+      ],
+      "expected_final_customer_keys": [
+        "MA-N-0001",
+        "MA-N-0002",
+        "MA-N-0003",
+        "MA-N-0004",
+        "MA-N-0005",
+        "MA-N-0006",
+        "MA-N-0007",
+        "MA-N-0008",
+        "MA-N-0009",
+        "MA-S-0001",
+        "MA-S-0002",
+        "MA-S-0003",
+        "MA-S-0004",
+        "MA-S-0005",
+        "MA-S-0006",
+        "MA-S-0007",
+        "MA-S-0008",
+        "MA-S-0009"
+      ]
+    },
+    {
+      "id": "P02-category-supplied-hierarchy",
+      "source_files": [
+        "deliveries/2026-04-15/categories.csv"
+      ],
+      "models": [
+        "product.category"
+      ],
+      "source_identity": [
+        "CategoryKey"
+      ],
+      "source_parent": [
+        "ParentCategoryKey",
+        "CategoryKey"
+      ],
+      "target_business_key": "Name within complete resolved parent path",
+      "expected_counts": {
+        "source_rows": 12,
+        "roots": 3,
+        "create": 10,
+        "unchanged": 2,
+        "update": 0,
+        "blocked": 0,
+        "ambiguous": 0
+      },
+      "decisions": [
+        "Blank ParentCategoryKey means a root. 0 is a populated unresolved key.",
+        "Assembly beneath Components/Metals, Components/Polymers, and Services identifies three distinct categories.",
+        "A source CategoryKey establishes relationships; it is not an Odoo database ID."
+      ]
+    },
+    {
+      "id": "P03-product-enrichment",
+      "source_files": [
+        "deliveries/2026-04-15/products_core.csv",
+        "deliveries/2026-04-15/product_details.csv"
+      ],
+      "models": [
+        "product.template",
+        "product.product (Odoo-generated supporting records)"
+      ],
+      "joins": [
+        {
+          "primary": [
+            "CompanyCode",
+            "ProductRef"
+          ],
+          "added": [
+            "CompanyCode",
+            "ProductRef"
+          ],
+          "cardinality": "exactly_one"
+        }
+      ],
+      "expected_counts": {
+        "source_rows": 64,
+        "combined_product_rows": 32,
+        "create": 24,
+        "update": 1,
+        "unchanged": 7,
+        "blocked": 0,
+        "ambiguous": 0
+      },
+      "decisions": [
+        "products_core.Name is authoritative; product_details.Name is a separate export label.",
+        "French decimal 1,25 means 1.25; explicit 0,00 remains zero.",
+        "Match Article and Service against captured choices for each verified Odoo major.",
+        "Explicitly match PCE to existing Units; do not create another unit.",
+        "Map category using complete intended hierarchy.",
+        "Odoo-generated product variants must be available before BoM component comparison.",
+        "Do not map CompanyCode to product.company_id unless that separate ownership decision is approved. ProductRef is globally prefixed in this exercise."
+      ],
+      "date_preview": {
+        "source": "product_details.ModifiedAtUS",
+        "input": "04/15/2026  5:54:30 PM",
+        "expected_date": "2026-04-15",
+        "load_field_status": "requires a suitable captured date field; no native Excel cell is included"
+      },
+      "prerequisite": "Complete target-seed stages S1 and S2: all12 category paths must exist before seeding the8 existing products. Do not apply these comparison totals to the initial2-category seed."
+    },
+    {
+      "id": "P04-payment-terms-and-incoming-updates",
+      "source_files": [
+        "deliveries/2026-04-15/payment_terms.csv",
+        "deliveries/2026-04-15/payment_term_lines.csv",
+        "deliveries/2026-04-15/customers_core.csv",
+        "deliveries/2026-04-15/party_details.csv",
+        "deliveries/2026-04-15/addresses.csv"
+      ],
+      "models": [
+        "account.payment.term",
+        "account.payment.term.line",
+        "res.partner"
+      ],
+      "adapter_status": "Term header fields, company scopes, and due-date child fields must be confirmed for Odoo 19 and 20 before executing.",
+      "expected_counts": {
+        "term_headers": 4,
+        "term_header_create": 2,
+        "term_header_unchanged": 2,
+        "term_lines_in_source": 4,
+        "customer_create": 14,
+        "customer_update": 2,
+        "customer_unchanged": 2,
+        "customer_blocked": 0,
+        "customer_ambiguous": 0
+      },
+      "dependency_cases": [
+        {
+          "customer_ref": "MA-N-0001",
+          "customer_action": "UPDATE",
+          "prior_term": [
+            "NORTH",
+            "NET30"
+          ],
+          "expected_term": [
+            "NORTH",
+            "NET45"
+          ],
+          "term_action": "CREATE",
+          "requirement": "Load the new term before applying the existing customer update."
+        },
+        {
+          "customer_ref": "MA-N-0003",
+          "customer_action": "CREATE",
+          "expected_term": [
+            "NORTH",
+            "NET45"
+          ],
+          "term_action": "CREATE",
+          "requirement": "Resolve the same new term for a new customer without duplicating it."
+        }
+      ],
+      "decisions": [
+        "Keep each fiscal-position or payment-term name and company as separate matching components.",
+        "Use a company-scoped target relationship lookup when supported by captured fields.",
+        "The selected operation company does not silently assign a record company or replace the related record scope.",
+        "Assigning accounting terms is not evidence of correct tax configuration."
+      ]
+    },
+    {
+      "id": "P05-bom-split-and-linked-operations",
+      "source_files": [
+        "deliveries/2026-04-15/bom_rows.csv",
+        "deliveries/2026-04-15/bom_operations.csv"
+      ],
+      "models": [
+        "mrp.bom",
+        "mrp.bom.line",
+        "mrp.routing.workcenter"
+      ],
+      "expected_counts": {
+        "repeated_source_rows": 24,
+        "bom_headers": 6,
+        "component_lines": 24,
+        "operations": 12,
+        "create_headers_on_empty_bom_seed": 6,
+        "create_lines_on_empty_bom_seed": 24,
+        "create_operations_on_empty_bom_seed": 12
+      },
+      "source_group_key": [
+        "CompanyCode",
+        "BOMRef"
+      ],
+      "line_identity": [
+        "BOMRef",
+        "Sequence"
+      ],
+      "operation_identity": [
+        "BOMRef",
+        "OperationRef"
+      ],
+      "decisions": [
+        "Split repeated header data into six headers and retain all 24 component rows.",
+        "Keep operations separate; joining them to lines would multiply rows.",
+        "Load product templates and confirm generated variants before component relationships.",
+        "MA-BOM-001 uses MA-P-0005, which has its own MA-BOM-005; preserve the subassembly.",
+        "MA-BOM-003 sequences30 and40 deliberately use the same component. Keep both.",
+        "QuantitySeries is a reviewed divisor; a zero divisor requires a deliberate business decision. Never silently replace it with1.",
+        "Write parent-owned lists through the child inverse Many2one fields."
+      ]
+    },
+    {
+      "id": "P06-fresh-recipe-delivery",
+      "source_files": [
+        "deliveries/2026-05-15/customers_core.csv",
+        "deliveries/2026-05-15/party_details.csv",
+        "deliveries/2026-05-15/addresses.csv",
+        "deliveries/2026-05-15/payment_terms.csv",
+        "deliveries/2026-05-15/payment_term_lines.csv"
+      ],
+      "models": [
+        "res.partner",
+        "account.payment.term",
+        "account.payment.term.line"
+      ],
+      "prerequisite": "Start from a target that has successfully completed the baseline customer and payment-term exercises; apply the saved Recipe to the fresh delivery in a fresh run.",
+      "expected_before_review": {
+        "new_unmatched_language": "Italian",
+        "affected_customer": "MA-N-0003",
+        "required_result": "Ask for a current explicit choice; do not guess or mutate the immutable Recipe."
+      },
+      "expected_after_review": {
+        "customer_update": 3,
+        "customer_unchanged": 15,
+        "customer_create": 0
+      },
+      "changed_business_fields": [
+        {
+          "customer_ref": "MA-N-0001",
+          "field": "phone",
+          "expected": "+12025550199"
+        },
+        {
+          "customer_ref": "MA-N-0003",
+          "field": "language_label",
+          "expected": "Italian"
+        },
+        {
+          "customer_ref": "MA-S-0002",
+          "field": "payment_term_key",
+          "expected": [
+            "SOUTH",
+            "NET45"
+          ]
+        }
+      ],
+      "invariants": [
+        "Fresh accepted source evidence and preparation are required even when row counts stay equal.",
+        "Current language refresh and matches belong to this run.",
+        "No numeric target IDs, previous prepared rows, old approvals, or authoring target credentials may be copied from the Recipe."
+      ]
+    },
+    {
+      "id": "P07-existing-customer-single-field-patch",
+      "source_files": [
+        "patches/2026-05-20/customer_phone_patch.csv"
+      ],
+      "models": [
+        "res.partner"
+      ],
+      "target_key": [
+        "ref"
+      ],
+      "write_fields": [
+        "phone"
+      ],
+      "prerequisite": "Use a target with the baseline customers already loaded.",
+      "load_policy": "Update matching records only; maximum new records 0",
+      "expected_counts": {
+        "source_rows": 6,
+        "update": 6,
+        "create": 0,
+        "unchanged": 0,
+        "repeat_update": 0,
+        "repeat_unchanged": 6
+      },
+      "decisions": [
+        "Map only phone as a write field. Names, emails, companies, and terms retain their current target values.",
+        "A missing customer ref or ambiguous match must prevent an accidental create."
+      ]
+    },
+    {
+      "id": "P08-accounts-and-company-roles",
+      "source_files": [
+        "deliveries/2026-04-15/accounts.csv"
+      ],
+      "models": [
+        "account.account"
+      ],
+      "adapter_status": "Proposed optional exercise. Verify actual code/company and parent relationship fields and account-type selections against captured Odoo19/20 metadata; do not assume identical field names.",
+      "expected_counts": {
+        "source_rows": 8,
+        "business_codes": 4,
+        "company_scoped_business_records": 8
+      },
+      "decisions": [
+        "001001 in NORTH and 001001 in SOUTH identify distinct scoped records.",
+        "Preserve leading zeroes.",
+        "Choose operation company, record company assignment, and parent lookup scope separately.",
+        "ParentCode001000 is a business intent. A missing standard parent field blocks that part of the exercise rather than authorizing an invented field.",
+        "Use a direct exact-key parent lookup and detect ambiguity even when a broad browsing list is incomplete."
+      ]
+    },
+    {
+      "id": "P09-derived-category-and-chain-alternative",
+      "source_files": [
+        "deliveries/2026-04-15/products_core.csv",
+        "deliveries/2026-04-15/customers_core.csv"
+      ],
+      "models": [
+        "product.category",
+        "res.partner (optional chain relationship requires captured target field)"
+      ],
+      "workspace_rule": "Use a separate workspace from P02; supplied and generated category routes are alternatives, not two imports to add together.",
+      "expected_counts": {
+        "generated_category_paths": 12,
+        "distinct_nonblank_chain_labels": 2,
+        "blank_customer_chain_rows": 2
+      },
+      "decisions": [
+        "Build the hierarchy from ordered CategoryLevel1, CategoryLevel2, CategoryLevel3.",
+        "Use the complete generated path, preserving same-name Assembly leaves.",
+        "An optional blank chain creates no empty related record.",
+        "A chain relationship requires an appropriate captured model/field. The values alone do not imply a standard Odoo chain field."
+      ]
+    },
+    {
+      "id": "P10-vendor-payment-term-repair",
+      "source_files": [
+        "deliveries/2026-04-15/customers_core.csv"
+      ],
+      "target_overlay": "target-overlays/vendor-term-repair.json",
+      "models": [
+        "res.partner",
+        "account.payment.term"
+      ],
+      "prerequisite": "Use the separate supplier-only repair seed branch with MA-N-0004 already existing. Existing NORTH/NET30 must resolve uniquely.",
+      "operation_company": "NORTH",
+      "source_row_filter": {
+        "CustomerRef": "MA-N-0004"
+      },
+      "goal": "Repair an earlier wrong-field import by filling the supplier payment term and explicitly clearing the mistaken customer payment term only on the selected supplier.",
+      "expected_counts": {
+        "eligible_source_rows": 1,
+        "update": 1,
+        "create": 0,
+        "repeat_unchanged": 1
+      },
+      "expected_values": [
+        {
+          "customer_ref": "MA-N-0004",
+          "customer_payment_term_key": null,
+          "supplier_payment_term_key": [
+            "NORTH",
+            "NET30"
+          ]
+        },
+        {
+          "customer_ref": "MA-N-0002",
+          "customer_payment_term_key": [
+            "NORTH",
+            "NET30"
+          ],
+          "supplier_payment_term_key": null
+        }
+      ],
+      "field_capability_status": "Verify the captured customer/supplier term fields, company context and writable permissions for each major before executing.",
+      "decisions": [
+        "Verify the selected target row is a supplier-only record and that its ref is unique.",
+        "Map PaymentTermCode to the supplier field, not to the similarly named customer field.",
+        "Review an explicit customer-field clear for that same ref; blank handling must express clearing rather than retaining the wrong value.",
+        "Confirm final differences name only the two intended payment-term fields.",
+        "Verify the legitimate MA-N-0002 customer term before and after loading."
+      ]
+    }
+  ],
+  "execution_scope": {
+    "operation_company": "One verified operation company per authoring load or Recipe run. CompanyCode does not change operation context row-by-row.",
+    "company_codes": {
+      "NORTH": "Morrow Assembly North",
+      "SOUTH": "Morrow Assembly South"
+    },
+    "review_population": "Source combination reviews cover both companies (18 customers/32 products); company-specific target mappings use Rows to use/row-inclusion filters before preparation.",
+    "supporting_inputs": "When a company-filtered exercise retains both-company enrichment inputs, keep every-added-row-must-be-represented off. Exactly one matching row per included primary record is still required.",
+    "customer_mapping_filter": "Combined customer CompanyCode equals the selected company. Retain AccountNum, CustomerRef, Party and company scope as distinct concepts.",
+    "manufacturing_mapping_filter": "Product, BoM header, component and operation CompanyCode equals the selected company. Shared categories and UoM are independent shared-reference stages.",
+    "cross_company_products": "Products have globally prefixed refs and no target company assignment in the declared intent. The source CompanyCode filter divides exercises; all required components across both partitions must be present before BoM comparison. Either complete both product runs first or seed the explicitly needed shared components.",
+    "recipe_scope": "Each company receives a separate run with its company fixed after activation. Reuse portable keys against fresh captured evidence.",
+    "patch_scope": "NORTH only; all6 patch refs belong to NORTH.",
+    "counts": "Use expected-business-results.json company_execution_projections for executable exercise totals. Aggregate expected_counts are business inventory controls across two separate company runs.",
+    "customer_target_company_assignment": "No target company ownership assignment is implied. CompanyCode chooses source rows and scoped accounting references. A reviewed record-company assignment is a separate choice."
+  },
+  "target_prerequisites": {
+    "disposable_only": true,
+    "connection": "LOCAL or REMOTE must be explicitly verified for the chosen target and major.",
+    "models_required_by_track": {
+      "customer": [
+        "res.partner",
+        "res.country",
+        "res.lang"
+      ],
+      "manufacturing": [
+        "product.template",
+        "product.product",
+        "product.category",
+        "uom.uom",
+        "mrp.bom",
+        "mrp.bom.line",
+        "mrp.routing.workcenter",
+        "mrp.workcenter"
+      ],
+      "accounting": [
+        "account.payment.term",
+        "account.payment.term.line",
+        "account.fiscal.position",
+        "account.account"
+      ]
+    },
+    "modules": "Verify installed modules and edition capabilities from target metadata. base/contacts/product/mrp alone does not establish availability of account models or accounting features.",
+    "companies": "Seed NORTH and SOUTH, grant the exercise user the intended company access, then choose one operation company per run.",
+    "selection_values": "Match human labels to each target major's captured choices; do not reuse an Odoo19 alias as a version-neutral default.",
+    "accounting_limits": "No tax correctness, fiscal-position tax mapping, localization completeness, or account hierarchy capability is asserted by these dummy names.",
+    "unsupported_capability": "Mark the affected track Needs setup or not qualified if the verified target lacks fields/modules. Do not create invented Odoo fields to force a pass."
+  }
+}

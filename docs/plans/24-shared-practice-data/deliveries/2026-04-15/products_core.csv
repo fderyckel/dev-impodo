@@ -1,0 +1,33 @@
+CompanyCode,ProductRef,Name,ProductTypeLabel,CategoryKey,CategoryLevel1,CategoryLevel2,CategoryLevel3,UnitLabel,SalesPrice,StatusCode,RecId
+NORTH,MA-P-0001,  Assembly Kit 01  ,Article,CAT-09,Finished,Kits,,PCE,"125,50",10,PRODUCT-ROW-0001
+SOUTH,MA-P-0002,Assembly Kit 02,Article,CAT-09,Finished,Kits,,PCE,"140,00",10,PRODUCT-ROW-0002
+NORTH,MA-P-0003,Assembly Kit 03,Article,CAT-09,Finished,Kits,,PCE,"155,25",10,PRODUCT-ROW-0003
+SOUTH,MA-P-0004,Assembly Kit 04,Article,CAT-09,Finished,Kits,,PCE,"160,00",10,PRODUCT-ROW-0004
+NORTH,MA-P-0005,Control Module 01,Article,CAT-08,Finished,Modules,,PCE,"55,00",10,PRODUCT-ROW-0005
+SOUTH,MA-P-0006,Control Module 02,Article,CAT-08,Finished,Modules,,PCE,"60,00",10,PRODUCT-ROW-0006
+NORTH,MA-P-0007,Control Module 03,Article,CAT-08,Finished,Modules,,PCE,"65,00",10,PRODUCT-ROW-0007
+SOUTH,MA-P-0008,Control Module 04,Article,CAT-08,Finished,Modules,,PCE,"70,00",10,PRODUCT-ROW-0008
+NORTH,MA-P-0009,Practice Component 01,Article,CAT-03,Components,Metals,Assembly,PCE,"1,25",10,PRODUCT-ROW-0009
+SOUTH,MA-P-0010,Practice Component 02,Article,CAT-05,Components,Polymers,Assembly,PCE,"2,50",10,PRODUCT-ROW-0010
+NORTH,MA-P-0011,Practice Component 03,Article,CAT-06,Components,Packaging,,PCE,"3,75",10,PRODUCT-ROW-0011
+SOUTH,MA-P-0012,Practice Component 04,Article,CAT-03,Components,Metals,Assembly,PCE,"4,00",10,PRODUCT-ROW-0012
+NORTH,MA-P-0013,Practice Component 05,Article,CAT-05,Components,Polymers,Assembly,PCE,"5,25",10,PRODUCT-ROW-0013
+SOUTH,MA-P-0014,Practice Component 06,Article,CAT-03,Components,Metals,Assembly,PCE,"6,50",10,PRODUCT-ROW-0014
+NORTH,MA-P-0015,Practice Component 07,Article,CAT-05,Components,Polymers,Assembly,PCE,"7,75",10,PRODUCT-ROW-0015
+SOUTH,MA-P-0016,Practice Component 08,Article,CAT-06,Components,Packaging,,PCE,"8,00",10,PRODUCT-ROW-0016
+NORTH,MA-P-0017,Practice Component 09,Article,CAT-03,Components,Metals,Assembly,PCE,"9,25",10,PRODUCT-ROW-0017
+SOUTH,MA-P-0018,Practice Component 10,Article,CAT-05,Components,Polymers,Assembly,PCE,"10,50",10,PRODUCT-ROW-0018
+NORTH,MA-P-0019,Practice Component 11,Article,CAT-03,Components,Metals,Assembly,PCE,"11,75",10,PRODUCT-ROW-0019
+SOUTH,MA-P-0020,Practice Component 12,Article,CAT-05,Components,Polymers,Assembly,PCE,"12,00",10,PRODUCT-ROW-0020
+NORTH,MA-P-0021,Practice Component 13,Article,CAT-06,Components,Packaging,,PCE,"13,25",10,PRODUCT-ROW-0021
+SOUTH,MA-P-0022,Practice Component 14,Article,CAT-03,Components,Metals,Assembly,PCE,"14,50",10,PRODUCT-ROW-0022
+NORTH,MA-P-0023,Practice Component 15,Article,CAT-05,Components,Polymers,Assembly,PCE,"15,75",10,PRODUCT-ROW-0023
+SOUTH,MA-P-0024,Practice Component 16,Article,CAT-03,Components,Metals,Assembly,PCE,"16,00",10,PRODUCT-ROW-0024
+NORTH,MA-P-0025,Practice Component 17,Article,CAT-05,Components,Polymers,Assembly,PCE,"17,25",10,PRODUCT-ROW-0025
+SOUTH,MA-P-0026,Practice Component 18,Article,CAT-06,Components,Packaging,,PCE,"18,50",10,PRODUCT-ROW-0026
+NORTH,MA-P-0027,Practice Component 19,Article,CAT-03,Components,Metals,Assembly,PCE,"0,00",10,PRODUCT-ROW-0027
+SOUTH,MA-P-0028,Practice Component 20,Article,CAT-05,Components,Polymers,Assembly,PCE,"20,00",20,PRODUCT-ROW-0028
+NORTH,MA-P-0029,Design Review,Service,CAT-11,Services,Design,,PCE,"95,00",10,PRODUCT-ROW-0029
+SOUTH,MA-P-0030,Assembly Support,Service,CAT-12,Services,Assembly,,PCE,"110,00",10,PRODUCT-ROW-0030
+NORTH,MA-P-0031,Design Prototype,Service,CAT-11,Services,Design,,PCE,"80,00",20,PRODUCT-ROW-0031
+SOUTH,MA-P-0032,Assembly Training,Service,CAT-12,Services,Assembly,,PCE,"0,00",10,PRODUCT-ROW-0032

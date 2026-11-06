@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "status": "proposed_controlled_exercise_overlay",
+  "apply_to_fresh_copy_only": true,
+  "id": "F10-unsupported-product-choice",
+  "base_file": "deliveries/2026-04-15/products_core.csv",
+  "mutations": [
+    {
+      "operation": "set_fields",
+      "key": {
+        "ProductRef": "MA-P-0001"
+      },
+      "values": {
+        "ProductTypeLabel": "Unreviewed kit choice"
+      }
+    }
+  ],
+  "expected": {
+    "stage": "Check matches",
+    "result": "Require an explicit captured choice mapping; do not treat a familiar label as a valid Odoo code."
+  }
+}

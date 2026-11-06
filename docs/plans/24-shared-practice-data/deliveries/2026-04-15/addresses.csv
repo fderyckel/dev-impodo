@@ -1,0 +1,19 @@
+Partition,Party,RecId,Name,Status,Street,Postcode,City,CountryCode
+PART-N,PTY-0001,ADDRESS-N-0001,Practice address N-0001,Primary,1 Example Workshop Lane,1001,Fictional North,BE
+PART-N,PTY-0002,ADDRESS-N-0002,Practice address N-0002,Primary,2 Example Workshop Lane,1002,Fictional North,BE
+PART-N,PTY-0003,ADDRESS-N-0003,Practice address N-0003,Primary,3 Example Workshop Lane,1003,Fictional North,BE
+PART-N,PTY-0004,ADDRESS-N-0004,Practice address N-0004,Primary,4 Example Workshop Lane,1004,Fictional North,BE
+PART-N,PTY-0005,ADDRESS-N-0005,Practice address N-0005,Primary,5 Example Workshop Lane,1005,Fictional North,BE
+PART-N,PTY-0006,ADDRESS-N-0006,Practice address N-0006,Primary,6 Example Workshop Lane,1006,Fictional North,BE
+PART-N,PTY-0007,ADDRESS-N-0007,Practice address N-0007,Primary,7 Example Workshop Lane,1007,Fictional North,BE
+PART-N,PTY-0008,ADDRESS-N-0008,Practice address N-0008,Primary,8 Example Workshop Lane,1008,Fictional North,be
+PART-N,PTY-0009,ADDRESS-N-0009,Practice address N-0009,Primary,9 Example Workshop Lane,1009,Fictional North,BE
+PART-S,PTY-0001,ADDRESS-S-0001,Practice address S-0001,Primary,10 Example Workshop Lane,1010,Fictional South,FR
+PART-S,PTY-0002,ADDRESS-S-0002,Practice address S-0002,Primary,11 Example Workshop Lane,1011,Fictional South,FR
+PART-S,PTY-0003,ADDRESS-S-0003,Practice address S-0003,Primary,12 Example Workshop Lane,1012,Fictional South,FR
+PART-S,PTY-0004,ADDRESS-S-0004,Practice address S-0004,Primary,13 Example Workshop Lane,1013,Fictional South,FR
+PART-S,PTY-0005,ADDRESS-S-0005,Practice address S-0005,Primary,14 Example Workshop Lane,1014,Fictional South,FR
+PART-S,PTY-0006,ADDRESS-S-0006,Practice address S-0006,Primary,15 Example Workshop Lane,1015,Fictional South,FR
+PART-S,PTY-0007,ADDRESS-S-0007,Practice address S-0007,Primary,16 Example Workshop Lane,1016,Fictional South,FR
+PART-S,PTY-0008,ADDRESS-S-0008,Practice address S-0008,Primary,17 Example Workshop Lane,1017,Fictional South,FR
+PART-S,PTY-0009,ADDRESS-S-0009,Practice address S-0009,Primary,18 Example Workshop Lane,1018,Fictional South,FR

@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "status": "proposed_separate_disposable_target_state_not_an_executable_seed",
+  "exercise_id": "P10-vendor-payment-term-repair",
+  "operation_company": "NORTH",
+  "state_policy": "Use a new isolated seed branch or explicitly reseed from the base specification. Do not mix this supplier-role overlay into P04 customer-verdict state.",
+  "base_seed": "target-seed-projection.json S0 reference stage; seed the named MA-N-0004 target because it was a CREATE candidate in the P04 initial customer state.",
+  "source_file": "deliveries/2026-04-15/customers_core.csv",
+  "source_row_selection": {
+    "CustomerRef": "MA-N-0004"
+  },
+  "required_existing_terms": [
+    {
+      "company_code": "NORTH",
+      "term_code": "NET30",
+      "name": "Morrow Net 30",
+      "balance_due_days": 30
+    }
+  ],
+  "target_record_overrides": [
+    {
+      "customer_ref": "MA-N-0004",
+      "role": "supplier_only",
+      "customer_role": false,
+      "supplier_role": true,
+      "customer_payment_term_key": [
+        "NORTH",
+        "NET30"
+      ],
+      "supplier_payment_term_key": null,
+      "explanation": "A prior incorrect import wrote the purchase agreement into the customer payment-term field."
+    },
+    {
+      "customer_ref": "MA-N-0002",
+      "role": "customer_control",
+      "customer_role": true,
+      "customer_payment_term_key": [
+        "NORTH",
+        "NET30"
+      ],
+      "supplier_payment_term_key": null,
+      "explanation": "This legitimate customer agreement is outside the clearing selection and must remain intact."
+    }
+  ],
+  "field_intent": {
+    "source": "PaymentTermCode=NET30 on the selected MA-N-0004 row",
+    "write_supplier_term": "Resolve existing NORTH/NET30 and write the supplier payment-term field.",
+    "clear_customer_term": "Explicitly clear the incorrectly populated customer payment-term field for MA-N-0004 only.",
+    "candidate_odoo_fields": {
+      "supplier_term": "res.partner.property_supplier_payment_term_id",
+      "customer_term": "res.partner.property_payment_term_id"
+    },
+    "version_capability_check": "Verify both captured fields are writable in the selected company for the verified Odoo19 or Odoo20 major. Do not reuse saved numeric IDs, and do not infer role from the source filename."
+  },
+  "expected_final_records": [
+    {
+      "customer_ref": "MA-N-0004",
+      "customer_payment_term_key": null,
+      "supplier_payment_term_key": [
+        "NORTH",
+        "NET30"
+      ]
+    },
+    {
+      "customer_ref": "MA-N-0002",
+      "customer_payment_term_key": [
+        "NORTH",
+        "NET30"
+      ],
+      "supplier_payment_term_key": null
+    }
+  ],
+  "expected_comparison": {
+    "eligible_source_rows": 1,
+    "update": 1,
+    "create": 0,
+    "unchanged": 0,
+    "changed_business_fields": [
+      "supplier_payment_term",
+      "customer_payment_term"
+    ],
+    "repeat_update": 0,
+    "repeat_unchanged": 1
+  },
+  "required_load_controls": {
+    "policy": "Update matching records only",
+    "maximum_new_records": 0,
+    "clear_selection": "CustomerRef equals MA-N-0004",
+    "control_record_outside_selection": "MA-N-0002"
+  },
+  "review_decisions": [
+    "Verify the selected target row is a supplier-only record and that its ref is unique.",
+    "Map PaymentTermCode to the supplier field, not to the similarly named customer field.",
+    "Review an explicit customer-field clear for that same ref; blank handling must express clearing rather than retaining the wrong value.",
+    "Confirm final differences name only the two intended payment-term fields.",
+    "Verify the legitimate MA-N-0002 customer term before and after loading."
+  ]
+}
