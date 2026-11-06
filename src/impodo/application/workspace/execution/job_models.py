@@ -77,6 +77,7 @@ class LoadJob:
     rejected_count: int = 0
     blocked_count: int = 0
     unattempted_count: int = 0
+    support_reference: str = ""
 
     @property
     def active(self) -> bool:
