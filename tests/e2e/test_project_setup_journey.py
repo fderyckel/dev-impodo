@@ -355,7 +355,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Stage 2", derived_page.text)
         self.assertIn("Odoo data", derived_page.text)
         self.assertIn(
-            "Build the logical datasets you want to map",
+            "Set up one change, review its result, then use the resulting table.",
             derived_page.text,
         )
         self.assertIn("Create two related tables", derived_page.text)
@@ -795,7 +795,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Use existing Odoo records only", mapping_page.text)
         self.assertIn("Source value, or backup when blank", mapping_page.text)
         self.assertNotIn("Let Odoo choose", mapping_page.text)
-        self.assertIn("Choose what goes into each Odoo field", mapping_page.text)
+        self.assertIn("Match field values", mapping_page.text)
         self.assertNotIn("Scalar target fields", mapping_page.text)
         self.assertIn("Find a field", mapping_page.text)
         self.assertIn("For example: Sales Price or Barcode", mapping_page.text)
@@ -804,7 +804,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "Choose where each Odoo field gets its value",
             mapping_page.text,
         )
-        self.assertIn("Connect values to existing Odoo lists", mapping_page.text)
+        self.assertIn("Connect linked values", mapping_page.text)
         self.assertIn("such as a product category", mapping_page.text)
         self.assertIn("Find an Odoo list or linked field", mapping_page.text)
         self.assertIn("data-relation-pagination", mapping_page.text)

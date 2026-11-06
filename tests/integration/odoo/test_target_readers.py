@@ -1111,16 +1111,18 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
                 ),
             )
 
+        def included_source_keys(
+            _workspace, dataset_id, columns, _rows, *, included_parent=None
+        ):
+            self.assertIsNone(included_parent)
+            return source_values[(dataset_id, tuple(columns))]
+
         captures = []
         context = SimpleNamespace(
             actor=SimpleNamespace(),
             readiness_reader=reader,
             categorical_coverage=SimpleNamespace(
-                source_included_key_tuples=(
-                    lambda _workspace, dataset_id, columns, _rows: source_values[
-                        (dataset_id, tuple(columns))
-                    ]
-                )
+                source_included_key_tuples=included_source_keys
             ),
             supporting_lookups=SimpleNamespace(
                 capture=lambda _workspace, **values: (

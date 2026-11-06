@@ -17,8 +17,12 @@ from impodo.adapters.odoo.local_stack import (
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
+from scripts import hierarchy_qualification_journey as journey_support
 from scripts import qualify_hierarchy_workflow as runner
-from scripts.hierarchy_qualification_journey import FaultObserver, InjectedInterruption
+from scripts.hierarchy_qualification_journey import (
+    FaultObserver,
+    InjectedInterruption,
+)
 from scripts.hierarchy_qualification_target import (
     FixtureTarget,
     OwnedVault,
@@ -26,6 +30,7 @@ from scripts.hierarchy_qualification_target import (
     TargetDescriptor,
     require_runtime,
 )
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_cases import (
     EXPECTED_CATEGORY_PATHS,
     EXPECTED_PRODUCT_PATHS,
@@ -625,7 +630,23 @@ class HierarchyQualificationTests(unittest.TestCase):
         wire = QualificationWire()
         vault = self.vault()
         original_credentials = dict(vault.values)
-        with patch("impodo.adapters.odoo.connectors.build_opener", return_value=wire):
+        real_compare = journey_support.LiveHierarchyJourney.compare
+
+        def compare(journey, workspace_id):
+            with count_duckdb_statements() as statements:
+                result = real_compare(journey, workspace_id)
+            # Initial state read plus three local comparison phases each
+            # validate workspace, engine and data-version stores once.
+            self.assertLessEqual(len(statements), 255)
+            self.assertLessEqual(
+                sum("duckdb_columns()" in sql for sql in statements), 12
+            )
+            return result
+
+        with (
+            patch("impodo.adapters.odoo.connectors.build_opener", return_value=wire),
+            patch.object(journey_support.LiveHierarchyJourney, "compare", compare),
+        ):
             report = runner.qualify(self.args(), vault=vault)
         self.assertEqual(report["status"], "PASSED", report)
         self.assertEqual(report["cleanup"], "COMPLETE")
@@ -667,7 +688,9 @@ class HierarchyQualificationTests(unittest.TestCase):
         self.assertEqual(len(report["database_timings"]), 3)
         for timings in report["database_timings"]:
             self.assertLessEqual(timings["connections"], 12)
-            self.assertLessEqual(timings["schema_checks"], 5)
+            # Three comparison phases check all three store contracts; the
+            # initial state read is outside these request timing collectors.
+            self.assertLessEqual(timings["schema_checks"], 9)
             self.assertEqual(timings["lock_retries"], 0)
 
 

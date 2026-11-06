@@ -1,6 +1,7 @@
 """Show the real failed check and exact linked-field correction instead of a save loop."""
 
 import json
+from contextlib import closing
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -175,131 +176,132 @@ class SupportingConflictRecoveryTests(ProjectSetupBrowserTestCase):
     ):
         context = self.app.state.context
         actor = resolve_local_actor(context)
-        recorder = LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")
-        self.addCleanup(recorder.close)
-        self.app.middleware_stack = RequestDiagnosticsMiddleware(
-            self.app.middleware_stack, recorder=recorder
-        )
-        for major in (19, 20):
-            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
-                with self.subTest(major=major, mode=mode):
-                    workspace_id, _source, mapping = self.configure(major, mode)
-                    url = f"/workspaces/{workspace_id}/mapping?relation_page_size=3"
-                    page = self.client.get(url)
-                    self.assertEqual(page.status_code, 200)
-                    self.assertIn("Bill of Material · Product", page.text)
-                    self.assertNotIn(
-                        "Saved changes have not been checked yet", page.text
-                    )
-                    form = MappingForm(page.text)
-                    rejected = self.client.post(
-                        form.action,
-                        json={"entries": [*form.entries, ["action", "draft"]]},
-                        headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
-                    )
-                    self.assertEqual(rejected.status_code, 422, rejected.text[:1000])
-                    self.assertEqual(
-                        rejected.json()["failure_code"], "SUPPORTING_MAPPING_CONFLICT"
-                    )
-                    item = rejected.json()["supporting_conflicts"][0]
-                    self.assertEqual(item["title"], "Bill of Material · Product")
-                    self.assertEqual(item["field"], "product_tmpl_id")
-                    self.assertIn("relation_target=product_tmpl_id", item["fix_url"])
-                    self.assertIn("step=tables&task=links", item["fix_url"])
-                    fragment = self.client.get(
-                        f"/workspaces/{workspace_id}/mapping/supporting-review?problem=MAPPING_CONFLICT"
-                    )
-                    metrics = next(
-                        json.loads(line)
-                        for line in recorder.path.read_text(
-                            encoding="utf-8"
-                        ).splitlines()
-                        if json.loads(line).get("request_id")
-                        == fragment.headers["X-Impodo-Request-ID"]
-                    )
-                    self.assertGreater(metrics["database_connection_count"], 0)
-                    self.assertLessEqual(metrics["database_connection_count"], 6)
-                    self.assertLessEqual(metrics["database_schema_check_count"], 6)
-                    self.assertEqual(metrics["database_lock_retry_count"], 0)
-                    self.assertIn("Review this field", fragment.text)
-                    self.assertNotIn("Confirm choices and check matches", fragment.text)
-                    self.assertIn("Bill of Material · Product", fragment.text)
-                    reopened = self.client.get(url)
-                    self.assertNotIn(
-                        "Saved changes have not been checked yet", reopened.text
-                    )
-                    self.assertEqual(
-                        reopened.context["next_step"]["blockers"][0]["title"],
-                        "Correct the linked fields",
-                    )
-                    self.assertEqual(
-                        context.queries.get_mapping_working_draft(
-                            workspace_id
-                        ).definition.datasets[0],
-                        mapping,
-                    )
-                    target = self.client.get(item["fix_url"])
-                    self.assertIn('id="relationship-0-product_tmpl_id"', target.text)
-                    self.assertIn("Keep this unsaved title", target.text)
-                    # Correct the actual provider, then retry through the same HTTP check.
-                    draft = context.queries.get_mapping_working_draft(workspace_id)
-                    corrected = replace(
-                        mapping,
-                        relationships=(
-                            RelationshipMapping(
-                                "product_tmpl_id",
-                                "many2one",
-                                (),
-                                RelationshipResolver(
-                                    ResolverOrigin.TARGET_CATALOG,
-                                    model="product.template",
-                                ),
-                                value_source=RelationshipValueSource.CONSTANT_EXISTING,
-                                constant_reference=ConstantBusinessReference(
-                                    key_values=(
-                                        ConstantReferenceComponent("name", "Example"),
-                                    )
+        with closing(
+            LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")
+        ) as recorder:
+            self.app.middleware_stack = RequestDiagnosticsMiddleware(
+                self.app.middleware_stack, recorder=recorder
+            )
+            for major in (19, 20):
+                for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                    with self.subTest(major=major, mode=mode):
+                        workspace_id, _source, mapping = self.configure(major, mode)
+                        url = f"/workspaces/{workspace_id}/mapping?relation_page_size=3"
+                        page = self.client.get(url)
+                        self.assertEqual(page.status_code, 200)
+                        self.assertIn("Bill of Material · Product", page.text)
+                        self.assertNotIn(
+                            "Saved changes have not been checked yet", page.text
+                        )
+                        form = MappingForm(page.text)
+                        rejected = self.client.post(
+                            form.action,
+                            json={"entries": [*form.entries, ["action", "draft"]]},
+                            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+                        )
+                        self.assertEqual(rejected.status_code, 422, rejected.text[:1000])
+                        self.assertEqual(
+                            rejected.json()["failure_code"], "SUPPORTING_MAPPING_CONFLICT"
+                        )
+                        item = rejected.json()["supporting_conflicts"][0]
+                        self.assertEqual(item["title"], "Bill of Material · Product")
+                        self.assertEqual(item["field"], "product_tmpl_id")
+                        self.assertIn("relation_target=product_tmpl_id", item["fix_url"])
+                        self.assertIn("step=tables&task=links", item["fix_url"])
+                        fragment = self.client.get(
+                            f"/workspaces/{workspace_id}/mapping/supporting-review?problem=MAPPING_CONFLICT"
+                        )
+                        metrics = next(
+                            json.loads(line)
+                            for line in recorder.path.read_text(
+                                encoding="utf-8"
+                            ).splitlines()
+                            if json.loads(line).get("request_id")
+                            == fragment.headers["X-Impodo-Request-ID"]
+                        )
+                        self.assertGreater(metrics["database_connection_count"], 0)
+                        self.assertLessEqual(metrics["database_connection_count"], 6)
+                        self.assertLessEqual(metrics["database_schema_check_count"], 6)
+                        self.assertEqual(metrics["database_lock_retry_count"], 0)
+                        self.assertIn("Review this field", fragment.text)
+                        self.assertNotIn("Confirm choices and check matches", fragment.text)
+                        self.assertIn("Bill of Material · Product", fragment.text)
+                        reopened = self.client.get(url)
+                        self.assertNotIn(
+                            "Saved changes have not been checked yet", reopened.text
+                        )
+                        self.assertEqual(
+                            reopened.context["next_step"]["blockers"][0]["title"],
+                            "Correct the linked fields",
+                        )
+                        self.assertEqual(
+                            context.queries.get_mapping_working_draft(
+                                workspace_id
+                            ).definition.datasets[0],
+                            mapping,
+                        )
+                        target = self.client.get(item["fix_url"])
+                        self.assertIn('id="relationship-0-product_tmpl_id"', target.text)
+                        self.assertIn("Keep this unsaved title", target.text)
+                        # Correct the actual provider, then retry through the same HTTP check.
+                        draft = context.queries.get_mapping_working_draft(workspace_id)
+                        corrected = replace(
+                            mapping,
+                            relationships=(
+                                RelationshipMapping(
+                                    "product_tmpl_id",
+                                    "many2one",
+                                    (),
+                                    RelationshipResolver(
+                                        ResolverOrigin.TARGET_CATALOG,
+                                        model="product.template",
+                                    ),
+                                    value_source=RelationshipValueSource.CONSTANT_EXISTING,
+                                    constant_reference=ConstantBusinessReference(
+                                        key_values=(
+                                            ConstantReferenceComponent("name", "Example"),
+                                        )
+                                    ),
                                 ),
                             ),
-                        ),
+                        )
+                        run_local_operation_sync(
+                            context.mapping_workspace.save_working_draft,
+                            workspace_id,
+                            datasets=(corrected,),
+                            expected_version=draft.version,
+                            actor=actor,
+                        )
+                        current = self.client.get(item["fix_url"])
+                        corrected_form = MappingForm(current.text)
+                        checked = self.client.post(
+                            corrected_form.action,
+                            json={
+                                "entries": [*corrected_form.entries, ["action", "draft"]]
+                            },
+                            headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+                        )
+                        self.assertEqual(checked.status_code, 200, checked.text[:1000])
+                        self.assertFalse(
+                            self.client.get(url).context["related_data_review"][
+                                "mapping_conflict"
+                            ]
+                        )
+            with ZipFile(
+                BytesIO(
+                    create_diagnostic_bundle(
+                        recorder.path.parent, build_contract=PROCESS_BUILD_CONTRACT
                     )
-                    run_local_operation_sync(
-                        context.mapping_workspace.save_working_draft,
-                        workspace_id,
-                        datasets=(corrected,),
-                        expected_version=draft.version,
-                        actor=actor,
-                    )
-                    current = self.client.get(item["fix_url"])
-                    corrected_form = MappingForm(current.text)
-                    checked = self.client.post(
-                        corrected_form.action,
-                        json={
-                            "entries": [*corrected_form.entries, ["action", "draft"]]
-                        },
-                        headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
-                    )
-                    self.assertEqual(checked.status_code, 200, checked.text[:1000])
-                    self.assertFalse(
-                        self.client.get(url).context["related_data_review"][
-                            "mapping_conflict"
-                        ]
-                    )
-        with ZipFile(
-            BytesIO(
-                create_diagnostic_bundle(
-                    recorder.path.parent, build_contract=PROCESS_BUILD_CONTRACT
                 )
+            ) as archive:
+                failures = json.loads(archive.read("recent-failures.json"))
+            conflicts = [
+                item["validation_failure"]
+                for item in failures
+                if item.get("validation_failure", {}).get("failure_code")
+                == "SUPPORTING_MAPPING_CONFLICT"
+            ]
+            self.assertEqual(len(conflicts), 4)
+            self.assertTrue(
+                all(item["issues"][0]["field"] == "product_tmpl_id" for item in conflicts)
             )
-        ) as archive:
-            failures = json.loads(archive.read("recent-failures.json"))
-        conflicts = [
-            item["validation_failure"]
-            for item in failures
-            if item.get("validation_failure", {}).get("failure_code")
-            == "SUPPORTING_MAPPING_CONFLICT"
-        ]
-        self.assertEqual(len(conflicts), 4)
-        self.assertTrue(
-            all(item["issues"][0]["field"] == "product_tmpl_id" for item in conflicts)
-        )

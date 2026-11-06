@@ -26,6 +26,7 @@ from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
     _browser_schema,
 )
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 
 
@@ -134,7 +135,10 @@ class ScopedRelationshipMatchBrowserTests(ProjectSetupBrowserTestCase):
         ):
             with self.subTest(field=field):
                 workspace_id, entries, choice = self._case(model, field, odoo_version=odoo_version)
-                with collect_duckdb_request_timings() as timings:
+                with (
+                    collect_duckdb_request_timings() as timings,
+                    count_duckdb_statements() as statements,
+                ):
                     response = self._save(workspace_id, entries)
                 self.assertEqual(response.status_code, 200, response.text)
                 draft = self.app.state.context.queries.get_mapping_working_draft(
@@ -187,9 +191,16 @@ class ScopedRelationshipMatchBrowserTests(ProjectSetupBrowserTestCase):
                     if name == "relation_value_matches_0_0"
                 )
                 self.assertEqual(json.loads(saved_choices)[0]["target_value"], choice)
-                # Reserve/load/commit/response scopes each own bounded database work.
-                self.assertLessEqual(timings.connection_count, 16)
-                self.assertLessEqual(timings.schema_check_count, 4)
+                # Admission and reserve/load/commit/response validate five
+                # workspace, four engine and two data-version contracts. Three
+                # registry owners bring the complete save to fourteen opens.
+                self.assertLessEqual(timings.connection_count, 14)
+                self.assertLessEqual(timings.schema_check_count, 11)
+                self.assertEqual(timings.lock_retry_count, 0)
+                self.assertLessEqual(len(statements), 140)
+                self.assertLessEqual(
+                    sum("duckdb_columns()" in sql for sql in statements), 11
+                )
 
     def test_legacy_saved_matches_recover_company_from_current_checked_choices(self):
         workspace_id, entries, _ = self._case(

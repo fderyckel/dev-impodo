@@ -1,6 +1,7 @@
 """Renew verified access through real authoring routes without another choice save."""
 
 import json
+from contextlib import closing
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -155,128 +156,129 @@ class SupportingAccessRevalidationTests(ProjectSetupBrowserTestCase):
     def test_key_renewal_keeps_choices_for_both_majors_modes_and_entry_actions(self):
         context = self.app.state.context
         actor = resolve_local_actor(context)
-        recorder = LocalDiagnosticRecorder(
-            Path(self.temporary.name) / "access-diagnostics"
-        )
-        self.addCleanup(recorder.close)
-        self.app.middleware_stack = RequestDiagnosticsMiddleware(
-            self.app.middleware_stack, recorder=recorder
-        )
-        for major in (19, 20):
-            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
-                for explicit in (False, True):
-                    with self.subTest(major=major, mode=mode, explicit=explicit):
-                        workspace_id, schema = self.ready(major, mode)
-                        checked = self.check(workspace_id)
-                        self.assertEqual(checked.status_code, 200, checked.text[:1000])
-                        review = context.schema_workspace.supporting.current(
-                            workspace_id, actor=actor
-                        )
-                        revision = context.queries.get_mapping_revision(workspace_id)
-                        draft = context.queries.get_mapping_working_draft(workspace_id)
-                        self.renew(workspace_id)
-                        form = MappingForm(
-                            self.client.get(f"/workspaces/{workspace_id}/mapping").text
-                        )
-                        state = context.queries.get(workspace_id)
-                        with count_duckdb_statements() as sql:
-                            if explicit:
-                                response = self.client.post(
-                                    f"/workspaces/{workspace_id}/mapping/company/refresh",
-                                    data={
-                                        "csrf_token": self.csrf,
-                                        "revision": str(state.revision),
-                                    },
-                                    headers=POST_HEADERS,
-                                    follow_redirects=False,
-                                )
-                                self.assertEqual(
-                                    response.status_code, 303, response.text[:1000]
-                                )
-                            else:
-                                response = self.check(workspace_id, form)
-                                self.assertEqual(
-                                    response.status_code, 200, response.text[:1000]
-                                )
-                        saved = context.schema_workspace.supporting.current(
-                            workspace_id, actor=actor
-                        )
-                        self.assertEqual(saved.version, review.version + 1)
-                        self.assertEqual(saved.choices, review.choices)
-                        repository = context.schema_workspace.schemas.local
-                        path = (
-                            repository.workspace_directory(workspace_id)
-                            / "workspace-engine.duckdb"
-                        )
-                        with repository._connect(path) as connection:
-                            original = connection.execute(
-                                "SELECT review_json FROM supporting_data_review WHERE version = ?",
-                                [review.version],
-                            ).fetchone()[0]
-                            event = connection.execute(
-                                "SELECT event_type FROM audit_event WHERE event_type = 'SUPPORTING_ACCESS_REVALIDATED' ORDER BY event_id DESC LIMIT 1"
-                            ).fetchone()
-                        self.assertEqual(original, review.to_json())
-                        self.assertEqual(event[0], "SUPPORTING_ACCESS_REVALIDATED")
-                        if explicit:
-                            self.assertEqual(
-                                context.queries.get_mapping_revision(workspace_id),
-                                revision,
-                            )
-                            self.assertEqual(
-                                context.queries.get_mapping_working_draft(workspace_id),
-                                draft,
-                            )
+        with closing(
+            LocalDiagnosticRecorder(
+                Path(self.temporary.name) / "access-diagnostics"
+            )
+        ) as recorder:
+            self.app.middleware_stack = RequestDiagnosticsMiddleware(
+                self.app.middleware_stack, recorder=recorder
+            )
+            for major in (19, 20):
+                for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                    for explicit in (False, True):
+                        with self.subTest(major=major, mode=mode, explicit=explicit):
+                            workspace_id, schema = self.ready(major, mode)
                             checked = self.check(workspace_id)
-                            self.assertEqual(
-                                checked.status_code, 200, checked.text[:1000]
-                            )
-                        page = self.client.get(f"/workspaces/{workspace_id}/mapping")
-                        self.assertTrue(page.context["related_data_review"]["current"])
-                        self.assertEqual(
-                            context.schema_workspace.supporting.current(
+                            self.assertEqual(checked.status_code, 200, checked.text[:1000])
+                            review = context.schema_workspace.supporting.current(
                                 workspace_id, actor=actor
-                            ),
-                            saved,
-                        )
-                        # The request middleware owns the timing collector. Read
-                        # its terminal record rather than nesting a second one.
-                        request_id = response.headers["X-Impodo-Request-ID"]
-                        metrics = next(
-                            json.loads(line)
-                            for line in recorder.path.read_text(
-                                encoding="utf-8"
-                            ).splitlines()
-                            if json.loads(line).get("request_id") == request_id
-                        )
-                        self.assertGreater(metrics["database_connection_count"], 0)
-                        self.assertEqual(metrics["database_lock_retry_count"], 0)
-                        # Explicit refresh has two local scopes (10 owners, 7
-                        # store contracts). Check matches also owns admission,
-                        # validation and receipts (25 owners, 19 contracts).
-                        self.assertLessEqual(
-                            metrics["database_connection_count"], 10 if explicit else 25
-                        )
-                        self.assertLessEqual(
-                            metrics["database_schema_check_count"],
-                            7 if explicit else 19,
-                        )
-                        self.assertLessEqual(len(sql), 200 if explicit else 421)
-        bundle = create_diagnostic_bundle(
-            recorder.path.parent, build_contract=PROCESS_BUILD_CONTRACT
-        )
-        with ZipFile(BytesIO(bundle)) as archive:
-            transitions = json.loads(archive.read("supporting-access.json"))
-        revalidated = [
-            event["supporting_access"]
-            for event in transitions
-            if event["supporting_access"]["outcome"] == "REVALIDATED"
-        ]
-        self.assertEqual(len(revalidated), 8)
-        self.assertEqual({item["odoo_major"] for item in revalidated}, {19, 20})
-        self.assertTrue(
-            all(item["changes"] == ["CREDENTIAL_VERSION"] for item in revalidated)
-        )
+                            )
+                            revision = context.queries.get_mapping_revision(workspace_id)
+                            draft = context.queries.get_mapping_working_draft(workspace_id)
+                            self.renew(workspace_id)
+                            form = MappingForm(
+                                self.client.get(f"/workspaces/{workspace_id}/mapping").text
+                            )
+                            state = context.queries.get(workspace_id)
+                            with count_duckdb_statements() as sql:
+                                if explicit:
+                                    response = self.client.post(
+                                        f"/workspaces/{workspace_id}/mapping/company/refresh",
+                                        data={
+                                            "csrf_token": self.csrf,
+                                            "revision": str(state.revision),
+                                        },
+                                        headers=POST_HEADERS,
+                                        follow_redirects=False,
+                                    )
+                                    self.assertEqual(
+                                        response.status_code, 303, response.text[:1000]
+                                    )
+                                else:
+                                    response = self.check(workspace_id, form)
+                                    self.assertEqual(
+                                        response.status_code, 200, response.text[:1000]
+                                    )
+                            saved = context.schema_workspace.supporting.current(
+                                workspace_id, actor=actor
+                            )
+                            self.assertEqual(saved.version, review.version + 1)
+                            self.assertEqual(saved.choices, review.choices)
+                            repository = context.schema_workspace.schemas.local
+                            path = (
+                                repository.workspace_directory(workspace_id)
+                                / "workspace-engine.duckdb"
+                            )
+                            with repository._connect(path) as connection:
+                                original = connection.execute(
+                                    "SELECT review_json FROM supporting_data_review WHERE version = ?",
+                                    [review.version],
+                                ).fetchone()[0]
+                                event = connection.execute(
+                                    "SELECT event_type FROM audit_event WHERE event_type = 'SUPPORTING_ACCESS_REVALIDATED' ORDER BY event_id DESC LIMIT 1"
+                                ).fetchone()
+                            self.assertEqual(original, review.to_json())
+                            self.assertEqual(event[0], "SUPPORTING_ACCESS_REVALIDATED")
+                            if explicit:
+                                self.assertEqual(
+                                    context.queries.get_mapping_revision(workspace_id),
+                                    revision,
+                                )
+                                self.assertEqual(
+                                    context.queries.get_mapping_working_draft(workspace_id),
+                                    draft,
+                                )
+                                checked = self.check(workspace_id)
+                                self.assertEqual(
+                                    checked.status_code, 200, checked.text[:1000]
+                                )
+                            page = self.client.get(f"/workspaces/{workspace_id}/mapping")
+                            self.assertTrue(page.context["related_data_review"]["current"])
+                            self.assertEqual(
+                                context.schema_workspace.supporting.current(
+                                    workspace_id, actor=actor
+                                ),
+                                saved,
+                            )
+                            # The request middleware owns the timing collector. Read
+                            # its terminal record rather than nesting a second one.
+                            request_id = response.headers["X-Impodo-Request-ID"]
+                            metrics = next(
+                                json.loads(line)
+                                for line in recorder.path.read_text(
+                                    encoding="utf-8"
+                                ).splitlines()
+                                if json.loads(line).get("request_id") == request_id
+                            )
+                            self.assertGreater(metrics["database_connection_count"], 0)
+                            self.assertEqual(metrics["database_lock_retry_count"], 0)
+                            # Explicit refresh has two local scopes (10 owners, 7
+                            # store contracts). Check matches also owns admission,
+                            # validation and receipts (25 owners, 19 contracts).
+                            self.assertLessEqual(
+                                metrics["database_connection_count"], 10 if explicit else 25
+                            )
+                            self.assertLessEqual(
+                                metrics["database_schema_check_count"],
+                                7 if explicit else 19,
+                            )
+                            self.assertLessEqual(len(sql), 200 if explicit else 421)
+            bundle = create_diagnostic_bundle(
+                recorder.path.parent, build_contract=PROCESS_BUILD_CONTRACT
+            )
+            with ZipFile(BytesIO(bundle)) as archive:
+                transitions = json.loads(archive.read("supporting-access.json"))
+            revalidated = [
+                event["supporting_access"]
+                for event in transitions
+                if event["supporting_access"]["outcome"] == "REVALIDATED"
+            ]
+            self.assertEqual(len(revalidated), 8)
+            self.assertEqual({item["odoo_major"] for item in revalidated}, {19, 20})
+            self.assertTrue(
+                all(item["changes"] == ["CREDENTIAL_VERSION"] for item in revalidated)
+            )
 
     def test_rebind_rejects_changed_choices_and_rolls_back_failed_audit(self):
         workspace_id, _ = self.ready(20, OdooConnectionMode.REMOTE)

@@ -707,14 +707,17 @@ def _workspace_middleware(
 
 
 def _workspace_request(workspace_id: str) -> Request:
+    # Report routes use eager middleware admission. Consolidated HTML pages
+    # consume their admission callback in test_workspace_page_admission.py.
+    path = f"/workspaces/{workspace_id}/mapping/review-workbook"
     return Request(
         {
             "type": "http",
             "http_version": "1.1",
             "method": "GET",
             "scheme": "http",
-            "path": f"/workspaces/{workspace_id}/summary",
-            "raw_path": f"/workspaces/{workspace_id}/summary".encode(),
+            "path": path,
+            "raw_path": path.encode(),
             "query_string": b"",
             "headers": (),
             "client": ("127.0.0.1", 12345),

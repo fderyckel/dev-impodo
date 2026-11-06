@@ -42,7 +42,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         self.assertIn('<p class="eyebrow">Optional</p>', template)
         self.assertRegex(
             template,
-            r"<h3[^>]*>Does one table combine different kinds of information\?</h3>",
+            r"<h3[^>]*>Organize source tables</h3>",
         )
         self.assertNotIn(
             "<summary>Does one table combine different kinds of information?</summary>",
@@ -101,7 +101,11 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
     def test_matching_review_workbook_actions_use_secondary_buttons(self) -> None:
         mapping_templates = ROOT / "src" / "impodo" / "web" / "templates" / "mapping"
         page = (mapping_templates / "page.html").read_text(encoding="utf-8")
-        self.assertIn('mapping/_matching_review_workbook.html', page)
+        self.assertIn('mapping/_journey_details.html', page)
+        details = (mapping_templates / "_journey_details.html").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('mapping/_matching_review_workbook.html', details)
         template = (mapping_templates / "_matching_review_workbook.html").read_text(
             encoding="utf-8"
         )
