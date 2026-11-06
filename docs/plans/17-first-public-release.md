@@ -1,499 +1,342 @@
 ---
 audience: developer
 kind: plan
-status: proposed
+status: approved
 ---
 
-# First public release and recurring cadence
+# Weekly source releases and continuous integration
 
 ## Decision and intended reader
 
-Publish Impodo's first GitHub Release now from the next clean and green commit
-on `main`. Use version `0.1.0` and tag `v0.1.0`. Attach no custom assets. The
-release consists of the Git tag, its release notes, and the source archives
-that GitHub automatically exposes for that tag.
+The maintainer approved this process on 6 November 2026. Contributors integrate
+small, verified changes throughout the week. The maintainer publishes a weekly
+source release from one verified commit on `main`.
 
-After `v0.1.0`, publish weekly releases during the current active-development
-period. Move to a monthly release cadence after eight successful source
-releases, unless the observed development pace gives a clear reason to change
-that transition.
+This replaces the original first-release procedure and its `0.1.0` examples.
+The existing release baseline is `v26.10.4`. Application versions follow
+`YY.MM.W`, as described below.
 
-This plan is for the maintainer preparing and publishing releases. It replaces
-the earlier proposal for a Windows bundle. Impodo is not introducing a bundle,
-installer, standalone wheel download, container package, SBOM, or artifact
-attestation at this stage.
+The process applies to human contributors, coding agents, and the maintainer
+preparing a release. It does not configure branch protection, change workflow
+triggers, authorize a merge, or publish a release merely because this plan is
+approved. Those actions require their own authorized implementation.
 
-## Release now
+## Current state and temporary Actions pause
 
-“Now” means that the first release should not wait for new packaging or release
-automation. It needs only one release-preparation change and the existing
-repository gate.
+As observed on 6 November 2026:
 
-The current checkout was reviewed on 2026-10-28. At that point:
+- The existing release tag is `v26.10.4`, at commit
+  `af2f694d13c4bc42a1dc710c02416097848fbf9d`.
+- The committed project version is still `26.10.4`.
+- The maintainer has paused **Python quality**, **Linux server quality**, and
+  **Windows release quality** in GitHub. Their files, tests, and run history
+  remain present.
+- GitHub reported an account billing lock for the last attempted hosted run.
+  Its jobs did not execute their checks.
+- Separate worktrees, pull requests, and required checks are the approved
+  development process. Repository-side enforcement and CI cost improvements
+  still need implementation and verification.
 
-- `main` tracked `origin/main` at commit
-  `e7f1a23f3153df552843ad9fe00a8662509477ff`;
-- `pyproject.toml` still declared version `0.0.0`;
-- the repository had no existing Git tags; and
-- the worktree contained active uncommitted development.
+Keep these workflows disabled until the maintainer explicitly asks to resume
+them. Do not enable, dispatch, or rerun them, or change triggers to bypass the
+pause. Read-only status checks and local verification remain allowed. Preparing
+this plan does not authorize a billing change or a new paid runner.
 
-Do not tag that observed commit merely to satisfy the calendar. Finish and
-commit the intended current work, change the project version to `0.1.0`, run
-the complete repository gate, and push that exact commit to `main`. The first
-release then tags that clean commit as `v0.1.0`.
+While Actions are paused, contributors may prepare changes, run local checks,
+and push authorized task branches. Keep pull requests unmerged and releases
+as drafts when required hosted evidence is unavailable. A local pass or a
+billing failure does not establish a passing Linux, macOS, or Windows matrix.
 
-The release should be published as soon as those bounded checks pass. New
-release packaging, security automation, dependency bots, code signing, and
-deployment automation are not prerequisites for `v0.1.0`.
+## Give each change an owner and an isolated checkout
 
-## What the release is
+Each coherent change has one owner, one short-lived task branch, and its own
+worktree. An example branch is `fix/payment-term-matching`. Other agents can
+review the change without editing its files concurrently.
 
-The first release gives outside users a stable name for one source revision.
-It answers:
+Create the worktree from the intended committed base and give it a separate
+Python environment. Confirm that imports and spawned workers use that checkout.
+Carry local instructions and tooling into the worktree without tracking them;
+verify that instruction, skill, environment, and tool paths remain ignored.
 
-- Which exact commit represents the first public release?
-- Which changes were included at that point?
-- Which version should an issue or test result name?
-- Which source should an evaluator check out instead of following a moving
-  `main` branch?
+Use explicit file scope when staging. A contributor must not collect every
+pending edit in a shared checkout into a release snapshot. Before delivery,
+compare the committed or staged tree with the candidate that passed checks.
+Later edits belong to a later candidate.
 
-The release does not create a new installation method. Current public
-evaluation still uses the source-checkout instructions. Accepted internal
-bundles remain a separate organizational path. Once the source release is
-published and verified, the public instructions can show how an evaluator
-selects the release tag rather than `main`.
+### Branch naming convention
 
-### Release contents
+Use `<type>/<slug>`. Only these three types are allowed for development branches:
 
-The GitHub Release contains:
+| Type | Purpose | Examples |
+| --- | --- | --- |
+| `feat/` | Add or improve functionality, including supporting documentation and refactoring. | `feat/shared-practice-data` |
+| `fix/` | Correct a defect, regression, or inaccurate documentation. | `fix/payment-term-matching` |
+| `release/` | Prepare or stabilize a release, or maintain the release process. | `release/26.11.1`, `release/process` |
 
-- annotated tag `v0.1.0`;
-- release title `Impodo 0.1.0`;
-- human-reviewed release notes; and
-- GitHub's automatic source code archives for the tag.
+Use a short, descriptive, lowercase slug with words separated by hyphens.
+Release-version slugs may contain periods. Do not add nested path components,
+spaces, personal names, or tool-specific prefixes. Validate the selected name
+with `git check-ref-format --branch <name>` before creating it. `main` remains
+the integration branch, rather than a development-branch type.
 
-The maintainer uploads no files. In particular, the release contains no:
+Classify a documentation or refactoring task by its purpose. A correction uses
+`fix/`, an improvement uses `feat/`, and release-process work uses `release/`.
+Use `release/<version>` for a concrete release candidate; the branch is not a
+shared integration stream for that week's unrelated features.
 
-- custom ZIP or bundle;
-- wheel or dependency lock as a release asset;
-- PowerShell installer;
-- Windows, macOS, or Linux package;
-- container image;
-- generated test report;
-- SBOM or vulnerability report;
-- checksum file for a custom artifact; or
-- artifact attestation.
+An owner adopting this convention must rename their own nonconforming branch
+before further work. Preserve its worktree and pending changes. Do not rename
+another agent's active branch, delete a published branch, or rewrite remote
+history without an authorized, coordinated migration.
 
-Git identifies the source release. The tag must continue to point to the same
-commit after publication.
+### Challenge proposals that create material risks
 
-### Release status
+Contributors and agents must challenge a proposed approach when it conflicts
+with accepted contracts or established practice, or creates a material
+reliability, security, maintainability, or cost risk. Explain the concrete
+consequence, identify the supporting evidence or uncertainty, and recommend an
+alternative before proceeding with the affected decision.
 
-Use `0.1.0`, not an alpha suffix. Major version zero already communicates that
-Impodo is in active development and that interfaces may still change. The
-release notes must state that this is the first public development release and
-that source installation remains intended for evaluation and development.
+Distinguish requirements from local conventions. Branch prefixes describe the
+purpose of a change; safe integration still depends on isolation, review, and
+verification. Follow the maintainer's informed decision within the remaining
+guardrails.
 
-Do not describe `0.1.0` as an enterprise distribution, signed application,
-offline installer, hosted service, or long-term-support release.
+### Transition existing shared work safely
 
-## Immediate `v0.1.0` procedure
+The shared checkout already contains concurrent work. Each owner must identify
+and inspect their own files before transferring a bounded change into an
+isolated worktree. Preserve the shared copies until the transfer is reconciled
+and ownership is clear.
 
-### 1. Finish the release commit
+Do not switch the dirty shared checkout to another branch, reset it, apply a
+repository-wide stash, or delete another contributor's changes. If ownership
+overlaps, reconcile the affected lines before editing or staging them. Starting
+a release branch does not resolve a shared-worktree race.
 
-The release commit contains all work intentionally included in `0.1.0` and no
-unrelated local tooling state. Before the commit:
+## Integrate verified changes throughout the week
 
-- confirm that `.agents/` and agent instruction files remain untracked and
-  ignored;
-- review the complete worktree diff;
-- set the `pyproject.toml` version to `0.1.0`;
-- confirm that dependency declarations and locks remain coherent; and
-- prepare the release notes from the actual commit range.
+1. Implement one coherent responsibility on its task branch. Run focused
+   tests for that responsibility and its affected callers. Cover Odoo 19 and
+   Odoo 20, local and remote access, and Recipe paths when affected.
+2. Run the complete repository gate on the exact candidate before committing,
+   pushing, or handing it off. Preserve all diagnostics and report failed or
+   omitted checks.
+3. When authorized, push the task branch and open a pull request into
+   `main`. Explain the resulting behavior, validation, and compatibility risks.
+4. Before merging, require the complete portable behavior matrix, repository
+   checks, default performance checks, and applicable Linux server and Windows
+   checks to pass for the proposed merge. Resolve review feedback and conflicts.
+5. Merge ready changes regularly after the required evidence passes. Verify
+   the resulting `main` commit before selecting it for a release.
 
-The version change belongs in the released source. Do not create `v0.1.0`
-while the package still identifies itself as `0.0.0`.
+Ordinary development must not commit or push directly to `main`. Keep `main`
+releasable through small reviewed integrations. A permanent `develop` branch
+or a shared weekly version branch is not the normal integration path.
 
-### 2. Verify the exact release commit
+Use a short stabilization branch only when a concrete release needs one.
+Restrict it to release fixes, verify them through pull requests, and bring the
+accepted fixes back into `main`. Do not start a parallel stream of unrelated
+feature work there. The release identity is the tag and commit.
 
-Run the complete repository gate from the repository root:
+Creating a branch does not authorize a remote push, pull request, merge, tag,
+or publication. Carry out only the external actions included in the user's
+request. Preparing release text authorizes a draft.
+
+## Verify the exact candidate and control CI cost
+
+The local complete repository gate is:
 
 ```powershell
 uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
 
-Run focused tests for the current development changes as required by their
-own responsibilities. Record any host-specific check that was omitted. A
-failed required repository guardrail blocks the release unless a human
-explicitly names and waives that exact guardrail for this release.
+Use the checkout's pinned runner and an environment belonging to that checkout.
+The gate includes static quality, architecture, and documentation checks. It
+does not replace focused behavior tests or the full portable behavioral suite.
 
-Commit and push only after the gate passes. Confirm that the intended release
-commit is the current `origin/main` commit and that the worktree is clean
-before creating the tag.
+For shared-contract refactors and repairs of repeated behavioral CI failures,
+run all four portable shards from `.github/workflows/python-quality.yml` on
+one frozen candidate before delivery. Keep the full operating-system matrix
+and applicable platform checks as merge and release requirements. A passing
+subset does not establish that the complete candidate is ready.
 
-### 3. Prepare release notes
+When hosted workflows are explicitly resumed, improve their execution order:
 
-The first release notes should be short enough to scan but specific enough to
-set expectations. Include:
+- Run the fast repository checks before starting the expensive behavior matrix.
+- Cancel superseded runs for the same workflow and pull request. Keep unrelated
+  pull requests and the selected release verification independent.
+- Collect each distinct failure across shards and platforms before choosing a
+  repair. Inspect job annotations when no test step ran.
+- Attribute every result to its commit or candidate tree. Recheck after a
+  source, dependency, version, or merge change invalidates that evidence.
+- Investigate slow tests and excessive repeated work without weakening behavior,
+  evidence checks, platform coverage, or required diagnostics.
 
-1. **What Impodo is.** Summarize the current local Odoo migration workflow.
-2. **Why this release exists.** State that `0.1.0` establishes the first named
-   public source baseline.
-3. **Highlights.** Describe the most important implemented user capabilities.
-4. **Supported environment.** Repeat the current Python, operating-system,
-   and Odoo boundaries without broadening them.
-5. **Installation.** Link the current Windows and macOS source-checkout
-   instructions.
-6. **Known limitations.** State that there is no packaged installer, automatic
-   updater, hosted service, or long-term-support promise.
-7. **Reporting problems.** Link GitHub Issues and state what fictional example
-   and version information to include.
-8. **Source identity.** Link the tag and full release commit.
+These are proposed workflow changes, not a claim that the current YAML already
+implements them. The Actions pause remains in force during their preparation.
 
-Use GitHub's generated notes as a starting inventory, then edit them for user
-meaning. Do not publish a raw commit list as the complete explanation.
+## Weekly release window
 
-### 4. Create and push the tag
+Use Friday at the end of the working day as the regular release decision
+window. The maintainer selects the cutoff and the exact candidate. No scheduled
+job automatically merges branches or publishes a release.
 
-Create an annotated tag on the exact verified commit:
+The next proposed weekly slots are:
 
-```powershell
-git tag -a v0.1.0 -m "Impodo 0.1.0"
-git push origin v0.1.0
-```
+| Decision window | Proposed version | Proposed tag |
+| --- | --- | --- |
+| 6 November 2026 | `26.11.1` | `v26.11.1` |
+| 13 November 2026 | `26.11.2` | `v26.11.2` |
 
-Immediately confirm that the remote tag resolves to the intended `main`
-commit. Do not move or reuse the tag after it becomes visible.
+These are release opportunities. If required checks are unavailable or fail,
+keep the release in draft and record the blocker. If there is no meaningful
+change since the previous release, skip the slot. Do not create a new tag on
+identical source merely to satisfy the calendar.
 
-### 5. Create the GitHub Release
+After eight successful source releases, review whether a monthly cadence would
+better match development. Continue weekly until the maintainer approves that
+change. Urgent security and data-integrity fixes need not wait for Friday.
 
-Create a draft GitHub Release for the existing tag. Attach no files. The
-GitHub CLI command may have this shape:
+## Calendar version and source identity
 
-```powershell
-gh release create v0.1.0 --draft --generate-notes --title "Impodo 0.1.0" --verify-tag
-```
+Use `YY.MM.W`: the two-digit year, the two-digit month, and the
+maintainer-selected weekly slot within that month. For example, `26.11.1`
+identifies the first planned November 2026 weekly release. A skipped slot does
+not require renumbering later slots.
 
-Edit the draft notes to satisfy the release-note contract. Review the tag,
-commit, title, notes, and absence of custom assets. Publish the draft as the
-latest release.
+The release-preparation change updates `pyproject.toml` and synchronizes the
+project entry in `uv.lock` with the pinned uv runner. The annotated tag is
+exactly `v` followed by the project version. The Release title uses that same
+version. Do not substitute the obsolete `0.1.0` examples or infer compatibility
+from a calendar number.
 
-### 6. Verify as an outside evaluator
+The maintainer chooses a distinct version for an urgent corrective release.
+Agents must not invent a suffix or move an existing tag to reuse an identity.
+Record the selected version before preparing its source and notes.
 
-After publication:
+Application release numbering is independent of storage schema and portable
+evidence contract versions. Explain incompatible project layouts, supported
+upgrades, and any required operator action in the notes. A new application
+version does not itself prove that an older project can be opened safely.
 
-- open the public Release page without relying on maintainer-only state;
-- confirm that `v0.1.0` resolves to the intended commit;
-- confirm that the release has no maintainer-uploaded assets;
-- download or clone the tagged source into a clean directory;
-- follow the current source installation instructions with fictional or
-  disposable data; and
-- record any instruction that depends on an uncommitted file, private setting,
-  or moving `main` branch.
+## Source-only release contents
 
-Correct documentation problems through the next reviewed commit. Do not
-replace the source represented by `v0.1.0`.
+A public release consists of an immutable annotated Git tag, its exact source
+commit, reviewed release notes, and GitHub's automatic source archives.
+Maintainers upload no custom files.
 
-## Release cadence
+Do not add an installer, wheel, custom archive, container, checksum, SBOM,
+attestation, automatic updater, deployment, or long-term-support promise to
+this workflow without a separate distribution decision. Accepted internal
+bundles remain a separate organizational process.
 
-### Weekly period
+## Prepare and publish one release
 
-The first release date is 2026-10-29. Use Thursday as the release day so that
-maintainers have normal working days available for follow-up.
+1. Identify the previous reachable release tag and the intended included
+   changes. Finish their reviewed feature integrations before the cutoff.
+2. Prepare the version, synchronized lockfile, and notes on a
+   `release/<version>` branch. Describe implemented behavior only. Keep unfinished
+   work and proposals outside the release claims.
+3. Run focused checks and the complete repository gate. Obtain the complete
+   required hosted evidence before merging the release-preparation pull request.
+4. Verify the exact resulting `main` commit. Record its full SHA, version,
+   comparison range, local results, and hosted CI links. A test of an earlier
+   feature head does not establish that this merged commit passed.
+5. If any required check fails, is skipped without an applicable exclusion, or
+   cannot run, keep the release in draft. A maintainer waiver must name the
+   exact failed or omitted guardrail and the single delivery it covers.
+6. When separately authorized, create and push the annotated `v<version>` tag on
+   that verified SHA. Confirm that the remote tag resolves to the intended
+   commit. Never move a tag once it has become visible.
+7. When authorized, create a draft GitHub Release for the existing tag. Check
+   the title, version, source commit, notes, comparison, CI evidence, and absence
+   of custom assets. Publish only within the maintainer's authorization.
+8. Verify the public Release and tagged-source installation in a clean isolated
+   directory. Do not interrupt the maintainer's running Impodo session or write
+   to a live Odoo target as part of this verification.
 
-The initial cadence is:
+The release checkout must contain the exact reviewed candidate. Unrelated dirty
+work in another worktree can remain in progress; it is not part of the release.
 
-| Release point | Target date |
-| --- | --- |
-| First release | 2026-10-29 |
-| Weekly release 2 | 2026-11-05 |
-| Weekly release 3 | 2026-11-12 |
-| Weekly release 4 | 2026-11-19 |
-| Weekly release 5 | 2026-11-26 |
-| Weekly release 6 | 2026-12-03 |
-| Weekly release 7 | 2026-12-10 |
-| Weekly release 8 | 2026-12-17 |
+## Release-note contract
 
-Each Thursday release names the latest clean and green `main` commit that the
-maintainer accepts. Prepare the version and release notes before Thursday so
-the release day remains a verification and publication activity.
-
-If no commit has changed since the previous release, do not create a different
-version tag on identical source merely to fill the calendar. Record the skipped
-release in the release tracking issue and continue the schedule the following
-week. The cadence is a regular decision point, not permission to publish
-meaningless versions.
-
-### Monthly period
-
-After eight successful source releases, move to the first Thursday of each
-month. Under the proposed calendar, the first monthly release is 2027-01-07.
-
-A successful release means:
-
-- the tag and project version agreed;
-- the complete repository gate passed on the released commit;
-- the release notes accurately described the source;
-- the tag was not moved or replaced;
-- no custom asset was accidentally attached; and
-- no correction was needed to identify which commit had been released.
-
-If the weekly process is still failing or producing emergency replacement
-releases, continue weekly until four consecutive releases meet these criteria.
-The move to monthly should reduce routine overhead, not hide an unreliable
-process.
-
-Monthly is the normal cadence, not a restriction on urgent fixes. Publish a
-security or data-integrity correction as soon as it is ready, then keep the
-next regular monthly date. Do not delay an urgent fix to preserve calendar
-symmetry.
-
-## Version policy
-
-Release cadence and version meaning are separate. Choose the next version from
-the changes since the previous tag:
-
-- Increase the patch number for compatible fixes, documentation corrections,
-  and internal improvements that do not add a user capability.
-- Increase the minor number for a new user capability or a meaningful change
-  to the supported workflow.
-- Remain below `1.0.0` while public interfaces and migration behavior are still
-  expected to change materially.
-- Reserve `1.0.0` for a separate stability and support decision.
-
-Examples:
-
-- A week containing only fixes may move `0.1.0` to `0.1.1`.
-- A week adding a new supported workflow may move `0.1.1` to `0.2.0`.
-- The monthly transition does not itself require a minor-version increase.
-
-Every release must update `pyproject.toml` before tagging. The Git tag is
-always `v` followed by that exact project version.
-
-## Lightweight GitHub Actions support
-
-The first release should not wait for new automation. Add automation after
-`v0.1.0` to make the weekly cadence repeatable without turning it into a
-packaging project.
-
-### Source-release workflow
-
-Add one small `.github/workflows/source-release.yml` workflow before the
-second release. It should trigger when a `v*` tag is pushed and should:
-
-1. Check out the exact tagged commit.
-2. Verify that the tag equals `v` followed by the `pyproject.toml` version.
-3. Verify that the commit is reachable from `main`.
-4. Run the complete repository gate for the exact tagged source.
-5. Verify that no GitHub Release already uses the tag.
-6. Create a draft GitHub Release with generated notes and no custom assets.
-7. Leave human review and publication as an explicit maintainer action.
-
-The workflow needs `contents: write` only in the job that creates the draft.
-All verification jobs use `contents: read`. Do not grant package,
-attestation, deployment, environment, issue, or pull-request write permission.
-
-Use the GitHub CLI already available on hosted runners rather than adding a
-third-party release action merely to call the Releases API. Keep checkout and
-other actions pinned to complete commit SHAs.
-
-### Cadence reminder
-
-Add a scheduled read-only workflow only if maintainers need a reminder. A
-Thursday schedule may report:
-
-- the latest release tag and date;
-- commits on `main` since that tag;
-- whether `pyproject.toml` has a newer version;
-- the latest `Python quality / quality` result; and
-- the next expected release date.
-
-The reminder must not create tags, change versions, or publish releases. A
-maintainer chooses the version and confirms the notes because those decisions
-depend on the meaning of the changes.
-
-## Release notes template
-
-Use this structure for weekly and monthly releases:
+Write for an evaluator or data manager who needs to understand the practical
+changes and compatibility boundaries. Use only sections that help that reader:
 
 ```markdown
 # Impodo <version>
 
 ## Release summary
 
-One paragraph describing why this release matters to an Impodo evaluator.
+Explain why this release matters.
 
 ## Highlights
 
-- Describe implemented user-facing outcomes.
-- Describe important reliability, security, or evidence improvements.
+- Describe the most important implemented user outcomes.
 
-## Compatibility
+## Reliability and safety
 
-- State supported Python, operating-system, and Odoo boundaries.
-- Name any project-data or workflow compatibility concern.
+- Describe meaningful correctness, evidence, recovery, or bounded-work changes.
+
+## Compatibility and upgrade information
+
+State supported environments, incompatible layouts, and upgrade requirements.
 
 ## Install from source
 
-Link the Windows and macOS instructions and identify the exact release tag.
+Link the tagged source and its installation instructions.
 
 ## Known limitations
 
-State current limitations honestly, including the absence of packaged assets.
-
-## Report a problem
-
-Link GitHub Issues and request the Impodo version, Odoo version, expected
-behavior, actual behavior, and a small fictional example.
+State material missing behavior and verification limits.
 
 ## Source
 
-Link the tag, full commit, comparison with the previous release, and CI run.
+Link the tag, full commit, comparison range, and exact-commit CI results.
 ```
 
-Do not copy unreleased roadmap claims into release notes. Notes describe only
-behavior present in the tagged source.
+Until the final candidate is verified, label the notes as provisional and name
+the committed range they describe. Exclude uncommitted work from shipped claims.
+Record omitted validation honestly. Generated commit lists are an inventory,
+not the public explanation.
 
 ## Failure and correction policy
 
-### Before publication
+A failed required gate blocks delivery. Do not classify an unrelated failure
+as acceptable debt or treat a disabled workflow as a passing check. Correct the
+source through its owned task branch and verify a new candidate.
 
-If the repository gate, version check, or release-note review fails, do not
-publish the Release. Correct the source through a normal commit and run the
-gate again.
+After publication, never replace the source behind a published tag. Publish a
+new verified corrective version. For a security, authorization, evidence,
+journaling, or reconciliation defect, warn affected users and prepare the
+correction promptly. Changing release notes to add a warning is permitted;
+retargeting the released source is not.
 
-Avoid pushing the tag until the source and notes are ready. If a tag has been
-pushed publicly and then proves incorrect, do not silently move it. Use the
-next version for the corrected release.
+## Remaining enforcement work and acceptance criteria
 
-### After publication
+The process is adopted when agents read the shared instructions, own isolated
+feature worktrees, stage bounded changes, and preserve the Actions pause.
+Repository enforcement still needs explicit implementation and verification:
 
-Never replace the source behind a published tag. For an ordinary defect,
-record the issue and include the correction in the next weekly or monthly
-release.
+- Protect `main` with required pull requests, resolved review conversations,
+  passing required checks, and protection against force pushes and deletion.
+- Apply the CI execution order and concurrency controls described above after
+  the maintainer authorizes resuming hosted checks.
+- Protect published version tags and verify the available immutable-release
+  settings before changing them.
+- Keep any future tag workflow limited to verifying the selected source and
+  preparing a draft with minimum permissions. Human authorization remains
+  required for publication.
 
-For a defect that can compromise security, authorization, source evidence,
-reviewed changes, execution journaling, or reconciliation:
+A release is complete only when its project version, lockfile, tag, notes,
+source SHA, and verification evidence agree, no custom asset was uploaded, and
+the public source instructions work for the released revision.
 
-- warn users on the affected Release page;
-- prepare and verify the correction immediately;
-- publish a new patch release without waiting for the next scheduled date; and
-- link the affected and replacement releases.
+## References
 
-Changing release notes to add a warning is acceptable. Moving the tag or
-pretending the affected source was never released is not.
-
-## Implementation sequence
-
-### Step 1: publish `v0.1.0` now
-
-- Finish the intended current work.
-- Change `pyproject.toml` from `0.0.0` to `0.1.0`.
-- Draft notes from implemented behavior.
-- Run focused checks and the complete repository gate.
-- Commit and push the clean release source.
-- Create annotated tag `v0.1.0`.
-- Create a draft GitHub Release with no custom assets.
-- Review and publish it.
-- Verify the public source release from a clean directory.
-
-Exit criteria:
-
-- the project version, tag, title, and notes all say `0.1.0`;
-- the tag resolves to the intended green `main` commit;
-- the Release contains no custom asset;
-- the released source can be installed through the current documented route;
-  and
-- an issue can name `0.1.0` as a fixed source baseline.
-
-### Step 2: make the second release repeatable
-
-- Add the minimal tag-triggered source-release workflow.
-- Protect `v*` tags from updates and deletion.
-- Add the release-note template.
-- Exercise the workflow with the second weekly version.
-
-Exit criteria:
-
-- the workflow validates the version and tagged commit;
-- only the draft-creation job has release write permission;
-- no workflow step builds or uploads an artifact; and
-- human review remains required before publication.
-
-### Step 3: complete the weekly runway
-
-- Publish on the seven Thursday dates after `v0.1.0` when source changed.
-- Record skipped dates rather than tagging identical source.
-- Track preparation time, failed gates, note corrections, and emergency
-  releases.
-- Keep current documentation aligned with each released source version.
-
-Exit criteria:
-
-- eight releases have a consistent tag, version, notes, and CI contract; or
-- after a skipped week, the release tracking record still explains the
-  cadence clearly; and
-- four consecutive releases require no identity or process correction.
-
-### Step 4: switch to monthly
-
-- Set the first Thursday as the regular release day.
-- Keep urgent corrections outside the calendar when necessary.
-- Review the cadence after three monthly releases.
-
-Exit criteria:
-
-- outside users can predict the next normal release window;
-- active development is summarized at least monthly; and
-- the reduced cadence does not accumulate release notes that are too large to
-  review meaningfully.
-
-## Acceptance criteria
-
-This plan is working when:
-
-- `v0.1.0` is published now from the next clean and green `main` commit;
-- no custom release asset is uploaded;
-- the project version and tag always agree;
-- every release identifies one immutable source commit;
-- every released commit passed the complete repository gate;
-- notes explain implemented outcomes and current limitations;
-- weekly release decisions occur through 2026-12-17;
-- the normal cadence becomes monthly on 2027-01-07 if the weekly process is
-  reliable;
-- urgent security and data-integrity fixes are not delayed by the schedule;
-  and
-- future packaging remains a separate decision rather than entering this
-  source-release workflow indirectly.
-
-## Explicit non-goals
-
-This plan does not authorize or require:
-
-- a release bundle or custom archive;
-- a standalone wheel asset or PyPI publication;
-- a PowerShell installer;
-- a macOS package;
-- a container image or GitHub package;
-- an SBOM or artifact attestation for a source-only release;
-- code signing;
-- an offline installation;
-- automatic version selection;
-- fully automatic release publication;
-- automatic deployment; or
-- a promise that every scheduled date will receive a new tag when the source
-  has not changed.
-
-These capabilities need a later decision based on an actual distribution or
-deployment requirement.
-
-## GitHub references
-
-Use GitHub's
-[release management guidance](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=cli)
-for draft creation, generated notes, and publication. Use
-[repository rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/creating-rulesets-for-a-repository)
-to protect `main` and published version tags.
-
-Re-check GitHub feature availability while implementing automation. This plan
-was reviewed on 2026-10-29.
+- [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow).
+- [Git worktrees](https://git-scm.com/docs/git-worktree).
+- [Protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
+- [Workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
+- [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=cli).
