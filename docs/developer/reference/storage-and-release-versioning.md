@@ -14,7 +14,7 @@ The application continues its existing release numbering.
 
 | Version | Authority | Maintenance rule |
 | --- | --- | --- |
-| Application release | [`pyproject.toml`](../../../pyproject.toml), currently `26.10.4` | Continue `YY.MM.sequence` and create the matching `vYY.MM.sequence` Git tag when releasing. Synchronize the package entry in `uv.lock` with uv after changing the release version. |
+| Application release | [`pyproject.toml`](../../../pyproject.toml), currently `26.11.1` | Use `YY.MM.W` for the maintainer-selected weekly slot and create the matching `v<version>` Git tag when releasing. Synchronize the package entry in `uv.lock` with uv after changing the release version. |
 | Release bundle | [`scripts/internal_release.py`](../../../scripts/internal_release.py) | Keep the application version, Git revision, artifact hashes, and validation evidence together in the immutable manifest. |
 | Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Baseline version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`; version 2 adds protected duplicate-group index columns and current version 3 adds the protected relationship-choice index. |
 | Project registry | [`schema/migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) | Start at version 1 in generation `impodo-migration-registry-2026-10-31-project-root`. |

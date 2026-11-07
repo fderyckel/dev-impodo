@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "impodo"
-version = "26.10.4"
+version = "26.11.1"
 description = "Local Odoo migration preparation, preflight, and practical loading"
 readme = "README.md"
 license = "MIT"

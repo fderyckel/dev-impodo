@@ -535,7 +535,7 @@ wheels = [
 
 [[package]]
 name = "impodo"
-version = "26.10.4"
+version = "26.11.1"
 source = { editable = "." }
 dependencies = [
     { name = "cryptography" },
