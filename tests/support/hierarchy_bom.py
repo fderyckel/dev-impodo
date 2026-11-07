@@ -14,7 +14,7 @@ from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from tests.support.hierarchy_workflow import PRODUCT_ROWS
 
 
-def bom_workspace(fixture, *, two_problems=False):
+def bom_workspace(fixture, *, two_problems=False, major=19):
     """Retain both original and reviewed component columns in accepted evidence."""
 
     lines = (
@@ -43,6 +43,7 @@ def bom_workspace(fixture, *, two_problems=False):
 
     fixture.schema(
         workspace_id,
+        major=major,
         extra_models=(
             SchemaModel(
                 "product.product",

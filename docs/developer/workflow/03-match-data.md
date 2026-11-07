@@ -194,6 +194,13 @@ binding, company context and pending candidate before writing. Verified
 unchanged access continues with the submitted field edits; real changes stop
 for the existing schema review. An exact mutation replay skips this refresh.
 
+The linked-value dialog at `/mapping/value-choices` uses the same operations
+when the selected company differs from the saved field check. It verifies the
+company before reading or reusing Odoo choices for either source-column or
+constant matches. The [Unit dialog regression](../../../tests/integration/web/test_value_choice_company_refresh.py)
+checks the first lookup and reopening on Odoo 19 and 20 with local and remote
+access.
+
 When a saved model catalogue exists, that refresh also reads the lightweight
 `ir.model` choices and verifies their read access. The JSON-2 session reuses
 one connector and target fingerprint for catalogue and field reads. Their
@@ -412,6 +419,14 @@ Preparation expands the reviewed portable choice into separate key and scope
 values in both the Python evaluator and native Polars execution. Supporting
 reads use the selected component tuples, and DuckDB projections and correction
 intents retain the separate company column.
+
+For a confirmed name within a self-referencing parent, the bounded existing
+record lookup counts exact names before excluding rows with unusable scope.
+It suggests the full portable choice only when one record has that name and
+its parent can be selected. The dialog applies suggestions through the same
+explicit value match as a manual choice. Lookup snapshot version 5 carries
+these suggestions with the checked choices. Version 4 remains readable and
+is refreshed once when the dialog needs suggestions.
 
 The [Match values controller](../../../src/impodo/web/static/mapping-value-match.js)
 opens the dialog once the field has the required inputs. A single status region
@@ -1175,8 +1190,16 @@ loading, reconciliation, and the authenticated page's connection counts.
 captures the saved combined-table relationship from an isolated current app
 at 1440 by 1024.
 
+For generated lists and hierarchies, `_mapping_dataset_views` supplies the
+generated key and original-value columns from `DerivedDatasetLink`. The
+identity template names these columns inside closed **Matching key or original
+value?** disclosures. Source-row guidance recommends the generated key; Odoo
+field guidance recommends the original value only for the generated table's
+configured target-name field and model. Physical source tables keep their
+existing guidance. These disclosures add no repository reads or Odoo calls.
+
 For a generated list whose target-name identity still reads `canonical_key`,
-the identity presenter offers **Use original spelling**. The action selects
+the Odoo field's disclosure offers **Use original spelling**. The action selects
 the generated display-name column in the editor; it does not silently migrate
 saved mappings. **Save progress**, checking, and confirmation use the existing
 mapping lifecycle. Source identity and the derived plan stay unchanged.
@@ -1584,8 +1607,8 @@ The compiler rejects mixed, unregistered, writable, version-mismatched, or
 metadata-mismatched reference use instead of guessing a contract.
 
 Mapping validation contract version 3 binds the current reference-policy hash.
-Supporting lookup contract version 2 binds the same hash to its lookup key and
-snapshot. Retired evidence payloads are rejected rather than reused.
+Supporting lookups bind the same hash to the lookup key and snapshot.
+Impodo rejects retired evidence formats.
 
 Cleanup is stored exclusively as ordered `text_steps`. Retired scalar
 search/replacement fields are rejected rather than
@@ -1687,6 +1710,7 @@ validation result for the malformed formula.
 | Matching-order and relationship-health domain, service, persistence, issue-projection, and browser tests | [`test_matching_order.py`](../../../tests/domain/test_matching_order.py), [`test_relationship_health.py`](../../../tests/domain/test_relationship_health.py), [`test_order_service.py`](../../../tests/application/workspace/mapping/test_order_service.py), [`test_matching_order_live_check.py`](../../../tests/application/workspace/mapping/test_matching_order_live_check.py), [`test_matching_health_issues.py`](../../../tests/application/workspace/mapping/test_matching_health_issues.py), [`test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py), [`test_identity_health_presenter.py`](../../../tests/integration/web/test_identity_health_presenter.py), [`test_relationship_health_presenter.py`](../../../tests/integration/web/test_relationship_health_presenter.py), [`test_matching_health_issues_presenter.py`](../../../tests/integration/web/test_matching_health_issues_presenter.py), [`test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py), and [`test_mapping_workflow.py`](../../../tests/integration/web/test_mapping_workflow.py) |
 | Batched Odoo read planning | [`planner.py`](../../../src/impodo/domain/execution/planner.py) |
 | Target-first resolution and classification | [`preflight.py`](../../../src/impodo/domain/preparation/preflight.py) |
+| Governed keys and nested company scope for incoming links | [`incoming_references.py`](../../../src/impodo/domain/preparation/incoming_references.py) |
 | Reviewed execution hand-off | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 
 ## Evidence and state

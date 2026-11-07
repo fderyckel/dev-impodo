@@ -1,0 +1,875 @@
+{
+  "schema_version": 1,
+  "kind": "independent_customer_business_oracle",
+  "scope": "Only fields exercised by the current customer workflow. Additional raw export columns remain source evidence and do not imply mapped or verified behavior.",
+  "baseline": {
+    "customers": [
+      {
+        "customer_ref": "MA-N-0001",
+        "company_code": "NORTH",
+        "name": "Morrow North Assembly",
+        "email": "north.01@morrow.example",
+        "phone": "+12025550101",
+        "address": {
+          "street": "1 Example Workshop Lane",
+          "postcode": "1001",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0002",
+        "company_code": "NORTH",
+        "name": "Morrow North Design",
+        "email": "north.02@morrow.example",
+        "phone": "+12025550102",
+        "address": {
+          "street": "2 Example Workshop Lane",
+          "postcode": "1002",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0003",
+        "company_code": "NORTH",
+        "name": "Morrow Café Supply",
+        "email": "north.03@morrow.example",
+        "phone": "+12025550103",
+        "address": {
+          "street": "3 Example Workshop Lane",
+          "postcode": "1003",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0004",
+        "company_code": "NORTH",
+        "name": "Morrow North Metals",
+        "email": "north.04@morrow.example",
+        "phone": "+12025550104",
+        "address": {
+          "street": "4 Example Workshop Lane",
+          "postcode": "1004",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0005",
+        "company_code": "NORTH",
+        "name": "Morrow North Packaging",
+        "email": "",
+        "phone": "+12025550105",
+        "address": {
+          "street": "5 Example Workshop Lane",
+          "postcode": "1005",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0006",
+        "company_code": "NORTH",
+        "name": "Morrow North Studio",
+        "email": "north.06@morrow.example",
+        "phone": "+12025550106",
+        "address": {
+          "street": "6 Example Workshop Lane",
+          "postcode": "1006",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0007",
+        "company_code": "NORTH",
+        "name": "Morrow North Modules",
+        "email": "north.07@morrow.example",
+        "phone": "+12025550107",
+        "address": {
+          "street": "7 Example Workshop Lane",
+          "postcode": "1007",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0008",
+        "company_code": "NORTH",
+        "name": "Morrow North Workshop",
+        "email": "north.08@morrow.example",
+        "phone": "+12025550108",
+        "address": {
+          "street": "8 Example Workshop Lane",
+          "postcode": "1008",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0009",
+        "company_code": "NORTH",
+        "name": "Morrow North Service",
+        "email": "north.09@morrow.example",
+        "phone": "+12025550109",
+        "address": {
+          "street": "9 Example Workshop Lane",
+          "postcode": "1009",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0001",
+        "company_code": "SOUTH",
+        "name": "Morrow South Assembly",
+        "email": "south.01@morrow.example",
+        "phone": "+12025550110",
+        "address": {
+          "street": "10 Example Workshop Lane",
+          "postcode": "1010",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0002",
+        "company_code": "SOUTH",
+        "name": "Morrow South Design",
+        "email": "south.02@morrow.example",
+        "phone": "+12025550111",
+        "address": {
+          "street": "11 Example Workshop Lane",
+          "postcode": "1011",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0003",
+        "company_code": "SOUTH",
+        "name": "Morrow South Supply",
+        "email": "south.03@morrow.example",
+        "phone": "+12025550112",
+        "address": {
+          "street": "12 Example Workshop Lane",
+          "postcode": "1012",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0004",
+        "company_code": "SOUTH",
+        "name": "Morrow South Metals",
+        "email": "south.04@morrow.example",
+        "phone": "+12025550113",
+        "address": {
+          "street": "13 Example Workshop Lane",
+          "postcode": "1013",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0005",
+        "company_code": "SOUTH",
+        "name": "Morrow South Packaging",
+        "email": "south.05@morrow.example",
+        "phone": "+12025550114",
+        "address": {
+          "street": "14 Example Workshop Lane",
+          "postcode": "1014",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0006",
+        "company_code": "SOUTH",
+        "name": "Morrow South Studio",
+        "email": "south.06@morrow.example",
+        "phone": "+12025550115",
+        "address": {
+          "street": "15 Example Workshop Lane",
+          "postcode": "1015",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0007",
+        "company_code": "SOUTH",
+        "name": "Morrow South Modules",
+        "email": "south.07@morrow.example",
+        "phone": "+12025550116",
+        "address": {
+          "street": "16 Example Workshop Lane",
+          "postcode": "1016",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0008",
+        "company_code": "SOUTH",
+        "name": "Morrow South Workshop",
+        "email": "south.08@morrow.example",
+        "phone": "+12025550117",
+        "address": {
+          "street": "17 Example Workshop Lane",
+          "postcode": "1017",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0009",
+        "company_code": "SOUTH",
+        "name": "Morrow South Service",
+        "email": "south.09@morrow.example",
+        "phone": "+12025550118",
+        "address": {
+          "street": "18 Example Workshop Lane",
+          "postcode": "1018",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      }
+    ],
+    "customer_classifications_against_initial_seed": {
+      "CREATE": [
+        "MA-N-0003",
+        "MA-N-0004",
+        "MA-N-0005",
+        "MA-N-0006",
+        "MA-N-0007",
+        "MA-N-0008",
+        "MA-N-0009",
+        "MA-S-0003",
+        "MA-S-0004",
+        "MA-S-0005",
+        "MA-S-0006",
+        "MA-S-0007",
+        "MA-S-0008",
+        "MA-S-0009"
+      ],
+      "UPDATE": [
+        "MA-N-0001",
+        "MA-S-0002"
+      ],
+      "UNCHANGED": [
+        "MA-N-0002",
+        "MA-S-0001"
+      ],
+      "BLOCKED": [],
+      "AMBIGUOUS": []
+    },
+    "company_execution_projections": {
+      "NORTH": {
+        "customer_row_filter": {
+          "CompanyCode": "NORTH"
+        },
+        "customer_source_count": 9,
+        "customer_create": 7,
+        "customer_update": 1,
+        "customer_unchanged": 1,
+        "term_headers": 2,
+        "term_header_create": 1,
+        "term_header_unchanged": 1,
+        "term_lines": 2,
+        "term_line_unchanged": 1,
+        "term_line_create": 0,
+        "term_line_update": 1
+      },
+      "SOUTH": {
+        "customer_row_filter": {
+          "CompanyCode": "SOUTH"
+        },
+        "customer_source_count": 9,
+        "customer_create": 7,
+        "customer_update": 1,
+        "customer_unchanged": 1,
+        "term_headers": 2,
+        "term_header_create": 1,
+        "term_header_unchanged": 1,
+        "term_lines": 2,
+        "term_line_unchanged": 1,
+        "term_line_create": 0,
+        "term_line_update": 1
+      }
+    },
+    "payment_terms": [
+      {
+        "key": [
+          "NORTH",
+          "NET30"
+        ],
+        "name": "Morrow Net 30",
+        "schedule": {
+          "line_count": 1,
+          "value": "percent",
+          "value_amount": "100",
+          "nb_days": 30,
+          "delay_type": "days_after"
+        }
+      },
+      {
+        "key": [
+          "NORTH",
+          "NET45"
+        ],
+        "name": "Morrow Net 45",
+        "schedule": {
+          "line_count": 1,
+          "value": "percent",
+          "value_amount": "100",
+          "nb_days": 45,
+          "delay_type": "days_after"
+        }
+      },
+      {
+        "key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "name": "Morrow Net 30",
+        "schedule": {
+          "line_count": 1,
+          "value": "percent",
+          "value_amount": "100",
+          "nb_days": 30,
+          "delay_type": "days_after"
+        }
+      },
+      {
+        "key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "name": "Morrow Net 45",
+        "schedule": {
+          "line_count": 1,
+          "value": "percent",
+          "value_amount": "100",
+          "nb_days": 45,
+          "delay_type": "days_after"
+        }
+      }
+    ],
+    "controls": {
+      "physical_source_rows": 62,
+      "logical_customers": 18,
+      "customers_per_operation_company": 9,
+      "term_headers": 4,
+      "schedule_intent_rows": 4
+    }
+  },
+  "fresh_customer_delivery": {
+    "customers": [
+      {
+        "customer_ref": "MA-N-0001",
+        "company_code": "NORTH",
+        "name": "Morrow North Assembly",
+        "email": "north.01@morrow.example",
+        "phone": "+12025550199",
+        "address": {
+          "street": "1 Example Workshop Lane",
+          "postcode": "1001",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0002",
+        "company_code": "NORTH",
+        "name": "Morrow North Design",
+        "email": "north.02@morrow.example",
+        "phone": "+12025550102",
+        "address": {
+          "street": "2 Example Workshop Lane",
+          "postcode": "1002",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0003",
+        "company_code": "NORTH",
+        "name": "Morrow Café Supply",
+        "email": "north.03@morrow.example",
+        "phone": "+12025550103",
+        "address": {
+          "street": "3 Example Workshop Lane",
+          "postcode": "1003",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0004",
+        "company_code": "NORTH",
+        "name": "Morrow North Metals",
+        "email": "north.04@morrow.example",
+        "phone": "+12025550104",
+        "address": {
+          "street": "4 Example Workshop Lane",
+          "postcode": "1004",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0005",
+        "company_code": "NORTH",
+        "name": "Morrow North Packaging",
+        "email": "",
+        "phone": "+12025550105",
+        "address": {
+          "street": "5 Example Workshop Lane",
+          "postcode": "1005",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0006",
+        "company_code": "NORTH",
+        "name": "Morrow North Studio",
+        "email": "north.06@morrow.example",
+        "phone": "+12025550106",
+        "address": {
+          "street": "6 Example Workshop Lane",
+          "postcode": "1006",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0007",
+        "company_code": "NORTH",
+        "name": "Morrow North Modules",
+        "email": "north.07@morrow.example",
+        "phone": "+12025550107",
+        "address": {
+          "street": "7 Example Workshop Lane",
+          "postcode": "1007",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0008",
+        "company_code": "NORTH",
+        "name": "Morrow North Workshop",
+        "email": "north.08@morrow.example",
+        "phone": "+12025550108",
+        "address": {
+          "street": "8 Example Workshop Lane",
+          "postcode": "1008",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-N-0009",
+        "company_code": "NORTH",
+        "name": "Morrow North Service",
+        "email": "north.09@morrow.example",
+        "phone": "+12025550109",
+        "address": {
+          "street": "9 Example Workshop Lane",
+          "postcode": "1009",
+          "city": "Fictional North",
+          "country_code": "BE"
+        },
+        "payment_term_key": [
+          "NORTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0001",
+        "company_code": "SOUTH",
+        "name": "Morrow South Assembly",
+        "email": "south.01@morrow.example",
+        "phone": "+12025550110",
+        "address": {
+          "street": "10 Example Workshop Lane",
+          "postcode": "1010",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0002",
+        "company_code": "SOUTH",
+        "name": "Morrow South Design",
+        "email": "south.02@morrow.example",
+        "phone": "+12025550111",
+        "address": {
+          "street": "11 Example Workshop Lane",
+          "postcode": "1011",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0003",
+        "company_code": "SOUTH",
+        "name": "Morrow South Supply",
+        "email": "south.03@morrow.example",
+        "phone": "+12025550112",
+        "address": {
+          "street": "12 Example Workshop Lane",
+          "postcode": "1012",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0004",
+        "company_code": "SOUTH",
+        "name": "Morrow South Metals",
+        "email": "south.04@morrow.example",
+        "phone": "+12025550113",
+        "address": {
+          "street": "13 Example Workshop Lane",
+          "postcode": "1013",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0005",
+        "company_code": "SOUTH",
+        "name": "Morrow South Packaging",
+        "email": "south.05@morrow.example",
+        "phone": "+12025550114",
+        "address": {
+          "street": "14 Example Workshop Lane",
+          "postcode": "1014",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0006",
+        "company_code": "SOUTH",
+        "name": "Morrow South Studio",
+        "email": "south.06@morrow.example",
+        "phone": "+12025550115",
+        "address": {
+          "street": "15 Example Workshop Lane",
+          "postcode": "1015",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0007",
+        "company_code": "SOUTH",
+        "name": "Morrow South Modules",
+        "email": "south.07@morrow.example",
+        "phone": "+12025550116",
+        "address": {
+          "street": "16 Example Workshop Lane",
+          "postcode": "1016",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET45"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0008",
+        "company_code": "SOUTH",
+        "name": "Morrow South Workshop",
+        "email": "south.08@morrow.example",
+        "phone": "+12025550117",
+        "address": {
+          "street": "17 Example Workshop Lane",
+          "postcode": "1017",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      },
+      {
+        "customer_ref": "MA-S-0009",
+        "company_code": "SOUTH",
+        "name": "Morrow South Service",
+        "email": "south.09@morrow.example",
+        "phone": "+12025550118",
+        "address": {
+          "street": "18 Example Workshop Lane",
+          "postcode": "1018",
+          "city": "Fictional South",
+          "country_code": "FR"
+        },
+        "payment_term_key": [
+          "SOUTH",
+          "NET30"
+        ],
+        "target_record_company_assignment": null
+      }
+    ],
+    "controls": {
+      "physical_source_rows": 62,
+      "logical_customers": 18,
+      "full_replacement_of_customer_input_shape": true,
+      "delete_requests": 0
+    },
+    "mapped_changes_after_baseline": [
+      {
+        "customer_ref": "MA-N-0001",
+        "field": "phone",
+        "value": "+12025550199"
+      },
+      {
+        "customer_ref": "MA-S-0002",
+        "field": "payment_term_key",
+        "value": [
+          "SOUTH",
+          "NET45"
+        ]
+      }
+    ],
+    "unmapped_source_change": {
+      "customer_ref": "MA-N-0003",
+      "column": "LanguageLabel",
+      "value": "Italian",
+      "coverage": "Language matching is outside the current runner."
+    }
+  },
+  "incoming_immediate_variant": {
+    "source_changes": {
+      "customer_term_code": "NET45→DUE0 on the selected company",
+      "term_name": "Morrow Immediate"
+    },
+    "selection": {
+      "NORTH": [
+        "MA-N-0001",
+        "MA-N-0003"
+      ],
+      "SOUTH": [
+        "MA-S-0001",
+        "MA-S-0003"
+      ]
+    },
+    "business_meaning": "The single Odoo-generated100% zero-day schedule is intended, so the new header can be created in the same load as the contact owners.",
+    "classification_counts": {
+      "CREATE": 2,
+      "UPDATE": 1,
+      "UNCHANGED": 1,
+      "BLOCKED": 0,
+      "AMBIGUOUS": 0
+    },
+    "schedule": {
+      "line_count": 1,
+      "value": "percent",
+      "value_amount": "100",
+      "nb_days": 0,
+      "delay_type": "days_after"
+    }
+  },
+  "qualification_scope": {
+    "source_combination": [
+      "Partition+Party→party_details.Partition+RecId",
+      "Partition+Party→addresses.Partition+Party"
+    ],
+    "write_fields": [
+      "name",
+      "email",
+      "phone",
+      "street",
+      "zip",
+      "city",
+      "property_payment_term_id when selected by the phase"
+    ],
+    "not_qualified_by_this_runner": [
+      "VAT cleanup",
+      "language selections",
+      "fiscal positions",
+      "company chains",
+      "products",
+      "categories",
+      "BoMs",
+      "accounts",
+      "single-field patch",
+      "supplier-term repair",
+      "native Excel",
+      "runtime fault injection"
+    ]
+  }
+}

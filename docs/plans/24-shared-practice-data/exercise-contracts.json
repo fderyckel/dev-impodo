@@ -1,15 +1,15 @@
 {
   "schema_version": 1,
-  "status": "draft_business_exercises_not_executable_scenarios",
+  "status": "remaining_proposals_with_canonical_customer_and_manufacturing_owners",
   "baseline_delivery": "2026-04-15",
   "fresh_delivery": "2026-05-15",
   "exercises": [
     {
       "id": "P01-customer-enrichment",
       "source_files": [
-        "deliveries/2026-04-15/customers_core.csv",
-        "deliveries/2026-04-15/party_details.csv",
-        "deliveries/2026-04-15/addresses.csv"
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/customers_core.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/party_details.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/addresses.csv"
       ],
       "goal": "Combine partial views of the same customers without confusing source identity, foreign keys, and field authority.",
       "models": [
@@ -92,79 +92,66 @@
         "MA-S-0007",
         "MA-S-0008",
         "MA-S-0009"
-      ]
+      ],
+      "implementation_status": "current_customer_combination_subset_with_proposed_extra_mapping_checks",
+      "current_runner_scope": {
+        "runner": "../../../scripts/qualify_practice_customers.py",
+        "exercise": "enrichment",
+        "fields": [
+          "name",
+          "email",
+          "phone",
+          "street",
+          "zip",
+          "city"
+        ],
+        "out_of_scope_proposals": [
+          "VAT cleanup",
+          "Country relationship",
+          "Language matching",
+          "Company chain relationship"
+        ]
+      }
     },
     {
       "id": "P02-category-supplied-hierarchy",
       "source_files": [
-        "deliveries/2026-04-15/categories.csv"
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/categories.csv"
       ],
-      "models": [
-        "product.category"
-      ],
-      "source_identity": [
-        "CategoryKey"
-      ],
-      "source_parent": [
-        "ParentCategoryKey",
-        "CategoryKey"
-      ],
-      "target_business_key": "Name within complete resolved parent path",
-      "expected_counts": {
-        "source_rows": 12,
-        "roots": 3,
-        "create": 10,
-        "unchanged": 2,
-        "update": 0,
-        "blocked": 0,
-        "ambiguous": 0
+      "implementation_status": "canonical_manufacturing_category_owner",
+      "current_owner": {
+        "owner": "scenarios/impodo-practice/manufacturing/v1",
+        "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+        "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+        "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+        "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+        "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+        "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
       },
-      "decisions": [
-        "Blank ParentCategoryKey means a root. 0 is a populated unresolved key.",
-        "Assembly beneath Components/Metals, Components/Polymers, and Services identifies three distinct categories.",
-        "A source CategoryKey establishes relationships; it is not an Odoo database ID."
-      ]
+      "canonical_exercise_ids": [
+        "CATEGORIES"
+      ],
+      "remaining_proposals": "Missing parents, populated root markers and hierarchy cycles remain separately specified unqualified fault cases. Current business answers and seed ownership are not copied here."
     },
     {
       "id": "P03-product-enrichment",
       "source_files": [
-        "deliveries/2026-04-15/products_core.csv",
-        "deliveries/2026-04-15/product_details.csv"
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/products_core.csv",
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/product_details.csv"
       ],
-      "models": [
-        "product.template",
-        "product.product (Odoo-generated supporting records)"
-      ],
-      "joins": [
-        {
-          "primary": [
-            "CompanyCode",
-            "ProductRef"
-          ],
-          "added": [
-            "CompanyCode",
-            "ProductRef"
-          ],
-          "cardinality": "exactly_one"
-        }
-      ],
-      "expected_counts": {
-        "source_rows": 64,
-        "combined_product_rows": 32,
-        "create": 24,
-        "update": 1,
-        "unchanged": 7,
-        "blocked": 0,
-        "ambiguous": 0
+      "implementation_status": "canonical_manufacturing_product_owner_with_separate_date_proposal",
+      "current_owner": {
+        "owner": "scenarios/impodo-practice/manufacturing/v1",
+        "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+        "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+        "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+        "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+        "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+        "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
       },
-      "decisions": [
-        "products_core.Name is authoritative; product_details.Name is a separate export label.",
-        "French decimal 1,25 means 1.25; explicit 0,00 remains zero.",
-        "Match Article and Service against captured choices for each verified Odoo major.",
-        "Explicitly match PCE to existing Units; do not create another unit.",
-        "Map category using complete intended hierarchy.",
-        "Odoo-generated product variants must be available before BoM component comparison.",
-        "Do not map CompanyCode to product.company_id unless that separate ownership decision is approved. ProductRef is globally prefixed in this exercise."
+      "canonical_exercise_ids": [
+        "PRODUCTS_NORTH",
+        "PRODUCTS_SOUTH"
       ],
       "date_preview": {
         "source": "product_details.ModifiedAtUS",
@@ -172,72 +159,96 @@
         "expected_date": "2026-04-15",
         "load_field_status": "requires a suitable captured date field; no native Excel cell is included"
       },
-      "prerequisite": "Complete target-seed stages S1 and S2: all12 category paths must exist before seeding the8 existing products. Do not apply these comparison totals to the initial2-category seed."
+      "date_proposal_status": "The canonical runner maps no date or weight target field. A captured writable target field and a separate executable rule are required to qualify this optional mapping."
     },
     {
       "id": "P04-payment-terms-and-incoming-updates",
       "source_files": [
-        "deliveries/2026-04-15/payment_terms.csv",
-        "deliveries/2026-04-15/payment_term_lines.csv",
-        "deliveries/2026-04-15/customers_core.csv",
-        "deliveries/2026-04-15/party_details.csv",
-        "deliveries/2026-04-15/addresses.csv"
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/payment_terms.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/payment_term_lines.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/customers_core.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/party_details.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/addresses.csv"
       ],
       "models": [
         "account.payment.term",
         "account.payment.term.line",
         "res.partner"
       ],
-      "adapter_status": "Term header fields, company scopes, and due-date child fields must be confirmed for Odoo 19 and 20 before executing.",
+      "adapter_status": "Current customer runner uses captured stock Odoo 19 and Odoo 20 fields. Broader relationship modes and runtime fault cases remain separate proposals.",
       "expected_counts": {
-        "term_headers": 4,
-        "term_header_create": 2,
-        "term_header_unchanged": 2,
-        "term_lines_in_source": 4,
-        "customer_create": 14,
-        "customer_update": 2,
-        "customer_unchanged": 2,
-        "customer_blocked": 0,
-        "customer_ambiguous": 0
-      },
-      "dependency_cases": [
-        {
-          "customer_ref": "MA-N-0001",
-          "customer_action": "UPDATE",
-          "prior_term": [
-            "NORTH",
-            "NET30"
-          ],
-          "expected_term": [
-            "NORTH",
-            "NET45"
-          ],
-          "term_action": "CREATE",
-          "requirement": "Load the new term before applying the existing customer update."
+        "inventory_only": {
+          "term_headers": 4,
+          "schedule_intent_rows": 4,
+          "customers": 18
         },
-        {
-          "customer_ref": "MA-N-0003",
-          "customer_action": "CREATE",
-          "expected_term": [
-            "NORTH",
-            "NET45"
-          ],
-          "term_action": "CREATE",
-          "requirement": "Resolve the same new term for a new customer without duplicating it."
+        "per_company_headers": {
+          "CREATE": 1,
+          "UPDATE": 0,
+          "UNCHANGED": 1,
+          "BLOCKED": 0,
+          "AMBIGUOUS": 0
+        },
+        "per_company_generated_schedule_update": {
+          "CREATE": 0,
+          "UPDATE": 1,
+          "UNCHANGED": 1,
+          "BLOCKED": 0,
+          "AMBIGUOUS": 0
+        },
+        "per_company_customers": {
+          "CREATE": 7,
+          "UPDATE": 1,
+          "UNCHANGED": 1,
+          "BLOCKED": 0,
+          "AMBIGUOUS": 0
         }
-      ],
+      },
       "decisions": [
         "Keep each fiscal-position or payment-term name and company as separate matching components.",
         "Use a company-scoped target relationship lookup when supported by captured fields.",
         "The selected operation company does not silently assign a record company or replace the related record scope.",
         "Assigning accounting terms is not evidence of correct tax configuration."
-      ]
+      ],
+      "implementation_status": "current_customer_staged_terms_and_immediate_dependency_subset",
+      "current_runner_scope": {
+        "runner": "../../../scripts/qualify_practice_customers.py",
+        "baseline_order": [
+          "headers",
+          "schedule",
+          "customers"
+        ],
+        "schedule_contract": "Stock Odoo creates one 100% zero-day line for each new term. Refresh and update that generated line to 45 days before assigning baseline NET45 to customers; do not append a second 100% line.",
+        "same_load_variant": {
+          "id": "incoming-immediate-v1",
+          "source_term_code": "DUE0",
+          "term_name": "Morrow Immediate",
+          "intended_schedule": {
+            "value": "percent",
+            "value_amount": "100",
+            "nb_days": 0,
+            "delay_type": "days_after"
+          },
+          "NORTH_selected_refs": [
+            "MA-N-0001",
+            "MA-N-0003"
+          ],
+          "counts": {
+            "CREATE": 2,
+            "UPDATE": 1,
+            "UNCHANGED": 1,
+            "BLOCKED": 0,
+            "AMBIGUOUS": 0
+          },
+          "purpose": "Prove new term CREATE plus existing owner UPDATE and new owner CREATE in the same normal load without pre-seeding the new term."
+        }
+      }
     },
     {
       "id": "P05-bom-split-and-linked-operations",
       "source_files": [
-        "deliveries/2026-04-15/bom_rows.csv",
-        "deliveries/2026-04-15/bom_operations.csv"
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/bom_rows.csv",
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/bom_operations.csv"
       ],
       "models": [
         "mrp.bom",
@@ -270,19 +281,30 @@
         "Keep operations separate; joining them to lines would multiply rows.",
         "Load product templates and confirm generated variants before component relationships.",
         "MA-BOM-001 uses MA-P-0005, which has its own MA-BOM-005; preserve the subassembly.",
-        "MA-BOM-003 sequences30 and40 deliberately use the same component. Keep both.",
-        "QuantitySeries is a reviewed divisor; a zero divisor requires a deliberate business decision. Never silently replace it with1.",
-        "Write parent-owned lists through the child inverse Many2one fields."
-      ]
+        "MA-BOM-003 sequences 30 and 40 deliberately use the same component. Keep both.",
+        "Write parent-owned lists through the child inverse Many2one fields.",
+        "The canonical baseline parses Quantity directly with QuantitySeries fixed at 1. A proposed divisor rule, including its zero behavior, requires a separate declared business decision and executable test."
+      ],
+      "implementation_status": "proposed_related_split_and_recipe_provider_not_qualified",
+      "current_supplied_header_owner": {
+        "owner": "scenarios/impodo-practice/manufacturing/v1",
+        "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+        "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+        "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+        "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+        "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+        "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+      },
+      "coverage_boundary": "The canonical BoM exercises use physical bom_headers.csv, bom_rows.csv and bom_operations.csv. They do not derive headers through related split. The split parent currently omits non-key header attributes, its output-mapping rules must be satisfied, and child categorical provider persistence through Recipe needs its own implementation and verification."
     },
     {
       "id": "P06-fresh-recipe-delivery",
       "source_files": [
-        "deliveries/2026-05-15/customers_core.csv",
-        "deliveries/2026-05-15/party_details.csv",
-        "deliveries/2026-05-15/addresses.csv",
-        "deliveries/2026-05-15/payment_terms.csv",
-        "deliveries/2026-05-15/payment_term_lines.csv"
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-05-15/customers_core.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-05-15/party_details.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-05-15/addresses.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-05-15/payment_terms.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-05-15/payment_term_lines.csv"
       ],
       "models": [
         "res.partner",
@@ -290,41 +312,52 @@
         "account.payment.term.line"
       ],
       "prerequisite": "Start from a target that has successfully completed the baseline customer and payment-term exercises; apply the saved Recipe to the fresh delivery in a fresh run.",
-      "expected_before_review": {
-        "new_unmatched_language": "Italian",
-        "affected_customer": "MA-N-0003",
-        "required_result": "Ask for a current explicit choice; do not guess or mutate the immutable Recipe."
-      },
-      "expected_after_review": {
-        "customer_update": 3,
-        "customer_unchanged": 15,
-        "customer_create": 0
-      },
-      "changed_business_fields": [
-        {
-          "customer_ref": "MA-N-0001",
-          "field": "phone",
-          "expected": "+12025550199"
-        },
-        {
-          "customer_ref": "MA-N-0003",
-          "field": "language_label",
-          "expected": "Italian"
-        },
-        {
-          "customer_ref": "MA-S-0002",
-          "field": "payment_term_key",
-          "expected": [
-            "SOUTH",
-            "NET45"
-          ]
-        }
-      ],
       "invariants": [
         "Fresh accepted source evidence and preparation are required even when row counts stay equal.",
         "Current language refresh and matches belong to this run.",
         "No numeric target IDs, previous prepared rows, old approvals, or authoring target credentials may be copied from the Recipe."
-      ]
+      ],
+      "implementation_status": "current_recipe_reuse_subset_with_proposed_language_mapping_extension",
+      "proposed_language_mapping_extension": {
+        "status": "not_mapped_by_current_runner",
+        "expected_before_review": {
+          "new_unmatched_language": "Italian",
+          "affected_customer": "MA-N-0003",
+          "required_result": "Ask for a current explicit choice; do not guess or mutate the immutable Recipe."
+        },
+        "expected_after_review": {
+          "customer_update": 3,
+          "customer_unchanged": 15,
+          "customer_create": 0
+        },
+        "changed_business_fields": [
+          {
+            "customer_ref": "MA-N-0001",
+            "field": "phone",
+            "expected": "+12025550199"
+          },
+          {
+            "customer_ref": "MA-N-0003",
+            "field": "language_label",
+            "expected": "Italian"
+          },
+          {
+            "customer_ref": "MA-S-0002",
+            "field": "payment_term_key",
+            "expected": [
+              "SOUTH",
+              "NET45"
+            ]
+          }
+        ]
+      },
+      "current_runner_scope": {
+        "runner": "../../../scripts/qualify_practice_customers.py",
+        "entrypoint": "recipe",
+        "phase_first_write": "Publish the reviewed baseline without loading, apply it to the fresh delivery, then write. Against initial seed the NORTH customer phase remains 7 creates/1 update/1 unchanged.",
+        "replay_after_loaded_baseline": "The mapped NORTH phone change gives 1 update/8 unchanged. LanguageLabel is not mapped and does not establish a choice-review blocker.",
+        "source_order": "The current two deliveries preserve business-key row ordering; no shuffled-order coverage is claimed."
+      }
     },
     {
       "id": "P07-existing-customer-single-field-patch",
@@ -353,7 +386,8 @@
       "decisions": [
         "Map only phone as a write field. Names, emails, companies, and terms retain their current target values.",
         "A missing customer ref or ambiguous match must prevent an accidental create."
-      ]
+      ],
+      "implementation_status": "proposed_extension_not_qualified_by_current_customer_runner"
     },
     {
       "id": "P08-accounts-and-company-roles",
@@ -363,7 +397,7 @@
       "models": [
         "account.account"
       ],
-      "adapter_status": "Proposed optional exercise. Verify actual code/company and parent relationship fields and account-type selections against captured Odoo19/20 metadata; do not assume identical field names.",
+      "adapter_status": "Proposed optional exercise. Verify actual code/company and parent relationship fields and account-type selections against captured Odoo 19 and Odoo 20 metadata; do not assume identical field names.",
       "expected_counts": {
         "source_rows": 8,
         "business_codes": 4,
@@ -373,15 +407,16 @@
         "001001 in NORTH and 001001 in SOUTH identify distinct scoped records.",
         "Preserve leading zeroes.",
         "Choose operation company, record company assignment, and parent lookup scope separately.",
-        "ParentCode001000 is a business intent. A missing standard parent field blocks that part of the exercise rather than authorizing an invented field.",
+        "ParentCode 001000 is a business intent. A missing standard parent field blocks that part of the exercise rather than authorizing an invented field.",
         "Use a direct exact-key parent lookup and detect ambiguity even when a broad browsing list is incomplete."
-      ]
+      ],
+      "implementation_status": "proposed_extension_not_qualified_by_current_customer_runner"
     },
     {
       "id": "P09-derived-category-and-chain-alternative",
       "source_files": [
-        "deliveries/2026-04-15/products_core.csv",
-        "deliveries/2026-04-15/customers_core.csv"
+        "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/products_core.csv",
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/customers_core.csv"
       ],
       "models": [
         "product.category",
@@ -398,12 +433,22 @@
         "Use the complete generated path, preserving same-name Assembly leaves.",
         "An optional blank chain creates no empty related record.",
         "A chain relationship requires an appropriate captured model/field. The values alone do not imply a standard Odoo chain field."
-      ]
+      ],
+      "implementation_status": "proposed_generated_hierarchy_and_optional_chain_not_qualified",
+      "expected_category_paths_owner": {
+        "owner": "scenarios/impodo-practice/manufacturing/v1",
+        "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+        "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+        "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+        "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+        "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+        "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+      }
     },
     {
       "id": "P10-vendor-payment-term-repair",
       "source_files": [
-        "deliveries/2026-04-15/customers_core.csv"
+        "../../../scenarios/impodo-practice/v1/deliveries/2026-04-15/customers_core.csv"
       ],
       "target_overlay": "target-overlays/vendor-term-repair.json",
       "models": [
@@ -447,7 +492,8 @@
         "Review an explicit customer-field clear for that same ref; blank handling must express clearing rather than retaining the wrong value.",
         "Confirm final differences name only the two intended payment-term fields.",
         "Verify the legitimate MA-N-0002 customer term before and after loading."
-      ]
+      ],
+      "implementation_status": "proposed_extension_not_qualified_by_current_customer_runner"
     }
   ],
   "execution_scope": {
@@ -460,10 +506,10 @@
     "supporting_inputs": "When a company-filtered exercise retains both-company enrichment inputs, keep every-added-row-must-be-represented off. Exactly one matching row per included primary record is still required.",
     "customer_mapping_filter": "Combined customer CompanyCode equals the selected company. Retain AccountNum, CustomerRef, Party and company scope as distinct concepts.",
     "manufacturing_mapping_filter": "Product, BoM header, component and operation CompanyCode equals the selected company. Shared categories and UoM are independent shared-reference stages.",
-    "cross_company_products": "Products have globally prefixed refs and no target company assignment in the declared intent. The source CompanyCode filter divides exercises; all required components across both partitions must be present before BoM comparison. Either complete both product runs first or seed the explicitly needed shared components.",
+    "cross_company_products": "The canonical manufacturing owner declares shared products. Complete both company product phases and verify variants before either company BoM phase.",
     "recipe_scope": "Each company receives a separate run with its company fixed after activation. Reuse portable keys against fresh captured evidence.",
-    "patch_scope": "NORTH only; all6 patch refs belong to NORTH.",
-    "counts": "Use expected-business-results.json company_execution_projections for executable exercise totals. Aggregate expected_counts are business inventory controls across two separate company runs.",
+    "patch_scope": "NORTH only; all 6 patch refs belong to NORTH.",
+    "counts": "Current customer and manufacturing verdicts belong to their canonical owners and dated receipts. The two local CSVs and remaining variants are proposal inputs, not a mixed-company load.",
     "customer_target_company_assignment": "No target company ownership assignment is implied. CompanyCode chooses source rows and scoped accounting references. A reviewed record-company assignment is a separate choice."
   },
   "target_prerequisites": {
@@ -494,8 +540,43 @@
     },
     "modules": "Verify installed modules and edition capabilities from target metadata. base/contacts/product/mrp alone does not establish availability of account models or accounting features.",
     "companies": "Seed NORTH and SOUTH, grant the exercise user the intended company access, then choose one operation company per run.",
-    "selection_values": "Match human labels to each target major's captured choices; do not reuse an Odoo19 alias as a version-neutral default.",
+    "selection_values": "Match human labels to each target major's captured choices; do not reuse an Odoo 19 alias as a version-neutral default.",
     "accounting_limits": "No tax correctness, fiscal-position tax mapping, localization completeness, or account hierarchy capability is asserted by these dummy names.",
     "unsupported_capability": "Mark the affected track Needs setup or not qualified if the verified target lacks fields/modules. Do not create invented Odoo fields to force a pass."
+  },
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "local_source_counts": {
+    "csv_files": 2,
+    "physical_rows": 14,
+    "baseline_rows": 8,
+    "patch_rows": 6
+  },
+  "canonical_customer_source_counts": {
+    "csv_files": 10,
+    "physical_rows": 124,
+    "baseline_rows": 62,
+    "fresh_rows": 62
+  },
+  "current_manufacturing_pack": {
+    "owner": "scenarios/impodo-practice/manufacturing/v1",
+    "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+    "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+    "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+    "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "canonical_manufacturing_source_counts": {
+    "csv_files": 12,
+    "physical_rows": 236,
+    "baseline_rows": 118,
+    "fresh_rows": 118
   }
 }

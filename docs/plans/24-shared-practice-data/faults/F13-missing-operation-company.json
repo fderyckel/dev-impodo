@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "proposed_controlled_exercise_overlay",
+  "status": "proposed_fault_not_covered_by_canonical_success_runs",
   "apply_to_fresh_copy_only": true,
   "id": "F13-missing-operation-company",
   "base_file": null,
@@ -8,13 +8,22 @@
   "runtime_setup": {
     "operation_company": "unset",
     "journey": [
-      "Stage2→Stage3 first entry",
-      "Stage2→Stage3 return with remembered scroll",
+      "Stage 2 → Stage 3 first entry",
+      "Stage 2 → Stage 3 return with remembered scroll",
       "direct company fragment link"
     ]
   },
   "expected": {
     "stage": "Match data",
     "result": "Bring the required company choice into view before load eligibility; retain field inputs."
-  }
+  },
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "path_resolution": "proposal_pack_root"
 }

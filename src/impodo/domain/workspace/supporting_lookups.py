@@ -20,7 +20,9 @@ from impodo.domain.workspace.reference_keys import (
 )
 
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
+# The v4 lookup key stays stable when a v5 snapshot replaces an older revision.
 SUPPORTING_LOOKUP_CONTRACT_VERSION = 4
+_SCOPED_SUGGESTIONS_CONTRACT_VERSION = 5
 
 
 def portable_supporting_value(values: tuple[object, ...]) -> str:
@@ -101,6 +103,8 @@ class SupportingLookupSnapshot:
     content_hash: str
     reference_policy_hash: str = REFERENCE_POLICY_HASH
     contract_version: int = SUPPORTING_LOOKUP_CONTRACT_VERSION
+    # None means this capture did not check for unique names across all scopes.
+    scoped_suggestions: tuple[tuple[str, str], ...] | None = None
 
     @classmethod
     def capture(
@@ -122,6 +126,7 @@ class SupportingLookupSnapshot:
         choices: tuple[SupportingLookupChoice, ...],
         ambiguous_values: tuple[str, ...],
         reference_policy_hash: str = REFERENCE_POLICY_HASH,
+        scoped_suggestions: tuple[tuple[str, str], ...] | None = None,
     ) -> SupportingLookupSnapshot:
         """Build and hash one normalized snapshot."""
 
@@ -162,8 +167,12 @@ class SupportingLookupSnapshot:
             _validate_technical_name(contract.name, "related field")
             if contract.relation_model is not None:
                 _validate_technical_name(contract.relation_model, "related model")
+        contract_version = (
+            _SCOPED_SUGGESTIONS_CONTRACT_VERSION if scoped_suggestions is not None
+            else SUPPORTING_LOOKUP_CONTRACT_VERSION
+        )
         semantic = {
-            "contract": "supporting-lookup-snapshot-v4",
+            "contract": f"supporting-lookup-snapshot-v{contract_version}",
             "workspace_id": normalized_workspace_id,
             "lookup_key": lookup_key,
             "relation_model": relation_model,
@@ -192,6 +201,8 @@ class SupportingLookupSnapshot:
             ],
             "ambiguous_values": normalized_ambiguous,
         }
+        if scoped_suggestions is not None:
+            semantic["scoped_suggestions"] = scoped_suggestions
         return cls(
             snapshot_id=str(uuid4()),
             workspace_id=normalized_workspace_id,
@@ -212,7 +223,8 @@ class SupportingLookupSnapshot:
             ambiguous_values=normalized_ambiguous,
             content_hash=content_hash(semantic),
             reference_policy_hash=reference_policy_hash,
-            contract_version=SUPPORTING_LOOKUP_CONTRACT_VERSION,
+            contract_version=contract_version,
+            scoped_suggestions=scoped_suggestions,
         )
 
     def to_json(self) -> str:
@@ -252,6 +264,10 @@ class SupportingLookupSnapshot:
                 ],
                 "ambiguous_values": self.ambiguous_values,
                 "content_hash": self.content_hash,
+                **(
+                    {"scoped_suggestions": self.scoped_suggestions}
+                    if self.scoped_suggestions is not None else {}
+                ),
             }
         )
 
@@ -269,11 +285,15 @@ class SupportingLookupSnapshot:
             "captured_at", "captured_by", "choices", "ambiguous_values",
             "content_hash",
         }
-        if not isinstance(payload, dict) or set(payload) != expected_fields:
+        if not isinstance(payload, dict) or "contract_version" not in payload:
             raise ValueError("Supporting lookup evidence shape is unsupported")
         contract_version = int(payload["contract_version"])
-        if contract_version != SUPPORTING_LOOKUP_CONTRACT_VERSION:
+        if contract_version == _SCOPED_SUGGESTIONS_CONTRACT_VERSION:
+            expected_fields.add("scoped_suggestions")
+        elif contract_version != SUPPORTING_LOOKUP_CONTRACT_VERSION:
             raise ValueError("Supporting lookup contract version is unsupported")
+        if set(payload) != expected_fields:
+            raise ValueError("Supporting lookup evidence shape is unsupported")
         reference_policy_hash = str(payload["reference_policy_hash"])
         restored = cls(
             snapshot_id=str(payload["snapshot_id"]),
@@ -319,6 +339,10 @@ class SupportingLookupSnapshot:
             content_hash=str(payload["content_hash"]),
             reference_policy_hash=reference_policy_hash,
             contract_version=contract_version,
+            scoped_suggestions=(
+                tuple((str(name), str(value)) for name, value in payload["scoped_suggestions"])
+                if "scoped_suggestions" in payload else None
+            ),
         )
         expected_lookup_key = supporting_lookup_key(
             relation_model=restored.relation_model,
@@ -326,7 +350,6 @@ class SupportingLookupSnapshot:
             scope_fields=restored.scope_fields,
             display_field=restored.display_field,
             reference_policy_hash=restored.reference_policy_hash,
-            contract_version=restored.contract_version,
         )
         semantic = {
             "contract": f"supporting-lookup-snapshot-v{restored.contract_version}",
@@ -358,6 +381,8 @@ class SupportingLookupSnapshot:
             "ambiguous_values": restored.ambiguous_values,
         }
         semantic["reference_policy_hash"] = restored.reference_policy_hash
+        if restored.scoped_suggestions is not None:
+            semantic["scoped_suggestions"] = restored.scoped_suggestions
         if restored.lookup_key != expected_lookup_key:
             raise ValueError("Supporting lookup key is invalid")
         if restored.content_hash != content_hash(semantic):

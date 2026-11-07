@@ -1,8 +1,8 @@
 {% if workflow_issue_summary and workflow_issue_summary.issues %}
-  <section class="notice warning" id="migration-issues" aria-labelledby="migration-issues-title">
+  <section class="notice{% if not quality_can_continue %} warning{% endif %}" id="migration-issues" aria-labelledby="migration-issues-title">
     <div class="page-heading compact">
       <div>
-        <p class="eyebrow">Migration issues</p>
+        <p class="eyebrow">{{ 'Records set aside' if quality_can_continue else 'Migration issues' }}</p>
         <h2 id="migration-issues-title">
           {% if workflow_issue_summary.must_fix_count %}
             {{ workflow_issue_summary.must_fix_count }} Must fix{% if workflow_issue_summary.review_count %} &middot; {{ workflow_issue_summary.review_count }} to review{% endif %}
@@ -10,7 +10,9 @@
             {{ workflow_issue_summary.review_count }} to review
           {% endif %}
         </h2>
-        <p>Impodo shows the cause, correction owner, and one safe next action.</p>
+        {% if quality_can_continue %}
+          <p>You can continue comparing {{ quality.ready_count }} included records with Odoo. The records below remain set aside.</p>
+        {% endif %}
       </div>
     </div>
     <div class="overview-stage-list">
@@ -19,6 +21,7 @@
           <div>
             <p class="eyebrow">{{ 'Must fix' if issue.severity.value == 'MUST_FIX' else 'Review' }} &middot; {{ issue.owning_stage }}{% if issue.dependent_on_other_issue %} &middot; Inherited dependency{% endif %}</p>
             <h3>{{ issue.cause }}</h3>
+            {% if issue.explanation %}<p>{{ issue.explanation }}</p>{% endif %}
             {% if issue.affected_record_types %}
               <p><strong>Affects:</strong> {{ issue.affected_record_types|join(', ') }}</p>
             {% endif %}
@@ -47,8 +50,7 @@
               {% endif %}
             {% endif %}
             <p><strong>Owner:</strong> {{ issue.owner }}</p>
-            <p><strong>Your saved work:</strong> {{ issue.preserved_work }}</p>
-            <p><strong>Then:</strong> {{ issue.recheck }}</p>
+            <p><strong>What to do:</strong> {{ issue.recheck }}</p>
             <div class="actions">
               <a class="button primary" href="{{ issue.correction_route }}" {% if 'cause=repeated_source' in issue.correction_route %}data-duplicate-rows-url="{{ issue.correction_route|replace('/identity-choices?', '/duplicate-rows?') }}"{% endif %}>{{ issue.correction_label }}</a>
               {% if issue.secondary_correction_route %}
@@ -62,6 +64,7 @@
               <summary>Support details</summary>
               <p><code>{{ issue.code }}</code> &middot; {{ issue.origin.value }} &middot; {{ issue.state.value }}</p>
               <p><code>{{ issue.evidence_revision }}</code></p>
+              <p>{{ issue.preserved_work }}</p>
             </details>
           </div>
         </article>

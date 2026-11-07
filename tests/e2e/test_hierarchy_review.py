@@ -64,12 +64,12 @@ class HierarchyReviewBrowserTests(unittest.TestCase):
             wait_until="networkidle",
         )
         expect(
-            page.get_by_role("heading", name="Records behind this finding")
+            page.get_by_role("heading", name="Records affected by this issue")
         ).to_be_visible()
         expect(page.get_by_text("Records 1-4 of 4", exact=True)).to_be_visible()
-        expect(page.get_by_text("Direct finding", exact=True)).to_be_visible()
-        expect(page.get_by_text("Affected parent", exact=True)).to_be_visible()
-        expect(page.get_by_text("Affected sibling", exact=True)).to_have_count(2)
+        expect(page.get_by_text("Issue on this row", exact=True)).to_be_visible()
+        expect(page.get_by_text("Related child has an issue", exact=True)).to_be_visible()
+        expect(page.get_by_text("Another row in this group has an issue", exact=True)).to_have_count(2)
         self.assertEqual(errors, [])
         output = os.environ.get("IMPODO_HIERARCHY_REVIEW_SCREENSHOT")
         if output:

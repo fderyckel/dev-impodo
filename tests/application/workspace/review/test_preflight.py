@@ -659,6 +659,7 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 captured_schema=schema,
                 fields_set_aside=None,
                 workbook_omitted_rows=(),
+                workbook_mapping_rules={},
                 normalization=SimpleNamespace(
                     run_id="normalization-run",
                     content_hash=normalization_hash,

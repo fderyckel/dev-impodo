@@ -1,0 +1,1660 @@
+{
+  "schema_version": 1,
+  "kind": "independent_manufacturing_business_oracle",
+  "qualification_status": "independent_business_declaration_see_dated_qualification_receipts",
+  "declared_from": "Manufacturing business answers in docs/plans/24-shared-practice-data, declared before the runnable manufacturing harness.",
+  "identity_policy": {
+    "product.category": {
+      "fields": [
+        "name"
+      ],
+      "scope_fields": [
+        "parent_id"
+      ],
+      "parent_identity_recursive": true
+    },
+    "product.template": {
+      "fields": [
+        "default_code"
+      ],
+      "scope_fields": []
+    },
+    "product.product": {
+      "fields": [
+        "default_code"
+      ],
+      "scope_fields": []
+    },
+    "mrp.bom": {
+      "fields": [
+        "code"
+      ],
+      "scope_fields": [],
+      "governed_globally_unique_for_this_corpus": true,
+      "company_assignment_required": true
+    },
+    "mrp.bom.line": {
+      "fields": [
+        "sequence"
+      ],
+      "scope_fields": [
+        "bom_id"
+      ]
+    },
+    "mrp.routing.workcenter": {
+      "fields": [
+        "name"
+      ],
+      "scope_fields": [
+        "bom_id"
+      ],
+      "sequence_is_ordering_not_identity": true
+    }
+  },
+  "repeat_contract": "After successful completion, authoring repeat and Recipe over either business-identical delivery must create 0 and update 0. All mapped rows are unchanged, including 12 categories in each product workspace.",
+  "source_only": {
+    "products_core": [
+      "RecId",
+      "CategoryLevel1",
+      "CategoryLevel2",
+      "CategoryLevel3"
+    ],
+    "product_details": [
+      "Name",
+      "Status",
+      "Weight",
+      "ModifiedAtUS",
+      "ModifiedAtISO",
+      "EmptyExportNote"
+    ],
+    "categories": [
+      "CategoryKey",
+      "Code",
+      "Active"
+    ],
+    "bom_rows": [
+      "HeaderName",
+      "LineRef",
+      "QuantitySeries",
+      "ValidFromText"
+    ],
+    "bom_operations": [
+      "OperationRef"
+    ],
+    "meaning": "Source identity and trace columns can be used by preparation without becoming target writes. Dates and weight have no target field in this baseline. CategoryKey is the source category link; native category identity is recursive name and parent. BoM headers are supplied as a separate six-row export. Repeated header cells in bom_rows remain raw export evidence and are not used to derive or select header records at runtime.",
+    "bom_headers": [
+      "HeaderName"
+    ]
+  },
+  "baseline": {
+    "categories": [
+      {
+        "source_key": "CAT-01",
+        "path": [
+          "Components"
+        ],
+        "parent_source_key": null,
+        "shared": true
+      },
+      {
+        "source_key": "CAT-02",
+        "path": [
+          "Components",
+          "Metals"
+        ],
+        "parent_source_key": "CAT-01",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-03",
+        "path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "parent_source_key": "CAT-02",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-04",
+        "path": [
+          "Components",
+          "Polymers"
+        ],
+        "parent_source_key": "CAT-01",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-05",
+        "path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "parent_source_key": "CAT-04",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-06",
+        "path": [
+          "Components",
+          "Packaging"
+        ],
+        "parent_source_key": "CAT-01",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-07",
+        "path": [
+          "Finished"
+        ],
+        "parent_source_key": null,
+        "shared": true
+      },
+      {
+        "source_key": "CAT-08",
+        "path": [
+          "Finished",
+          "Modules"
+        ],
+        "parent_source_key": "CAT-07",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-09",
+        "path": [
+          "Finished",
+          "Kits"
+        ],
+        "parent_source_key": "CAT-07",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-10",
+        "path": [
+          "Services"
+        ],
+        "parent_source_key": null,
+        "shared": true
+      },
+      {
+        "source_key": "CAT-11",
+        "path": [
+          "Services",
+          "Design"
+        ],
+        "parent_source_key": "CAT-10",
+        "shared": true
+      },
+      {
+        "source_key": "CAT-12",
+        "path": [
+          "Services",
+          "Assembly"
+        ],
+        "parent_source_key": "CAT-10",
+        "shared": true
+      }
+    ],
+    "products": [
+      {
+        "product_ref": "MA-P-0001",
+        "name": "Assembly Kit 01",
+        "price": "125.50",
+        "category_path": [
+          "Finished",
+          "Kits"
+        ],
+        "source_category_key": "CAT-09",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0002",
+        "name": "Assembly Kit 02",
+        "price": "140.00",
+        "category_path": [
+          "Finished",
+          "Kits"
+        ],
+        "source_category_key": "CAT-09",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0003",
+        "name": "Assembly Kit 03",
+        "price": "155.25",
+        "category_path": [
+          "Finished",
+          "Kits"
+        ],
+        "source_category_key": "CAT-09",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0004",
+        "name": "Assembly Kit 04",
+        "price": "160.00",
+        "category_path": [
+          "Finished",
+          "Kits"
+        ],
+        "source_category_key": "CAT-09",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0005",
+        "name": "Control Module 01",
+        "price": "55.00",
+        "category_path": [
+          "Finished",
+          "Modules"
+        ],
+        "source_category_key": "CAT-08",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0006",
+        "name": "Control Module 02",
+        "price": "60.00",
+        "category_path": [
+          "Finished",
+          "Modules"
+        ],
+        "source_category_key": "CAT-08",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0007",
+        "name": "Control Module 03",
+        "price": "65.00",
+        "category_path": [
+          "Finished",
+          "Modules"
+        ],
+        "source_category_key": "CAT-08",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0008",
+        "name": "Control Module 04",
+        "price": "70.00",
+        "category_path": [
+          "Finished",
+          "Modules"
+        ],
+        "source_category_key": "CAT-08",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0009",
+        "name": "Practice Component 01",
+        "price": "1.25",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0010",
+        "name": "Practice Component 02",
+        "price": "2.50",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0011",
+        "name": "Practice Component 03",
+        "price": "3.75",
+        "category_path": [
+          "Components",
+          "Packaging"
+        ],
+        "source_category_key": "CAT-06",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0012",
+        "name": "Practice Component 04",
+        "price": "4.00",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0013",
+        "name": "Practice Component 05",
+        "price": "5.25",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0014",
+        "name": "Practice Component 06",
+        "price": "6.50",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0015",
+        "name": "Practice Component 07",
+        "price": "7.75",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0016",
+        "name": "Practice Component 08",
+        "price": "8.00",
+        "category_path": [
+          "Components",
+          "Packaging"
+        ],
+        "source_category_key": "CAT-06",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0017",
+        "name": "Practice Component 09",
+        "price": "9.25",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0018",
+        "name": "Practice Component 10",
+        "price": "10.50",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0019",
+        "name": "Practice Component 11",
+        "price": "11.75",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0020",
+        "name": "Practice Component 12",
+        "price": "12.00",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0021",
+        "name": "Practice Component 13",
+        "price": "13.25",
+        "category_path": [
+          "Components",
+          "Packaging"
+        ],
+        "source_category_key": "CAT-06",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0022",
+        "name": "Practice Component 14",
+        "price": "14.50",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0023",
+        "name": "Practice Component 15",
+        "price": "15.75",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0024",
+        "name": "Practice Component 16",
+        "price": "16.00",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0025",
+        "name": "Practice Component 17",
+        "price": "17.25",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0026",
+        "name": "Practice Component 18",
+        "price": "18.50",
+        "category_path": [
+          "Components",
+          "Packaging"
+        ],
+        "source_category_key": "CAT-06",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0027",
+        "name": "Practice Component 19",
+        "price": "0.00",
+        "category_path": [
+          "Components",
+          "Metals",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-03",
+        "product_kind": "goods",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0028",
+        "name": "Practice Component 20",
+        "price": "20.00",
+        "category_path": [
+          "Components",
+          "Polymers",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-05",
+        "product_kind": "goods",
+        "active": false,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "consu"
+      },
+      {
+        "product_ref": "MA-P-0029",
+        "name": "Design Review",
+        "price": "95.00",
+        "category_path": [
+          "Services",
+          "Design"
+        ],
+        "source_category_key": "CAT-11",
+        "product_kind": "service",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "service"
+      },
+      {
+        "product_ref": "MA-P-0030",
+        "name": "Assembly Support",
+        "price": "110.00",
+        "category_path": [
+          "Services",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-12",
+        "product_kind": "service",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "service"
+      },
+      {
+        "product_ref": "MA-P-0031",
+        "name": "Design Prototype",
+        "price": "80.00",
+        "category_path": [
+          "Services",
+          "Design"
+        ],
+        "source_category_key": "CAT-11",
+        "product_kind": "service",
+        "active": false,
+        "uom_key": "Units",
+        "tags": [
+          "MORROW",
+          "TRAINING"
+        ],
+        "source_company_code": "NORTH",
+        "target_company_assignment": null,
+        "target_type": "service"
+      },
+      {
+        "product_ref": "MA-P-0032",
+        "name": "Assembly Training",
+        "price": "0.00",
+        "category_path": [
+          "Services",
+          "Assembly"
+        ],
+        "source_category_key": "CAT-12",
+        "product_kind": "service",
+        "active": true,
+        "uom_key": "Units",
+        "tags": [
+          "TRAINING"
+        ],
+        "source_company_code": "SOUTH",
+        "target_company_assignment": null,
+        "target_type": "service"
+      }
+    ],
+    "bom_headers": [
+      {
+        "bom_ref": "MA-BOM-001",
+        "finished_product_ref": "MA-P-0001",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "NORTH",
+        "company_name": "Morrow Assembly North",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 01",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "finished_product_ref": "MA-P-0002",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "SOUTH",
+        "company_name": "Morrow Assembly South",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 02",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "finished_product_ref": "MA-P-0003",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "NORTH",
+        "company_name": "Morrow Assembly North",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 03",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "finished_product_ref": "MA-P-0004",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "SOUTH",
+        "company_name": "Morrow Assembly South",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 04",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "finished_product_ref": "MA-P-0005",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "NORTH",
+        "company_name": "Morrow Assembly North",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 05",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "finished_product_ref": "MA-P-0006",
+        "product_qty": "1000",
+        "active": true,
+        "company_code": "SOUTH",
+        "company_name": "Morrow Assembly South",
+        "bom_type": "normal",
+        "uom_key": "Units",
+        "source_header_name": "Practice assembly 06",
+        "approved_label": "Oui",
+        "active_label": "Oui"
+      }
+    ],
+    "bom_lines": [
+      {
+        "bom_ref": "MA-BOM-001",
+        "sequence": 10,
+        "line_ref": "MA-BOM-001-L010",
+        "component_ref": "MA-P-0005",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-001",
+        "sequence": 20,
+        "line_ref": "MA-BOM-001-L020",
+        "component_ref": "MA-P-0009",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-001",
+        "sequence": 30,
+        "line_ref": "MA-BOM-001-L030",
+        "component_ref": "MA-P-0010",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-001",
+        "sequence": 40,
+        "line_ref": "MA-BOM-001-L040",
+        "component_ref": "MA-P-0011",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "sequence": 10,
+        "line_ref": "MA-BOM-002-L010",
+        "component_ref": "MA-P-0006",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "sequence": 20,
+        "line_ref": "MA-BOM-002-L020",
+        "component_ref": "MA-P-0012",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "sequence": 30,
+        "line_ref": "MA-BOM-002-L030",
+        "component_ref": "MA-P-0013",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "sequence": 40,
+        "line_ref": "MA-BOM-002-L040",
+        "component_ref": "MA-P-0014",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "sequence": 10,
+        "line_ref": "MA-BOM-003-L010",
+        "component_ref": "MA-P-0009",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "sequence": 20,
+        "line_ref": "MA-BOM-003-L020",
+        "component_ref": "MA-P-0010",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "sequence": 30,
+        "line_ref": "MA-BOM-003-L030",
+        "component_ref": "MA-P-0011",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "sequence": 40,
+        "line_ref": "MA-BOM-003-L040",
+        "component_ref": "MA-P-0011",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "sequence": 10,
+        "line_ref": "MA-BOM-004-L010",
+        "component_ref": "MA-P-0013",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "sequence": 20,
+        "line_ref": "MA-BOM-004-L020",
+        "component_ref": "MA-P-0014",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "sequence": 30,
+        "line_ref": "MA-BOM-004-L030",
+        "component_ref": "MA-P-0015",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "sequence": 40,
+        "line_ref": "MA-BOM-004-L040",
+        "component_ref": "MA-P-0016",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "sequence": 10,
+        "line_ref": "MA-BOM-005-L010",
+        "component_ref": "MA-P-0017",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "sequence": 20,
+        "line_ref": "MA-BOM-005-L020",
+        "component_ref": "MA-P-0018",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "sequence": 30,
+        "line_ref": "MA-BOM-005-L030",
+        "component_ref": "MA-P-0019",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "sequence": 40,
+        "line_ref": "MA-BOM-005-L040",
+        "component_ref": "MA-P-0020",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "NORTH"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "sequence": 10,
+        "line_ref": "MA-BOM-006-L010",
+        "component_ref": "MA-P-0021",
+        "quantity": "0.250",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "sequence": 20,
+        "line_ref": "MA-BOM-006-L020",
+        "component_ref": "MA-P-0022",
+        "quantity": "0.500",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "sequence": 30,
+        "line_ref": "MA-BOM-006-L030",
+        "component_ref": "MA-P-0023",
+        "quantity": "1.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "sequence": 40,
+        "line_ref": "MA-BOM-006-L040",
+        "component_ref": "MA-P-0024",
+        "quantity": "2.000",
+        "uom_key": "Units",
+        "company_code": "SOUTH"
+      }
+    ],
+    "operations": [
+      {
+        "bom_ref": "MA-BOM-001",
+        "operation_ref": "MA-BOM-001-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-01",
+        "minutes": "12.50",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-001",
+        "operation_ref": "MA-BOM-001-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-01",
+        "minutes": "3.25",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "operation_ref": "MA-BOM-002-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-02",
+        "minutes": "12.50",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-002",
+        "operation_ref": "MA-BOM-002-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-02",
+        "minutes": "3.25",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "operation_ref": "MA-BOM-003-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-03",
+        "minutes": "12.50",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-003",
+        "operation_ref": "MA-BOM-003-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-03",
+        "minutes": "3.25",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "operation_ref": "MA-BOM-004-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-04",
+        "minutes": "12.50",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-004",
+        "operation_ref": "MA-BOM-004-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-04",
+        "minutes": "3.25",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "operation_ref": "MA-BOM-005-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-01",
+        "minutes": "12.50",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-005",
+        "operation_ref": "MA-BOM-005-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-01",
+        "minutes": "3.25",
+        "company_code": "NORTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "operation_ref": "MA-BOM-006-OP010",
+        "sequence": 10,
+        "name": "Assemble",
+        "work_centre_code": "MA-WC-02",
+        "minutes": "12.50",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      },
+      {
+        "bom_ref": "MA-BOM-006",
+        "operation_ref": "MA-BOM-006-OP020",
+        "sequence": 20,
+        "name": "Inspect",
+        "work_centre_code": "MA-WC-02",
+        "minutes": "3.25",
+        "company_code": "SOUTH",
+        "time_mode": "manual"
+      }
+    ],
+    "controls": {
+      "product_rows": 32,
+      "category_rows": 12,
+      "category_roots": 3,
+      "bom_headers": 6,
+      "bom_lines": 24,
+      "operations": 12,
+      "product_price_sum": "1313.50",
+      "bom_component_quantity_sum": "22.500",
+      "operation_minutes_sum": "94.50"
+    },
+    "company_execution_projections": {
+      "NORTH": {
+        "source_row_filter": {
+          "CompanyCode": "NORTH"
+        },
+        "products": {
+          "create": [
+            "MA-P-0001",
+            "MA-P-0003",
+            "MA-P-0005",
+            "MA-P-0007",
+            "MA-P-0017",
+            "MA-P-0019",
+            "MA-P-0021",
+            "MA-P-0023",
+            "MA-P-0025",
+            "MA-P-0027",
+            "MA-P-0029",
+            "MA-P-0031"
+          ],
+          "update": [],
+          "unchanged": [
+            "MA-P-0009",
+            "MA-P-0011",
+            "MA-P-0013",
+            "MA-P-0015"
+          ]
+        },
+        "product_model_counts": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 4
+        },
+        "product_workspace_counts": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 16
+        },
+        "product_workspace_additional_categories": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "boms": {
+          "create": 3,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_lines": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_operations": {
+          "create": 6,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_workspace_counts": {
+          "create": 21,
+          "update": 0,
+          "unchanged": 0
+        },
+        "controls": {
+          "product_price_sum": "661.00",
+          "bom_component_quantity_sum": "11.250",
+          "operation_minutes_sum": "47.25"
+        },
+        "bom_headers_business_keys": [
+          "MA-BOM-001",
+          "MA-BOM-003",
+          "MA-BOM-005"
+        ],
+        "bom_lines_business_keys": [
+          [
+            "MA-BOM-001",
+            10
+          ],
+          [
+            "MA-BOM-001",
+            20
+          ],
+          [
+            "MA-BOM-001",
+            30
+          ],
+          [
+            "MA-BOM-001",
+            40
+          ],
+          [
+            "MA-BOM-003",
+            10
+          ],
+          [
+            "MA-BOM-003",
+            20
+          ],
+          [
+            "MA-BOM-003",
+            30
+          ],
+          [
+            "MA-BOM-003",
+            40
+          ],
+          [
+            "MA-BOM-005",
+            10
+          ],
+          [
+            "MA-BOM-005",
+            20
+          ],
+          [
+            "MA-BOM-005",
+            30
+          ],
+          [
+            "MA-BOM-005",
+            40
+          ]
+        ],
+        "operations_business_keys": [
+          [
+            "MA-BOM-001",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-001",
+            "Inspect"
+          ],
+          [
+            "MA-BOM-003",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-003",
+            "Inspect"
+          ],
+          [
+            "MA-BOM-005",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-005",
+            "Inspect"
+          ]
+        ],
+        "product_status_model_counts": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 15
+        },
+        "product_status_workspace_counts": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 27
+        },
+        "product_status_updates": {
+          "MA-P-0031": {
+            "active": false
+          }
+        }
+      },
+      "SOUTH": {
+        "source_row_filter": {
+          "CompanyCode": "SOUTH"
+        },
+        "products": {
+          "create": [
+            "MA-P-0002",
+            "MA-P-0004",
+            "MA-P-0006",
+            "MA-P-0008",
+            "MA-P-0018",
+            "MA-P-0020",
+            "MA-P-0022",
+            "MA-P-0024",
+            "MA-P-0026",
+            "MA-P-0028",
+            "MA-P-0030",
+            "MA-P-0032"
+          ],
+          "update": [
+            "MA-P-0010"
+          ],
+          "unchanged": [
+            "MA-P-0012",
+            "MA-P-0014",
+            "MA-P-0016"
+          ]
+        },
+        "product_model_counts": {
+          "create": 12,
+          "update": 1,
+          "unchanged": 3
+        },
+        "product_workspace_counts": {
+          "create": 12,
+          "update": 1,
+          "unchanged": 15
+        },
+        "product_workspace_additional_categories": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "boms": {
+          "create": 3,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_lines": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_operations": {
+          "create": 6,
+          "update": 0,
+          "unchanged": 0
+        },
+        "bom_workspace_counts": {
+          "create": 21,
+          "update": 0,
+          "unchanged": 0
+        },
+        "controls": {
+          "product_price_sum": "652.50",
+          "bom_component_quantity_sum": "11.250",
+          "operation_minutes_sum": "47.25"
+        },
+        "bom_headers_business_keys": [
+          "MA-BOM-002",
+          "MA-BOM-004",
+          "MA-BOM-006"
+        ],
+        "bom_lines_business_keys": [
+          [
+            "MA-BOM-002",
+            10
+          ],
+          [
+            "MA-BOM-002",
+            20
+          ],
+          [
+            "MA-BOM-002",
+            30
+          ],
+          [
+            "MA-BOM-002",
+            40
+          ],
+          [
+            "MA-BOM-004",
+            10
+          ],
+          [
+            "MA-BOM-004",
+            20
+          ],
+          [
+            "MA-BOM-004",
+            30
+          ],
+          [
+            "MA-BOM-004",
+            40
+          ],
+          [
+            "MA-BOM-006",
+            10
+          ],
+          [
+            "MA-BOM-006",
+            20
+          ],
+          [
+            "MA-BOM-006",
+            30
+          ],
+          [
+            "MA-BOM-006",
+            40
+          ]
+        ],
+        "operations_business_keys": [
+          [
+            "MA-BOM-002",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-002",
+            "Inspect"
+          ],
+          [
+            "MA-BOM-004",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-004",
+            "Inspect"
+          ],
+          [
+            "MA-BOM-006",
+            "Assemble"
+          ],
+          [
+            "MA-BOM-006",
+            "Inspect"
+          ]
+        ],
+        "product_status_model_counts": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 15
+        },
+        "product_status_workspace_counts": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 27
+        },
+        "product_status_updates": {
+          "MA-P-0028": {
+            "active": false
+          }
+        }
+      }
+    },
+    "shared_categories": {
+      "create": 9,
+      "update": 0,
+      "unchanged": 3,
+      "repeat_unchanged": 12
+    },
+    "subassemblies": [
+      {
+        "parent_bom_ref": "MA-BOM-001",
+        "component_ref": "MA-P-0005",
+        "component_bom_ref": "MA-BOM-005"
+      },
+      {
+        "parent_bom_ref": "MA-BOM-002",
+        "component_ref": "MA-P-0006",
+        "component_bom_ref": "MA-BOM-006"
+      }
+    ],
+    "intentional_repeated_component": {
+      "bom_ref": "MA-BOM-003",
+      "component_ref": "MA-P-0011",
+      "line_sequences": [
+        30,
+        40
+      ],
+      "line_quantities": [
+        "1.000",
+        "2.000"
+      ],
+      "must_not_collapse_to_one_line": true
+    },
+    "initial_category_ownership": {
+      "owned_seed_paths": [
+        [
+          "Components"
+        ],
+        [
+          "Components",
+          "Metals"
+        ]
+      ],
+      "unowned_native_paths": [
+        [
+          "Services"
+        ]
+      ],
+      "unowned_native_xmlid": "product.product_category_services"
+    },
+    "initial_product_state": {
+      "active": true,
+      "scope": "all 32 templates and their generated variants after both initial product partitions",
+      "final_status_from": "products_core.StatusCode",
+      "reason": "Create products with the normal active=True default, then explicitly finalize their source statuses before BoMs. On native Odoo 20, creating an inactive template can hide its generated variant from the default_code inverse and leave the variant reference unset. This shared Odoo 19/20 exercise keeps every declared final business value unchanged and makes the intermediate stage visible.",
+      "applies_until": "PRODUCT_STATUS_NORTH and PRODUCT_STATUS_SOUTH",
+      "stage_only": true
+    }
+  }
+}

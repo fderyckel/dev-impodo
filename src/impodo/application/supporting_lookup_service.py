@@ -191,6 +191,7 @@ class SupportingLookupService:
         ambiguous_values: tuple[str, ...],
         actor: Actor,
         reference_policy_hash: str = REFERENCE_POLICY_HASH,
+        scoped_suggestions: tuple[tuple[str, str], ...] | None = None,
     ) -> SupportingLookupSnapshot:
         """Persist one immutable lookup revision and make it current."""
 
@@ -218,6 +219,7 @@ class SupportingLookupService:
             choices=choices,
             ambiguous_values=ambiguous_values,
             reference_policy_hash=reference_policy_hash,
+            scoped_suggestions=scoped_suggestions,
         )
         self._repository.save(workspace_id, snapshot, actor=actor)
         return snapshot

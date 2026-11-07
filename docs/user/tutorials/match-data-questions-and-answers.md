@@ -57,6 +57,13 @@ may need `Document ref` and `Line number` together.
 an Odoo numeric ID from one database; it will not safely identify the same
 record in another database.
 
+For a generated reusable list, open **Matching key or original value?** if you
+are unsure which column to choose. For example, keep `Payment code matching
+key` as the **Unique row identifier** and use `Payment code` for the Odoo
+payment-term name. The generated key identifies source rows; the original
+value preserves capitalization in Odoo. Using the key for the source identifier
+does not force the Odoo name to use the key's capitalization.
+
 ## How do I identify a child row by a parent from another table?
 
 ![Current Match data controls for a fictional order line whose matching rule uses an incoming order.](../../images/user/10a-mapping-relational-scope.png)

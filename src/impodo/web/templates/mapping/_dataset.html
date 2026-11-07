@@ -116,7 +116,15 @@
             <section class="identity-panel" aria-labelledby="source-identity-{{ dataset_index }}">
               <p class="eyebrow">Source</p>
               <h3 id="source-identity-{{ dataset_index }}">Which column uniquely identifies each row? {{ decision_help("source-identity") }}</h3>
-              <p class="muted">Choose one column, or a combination when one column is not enough.</p>
+              {% if view.generated_key_column and view.generated_value_column %}
+                <details class="technical-details" data-generated-row-identity-help>
+                  <summary>Matching key or original value?</summary>
+                  <p>Choose <strong>{{ view.generated_key_column.source_name }}</strong> as the <strong>Unique row identifier</strong>. Impodo uses this generated key to identify the source rows.</p>
+                  <p>To keep the source capitalization in Odoo, choose <strong>{{ view.generated_value_column.source_name }}</strong> for the Odoo name or value. You can keep the matching key here and the original spelling in Odoo.</p>
+                </details>
+              {% else %}
+                <p class="muted">Choose one column, or a combination when one column is not enough.</p>
+              {% endif %}
               <label>
                 Unique row identifier
                 <select name="source_identity_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
@@ -165,11 +173,16 @@
                           {% endfor %}
                         </select>
                       </label>
-                      {% if row.original_spelling_column %}
-                        <div class="notice warning" data-original-spelling-warning>
-                          <p>This field uses an internal matching key that normalizes case. Use <strong>{{ row.original_spelling_column.source_name }}</strong> to preserve the source spelling in Odoo. If these records were already loaded, correct the existing records before loading again.</p>
-                          <button type="button" class="button secondary compact" data-use-original-spelling data-column-key="{{ row.original_spelling_column.stable_key }}">Use original spelling</button>
-                        </div>
+                      {% if row.generated_value_column or row.original_spelling_column %}
+                        <details class="technical-details" data-generated-odoo-value-help {% if row.original_spelling_column %}data-original-spelling-warning{% endif %}>
+                          <summary>Matching key or original value?</summary>
+                          {% set original_column = row.generated_value_column or row.original_spelling_column %}
+                          <p>Choose <strong>{{ original_column.source_name }}</strong> for this Odoo field to keep the source spelling and capitalization. Keep the generated matching key under <strong>Unique row identifier</strong>.</p>
+                          {% if row.original_spelling_column %}
+                            <p>This field currently uses the matching key, which normalizes case. Select <strong>Use original spelling</strong>, then save and check your matches. If these records were already loaded, correct the existing records before loading again.</p>
+                            <button type="button" class="button secondary compact" data-use-original-spelling data-column-key="{{ row.original_spelling_column.stable_key }}">Use original spelling</button>
+                          {% endif %}
+                        </details>
                       {% endif %}
                       {% if row.relational %}
                         <small>This linked field is part of the matching rule and is supplied here. To set the same existing record for every row, choose a matching rule without this field in <a href="/workspaces/{{ workspace_id }}/schema">Odoo data</a>, then use its linked-field card below.</small>

@@ -138,9 +138,42 @@ and projects the bounded counts through the same `WorkflowIssueProjection`
 used by Odoo data. Root findings sort before inherited dependencies, and each
 card opens the closest saved Match-data decision without changing it. The
 issue summary remains complete when the row table is filtered or paged. The
-row table still renders every saved issue instead of collapsing the record to
-its first issue. Stable reason and rule identifiers remain under **Support
-details**.
+row table explains every independent finding. Stable reason and rule
+identifiers remain under **Support details**.
+
+For missing source identities,
+[`explain_source_match_causes`](../../../src/impodo/adapters/duckdb/quality_review_details.py)
+binds the saved
+staging run to its exact source-preparation plan. It traces projected fields
+through exact joins and checks complete direct-cause membership against
+physical row lineage. Only when every affected identity lacks its optional
+right-hand source row does the read projection name that missing table.
+An empty-key duplicate finding is grouped under that explanation only when
+both causes have identical complete membership and every duplicate identity
+is a single null component. Genuine duplicate keys and mixed causes retain
+their separate findings. These explanations never change persisted issues,
+portable evidence, hashes, or quality dispositions.
+
+Both review lists fetch canonical values only for the requested page, then
+select captured field labels for the represented models. The record cell
+shows available names and other prepared values even when its identifier is
+missing. Matching and scope values also receive their field labels when the
+saved mapping identifies their fields unambiguously; the canonical rows stay
+unchanged. [`quality_record_details`](../../../src/impodo/web/presenters/quality_review.py)
+supplies labelled values to the shared
+[`_quality_record.html`](../../../src/impodo/web/templates/_quality_record.html)
+template. Native rows are reconstructed from hash-verified snapshots using
+only the requested ordinals. The reads use the existing synchronous database
+scope; the native SQL projector closes its temporary in-memory owner before
+returning. An approved
+preparation with no blockers explains that the set-aside records do not stop
+comparison of the included records.
+
+The [source-match evidence tests](../../../tests/integration/duckdb/test_quality_review_details.py)
+cover missing and present joins, partial overlap, real duplicate keys, changed
+bindings, and another record type. The
+[browser review tests](../../../tests/integration/web/test_missing_source_match_review.py)
+cover the summary and both saved cause links for Odoo 19 and Odoo 20.
 
 Cards from a newly published quality run also expose **Review affected
 records**. The route binds the selected cause to the current quality-run ID
@@ -222,18 +255,25 @@ prepared value in the visible cell and places original-value and rule detail
 in an Excel note. The package path makes no Odoo call and performs no per-row
 or per-cell repository lookup.
 
-The first **Review overview** tab groups the verified cell effects into a
-**Stage 3 transformation summary**. The reporting adapter groups by dataset,
-target field, rule name, and explanation, then counts distinct source traces
-per group. The summary includes all prepared records in the saved comparison,
-including records later set aside from the load. Counts may overlap across
-fields and rules. Rows use captured dataset and field labels and deterministic
-ordering. The writer summarizes recorded effects; it does not reconstruct an
-edit history, list rules with no saved effect, or evaluate the rules again.
-Missing normalization evidence produces an unavailable message, while verified
-evidence with no effects reports no recorded changes. Protected Odoo-source
-values remain outside this summary. The projection adds no repository or Odoo
-read and changes neither the comparison manifest nor the load decision.
+The first **Review overview** tab contains a **Stage 3 transformation summary**.
+[`workbook_mapping_rules`](../../../src/impodo/domain/preflight/mapping_summary.py)
+describes the exact mapping and source selection already loaded for the frozen
+comparison. It retains source labels and stable keys, the target model and field,
+literal values, conditional choices, formulas, and ordered text parameters.
+These export-only rules pass through `FrozenPreflightInput.workbook_mapping_rules`
+and `ReviewWorkbookEvidence.mapping_rules`. They remain outside the frozen input
+hash because that hash already binds their mapping and source selection.
+
+The writer shows each field's numbered instructions and counts distinct source
+traces with recorded effects for the whole field. It includes mappings with no
+recorded change and all prepared records, including records later set aside.
+It does not infer per-step counts or run the transformation again. Long rule
+lists continue over additional rows without truncating their parameters.
+Historical evidence without exact settings retains an explicitly limited
+effect summary. Restricted literals, formulas, and source conditions are hidden;
+Odoo-source comparisons still provide no portable value projection. The export
+adds no repository or Odoo read and changes neither the comparison manifest nor
+the load decision.
 
 The **Needs attention** projection is a manifest-authoritative action queue.
 The pure `review_workbook_action_priority` function maps errors to **Must fix**
@@ -523,6 +563,7 @@ contact Odoo while writing them.
 - [`tests/performance/test_deferred_scope_scale.py`](../../../tests/performance/test_deferred_scope_scale.py)
 - [`tests/integration/artifacts/test_reporting_cli.py`](../../../tests/integration/artifacts/test_reporting_cli.py)
 - [`tests/integration/artifacts/test_transformation_summary.py`](../../../tests/integration/artifacts/test_transformation_summary.py)
+- [`tests/integration/artifacts/test_detailed_transformation_summary.py`](../../../tests/integration/artifacts/test_detailed_transformation_summary.py)
 - [`tests/integration/artifacts/test_preflight_outputs.py`](../../../tests/integration/artifacts/test_preflight_outputs.py)
 - [`tests/integration/odoo/test_connectors.py`](../../../tests/integration/odoo/test_connectors.py)
 - [Explicit company context and ordered identity checks](../../../tests/integration/odoo/test_company_context_identity.py)

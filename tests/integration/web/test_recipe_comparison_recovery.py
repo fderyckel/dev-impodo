@@ -8,7 +8,9 @@ from time import monotonic, sleep
 from unittest import TestCase
 from unittest.mock import patch
 from uuid import uuid4
+from openpyxl import load_workbook
 
+from impodo.adapters.artifacts.reporting import write_review_workbook
 from impodo.application.odoo_read_failures import OdooReadWorkflowError
 from impodo.application.preflight_attempts import PreflightComparisonRequest
 from impodo.application.preflight_jobs import PreflightJobManager
@@ -17,6 +19,7 @@ from impodo.domain.odoo.contracts import RecordSnapshot
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.target_credentials import target_read_credential_id
 from tests.integration.web import test_fresh_data_controls as fixtures
@@ -36,15 +39,20 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
         self.addCleanup(self.fixture.doCleanups)
         self.context, self.client = self.fixture.context, self.fixture.client
 
-    def _approved_review(self):
-        fresh_url = self.fixture.registered_delivery()
+    def _approved_review(self, *, odoo_version="19.0"):
+        def target_version(definition):
+            major = int(odoo_version.split(".", 1)[0])
+            definition["odoo_target_contract"]["odoo_major_version"] = major
+            definition["odoo_target_contract"]["reference_policy_hash"] = reference_policy_hash(major)
+
+        fresh_url = self.fixture.registered_delivery(configure_recipe=target_version)
         fresh = self.client.get(fresh_url)
         accepted = self.client.post(fresh_url + "/accept", data={
             "csrf_token": fixtures.field(fresh, "csrf_token"), "parameter_revision": "",
             "warnings_acknowledged": "1", "control_0": "125.50",
         }, headers={"Origin": "http://testserver"}, follow_redirects=False)
         self.assertEqual(accepted.status_code, 303, accepted.text)
-        application = self.fixture._activate_with_real_compiler()
+        application = self.fixture._activate_with_real_compiler(odoo_version=odoo_version)
         workspace_id = application.workspace_id
         context, actor = self.context, resolve_local_actor(self.context)
         summary, evaluation, _ = context.normalization.current_review(workspace_id)
@@ -65,6 +73,31 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
             return metadata, RecordSnapshot(metadata.fingerprint, {model: () for model in fields}, fields)
 
         return application, reader
+
+    def test_recipe_workbook_exposes_exact_source_columns_for_both_odoo_majors(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                application, reader = self._approved_review(odoo_version=f"{major}.0")
+                workspace_id = application.workspace_id
+                report = run_local_operation_sync(
+                    self.context.preflight.compare, workspace_id,
+                    reader=reader, actor=resolve_local_actor(self.context),
+                )
+                evidence = run_local_operation_sync(
+                    self.context.preflight.review_workbook_evidence, workspace_id, report.run_id,
+                )
+                self.assertTrue(evidence.mapping_rules)
+                self.assertTrue(any("Amount" in rule.source_labels for rule in evidence.mapping_rules.values()))
+                with (
+                    self.context.artifacts.materialize_report(workspace_id, report.run_id, MANIFEST_NAME) as manifest,
+                    TemporaryDirectory() as directory,
+                ):
+                    path = write_review_workbook(manifest, Path(directory) / "review.xlsx", review_evidence=evidence)
+                    workbook = load_workbook(path)
+                    self.addCleanup(workbook.close)
+                    rows = tuple(workbook.worksheets[0].iter_rows(values_only=True))
+                    self.assertTrue(any("Source column ID" in row for row in rows))
+                    self.assertTrue(any("res.partner.credit_limit" in row for row in rows))
 
     def _request(self, application):
         workspace = self.context.migration_workspaces.get(

@@ -4,350 +4,142 @@ kind: plan
 status: approved
 ---
 
-# Weekly source releases and continuous integration
+# Main integration and weekly source releases
 
-## Decision and intended reader
+## Current decision
 
-The maintainer approved this process on 6 November 2026. Contributors integrate
-small, verified changes throughout the week. The maintainer publishes a weekly
-source release from one verified commit on `main`.
+On 7 November 2026 the maintainer replaced the task-branch and pull-request
+process adopted on 6 November with direct integration on `main`. Contributors
+work in the original checkout and give each task clear file ownership.
+A delivery collects inspected changes into one fixed, locally verified
+snapshot and pushes that exact commit to `main` when authorized.
 
-This replaces the original first-release procedure and its `0.1.0` examples.
-The existing release baseline is `v26.10.4`. Application versions follow
-`YY.MM.W`, as described below.
+The earlier branch naming and mandatory pull-request procedure are superseded.
+Existing worktrees remain available until their work has been reconciled.
+The shared ignored `AGENTS.md` carries the current instructions for agents.
 
-The process applies to human contributors, coding agents, and the maintainer
-preparing a release. It does not configure branch protection, change workflow
-triggers, authorize a merge, or publish a release merely because this plan is
-approved. Those actions require their own authorized implementation.
+## Preserve concurrent work and the running application
 
-## Current state and temporary Actions pause
+Inspect existing edits before modifying a shared file. Reconcile overlapping
+responsibilities and preserve later changes from other agents. Avoid switching
+a dirty checkout, resetting shared files, or stashing unrelated work together.
 
-As observed on 6 November 2026:
+Before delivery, save the included files and patches and record the cutoff.
+An isolated detached checkout with its own Python environment may be used to
+test that snapshot while other work continues. Confirm that imports and
+spawned workers use its source. Keep local instructions, skills, tool links,
+environments, and verification artifacts ignored.
 
-- The existing release tag is `v26.10.4`, at commit
-  `af2f694d13c4bc42a1dc710c02416097848fbf9d`.
-- The committed project version is still `26.10.4`.
-- The maintainer has paused **Python quality**, **Linux server quality**, and
-  **Windows release quality** in GitHub. Their files, tests, and run history
-  remain present.
-- GitHub reported an account billing lock for the last attempted hosted run.
-  Its jobs did not execute their checks.
-- Separate worktrees, pull requests, and required checks are the approved
-  development process. Repository-side enforcement and CI cost improvements
-  still need implementation and verification.
+Stage explicit inspected paths. Compare the committed tree with the exact
+candidate that passed checks. Changes made after the cutoff belong to the
+next delivery. Preserve the original worktree copies until their transfer
+and integration are accounted for.
 
-The maintainer subsequently chose manual-only hosted checks during platform
-stabilization. All repository workflows use only `workflow_dispatch`; pushes,
-pull requests, tags, and schedules must not start jobs. Keep the workflows
-disabled until that configuration reaches `main`, then enable them for manual
-use. The maintainer selects the workflow and branch and starts each run. Agents
-must not dispatch, rerun, or restore automatic triggers without an explicit
-request. Local checks remain required. This policy does not authorize a billing
-change or a new paid runner.
+Updating the running application's source can trigger its build-change guard.
+Preserve the maintainer's Impodo session and obtain approval before stopping
+or restarting it. A verified snapshot can be pushed from the detached checkout
+while the running local checkout waits for an approved synchronization.
 
-GitHub's generated Dependency Graph job has a separate repository security
-setting. Its workflow cannot be made manual by editing the repository YAML.
-An administrator must review that setting to stop its automatic runs, including
-the effect on dependency alerts and dependency review. Do not report all Actions
-as manual-only while that generated job remains active.
+## Verify and deliver to main
 
-While Actions are paused, contributors may prepare changes, run local checks,
-and push authorized task branches. Keep pull requests unmerged and releases
-as drafts when required hosted evidence is unavailable. A local pass or a
-billing failure does not establish a passing Linux, macOS, or Windows matrix.
+1. Review the included changes and reconcile conflicts against current `main`.
+2. Run focused tests for every changed responsibility and affected caller.
+   Cover Odoo 19 and 20 and the local, remote, authoring, and Recipe paths
+   affected by the change.
+3. Run the complete repository gate on the fixed candidate.
+4. Record the candidate tree and successful local checks. Report failed,
+   skipped, and unavailable checks separately.
+5. When authorized, commit and push that exact candidate directly to `main`.
+   Use a normal fast-forward push. Reconcile a changed remote and recheck
+   the resulting candidate before retrying. Preserve shared history.
+6. Reconcile the original checkout only when its later edits and running
+   application can be preserved.
 
-## Give each change an owner and an isolated checkout
-
-Each coherent change has one owner, one short-lived task branch, and its own
-worktree. An example branch is `fix/payment-term-matching`. Other agents can
-review the change without editing its files concurrently.
-
-Create the worktree from the intended committed base and give it a separate
-Python environment. Confirm that imports and spawned workers use that checkout.
-Carry local instructions and tooling into the worktree without tracking them;
-verify that instruction, skill, environment, and tool paths remain ignored.
-
-Use explicit file scope when staging. A contributor must not collect every
-pending edit in a shared checkout into a release snapshot. Before delivery,
-compare the committed or staged tree with the candidate that passed checks.
-Later edits belong to a later candidate.
-
-### Branch naming convention
-
-Use `<type>/<slug>`. Only these three types are allowed for development branches:
-
-| Type | Purpose | Examples |
-| --- | --- | --- |
-| `feat/` | Add or improve functionality, including supporting documentation and refactoring. | `feat/shared-practice-data` |
-| `fix/` | Correct a defect, regression, or inaccurate documentation. | `fix/payment-term-matching` |
-| `release/` | Prepare or stabilize a release, or maintain the release process. | `release/26.11.1`, `release/process` |
-
-Use a short, descriptive, lowercase slug with words separated by hyphens.
-Release-version slugs may contain periods. Do not add nested path components,
-spaces, personal names, or tool-specific prefixes. Validate the selected name
-with `git check-ref-format --branch <name>` before creating it. `main` remains
-the integration branch, rather than a development-branch type.
-
-Classify a documentation or refactoring task by its purpose. A correction uses
-`fix/`, an improvement uses `feat/`, and release-process work uses `release/`.
-Use `release/<version>` for a concrete release candidate; the branch is not a
-shared integration stream for that week's unrelated features.
-
-An owner adopting this convention must rename their own nonconforming branch
-before further work. Preserve its worktree and pending changes. Do not rename
-another agent's active branch, delete a published branch, or rewrite remote
-history without an authorized, coordinated migration.
-
-### Challenge proposals that create material risks
-
-Contributors and agents must challenge a proposed approach when it conflicts
-with accepted contracts or established practice, or creates a material
-reliability, security, maintainability, or cost risk. Explain the concrete
-consequence, identify the supporting evidence or uncertainty, and recommend an
-alternative before proceeding with the affected decision.
-
-Distinguish requirements from local conventions. Branch prefixes describe the
-purpose of a change; safe integration still depends on isolation, review, and
-verification. Follow the maintainer's informed decision within the remaining
-guardrails.
-
-### Transition existing shared work safely
-
-The shared checkout already contains concurrent work. Each owner must identify
-and inspect their own files before transferring a bounded change into an
-isolated worktree. Preserve the shared copies until the transfer is reconciled
-and ownership is clear.
-
-Do not switch the dirty shared checkout to another branch, reset it, apply a
-repository-wide stash, or delete another contributor's changes. If ownership
-overlaps, reconcile the affected lines before editing or staging them. Starting
-a release branch does not resolve a shared-worktree race.
-
-## Integrate verified changes throughout the week
-
-1. Implement one coherent responsibility on its task branch. Run focused
-   tests for that responsibility and its affected callers. Cover Odoo 19 and
-   Odoo 20, local and remote access, and Recipe paths when affected.
-2. Run the complete repository gate on the exact candidate before committing,
-   pushing, or handing it off. Preserve all diagnostics and report failed or
-   omitted checks.
-3. When authorized, push the task branch and open a pull request into
-   `main`. Explain the resulting behavior, validation, and compatibility risks.
-4. Before merging, require the complete portable behavior matrix, repository
-   checks, default performance checks, and applicable Linux server and Windows
-   checks to pass for the proposed merge. Resolve review feedback and conflicts.
-5. Merge ready changes regularly after the required evidence passes. Verify
-   the resulting `main` commit before selecting it for a release.
-
-Ordinary development must not commit or push directly to `main`. Keep `main`
-releasable through small reviewed integrations. A permanent `develop` branch
-or a shared weekly version branch is not the normal integration path.
-
-Use a short stabilization branch only when a concrete release needs one.
-Restrict it to release fixes, verify them through pull requests, and bring the
-accepted fixes back into `main`. Do not start a parallel stream of unrelated
-feature work there. The release identity is the tag and commit.
-
-Creating a branch does not authorize a remote push, pull request, merge, tag,
-or publication. Carry out only the external actions included in the user's
-request. Preparing release text authorizes a draft.
-
-## Verify the exact candidate and control CI cost
-
-The local complete repository gate is:
+The complete repository gate uses the checkout's pinned toolchain.
 
 ```powershell
 uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
 
-Use the checkout's pinned runner and an environment belonging to that checkout.
-The gate includes static quality, architecture, and documentation checks. It
-does not replace focused behavior tests or the full portable behavioral suite.
+The gate includes Python quality, architecture tests, documentation checks,
+and code-documentation checks. It supplements focused behavioral tests.
+A failure blocks delivery until corrected or explicitly waived by the
+maintainer for the named guardrail and single delivery.
 
-For shared-contract refactors and repairs of repeated behavioral CI failures,
-run all four portable shards from `.github/workflows/python-quality.yml` on
-one frozen candidate before delivery. Keep the full operating-system matrix
-and applicable platform checks as merge and release requirements. A passing
-subset does not establish that the complete candidate is ready.
+## Keep GitHub Actions paused and manual
 
-When preparing later improvements to manually dispatched checks:
+The maintainer paused **Python quality**, **Linux server quality**, and
+**Windows release quality** on 6 November 2026. Keep those workflows disabled.
+Their tracked YAML uses only `workflow_dispatch`. The maintainer chooses each
+workflow, source revision, and run. Pushing code does not authorize dispatching,
+rerunning, enabling workflows, changing billing, or provisioning paid runners.
 
-- Run the fast repository checks before starting the expensive behavior matrix.
-- Cancel superseded runs for the same workflow and pull request. Keep unrelated
-  pull requests and the selected release verification independent.
-- Collect each distinct failure across shards and platforms before choosing a
-  repair. Inspect job annotations when no test step ran.
-- Attribute every result to its commit or candidate tree. Recheck after a
-  source, dependency, version, or merge change invalidates that evidence.
-- Investigate slow tests and excessive repeated work without weakening behavior,
-  evidence checks, platform coverage, or required diagnostics.
+GitHub's generated Dependency Graph uses a separate repository security
+setting. It remains automatic and cannot be disabled through the workflow API
+with the current connection. An administrator must review that setting and
+its effect on dependency alerts and dependency review.
 
-These are proposed workflow changes, not a claim that the current YAML already
-implements those execution-order improvements. Manual dispatch remains the
-only permitted trigger during platform stabilization.
+Record hosted checks as unexecuted while they are paused. Local integration
+is separate from qualification for a public release. A skipped or unavailable
+hosted check is never a passing result.
 
-## Weekly release window
+## Weekly release identity
 
-Use Friday at the end of the working day as the regular release decision
-window. The maintainer selects the cutoff and the exact candidate. No scheduled
-job automatically merges branches or publishes a release.
+Use Friday at the end of the working day as the normal release decision
+window. The maintainer selects the cutoff and the verified `main` commit.
+The current unpublished draft is `26.11.1`, following `v26.10.4` at
+`af2f694d13c4bc42a1dc710c02416097848fbf9d`.
 
-The next proposed weekly slots are:
+Application versions follow `YY.MM.W`, using the two-digit year, two-digit
+month, and maintainer-selected weekly slot within that month. The first
+November slot is `26.11.1`. The next proposed slot is `26.11.2` on 13 November
+2026. A skipped slot does not require renumbering later slots. The maintainer
+chooses a distinct identity for an urgent correction.
 
-| Decision window | Proposed version | Proposed tag |
-| --- | --- | --- |
-| 6 November 2026 | `26.11.1` | `v26.11.1` |
-| 13 November 2026 | `26.11.2` | `v26.11.2` |
+Prepare matching `pyproject.toml` and `uv.lock` metadata and reviewed notes.
+The annotated tag is exactly `v<version>`. The source commit must contain
+that version. Keep the existing draft identity while preparing that same
+unpublished release unless the maintainer chooses another identity.
 
-These are release opportunities. If required checks are unavailable or fail,
-keep the release in draft and record the blocker. If there is no meaningful
-change since the previous release, skip the slot. Do not create a new tag on
-identical source merely to satisfy the calendar.
+Calendar numbering is independent of storage schemas and portable evidence
+contracts. Describe incompatible project layouts, supported upgrades, and
+required operator actions independently of the application version.
 
-After eight successful source releases, review whether a monthly cadence would
-better match development. Continue weekly until the maintainer approves that
-change. Urgent security and data-integrity fixes need not wait for Friday.
+## Qualify and publish a source release
 
-## Calendar version and source identity
+1. Identify the previous reachable release tag and exact included `main` commit.
+2. Verify matching project and lockfile versions and draft notes against that
+   committed source. Describe implemented behavior and retained evidence.
+3. Obtain the complete portable Linux, macOS, and Windows behavior matrix,
+   the complete repository gate, default performance checks, and applicable
+   Linux server and Windows release checks for the final source.
+4. Keep the release in draft when required evidence is unavailable or fails.
+   A waiver must name the exact guardrails and the single release it covers.
+5. When separately authorized, create and push the annotated `v<version>` tag
+   on the verified commit. Verify the remote tag and preserve its identity.
+6. When authorized, prepare the GitHub Release with reviewed notes and
+   GitHub's automatic source archives. Publish within that authorization.
+7. Verify source installation from the tagged revision in a clean environment.
+   Preserve the running Impodo session and live Odoo data.
 
-Use `YY.MM.W`: the two-digit year, the two-digit month, and the
-maintainer-selected weekly slot within that month. For example, `26.11.1`
-identifies the first planned November 2026 weekly release. A skipped slot does
-not require renumbering later slots.
+A public release consists of its immutable tag, source commit, reviewed notes,
+and automatic GitHub source archives. Custom installers, wheels, containers,
+archives, checksums, SBOMs, and other uploaded assets require a separate
+policy decision. Accepted internal bundles follow their organizational process.
 
-The release-preparation change updates `pyproject.toml` and synchronizes the
-project entry in `uv.lock` with the pinned uv runner. The annotated tag is
-exactly `v` followed by the project version. The Release title uses that same
-version. Do not substitute the obsolete `0.1.0` examples or infer compatibility
-from a calendar number.
+## Release notes and corrections
 
-The maintainer chooses a distinct version for an urgent corrective release.
-Agents must not invent a suffix or move an existing tag to reuse an identity.
-Record the selected version before preparing its source and notes.
+Write for data managers and evaluators. Explain the implemented user outcomes,
+compatibility boundaries, storage implications, and material limitations.
+Link the full source commit, comparison with the previous tag, installation
+instructions, and available verification evidence.
 
-Application release numbering is independent of storage schema and portable
-evidence contract versions. Explain incompatible project layouts, supported
-upgrades, and any required operator action in the notes. A new application
-version does not itself prove that an older project can be opened safely.
+Exclude uncommitted changes and proposals from shipped claims. Label draft
+notes with their exact candidate. A test of an earlier source does not qualify
+a later integrated tree. Report omitted browser, live Odoo, platform, and
+hosted checks honestly.
 
-## Source-only release contents
-
-A public release consists of an immutable annotated Git tag, its exact source
-commit, reviewed release notes, and GitHub's automatic source archives.
-Maintainers upload no custom files.
-
-Do not add an installer, wheel, custom archive, container, checksum, SBOM,
-attestation, automatic updater, deployment, or long-term-support promise to
-this workflow without a separate distribution decision. Accepted internal
-bundles remain a separate organizational process.
-
-## Prepare and publish one release
-
-1. Identify the previous reachable release tag and the intended included
-   changes. Finish their reviewed feature integrations before the cutoff.
-2. Prepare the version, synchronized lockfile, and notes on a
-   `release/<version>` branch. Describe implemented behavior only. Keep unfinished
-   work and proposals outside the release claims.
-3. Run focused checks and the complete repository gate. Obtain the complete
-   required hosted evidence before merging the release-preparation pull request.
-4. Verify the exact resulting `main` commit. Record its full SHA, version,
-   comparison range, local results, and hosted CI links. A test of an earlier
-   feature head does not establish that this merged commit passed.
-5. If any required check fails, is skipped without an applicable exclusion, or
-   cannot run, keep the release in draft. A maintainer waiver must name the
-   exact failed or omitted guardrail and the single delivery it covers.
-6. When separately authorized, create and push the annotated `v<version>` tag on
-   that verified SHA. Confirm that the remote tag resolves to the intended
-   commit. Never move a tag once it has become visible.
-7. When authorized, create a draft GitHub Release for the existing tag. Check
-   the title, version, source commit, notes, comparison, CI evidence, and absence
-   of custom assets. Publish only within the maintainer's authorization.
-8. Verify the public Release and tagged-source installation in a clean isolated
-   directory. Do not interrupt the maintainer's running Impodo session or write
-   to a live Odoo target as part of this verification.
-
-The release checkout must contain the exact reviewed candidate. Unrelated dirty
-work in another worktree can remain in progress; it is not part of the release.
-
-## Release-note contract
-
-Write for an evaluator or data manager who needs to understand the practical
-changes and compatibility boundaries. Use only sections that help that reader:
-
-```markdown
-# Impodo <version>
-
-## Release summary
-
-Explain why this release matters.
-
-## Highlights
-
-- Describe the most important implemented user outcomes.
-
-## Reliability and safety
-
-- Describe meaningful correctness, evidence, recovery, or bounded-work changes.
-
-## Compatibility and upgrade information
-
-State supported environments, incompatible layouts, and upgrade requirements.
-
-## Install from source
-
-Link the tagged source and its installation instructions.
-
-## Known limitations
-
-State material missing behavior and verification limits.
-
-## Source
-
-Link the tag, full commit, comparison range, and exact-commit CI results.
-```
-
-Until the final candidate is verified, label the notes as provisional and name
-the committed range they describe. Exclude uncommitted work from shipped claims.
-Record omitted validation honestly. Generated commit lists are an inventory,
-not the public explanation.
-
-## Failure and correction policy
-
-A failed required gate blocks delivery. Do not classify an unrelated failure
-as acceptable debt or treat a disabled workflow as a passing check. Correct the
-source through its owned task branch and verify a new candidate.
-
-After publication, never replace the source behind a published tag. Publish a
-new verified corrective version. For a security, authorization, evidence,
-journaling, or reconciliation defect, warn affected users and prepare the
-correction promptly. Changing release notes to add a warning is permitted;
-retargeting the released source is not.
-
-## Remaining enforcement work and acceptance criteria
-
-The process is adopted when agents read the shared instructions, own isolated
-feature worktrees, stage bounded changes, and preserve the Actions pause.
-Repository enforcement still needs explicit implementation and verification:
-
-- Protect `main` with required pull requests, resolved review conversations,
-  passing required checks, and protection against force pushes and deletion.
-- Apply the CI execution order and concurrency controls described above after
-  the maintainer authorizes resuming hosted checks.
-- Protect published version tags and verify the available immutable-release
-  settings before changing them.
-- Keep any future tag workflow limited to verifying the selected source and
-  preparing a draft with minimum permissions. Human authorization remains
-  required for publication.
-
-A release is complete only when its project version, lockfile, tag, notes,
-source SHA, and verification evidence agree, no custom asset was uploaded, and
-the public source instructions work for the released revision.
-
-## References
-
-- [GitHub flow](https://docs.github.com/en/get-started/using-github/github-flow).
-- [Git worktrees](https://git-scm.com/docs/git-worktree).
-- [Protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches).
-- [Workflow concurrency](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency).
-- [Managing releases](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository?tool=cli).
+After publication, preserve the source behind the visible tag. Corrections
+use another maintainer-approved version and verified commit. A release is
+complete when the project version, lockfile, tag, notes, source SHA, and
+qualification evidence agree and the published source instructions work.

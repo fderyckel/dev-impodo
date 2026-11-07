@@ -47,7 +47,7 @@ class Element {
 class Input extends Element { constructor() { super("input"); } }
 const flush = () => new Promise(setImmediate);
 
-function fixture({ incoming = 7, targets = 11, saved = [] } = {}) {
+function fixture({ incoming = 7, targets = 11, saved = [], origin = "target_then_dataset" } = {}) {
   const document = new Element();
   document.createElement = (tag) => tag === "input" ? new Input() : new Element(tag);
   const form = new Element("form"); document.append(form);
@@ -57,7 +57,7 @@ function fixture({ incoming = 7, targets = 11, saved = [] } = {}) {
     const option = new Element("option"); option.value = value; element.append(option); row.append(element);
     return element;
   };
-  select("relation_origin_0_0", "target_then_dataset");
+  select("relation_origin_0_0", origin);
   select("relation_source_0_0", "vendor.term");
   select("relation_key_0_0", "term:name");
   select("relation_dataset_0_0", "terms");
@@ -127,6 +127,33 @@ test("an all-incoming match is usable without inventing Odoo translations", asyn
   assert.equal(page.elements.useValueMatches.disabled, false);
   assert.equal(page.elements.useValueMatches.textContent, "Use complete matches");
   page.apply(); assert.deepEqual(JSON.parse(page.storage.value), []);
+});
+
+test("existing scoped choices prefill exact names and save the complete key", async () => {
+  const key = (name, parent) => JSON.stringify([name, parent]);
+  const saved = [{ source_value: "TERM1", target_value: key("TERM2", "Parent") }];
+  const page = fixture({ targets: 80, incoming: 0, origin: "target_catalog", saved });
+  delete page.payload.incoming_table;
+  delete page.payload.relationship_resolutions;
+  page.payload.scoped_suggestions = Object.fromEntries(
+    page.payload.target_choices.slice(0, 79).map(({ value }) => [value, key(value, "Parent")])
+  );
+  page.payload.target_choices = page.payload.target_choices.map(({ value }) => ({
+    value: key(value, "Parent"), label: `${value} (Parent)`,
+  }));
+  page.payload.target_choices.push(
+    { value: key("TERM79", "Other parent"), label: "TERM79 (Other parent)" }
+  );
+  await page.open();
+  assert.equal(page.elements.valueMatchStatus.textContent, "79 of 80 matched");
+  assert.equal(page.selects()[0].value, key("TERM0", "Parent"));
+  assert.equal(page.selects()[1].value, saved[0].target_value);
+  assert.equal(page.selects()[79].value, "");
+  page.apply();
+  const matches = JSON.parse(page.storage.value);
+  assert.equal(matches.length, 79);
+  assert.deepEqual(matches[0], { source_value: "TERM0", target_value: key("TERM0", "Parent") });
+  assert.deepEqual(matches[1], saved[0]);
 });
 
 test("the dialog respects a case-review outcome for a normalized generated key", async () => {

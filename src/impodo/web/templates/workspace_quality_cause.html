@@ -4,21 +4,27 @@
   {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Prepared-data finding</p>
+      <p class="eyebrow">Preparation issue</p>
       <h1>{{ cause_title }}</h1>
-      <p>{{ cause.message }}</p>
+      <p>{{ cause_message }}</p>
+      {% if cause_issue.affected_fields %}<p><strong>Source or mapped fields:</strong> {{ cause_issue.affected_fields|join(', ') }}</p>{% endif %}
+      <p><strong>What to do:</strong> {{ cause_issue.recheck }}</p>
+      <a class="button primary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+      {% if cause.policy.value == 'QUARANTINE' %}
+        <p>These records are set aside. This finding does not block comparison of the remaining included records.</p>
+      {% endif %}
     </div>
     <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary#migration-issues">Back to migration issues</a>
   </div>
 
   <section class="readiness-cards quality-cards" aria-label="Affected record totals">
-    <article class="readiness-card blocked">
-      <span>Direct findings</span>
+    <article class="readiness-card {{ 'blocked' if cause.policy.value == 'BLOCK' else 'review' }}">
+      <span>Records with this issue</span>
       <strong>{{ cause.affected_record_count }}</strong>
-      <small>Records where this finding was saved</small>
+      <small>The check failed on these records</small>
     </article>
     <article class="readiness-card review">
-      <span>Dependency impact</span>
+      <span>Related records also set aside</span>
       <strong>{{ cause.affected_parent_count + cause.affected_child_count + cause.affected_sibling_count }}</strong>
       <small>Parents, children, or siblings set aside with them</small>
     </article>
@@ -28,7 +34,7 @@
     <div class="page-heading compact">
       <div>
         <p class="eyebrow">Affected records</p>
-        <h2 id="affected-records-title">Records behind this finding {{ decision_help("preparation-findings") }}</h2>
+        <h2 id="affected-records-title">Records affected by this issue {{ decision_help("preparation-findings") }}</h2>
         {% if review_page.matching_count %}
           <p class="muted">Records {{ row_start }}-{{ row_end }} of {{ review_page.matching_count }}</p>
         {% endif %}
@@ -44,7 +50,7 @@
       <div class="table-scroll">
         <table class="data-table readiness-row-table">
           <thead>
-            <tr><th>Table</th><th>Source row</th><th>Record</th><th>Why it appears here</th><th>Saved findings and next step</th></tr>
+            <tr><th>Table</th><th>Source row</th><th>Record and prepared values</th><th>Why it appears here</th><th>What needs correction</th></tr>
           </thead>
           <tbody>
             {% for item in review_page.items %}
@@ -52,31 +58,32 @@
               <tr data-quality-cause-row>
                 <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                 <td>{{ row.source_row }}</td>
-                <th>{{ row.record_label }}</th>
+                <td>{% include "_quality_record.html" %}</td>
                 <td>
                   {% if item.cause_impact.value == 'DIRECT' %}
-                    <span class="status blocked">Direct finding</span>
+                    <span class="status {{ 'blocked' if cause.policy.value == 'BLOCK' else 'review' }}">Issue on this row</span>
                   {% elif item.cause_impact.value == 'PARENT' %}
-                    <span class="status review">Affected parent</span>
+                    <span class="status review">Related child has an issue</span>
                   {% elif item.cause_impact.value == 'SIBLING' %}
-                    <span class="status review">Affected sibling</span>
+                    <span class="status review">Another row in this group has an issue</span>
                   {% else %}
-                    <span class="status review">Affected child</span>
+                    <span class="status review">Related parent has an issue</span>
                   {% endif %}
                 </td>
                 <td>
-                  {% for issue in item.issues %}
+                  {% for message, fields in quality_review_findings.get(row.row_id, ()) %}
                     <p>
-                      {{ issue.message }}
-                      {% if issue.affected_fields %}<small class="row-field">Fields: {{ issue.affected_fields|join(', ') }}</small>{% endif %}
+                      {{ message }}
+                      {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
                     </p>
                   {% else %}
-                    <p>This record was set aside through the saved dependency closure.</p>
+                    <p>This record was set aside because a related record has an issue. Correct the related record, then prepare the complete data again.</p>
                   {% endfor %}
-                  {% if item.correction_route %}<p><strong>Next step:</strong> {{ item.correction_route }}</p>{% endif %}
+                  {% if cause.reason_code not in ['SOURCE_IDENTITY_INVALID', 'SOURCE_IDENTITY_DUPLICATE'] and item.correction_route %}<p><strong>Next step:</strong> {{ item.correction_route }}</p>{% endif %}
                   <details class="technical-details">
                     <summary>Support details</summary>
                     <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>
+                    {% for issue in item.issues %}<p><code>{{ issue.reason_code }}</code>: {{ issue.message }}</p>{% endfor %}
                   </details>
                 </td>
               </tr>
@@ -99,6 +106,7 @@
     <details class="technical-details">
       <summary>Support details</summary>
       <p><code>{{ cause.reason_code }}</code> &middot; <code>{{ quality_run_id }}</code></p>
+      <p>{{ cause.message }}</p>
     </details>
   </section>
 {% endblock %}

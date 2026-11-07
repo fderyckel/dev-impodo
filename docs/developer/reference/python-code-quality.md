@@ -26,7 +26,7 @@ Each quality artifact owns one decision:
 | `scripts/check_repository_quality.py` | Runs every required repository guardrail before delivery. |
 | `.github/workflows/python-quality.yml` | Runs the repository gate and portable behavioral tests on Linux, macOS, and Windows, and the default performance tests on Linux. |
 | `.github/workflows/*-quality.yml` | Runs host-specific tests only on the platform that owns them. |
-| GitHub branch protection | Must require the stable `Python quality / quality` check before merge. |
+| Maintainer delivery and release approval | Requires the complete local gate before an authorized direct push to `main`. Public releases also require the hosted qualification described below. |
 
 Ruff and Basedpyright are complementary:
 
@@ -60,6 +60,14 @@ The command uses the versions locked in `uv.lock` and performs these checks:
 The gate does not replace focused behavioral tests. Run the tests owned by the
 changed route, service, domain rule, adapter, or repository after the static
 checks pass.
+
+## Main integration during stabilization
+
+On 7 November 2026 the maintainer adopted direct integration on `main`. Agents
+inspect shared changes, save a delivery cutoff, and check one fixed candidate.
+Commit and push the exact checked tree when authorized. Keep later edits for
+the next delivery and preserve the running Impodo session. The owning
+[release plan](../../plans/17-first-public-release.md) records this process.
 
 ## Run the complete repository gate before delivery
 

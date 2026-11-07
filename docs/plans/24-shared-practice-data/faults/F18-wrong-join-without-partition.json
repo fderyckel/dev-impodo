@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "status": "proposed_controlled_exercise_overlay",
+  "status": "proposed_fault_not_covered_by_canonical_success_runs",
   "apply_to_fresh_copy_only": true,
   "id": "F18-wrong-join-without-partition",
   "base_file": null,
@@ -11,5 +11,14 @@
   "expected": {
     "stage": "Source combination review",
     "result": "Block repeated added keys. PTY-0001 exists in both partitions, so the intended18 rows must not become36."
-  }
+  },
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "path_resolution": "proposal_pack_root"
 }

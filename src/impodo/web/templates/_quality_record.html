@@ -1,0 +1,17 @@
+{% set details = quality_record_details.get(row.row_id, ()) %}
+{% if details %}
+  {% for label, value in details[:3] %}
+    <span class="row-field"><strong>{{ label }}:</strong> {{ value }}</span>
+  {% endfor %}
+  {% if details|length > 3 %}
+    <details>
+      <summary>More prepared values</summary>
+      {% for label, value in details[3:] %}
+        <span class="row-field"><strong>{{ label }}:</strong> {{ value }}</span>
+      {% endfor %}
+    </details>
+  {% endif %}
+  <small class="row-field"><strong>Record identifier:</strong> {% if item.prepared_row and not item.prepared_row.source_identity|reject('none')|reject('equalto', '')|list %}Missing{% else %}{{ row.record_label }}{% endif %}</small>
+{% else %}
+  {{ row.record_label }}
+{% endif %}

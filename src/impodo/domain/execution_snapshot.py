@@ -18,6 +18,7 @@ from hashlib import sha256
 from typing import Any
 
 from impodo.domain.preparation.create_relationships import blank_create_reference
+from impodo.domain.preparation.incoming_references import incoming_business_reference
 from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
 from impodo.domain.relationship_dependencies import (
     DependencyStrength,
@@ -885,11 +886,6 @@ def _incoming_update_resolution_index(
                     key=decision.business_identity,
                     scope=decision.business_scope,
                 )
-                incoming = LogicalReference(
-                    origin="incoming",
-                    key=source_key,
-                    dataset=value.dataset,
-                )
                 shaped_reference = replace(
                     business_reference,
                     target_fields=_identity_fields(
@@ -899,9 +895,19 @@ def _incoming_update_resolution_index(
                         referenced_dataset.target_identity.scope
                     ),
                 )
-                # Current comparisons retain governed field paths; historical
-                # comparisons used only the same model, business key and scope.
-                for reference in (business_reference, shaped_reference):
+                incoming = LogicalReference(
+                    origin="incoming",
+                    key=source_key,
+                    dataset=value.dataset,
+                )
+                # Current comparison records retain the target field paths;
+                # historical evidence may contain only model, key, and scope.
+                # Both forms must restore the same incoming dependency.
+                current_reference = incoming_business_reference(
+                    plan, referenced.dataset,
+                    decision.business_identity, decision.business_scope,
+                )
+                for reference in (business_reference, shaped_reference, current_reference):
                     index_key = (
                         owner.dataset,
                         owner.source_row,
@@ -910,7 +916,9 @@ def _incoming_update_resolution_index(
                     )
                     previous = index.setdefault(index_key, incoming)
                     if previous != incoming:
-                        raise ValueError("Incoming update resolution evidence conflicts")
+                        raise ValueError(
+                            "Incoming update resolution evidence conflicts"
+                        )
     return index
 
 
@@ -992,6 +1000,16 @@ def _execution_row(
     ],
 ) -> ExecutionRow:
     operation = decision.classification
+    business_identity, business_scope = decision.business_identity, decision.business_scope
+    components = (*business_identity, *business_scope)
+    if (
+        any(isinstance(value, BusinessReference) for value in components)
+        and not any(isinstance(value, LogicalReference) for value in components)
+    ):
+        execution_identity = incoming_business_reference(
+            plan, dataset.name, business_identity, business_scope
+        )
+        business_identity, business_scope = execution_identity.key, execution_identity.scope
     fields: tuple[FieldIntent, ...] = ()
     if operation is Classification.CREATE:
         fields = _create_intents(plan, dataset, record, target_bindings)
@@ -1022,8 +1040,8 @@ def _execution_row(
         source_trace_id=record.source_trace_id,
         source_identity=record.source_identity,
         target_model=record.target_model,
-        business_identity=decision.business_identity,
-        business_scope=decision.business_scope,
+        business_identity=business_identity,
+        business_scope=business_scope,
         disposition=operation.value,
         target_match_count=decision.target_match_count,
         target_binding_hash=decision.target_binding_hash,

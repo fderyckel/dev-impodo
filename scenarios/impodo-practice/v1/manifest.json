@@ -1,0 +1,228 @@
+{
+  "contract_version": 1,
+  "suite_id": "impodo-practice-customers",
+  "version": 1,
+  "canonical_owner": "scenarios/impodo-practice/v1",
+  "source_counts": {
+    "csv_files": 10,
+    "physical_rows": 124,
+    "baseline_rows": 62,
+    "fresh_rows": 62
+  },
+  "format": {
+    "encoding": "utf-8",
+    "delimiter": ",",
+    "header_row": 1
+  },
+  "runner": "python -m scripts.qualify_practice_customers",
+  "entrypoints": [
+    "authoring",
+    "recipe"
+  ],
+  "exercises": [
+    "enrichment",
+    "payment-terms",
+    "incoming-immediate"
+  ],
+  "controlled_support_matrix": {
+    "odoo_majors": [
+      19,
+      20
+    ],
+    "access_modes": [
+      "LOCAL",
+      "REMOTE"
+    ],
+    "operation_companies": [
+      "NORTH",
+      "SOUTH"
+    ]
+  },
+  "integrity": "The files list pins CSV and independently reviewed JSON bytes. This manifest, README and qualification receipts are excluded to avoid circular hashes.",
+  "files": [
+    {
+      "path": "deliveries/2026-04-15/addresses.csv",
+      "bytes": 2074,
+      "sha256": "09d4d4d835bf8590ac0b7916cfd3ab4509929767e42caa90141c6b04dd335147",
+      "columns": [
+        "Partition",
+        "Party",
+        "RecId",
+        "Name",
+        "Status",
+        "Street",
+        "Postcode",
+        "City",
+        "CountryCode"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/customers_core.csv",
+      "bytes": 2235,
+      "sha256": "6fabbf4116ae8324366f1a8ab12d9b598ad534b6121c81c2478f1f1399f81fff",
+      "columns": [
+        "Partition",
+        "CompanyCode",
+        "AccountNum",
+        "CustomerRef",
+        "Party",
+        "RecId",
+        "Name",
+        "Status",
+        "VATNum",
+        "Chain",
+        "LanguageLabel",
+        "PaymentTermCode",
+        "FiscalPositionName",
+        "EmptyLegacyCode"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/party_details.csv",
+      "bytes": 2420,
+      "sha256": "a5be72c3c9d19bf6f52571821f9e819aa529d697ce922a3fe6f0a752313896f5",
+      "columns": [
+        "Partition",
+        "RecId",
+        "Name",
+        "Status",
+        "Email",
+        "Phone",
+        "Memo"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-04-15/payment_term_lines.csv",
+      "bytes": 242,
+      "sha256": "f39d4d8cd9aa5be28d94f84b5e9503879efe0216400003508f39227403fb0407",
+      "columns": [
+        "CompanyCode",
+        "TermCode",
+        "LineKey",
+        "Sequence",
+        "ValueLabel",
+        "ValueAmount",
+        "Days"
+      ],
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-04-15/payment_terms.csv",
+      "bytes": 230,
+      "sha256": "967f5452891463dd0c49d20661ba86b87710bbf77d8404cd4ea954387cbed0ca",
+      "columns": [
+        "CompanyCode",
+        "CompanyName",
+        "TermCode",
+        "Name"
+      ],
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-05-15/addresses.csv",
+      "bytes": 2074,
+      "sha256": "09d4d4d835bf8590ac0b7916cfd3ab4509929767e42caa90141c6b04dd335147",
+      "columns": [
+        "Partition",
+        "Party",
+        "RecId",
+        "Name",
+        "Status",
+        "Street",
+        "Postcode",
+        "City",
+        "CountryCode"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/customers_core.csv",
+      "bytes": 2236,
+      "sha256": "8542c8bcceda1c020d5cb6fa6f36a024c583110f15813e3ece3fb7f22ccb01a5",
+      "columns": [
+        "Partition",
+        "CompanyCode",
+        "AccountNum",
+        "CustomerRef",
+        "Party",
+        "RecId",
+        "Name",
+        "Status",
+        "VATNum",
+        "Chain",
+        "LanguageLabel",
+        "PaymentTermCode",
+        "FiscalPositionName",
+        "EmptyLegacyCode"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/party_details.csv",
+      "bytes": 2420,
+      "sha256": "8ea4f62994465b744ecc1a04a017647e06a76aaaa19bfa7c56fb8772c1efd0b7",
+      "columns": [
+        "Partition",
+        "RecId",
+        "Name",
+        "Status",
+        "Email",
+        "Phone",
+        "Memo"
+      ],
+      "data_rows": 18
+    },
+    {
+      "path": "deliveries/2026-05-15/payment_term_lines.csv",
+      "bytes": 242,
+      "sha256": "f39d4d8cd9aa5be28d94f84b5e9503879efe0216400003508f39227403fb0407",
+      "columns": [
+        "CompanyCode",
+        "TermCode",
+        "LineKey",
+        "Sequence",
+        "ValueLabel",
+        "ValueAmount",
+        "Days"
+      ],
+      "data_rows": 4
+    },
+    {
+      "path": "deliveries/2026-05-15/payment_terms.csv",
+      "bytes": 230,
+      "sha256": "967f5452891463dd0c49d20661ba86b87710bbf77d8404cd4ea954387cbed0ca",
+      "columns": [
+        "CompanyCode",
+        "CompanyName",
+        "TermCode",
+        "Name"
+      ],
+      "data_rows": 4
+    },
+    {
+      "path": "expected-business-results.json",
+      "bytes": 23688,
+      "sha256": "11c619c5263ca42d8dc0137eabdbbb9f872f51504049f018ca8efaa5a0651970"
+    },
+    {
+      "path": "target-seed-projection.json",
+      "bytes": 5849,
+      "sha256": "44bce82bb70ccbcb5c7bc048d98af4e62c2283209cdc750abf5a4beba777d3e3"
+    }
+  ],
+  "qualification": {
+    "receipts": "qualification-evidence.json",
+    "live_modes": [
+      "LOCAL"
+    ],
+    "controlled_modes": [
+      "LOCAL",
+      "REMOTE"
+    ],
+    "hosted_ci": "NOT_RUN_PAUSED",
+    "scope": "Exact cases are recorded separately; options do not assert every company/mode combination was executed."
+  }
+}

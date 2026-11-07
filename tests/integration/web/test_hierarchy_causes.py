@@ -8,6 +8,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from tests.support.hierarchy_bom import bom_workspace
 from tests.support.hierarchy_correction import correct_bom_through_browser
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
+from tests.support.database_probe import count_duckdb_statements
 
 
 class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
@@ -55,16 +56,35 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
         self.assertEqual(
             len({item.row.row_id for item in (*members.items, *second.items)}), 4
         )
-        with collect_duckdb_request_timings() as timings:
+        with (
+            collect_duckdb_request_timings() as timings,
+            count_duckdb_statements() as statements,
+        ):
             response = self.client.get(
                 f"/workspaces/{workspace_id}/summary/quality-causes/{cause.cause_key}"
             )
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("Records behind this finding", response.text)
-        # The real route includes authorizing foundation reads before the
-        # retained navigation/evidence read; the mocked route tests omit them.
-        self.assertLessEqual(timings.connection_count, 5)
-        self.assertLessEqual(timings.schema_check_count, 5)
+        self.assertIn("Records affected by this issue", response.text)
+        # Two admission owners precede the retained page's registry, workspace,
+        # engine, and Data version owners. The Data version read resolves the
+        # saved source column names; the four store contracts validate once.
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 4)
+        # Prepared records add four bounded reads to the existing page budget.
+        prepared_reads = (
+            "SELECT row_id, row_json FROM canonical_staging_row",
+            "SELECT projection.projection_json, manifest.manifest_json,",
+            "SELECT json_extract_string(model.value, '$.name'),",
+            "SELECT revision.revision_json FROM canonical_staging_run",
+        )
+        normalized = [" ".join(statement.split()) for statement in statements]
+        for prefix in prepared_reads:
+            self.assertEqual(
+                sum(statement.startswith(prefix) for statement in normalized),
+                1,
+                prefix,
+            )
+        self.assertLessEqual(len(statements), 59 + len(prepared_reads))
         self.assertEqual(timings.lock_retry_count, 0)
         historical = repository.get_quality_run(workspace_id, quality.run_id).to_json()
         correct_bom_through_browser(self, workspace_id, columns)

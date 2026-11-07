@@ -6,7 +6,7 @@ status: current
 
 # Scenario qualification runbook
 
-## Current capability
+## Profile-driven scenario CLI
 
 `impodo-cli scenario` now provides a governed, profile-driven qualification
 slice. It can:
@@ -37,6 +37,91 @@ not yet provision or reset Odoo, attest a seed fingerprint independently,
 capture an Odoo source, schedule a catalogue, clean a remote target
 automatically, or drive a real browser. Those remain in the phased
 [end-to-end scenario plan](../../plans/08-end-to-end-trial-and-scenario-qualification.md).
+
+## Shared application practice
+
+The [Morrow practice index](../../../scenarios/impodo-practice/README.md)
+selects the canonical customer or manufacturing component. These runners use
+normal Project, Data version, exact combination, workspace, Recipe,
+preparation, comparison, journalled load, reopening and reconciliation services
+through an isolated in-process application. They do not add implicit joins to
+the profile CLI.
+
+Use `python -m scripts.qualify_practice_customers --help` for customer
+combination, staged NET45 schedules and a new incoming immediate term used by
+an existing and a new customer. Use
+`python -m scripts.qualify_practice_manufacturing --help` for supplied
+categories, combined products, explicit product-status stages, separate BoM
+headers, component lines and operations. The checkout's `test` extra is
+required. The component READMEs own source choices, seed stages and counts.
+
+The manufacturing inputs include a physical six-row header export. Repeated
+header cells in the component export remain source evidence; the runner does
+not derive header attributes through a related split. Products initially use
+Odoo's active default and then receive their source status in separate
+company-filtered phases. Preserve the final inactive values and generated
+variant references. The existing native Services category is a verified
+unowned reference and must remain outside fixture cleanup ownership.
+
+Controlled runs replace only Odoo and exercise the selected LOCAL or REMOTE
+contracts. Live runs require an allocated fresh disposable target, a private
+descriptor and explicit `--allow-write` before credential access. Customer
+runs use one fresh target per exercise and entrypoint; manufacturing runs use
+one fresh target for their ordered component journey. Both capture actual
+metadata and verify the final major before loading. They retain the target
+and private application evidence without starting a service or browser.
+
+For a manual customer baseline, use
+`python -m scripts.prepare_practice_target --help`. Manufacturing uses
+`python -m scripts.prepare_practice_manufacturing_target --help`: run
+`--stage initial`, load the twelve category paths through Impodo, then run
+`--stage existing-products` with the saved private `--seed-directory`.
+The second setup step validates the target, principal, source binding and
+owned ledger before creating the eight initial products. Continue with both
+product partitions, both final status phases and both company BoM phases.
+These setup commands load no migration and start no service or browser.
+The qualification commands do not implement automatic cleanup or
+interrupted-write recovery. Inspect retained evidence after a failure and
+allocate a fresh target for another attempt.
+
+Read each component's dated receipts for the exact observed Odoo 19/20
+release, source/oracle/seed hashes, entrypoint and modes that ran. Controlled
+REMOTE is not live HTTPS evidence. The component qualification records all
+eight controlled combinations of two majors, two access modes and two
+entrypoints separately from four live LOCAL authoring/Recipe journeys across
+the two majors. Live REMOTE HTTPS and visual browser checks were not run.
+Linux/Windows execution and paused hosted checks must be reported separately.
+Native Excel, scale, fault injection and related-split provider cases retain
+their own owners; a valid baseline does not qualify those failure paths.
+
+## Maintain a practice case
+
+Use this procedure when a confirmed failure or a new use case belongs in the
+shared practice world. The optional `$impodo-practice-maintenance` skill can
+guide the work when installed; portable data, commands and tests must not
+depend on that local installation.
+
+1. Record the observed trigger, source grain, saved choices, failing boundary
+   and safe outcome. Review the relevant history and tests. Keep a suspected
+   cause separate from a confirmed reproduction and omit private data.
+2. Reuse canonical synthetic keys or add the smallest named source variation.
+   Declare initial and intermediate target states, permitted writes, exact
+   final business values and dependencies before running the implementation.
+   Preserve accepted baseline bytes and existing receipts.
+3. Add an actual executable consumer or regression at the failed boundary.
+   Demonstrate the original failure, the corrected result and the relevant
+   safe-stop behavior through normal services. A description or fabricated
+   prepared snapshot cannot establish the application path.
+4. Give learners the same files, starting state and decisions. Explain the
+   expected rows and values, the review action after an error, and the scope
+   of any required target setup.
+5. Refresh the owning hashes and retain receipts for each affected major,
+   access mode and authoring/Recipe entrypoint. Separate controlled, live and
+   visual evidence; record omitted checks and keep operational evidence
+   private. Later metadata edits require qualification of that later candidate.
+6. Run focused regressions, documentation checks and the complete repository
+   gate required by `AGENTS.md`. A failed guardrail blocks delivery unless
+   explicitly waived for that delivery. Paused hosted workflows stay paused.
 
 ## Validate before access
 

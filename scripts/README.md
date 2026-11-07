@@ -13,12 +13,38 @@ The environment and dependency groups are defined in `pyproject.toml`.
 | Local performance qualification | `benchmark_*.py`, `qualify_transformation_scale.py` |
 | Representative migration acceptance | `qualify_representative_migration.py` |
 | Disposable Odoo qualification | `qualify_odoo*.py`, `qualify_hierarchy_workflow.py`, `qualify_row_inclusion_*.py`, `qualify_completed_load_correction.py`, `prepare_odoo_compatibility_lab.py`, `odoo20_read_qualification_support.py` |
+| Shared customer practice | `qualify_practice_customers.py` runs persisted authoring or Recipe exercises; `prepare_practice_target.py` prepares only a disposable baseline for manual practice |
+| Shared manufacturing practice | `qualify_practice_manufacturing.py` runs category, product, product-status and separate BoM stages; `prepare_practice_manufacturing_target.py` prepares the initial and existing-products seeds for manual practice |
 | Disposable server identity rehearsal | `rehearse_server_identity.py` |
 
 These scripts exercise current behavior or reproduce maintained evidence.
 Read each runner's arguments and docstring before running it: qualification
 runners that write to Odoo require a disposable target and their documented
 write authorization. Screenshot runners create isolated fictional projects.
+
+For the shared synthetic exports, start with the
+[Morrow practice index](../scenarios/impodo-practice/README.md). Run
+`python -m scripts.qualify_practice_customers --help` or
+`python -m scripts.qualify_practice_manufacturing --help` to select an
+application exercise and its controlled or live target boundary. Both support
+the reviewed Odoo 19/20 contracts and authoring/Recipe entrypoints; each
+component's dated receipts identify what actually ran.
+
+The separate `python -m scripts.prepare_practice_target --help` command
+prepares only a fresh disposable customer baseline for manual practice.
+For manufacturing, `python -m scripts.prepare_practice_manufacturing_target
+--help` exposes `--stage initial` and `--stage existing-products`. Run the
+second only after the twelve category paths are loaded, using the same private
+seed directory. Continue through the component's product, status and BoM
+stages in your existing Impodo session. Commands retain private evidence and start no service or browser.
+They do not reset targets or automatically retry uncertain writes. Controlled
+REMOTE does not establish live HTTPS, a Linux deployment or a visual browser
+run. Native Services remains an unowned reference in manufacturing setup.
+
+`generate_product_bom_fixture.py --output-directory <new-directory>` generates
+the three fictional manufacturing workbooks into an explicit new directory.
+It refuses an existing directory. The consumed round-trip scenarios retain
+their pinned workbook bytes; the unused mirror directory has been removed.
 
 For the hierarchy journey, run `python -m scripts.qualify_hierarchy_workflow
 --help` from a checkout with the `test` extra installed. The runner accepts an

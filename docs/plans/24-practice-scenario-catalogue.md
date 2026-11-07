@@ -10,9 +10,16 @@ status: proposed
 
 This catalogue proposes exercises for a data manager and acceptance cases for
 a coding agent using the same fictional business data. The proposed corpus
-lives under `docs/plans/24-shared-practice-data/`. Its business records are
-practice inputs. They are not accepted source evidence, verified target
-snapshots, published Recipes, or completed qualification results.
+has separate canonical customer and manufacturing owners. The
+[current customer pack](../../scenarios/impodo-practice/v1/README.md) owns the
+customer subset, and the [manufacturing pack](../../scenarios/impodo-practice/manufacturing/v1/README.md)
+owns supplied categories, combined products, separate headers, lines and
+operations. Each owner records its actual qualification scope. The remaining
+proposal has two CSVs and fourteen rows under `docs/plans/24-shared-practice-data/`.
+The cases below remain proposal acceptance requirements unless their canonical
+owner explicitly records their execution. In particular, the supplied-header
+manufacturing exercise does not qualify the separate related-split provider.
+Proposed fault JSON files do not establish completed runtime fault checks.
 
 Read the [shared data proposal](24-shared-practice-data-and-scenarios.md) for
 the business story and delivery plan, and the
@@ -58,6 +65,11 @@ records by portable keys and company or hierarchy scope.
 
 ### UC01. Combine partial customer and supplier records
 
+The current customer runner implements the three-file exact combination,
+compound join keys, company row selection, cleaned contact fields and address
+mapping. Customer payment terms belong to UC04. Supplier roles, VAT, Country,
+Language and additional relationship kinds remain extensions for this pack.
+
 The data manager receives several exports that describe the same contacts.
 They select an exact combination using the contact key and choose the final
 fields once. They keep customer and supplier payment-term roles distinct,
@@ -78,7 +90,7 @@ and [grouped preparation](../../tests/integration/artifacts/test_grouped_exact_j
 
 ### UC02. Generate and supply the same category hierarchy
 
-The data manager first builds categories from four ordered level columns.
+The data manager first builds categories from three ordered level columns.
 They then repeat the task with an explicit category table containing parent
 keys. The data contains repeated names under different parents, a root with
 no parent, and products assigned at intermediate and leaf levels.
@@ -126,14 +138,17 @@ and [scenario qualification](../developer/runbooks/scenario-qualification.md).
 
 This is the mandatory regression case for the lost incoming dependency. Use
 one existing contact, one new contact, and one incoming payment term that does
-not yet exist in the target. Both contacts must use that new term. Keep all
-other mapped values stable so the expected change is unambiguous.
+not yet exist in the target. Both contacts must use that new term. Record every other intentional mapped change explicitly. The draft baseline
+also changes a contact name; observing that name update alone does not prove
+that the incoming term dependency survived.
 
-The term's meaning includes its reviewed payment schedule. Use the corpus's
-schedule-line input and the verified target's field contract when the profile
-requires explicit lines. Declare the due-date rules, percentages or amounts,
-line order, and company scope independently. A term header with only a name
-is not sufficient evidence that the intended schedule exists.
+The term's meaning includes its reviewed payment schedule. Stock Odoo 19 and
+20 generate one 100% zero-day line with a new term. The current baseline
+therefore creates or reuses headers, captures and updates the generated NET45
+line to 45 days, then assigns customers in a third normal run. It creates no
+additional schedule line. The same-load dependency regression uses a separate
+reviewed immediate-term variant whose intended schedule is the stock zero-day
+default. Both workflows verify the complete schedule independently.
 
 The human maps the relationship to the incoming payment-term table, prepares
 the data, compares with Odoo, reopens the saved workspace, and reviews the load
@@ -141,21 +156,21 @@ before confirming it. The agent must exercise the complete chain:
 
 1. Accept the source delivery and save the real mapping.
 2. Run actual preparation and comparison against the target seed.
-3. Assert one payment-term header create, the reviewed schedule-line creates
-   required by the target profile, one contact create, and one contact update.
+3. In the immediate variant, assert one new header, one contact create, one
+   contact update and one reused NET30 header. Do not map a second 100% line.
 4. Save the resulting execution snapshot, reconstruct the application
    services, and read that saved snapshot again.
 5. Assert that both contact relationships still identify the incoming term.
 6. Load through the normal execution service. Assert that the header's durable
-   receipt precedes its inverse-owned schedule lines and the contact writes
-   that depend on it. Where the reviewed requirements demand a complete
-   schedule before contact assignment, assert that prerequisite too. A header
-   receipt alone must not be treated as proof of schedule completeness.
+   receipt precedes both dependent contact writes. Independently verify the
+   one generated zero-day schedule. In the staged NET45 workflow, verify the
+   generated-line update before customer assignment.
 7. Read the target independently and assert that both contacts point to the
    newly created term in the selected company. Assert the exact scoped term
    projection and its complete schedule, including the inverse header links.
-8. Reconcile and compare again. The term header, reviewed schedule lines, and
-   both contacts must all be unchanged.
+8. Reconcile and compare again. All mapped rows must be unchanged. Verify the
+   immediate schedule independently because it is generated by Odoo rather
+   than included as another mapped line.
 
 Run the same responsibility with a term that already exists, a newly created
 owner, an existing owner, scoped keys, and supported list relationships. Do
@@ -166,7 +181,8 @@ creating it is an Impodo defect. Changing the fixture to pre-create the term
 would hide the regression.
 
 Existing evidence:
-[incoming update regression](../../tests/application/workspace/execution/test_incoming_updates.py)
+the concurrent, unmerged incoming-update regression at
+`tests/application/workspace/execution/test_incoming_updates.py`
 and [execution snapshot](../../src/impodo/domain/execution_snapshot.py).
 
 ### UC05. Repair customer and vendor payment terms
@@ -252,9 +268,11 @@ and [execution contract](../developer/contracts/execution-and-reconciliation.md)
 ### UC09. Reuse the rules on a fresh delivery
 
 The data manager publishes Recipes and applies them in an integrated Test run
-using another delivery. The new delivery changes selected business values,
-adds records, and changes row order. Its target uses different numeric record
-IDs. Keep a separate negative delivery with one missing required input column.
+using another delivery. The supplied May delivery changes selected business
+values and row order; it expects no customer creates. Qualify an additional
+new-record delivery as a separate extension. Use a second target with different
+numeric record IDs for portability. A missing-required-column variant also
+needs its own derived delivery; it is not supplied by the current May files.
 
 The agent must use actual Recipe compilation and application, fresh source and
 target evidence, and the new delivery's expected results. It must verify
@@ -335,7 +353,8 @@ local and remote configurations, and compatible older submissions.
 
 Recreating the source connection from hidden stale controls is an Impodo
 regression. The concurrent fix has controlled regression coverage in
-[relationship disconnect tests](../../tests/integration/web/test_relationship_disconnect.py).
+relationship disconnect tests in the concurrent, unmerged
+`tests/integration/web/test_relationship_disconnect.py`.
 That evidence uses simulated readers; live browser behavior remains
 unverified. It does not establish acceptance of this proposed corpus exercise.
 

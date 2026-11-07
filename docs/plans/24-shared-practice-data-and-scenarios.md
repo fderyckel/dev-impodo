@@ -19,12 +19,29 @@ where they explain a test or protect an accepted contract. A one-row unit
 test, a learner exercise, and a disposable Odoo qualification run have
 different jobs even when they use contacts or products.
 
-This proposal includes actual draft source files in the
-[Morrow Assembly practice pack](24-shared-practice-data/README.md). The pack
-is a reviewable starting dataset, not a qualified Recipe or an executable
-scenario definition. No existing fixture, example, or scenario is removed by
-this change. Promotion into the maintained scenario suite follows the checks
-below.
+The first implementation owns the customer inputs in the
+[current Morrow customer pack](../../scenarios/impodo-practice/v1/README.md).
+Its 124 source rows drive customer enrichment, staged payment terms, and a
+same-load incoming-term regression through normal application services.
+Customer enrichment and all three payment-term stages have passed live Odoo
+19 and 20 checks, with independent read-back and unchanged repeat comparisons.
+The pack records authoring and Recipe evidence separately.
+
+The [current manufacturing owner](../../scenarios/impodo-practice/manufacturing/v1/README.md)
+contains twelve CSVs and 236 rows for supplied categories, combined products,
+separate BoM headers, component lines and operations. It preserves the original
+five baseline CSVs and adds a separate header export plus a reordered delivery.
+Its source, target seed, business answers and recorded qualification scope
+have one canonical owner. Native Services remains an existing unowned reference.
+
+The [remaining proposal assets](24-shared-practice-data/README.md) contain two
+CSVs and fourteen rows: eight accounts and six phone patches. Supplier repair,
+optional mappings, generated hierarchy, the related-split provider and the
+eighteen fault variants remain separate proposals. The supplied-header main
+exercise does not qualify deriving headers from repeated component rows.
+Small contract fixtures and existing consumed scenarios retain their own inputs.
+The detailed original delivery design below is retained as proposal history;
+use the canonical manifests for current physical files and counts.
 
 ## What the review found
 
@@ -78,12 +95,16 @@ as leading-zero codes, clean a few deliberate source conventions, and connect
 records to the correct company and parent. Some records already exist in the
 destination. Others must be created before their dependants can load.
 
-The draft contains 250 physical source rows across 17 CSV files:
+The original proposal contained 250 physical rows across 17 CSV files.
+After customer promotion, seven proposed files and 126 rows remained.
+The current owners now contain 22 CSVs and 360 rows across both components;
+only the two account and phone-patch files remain local proposal inputs.
+The following table preserves the original delivery design:
 
 | Delivery | Purpose | Physical rows |
 | --- | --- | ---: |
 | Baseline | Learn source preparation, relationships, hierarchy, and manufacturing with a small inspectable delivery. | 182 |
-| Second delivery | Reuse reviewed rules with changed values, shuffled records, and a new language choice. | 62 |
+| Second delivery | Reuse reviewed rules with changed values and a source language choice outside the current mapping scope. | 62 |
 | Customer patch | Update a narrow selection of existing records while forbidding creates. | 6 |
 
 These are source-file totals. Joining three customer tables does not create
@@ -91,11 +112,11 @@ three times as many customers. Separating repeated BOM headers from lines
 does not create one BOM per physical row. Each exercise must state its own
 prepared, included, excluded, created, updated, unchanged, and verified counts.
 
-The supplied business expectations and seed projection describe intended
-values by business key. They are not Odoo database dumps, portable numeric
-Odoo IDs, or current `SnapshotConnector` snapshots. A version-specific adapter
-must translate the reviewed intent using the verified Odoo major and captured
-metadata before automated loading is qualified.
+The business expectations and seed projection describe intended values by
+business key. The current customer runner translates its reviewed subset
+using the verified Odoo major and captured metadata. Proposed extensions still
+need their own adapters and qualification. These files are not Odoo database
+dumps, portable numeric Odoo IDs, or `SnapshotConnector` snapshots.
 
 ### Complexity that teaches a useful decision
 
@@ -207,8 +228,8 @@ Likewise, a rejected batch does not establish that every row in it is bad.
 
 The catalogue also includes a diagnostic-only investigation: give an agent a
 sanitized failure bundle and ask it to explain what is known about the writes.
-The diagnostics proposal in [Plan 23](23-load-diagnostics-for-agent-investigation.md)
-owns any new exporter behavior. This dataset proposal must not imply that
+The concurrent diagnostics proposal, `23-load-diagnostics-for-agent-investigation.md`,
+owns any new exporter behavior. It remains outside this isolated change. This dataset proposal must not imply that
 the proposed diagnostic fields already exist.
 
 ## Proposed repository ownership

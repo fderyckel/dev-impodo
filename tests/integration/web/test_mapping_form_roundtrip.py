@@ -90,6 +90,32 @@ class _RenderedControls(HTMLParser):
             self.textarea = None
 
 
+class _GeneratedIdentityHelp(HTMLParser):
+    """Inspect whether generated-column guidance starts collapsed."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.disclosures = []
+        self.current = None
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "details" and (
+            "data-generated-row-identity-help" in attrs
+            or "data-generated-odoo-value-help" in attrs
+        ):
+            self.current = (attrs, [])
+            self.disclosures.append(self.current)
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current[1].append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "details":
+            self.current = None
+
+
 class MappingFormRoundTripTests(unittest.TestCase):
     def test_generated_name_warns_when_internal_key_would_change_original_spelling(self):
         category = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
@@ -103,8 +129,63 @@ class MappingFormRoundTripTests(unittest.TestCase):
         html = self.template.render(view=views[0], workspace_id="workspace:test", formula_authoring_issues_by_dataset={})
         self.assertIn("Use original spelling", html)
         self.assertIn('data-column-key="category.name"', html)
+        help_details = _GeneratedIdentityHelp()
+        help_details.feed(html)
+        self.assertEqual(len(help_details.disclosures), 2)
+        for attrs, _ in help_details.disclosures:
+            self.assertNotIn("open", attrs)
+        self.assertIn("data-original-spelling-warning", help_details.disclosures[1][0])
         # Rendering does not silently alter the saved identity.
         self.assertEqual(category.target_identity[0].source_column_keys, ("category.key",))
+
+    def test_generated_column_help_names_both_choices_and_preserves_selections(self):
+        source, product = self.selection.datasets
+        key, name, parent = source.columns
+        self.selection.datasets = (
+            replace(source, columns=(
+                replace(key, source_name="PaymTermId matching key"),
+                replace(name, source_name="PaymTermId"), parent,
+            )), product,
+        )
+        self.governance.business_keys = (
+            BusinessKeyDefinition("key:category-name", "product.category", ("name",),
+                status=BusinessKeyStatus.CONFIRMED),
+            self.governance.business_keys[1],
+        )
+        self.links = (replace(self.links[0], parent_key_column_key=None,
+            source_level_column_keys=()),)
+        for major in (19, 20):
+            with self.subTest(odoo_major=major):
+                self.schema.odoo_version = f"{major}.0"
+                views = _mapping_dataset_views(self.selection, self.schema, self.governance, (),
+                    derived_links=self.links, active_dataset_index=0)
+                html = self.template.render(view=views[0], workspace_id="workspace:test",
+                    formula_authoring_issues_by_dataset={})
+                help_details = _GeneratedIdentityHelp()
+                help_details.feed(html)
+                self.assertEqual(len(help_details.disclosures), 2)
+                source_help, odoo_help = help_details.disclosures
+                self.assertIn("Choose PaymTermId matching key as the Unique row identifier",
+                    "".join(source_help[1]))
+                self.assertIn("Choose PaymTermId for this Odoo field", "".join(odoo_help[1]))
+                for attrs, _ in help_details.disclosures:
+                    self.assertNotIn("open", attrs)
+                self.assertNotIn("data-original-spelling-warning", odoo_help[0])
+                controls = _RenderedControls()
+                controls.feed(html)
+                form = FormData(controls.entries)
+                self.assertEqual(form.getlist("source_identity_0"), ["category.key"])
+                self.assertEqual(form.getlist("identity_source_0_0"), ["category.name"])
+
+    def test_generated_column_help_is_absent_from_physical_source_tables(self):
+        views = _mapping_dataset_views(self.selection, self.schema, self.governance,
+            self.definition.datasets, derived_links=self.links, active_dataset_index=1)
+        html = self.template.render(view=views[1], workspace_id="workspace:test",
+            formula_authoring_issues_by_dataset={})
+        help_details = _GeneratedIdentityHelp()
+        help_details.feed(html)
+        self.assertEqual(help_details.disclosures, [])
+
     def test_explicit_blank_relationship_survives_form_reopening(self):
         from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ReferenceKeyMapping, RelationshipResolver, ResolverOrigin
 

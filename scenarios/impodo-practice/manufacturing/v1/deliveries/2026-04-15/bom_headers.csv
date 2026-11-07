@@ -1,0 +1,7 @@
+CompanyCode,BOMRef,FinishedProductRef,HeaderName,Approved,Active,BaseQty,UnitLabel
+NORTH,MA-BOM-001,MA-P-0001,Practice assembly 01,Oui,Oui,1000,PCE
+SOUTH,MA-BOM-002,MA-P-0002,Practice assembly 02,Oui,Oui,1000,PCE
+NORTH,MA-BOM-003,MA-P-0003,Practice assembly 03,Oui,Oui,1000,PCE
+SOUTH,MA-BOM-004,MA-P-0004,Practice assembly 04,Oui,Oui,1000,PCE
+NORTH,MA-BOM-005,MA-P-0005,Practice assembly 05,Oui,Oui,1000,PCE
+SOUTH,MA-BOM-006,MA-P-0006,Practice assembly 06,Oui,Oui,1000,PCE

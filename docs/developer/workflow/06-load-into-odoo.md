@@ -14,6 +14,18 @@ and reconciles affected records through a separate read capability.
 
 It does not provide a generic Odoo client or whole-migration rollback.
 
+Scoped incoming relationships keep their full business key through saved
+execution and read-back. For example, an existing customer and a new customer
+can both depend on a newly created payment term in one company. Execution
+creates the term first and retains both dependencies after reopening the
+workspace. Nested company lookups receive only the fields frozen in the
+reviewed snapshot, with no additional parent write permission.
+
+The shared [customer practice runner](../../../scenarios/impodo-practice/v1/README.md)
+exercises this relationship and the separate generated-schedule update through
+normal application services. Its controlled and live receipts describe the
+exact acceptance scope; it does not launch a browser.
+
 ## Contextual user guidance
 
 Load-order, confirmation, recovery, verification, and correction headings
@@ -1043,6 +1055,10 @@ qualify another remote topology.
 - [`tests/integration/duckdb/test_execution_repository.py`](../../../tests/integration/duckdb/test_execution_repository.py)
 - [`tests/application/workspace/execution/test_load_jobs.py`](../../../tests/application/workspace/execution/test_load_jobs.py)
 - [`tests/domain/execution/test_snapshot.py`](../../../tests/domain/execution/test_snapshot.py)
+- [`tests/domain/execution/test_incoming_reference_snapshot.py`](../../../tests/domain/execution/test_incoming_reference_snapshot.py)
+- [`tests/domain/preparation/test_incoming_reference_shapes.py`](../../../tests/domain/preparation/test_incoming_reference_shapes.py)
+- [`tests/application/workspace/execution/test_nested_reference_scope.py`](../../../tests/application/workspace/execution/test_nested_reference_scope.py)
+- [`tests/integration/web/test_practice_customers.py`](../../../tests/integration/web/test_practice_customers.py)
 - [`tests/domain/execution/test_dependency_scheduler.py`](../../../tests/domain/execution/test_dependency_scheduler.py)
 - [`tests/domain/recipe/test_profile_and_values.py`](../../../tests/domain/recipe/test_profile_and_values.py)
 - [`tests/domain/test_relationship_dependencies.py`](../../../tests/domain/test_relationship_dependencies.py)

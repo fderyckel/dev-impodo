@@ -238,8 +238,10 @@
         select.setAttribute("aria-label", `Odoo choice for ${sourceValue}`);
 
         const savedTarget = existing.get(sourceValue);
+        const scopedSuggestion = payload.scoped_suggestions?.[sourceValue];
         const suggestedTarget = origins ? origins.suggestion(sourceValue)
-          : targetValues.has(sourceValue) ? sourceValue : "";
+          : targetValues.has(sourceValue) ? sourceValue
+          : targetValues.has(scopedSuggestion) ? scopedSuggestion : "";
         const selectedTarget =
           existing.has(sourceValue) && savedTarget === null && allowBlank
             ? blankChoice

@@ -89,7 +89,7 @@ class BlankCreateRelationshipBrowserTests(ProjectSetupBrowserTestCase):
             patch("impodo.web.routers.mapping._source_value_choices", return_value=()),
             patch(
                 "impodo.web.routers.mapping._relationship_value_choices",
-                return_value=(target_choices, (), datetime.now(UTC), False),
+                return_value=(target_choices, (), datetime.now(UTC), False, {}),
             ),
             patch.object(
                 context,

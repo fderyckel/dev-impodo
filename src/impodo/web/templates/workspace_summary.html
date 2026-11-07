@@ -154,7 +154,7 @@
       {% if quality_review_page and quality_review_page.items %}
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
-            <thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>
+            <thead><tr><th>Table</th><th>Source row</th><th>Record and prepared values</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>
             <tbody>
               {% for item in quality_review_page.items %}
                 {% set row = item.row %}
@@ -162,7 +162,7 @@
                 <tr data-quality-row>
                   <td>{{ row.dataset.replace('_', ' ')|title }}</td>
                   <td>{{ row.source_row }}</td>
-                  <th>{{ row.record_label }}</th>
+                  <td>{% include "_quality_record.html" %}</td>
                   <td>
                     {% if excluded_by_filter %}
                       <strong>Excluded by filters</strong>
@@ -171,10 +171,9 @@
                       {% if row.effective_disposition.value in ['QUARANTINED', 'EXCLUDED'] %}
                         <strong>Set aside for a data issue</strong>
                       {% endif %}
-                      {% for issue in item.issues %}
+                      {% for message, fields in quality_review_findings.get(row.row_id, ()) %}
                         <p>
-                          {{ issue.message }}
-                          {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
+                          {{ message }}
                           {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
                         </p>
                       {% else %}
@@ -198,7 +197,7 @@
                     <details class="technical-details">
                       <summary>Support details</summary>
                       <code>{{ row.effective_disposition.value }} · {{ row.row_id }}</code>
-                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} · {{ detail.rule_id }}</code></small>{% endfor %}
+                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} · {{ detail.rule_id }}</code>: {{ detail.message }}</small>{% endfor %}
                     </details>
                   </td>
                 </tr>

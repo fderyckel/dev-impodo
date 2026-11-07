@@ -11,6 +11,33 @@ the same fictional business data and exercises. It records the repository
 and chat evidence reviewed on 6 November 2026. The actions below are proposed;
 this review does not move data, replace accepted fixtures, or qualify a load.
 
+## Implementation update
+
+After live customer enrichment and staged payment terms passed on both Odoo
+19 and 20, the implementation promoted the customer inputs to
+`scenarios/impodo-practice/v1/` and removed ten superseded proposal CSV copies.
+The manufacturing inputs subsequently gained their own canonical owner at
+`scenarios/impodo-practice/manufacturing/v1/`. Its twelve CSVs contain 236 rows,
+including separate supplied headers and a reordered delivery. Only the five
+byte-identical manufacturing baseline proposal copies were retired. The
+remaining proposal has two CSVs and fourteen rows: accounts and a phone patch.
+Its metadata references both current owners without duplicating their answers
+or seeds. The split-provider variant remains proposed; the supplied-header
+exercise does not replace that derivation contract.
+
+The three workbooks in the unconsumed
+`scenarios/fixtures/file-products-and-boms/v1/` mirror were also removed after
+byte comparison with the retained header-scenario copies. The generator now
+requires an explicit new output directory. Four portable checks prove that
+the generated sheet names, headers, typed cell values and relationships still
+match the retained fixture meaning, and that existing outputs are preserved.
+Every workbook consumed by a scenario keeps its original bytes and hashes.
+
+The tables below retain the original audit as dated evidence. Manufacturing
+scenario containment, golden comparisons, compatibility, serialization and
+current tutorial fixtures keep their own owners. Customer and manufacturing practice qualification do
+not establish replacement coverage for those responsibilities.
+
 The review covered tracked files under `fixtures/`, `examples/`, `scenarios/`,
 `profiles/`, `tests/fixtures/`, and `docs/examples/`, their repository callers,
 and selected relevant local chats. The reviewed chats are listed below.

@@ -585,6 +585,7 @@ stages:
       - src/impodo/application/workspace/mapping/health_issues.py::matching_health_issue_counts
       - src/impodo/domain/execution/planner.py::plan_record_requests
       - src/impodo/domain/preparation/preflight.py::PreflightEngine
+      - src/impodo/domain/preparation/incoming_references.py::incoming_business_reference
       - src/impodo/domain/execution_snapshot.py::build_execution_snapshot
       - src/impodo/adapters/polars_transformation.py::summarize_polars_rule_impacts
       - src/impodo/domain/preparation/source.py::_prepare_relation
@@ -638,6 +639,7 @@ stages:
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
       - tests/integration/web/test_combined_value_match_choices.py
+      - tests/integration/web/test_value_choice_company_refresh.py
       - tests/application/workspace/mapping/test_value_match_choices.py
       - tests/e2e/mapping-value-match-origins.test.cjs
       - tests/integration/artifacts/test_joined_row_inclusion.py
@@ -841,6 +843,7 @@ stages:
       - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
       - src/impodo/adapters/duckdb/foundation_operation_intents.py::FoundationOperationIntents.reserve_preflight_comparison
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
+      - src/impodo/domain/preflight/mapping_summary.py::workbook_mapping_rules
       - src/impodo/domain/execution/planner.py::plan_preflight_requirements
       - src/impodo/application/odoo_comparison_service.py::prepare_odoo_comparison
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
@@ -852,10 +855,14 @@ stages:
       - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/presenters/summary.py::_quality_workflow_issue_summary
+      - src/impodo/adapters/duckdb/quality_review_details.py::explain_source_match_causes
+      - src/impodo/web/presenters/quality_review.py::quality_record_details
       - src/impodo/web/presenters/summary.py::_readiness_workflow_issue_summary
       - src/impodo/application/workspace/issues.py::WorkflowIssueProjection
       - src/impodo/web/composition/target_readers.py::LocalOdooRecoveryRequired
     tests:
+      - tests/integration/web/test_missing_source_match_review.py
+      - tests/integration/duckdb/test_quality_review_details.py
       - tests/integration/web/test_final_review_performance.py
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
@@ -867,6 +874,7 @@ stages:
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
       - tests/integration/artifacts/test_transformation_summary.py
+      - tests/integration/artifacts/test_detailed_transformation_summary.py
       - tests/integration/artifacts/test_preflight_outputs.py
       - tests/integration/odoo/test_connectors.py
       - tests/integration/odoo/test_company_context_identity.py
@@ -1035,6 +1043,10 @@ stages:
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
       - tests/domain/execution/test_snapshot.py
+      - tests/domain/execution/test_incoming_reference_snapshot.py
+      - tests/domain/preparation/test_incoming_reference_shapes.py
+      - tests/application/workspace/execution/test_nested_reference_scope.py
+      - tests/integration/web/test_practice_customers.py
       - tests/domain/execution/test_write_diagnostics.py
       - tests/domain/execution/test_generated_name_repair.py
       - tests/e2e/test_generated_display_names.py

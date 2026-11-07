@@ -1,8 +1,16 @@
 {
   "schema_version": 1,
-  "kind": "proposed_business_key_seed_projection",
-  "status": "not_an_Impodo_snapshot_or_executable_seed",
-  "purpose": "Adapter input specification for an isolated disposable target; numeric Odoo IDs are deliberately absent.",
+  "kind": "proposed_extension_target_seed_specification",
+  "status": "not_an_executable_seed_or_Impodo_snapshot",
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "purpose": "Starting target intent for proposed accounts, the phone-only patch and supplier repair. Current customer and manufacturing seed projections are referenced rather than copied.",
   "version_adapters_required": [
     19,
     20
@@ -11,241 +19,6 @@
     "LOCAL",
     "REMOTE"
   ],
-  "companies": [
-    {
-      "company_code": "NORTH",
-      "name": "Morrow Assembly North"
-    },
-    {
-      "company_code": "SOUTH",
-      "name": "Morrow Assembly South"
-    }
-  ],
-  "countries": [
-    {
-      "code": "BE"
-    },
-    {
-      "code": "FR"
-    }
-  ],
-  "languages": [
-    {
-      "label": "English",
-      "captured_code_required": true
-    },
-    {
-      "label": "French",
-      "captured_code_required": true
-    }
-  ],
-  "uoms": [
-    {
-      "business_key": "Units",
-      "source_alias": "PCE",
-      "do_not_create_duplicate": true
-    }
-  ],
-  "product_tags": [
-    {
-      "name": "MORROW"
-    },
-    {
-      "name": "TRAINING"
-    }
-  ],
-  "work_centres": [
-    {
-      "code": "MA-WC-01",
-      "name": "Morrow Practice Work Centre 01"
-    },
-    {
-      "code": "MA-WC-02",
-      "name": "Morrow Practice Work Centre 02"
-    },
-    {
-      "code": "MA-WC-03",
-      "name": "Morrow Practice Work Centre 03"
-    },
-    {
-      "code": "MA-WC-04",
-      "name": "Morrow Practice Work Centre 04"
-    }
-  ],
-  "fiscal_positions": [
-    {
-      "company_code": "NORTH",
-      "name": "Domestic"
-    },
-    {
-      "company_code": "NORTH",
-      "name": "Export"
-    },
-    {
-      "company_code": "SOUTH",
-      "name": "Domestic"
-    },
-    {
-      "company_code": "SOUTH",
-      "name": "Export"
-    }
-  ],
-  "payment_terms": [
-    {
-      "company_code": "NORTH",
-      "term_code": "NET30",
-      "name": "Morrow Net 30",
-      "balance_line": {
-        "days": 30,
-        "value_label": "Balance"
-      }
-    },
-    {
-      "company_code": "SOUTH",
-      "term_code": "NET30",
-      "name": "Morrow Net 30",
-      "balance_line": {
-        "days": 30,
-        "value_label": "Balance"
-      }
-    }
-  ],
-  "customers": [
-    {
-      "customer_ref": "MA-N-0001",
-      "company_code": "NORTH",
-      "account_num": "0001",
-      "partition": "PART-N",
-      "party_key": "PTY-0001",
-      "name": "Morrow North Assembly Before Review",
-      "email": "north.01@morrow.example",
-      "phone": "+12025550101",
-      "language_label": "French",
-      "payment_term_key": [
-        "NORTH",
-        "NET30"
-      ],
-      "fiscal_position_key": [
-        "NORTH",
-        "Domestic"
-      ],
-      "vat": null,
-      "country_code": "BE",
-      "chain": "Independent",
-      "address": {
-        "street": "1 Example Workshop Lane",
-        "postcode": "1001",
-        "city": "Fictional North",
-        "country_code": "BE"
-      },
-      "target_record_company_assignment": null
-    },
-    {
-      "customer_ref": "MA-N-0002",
-      "company_code": "NORTH",
-      "account_num": "0002",
-      "partition": "PART-N",
-      "party_key": "PTY-0002",
-      "name": "Morrow North Design",
-      "email": "north.02@morrow.example",
-      "phone": "+12025550102",
-      "language_label": "English",
-      "payment_term_key": [
-        "NORTH",
-        "NET30"
-      ],
-      "fiscal_position_key": [
-        "NORTH",
-        "Domestic"
-      ],
-      "vat": null,
-      "country_code": "BE",
-      "chain": "Morrow Network",
-      "address": {
-        "street": "2 Example Workshop Lane",
-        "postcode": "1002",
-        "city": "Fictional North",
-        "country_code": "BE"
-      },
-      "target_record_company_assignment": null
-    },
-    {
-      "customer_ref": "MA-S-0001",
-      "company_code": "SOUTH",
-      "account_num": "0001",
-      "partition": "PART-S",
-      "party_key": "PTY-0001",
-      "name": "Morrow South Assembly",
-      "email": "south.01@morrow.example",
-      "phone": "+12025550110",
-      "language_label": "French",
-      "payment_term_key": [
-        "SOUTH",
-        "NET30"
-      ],
-      "fiscal_position_key": [
-        "SOUTH",
-        "Domestic"
-      ],
-      "vat": null,
-      "country_code": "FR",
-      "chain": "Morrow Network",
-      "address": {
-        "street": "10 Example Workshop Lane",
-        "postcode": "1010",
-        "city": "Fictional South",
-        "country_code": "FR"
-      },
-      "target_record_company_assignment": null
-    },
-    {
-      "customer_ref": "MA-S-0002",
-      "company_code": "SOUTH",
-      "account_num": "0002",
-      "partition": "PART-S",
-      "party_key": "PTY-0002",
-      "name": "Morrow South Design",
-      "email": "before.review@morrow.example",
-      "phone": "+12025550111",
-      "language_label": "English",
-      "payment_term_key": [
-        "SOUTH",
-        "NET30"
-      ],
-      "fiscal_position_key": [
-        "SOUTH",
-        "Domestic"
-      ],
-      "vat": null,
-      "country_code": "FR",
-      "chain": "Independent",
-      "address": {
-        "street": "11 Example Workshop Lane",
-        "postcode": "1011",
-        "city": "Fictional South",
-        "country_code": "FR"
-      },
-      "target_record_company_assignment": null
-    }
-  ],
-  "categories": [
-    {
-      "category_key": "CAT-01",
-      "path": [
-        "Components"
-      ]
-    },
-    {
-      "category_key": "CAT-02",
-      "path": [
-        "Components",
-        "Metals"
-      ]
-    }
-  ],
-  "boms": [],
-  "bom_lines": [],
-  "bom_operations": [],
   "account_parent_intent": [
     {
       "company_code": "NORTH",
@@ -258,297 +31,44 @@
       "name": "Morrow Practice Parent"
     }
   ],
-  "field_capability_checks": [
-    "Resolve payment-term header identity from approved captured fields. TermCode is a source key, not a promise that Odoo has a code field.",
-    "Use child account.payment.term.line ownership and captured due-date fields. Never infer 45-day terms from the parent name.",
-    "Verify company behavior for each model against the verified Odoo major and shared reference policies.",
-    "Verify account.account code/company and parent relationship fields. ParentCode is proposed business intent and does not promise a standard Odoo parent field.",
-    "Verify optional date destination fields. The CSV supports date parsing; native Excel-cell coverage is a separate future artifact.",
-    "Reseed initial target per exercise or record the full prior exercise state. Do not add exercise classification totals together.",
-    "Customer CompanyCode scopes the exercise and accounting choices. The declared customer intent does not assign res.partner.company_id; explicit record ownership would be a separate reviewed exercise."
-  ],
-  "operation_company_policy": "Exactly one selected operation company per load/run. Run NORTH and SOUTH projections separately, with explicit source row filters; shared records retain their declared shared ownership.",
-  "required_model_capabilities": {
-    "disposable_only": true,
-    "connection": "LOCAL or REMOTE must be explicitly verified for the chosen target and major.",
-    "models_required_by_track": {
-      "customer": [
-        "res.partner",
-        "res.country",
-        "res.lang"
-      ],
-      "manufacturing": [
-        "product.template",
-        "product.product",
-        "product.category",
-        "uom.uom",
-        "mrp.bom",
-        "mrp.bom.line",
-        "mrp.routing.workcenter",
-        "mrp.workcenter"
-      ],
-      "accounting": [
-        "account.payment.term",
-        "account.payment.term.line",
-        "account.fiscal.position",
-        "account.account"
-      ]
-    },
-    "modules": "Verify installed modules and edition capabilities from target metadata. base/contacts/product/mrp alone does not establish availability of account models or accounting features.",
-    "companies": "Seed NORTH and SOUTH, grant the exercise user the intended company access, then choose one operation company per run.",
-    "selection_values": "Match human labels to each target major's captured choices; do not reuse an Odoo19 alias as a version-neutral default.",
-    "accounting_limits": "No tax correctness, fiscal-position tax mapping, localization completeness, or account hierarchy capability is asserted by these dummy names.",
-    "unsupported_capability": "Mark the affected track Needs setup or not qualified if the verified target lacks fields/modules. Do not create invented Odoo fields to force a pass."
-  },
-  "seed_state_policy": "Customer and product verdicts refer to the declared initial seed for each isolated exercise. A cumulative walkthrough must record which shared categories/components were already loaded. Never apply initial-seed verdicts to a target changed by prior exercises.",
   "seed_stages": [
     {
-      "id": "S0-shared-reference-and-customer-seed",
+      "id": "E0-account-capability-review",
       "before": [
-        "P01",
-        "P02",
-        "P04"
+        "P08"
       ],
-      "already_declared_sections": [
-        "companies",
-        "countries",
-        "languages",
-        "uoms",
-        "product_tags",
-        "work_centres",
-        "fiscal_positions",
-        "payment_terms",
-        "customers",
-        "categories"
-      ],
-      "products": [],
-      "note": "Only the2 top-level category seed records exist at this stage; no product may reference a missing category. Account parent intent remains capability-dependent."
+      "action": "Capture the verified account model and company/code/parent fields before defining an executable account seed. The parent intent below is not an Odoo snapshot or chart-of-accounts qualification."
     },
     {
-      "id": "S1-complete-category-exercise",
-      "action": "Complete P02 so all12 category paths exist and are read-back verified. Alternative: a controlled seed adapter may create the same12 verified paths and records that P02 was bypassed.",
-      "expected_category_paths": [
-        [
-          "Components"
-        ],
-        [
-          "Components",
-          "Metals"
-        ],
-        [
-          "Components",
-          "Metals",
-          "Assembly"
-        ],
-        [
-          "Components",
-          "Polymers"
-        ],
-        [
-          "Components",
-          "Polymers",
-          "Assembly"
-        ],
-        [
-          "Components",
-          "Packaging"
-        ],
-        [
-          "Finished"
-        ],
-        [
-          "Finished",
-          "Modules"
-        ],
-        [
-          "Finished",
-          "Kits"
-        ],
-        [
-          "Services"
-        ],
-        [
-          "Services",
-          "Design"
-        ],
-        [
-          "Services",
-          "Assembly"
-        ]
-      ]
-    },
-    {
-      "id": "S2-seed-existing-products",
+      "id": "E4-phone-patch-prerequisite",
       "before": [
-        "P03"
-      ],
-      "requires_stage": "S1-complete-category-exercise",
-      "products": [
-        {
-          "product_ref": "MA-P-0009",
-          "name": "Practice Component 01",
-          "price": "1.25",
-          "category_path": [
-            "Components",
-            "Metals",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-03",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "MORROW",
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0010",
-          "name": "Practice Component 02 Before Review",
-          "price": "1.00",
-          "category_path": [
-            "Components",
-            "Polymers",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-05",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0011",
-          "name": "Practice Component 03",
-          "price": "3.75",
-          "category_path": [
-            "Components",
-            "Packaging"
-          ],
-          "source_category_key": "CAT-06",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "MORROW",
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0012",
-          "name": "Practice Component 04",
-          "price": "4.00",
-          "category_path": [
-            "Components",
-            "Metals",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-03",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0013",
-          "name": "Practice Component 05",
-          "price": "5.25",
-          "category_path": [
-            "Components",
-            "Polymers",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-05",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "MORROW",
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0014",
-          "name": "Practice Component 06",
-          "price": "6.50",
-          "category_path": [
-            "Components",
-            "Metals",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-03",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0015",
-          "name": "Practice Component 07",
-          "price": "7.75",
-          "category_path": [
-            "Components",
-            "Polymers",
-            "Assembly"
-          ],
-          "source_category_key": "CAT-05",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "MORROW",
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        },
-        {
-          "product_ref": "MA-P-0016",
-          "name": "Practice Component 08",
-          "price": "8.00",
-          "category_path": [
-            "Components",
-            "Packaging"
-          ],
-          "source_category_key": "CAT-06",
-          "product_kind": "goods",
-          "active": true,
-          "uom_key": "Units",
-          "tags": [
-            "TRAINING"
-          ],
-          "date_only": "2026-04-15"
-        }
-      ],
-      "note": "These8 existing product records are a later seed stage, never simultaneous with the initial2-category-only seed. P03 verdicts become applicable only after this stage succeeds."
-    },
-    {
-      "id": "S3-complete-product-exercises",
-      "before": [
-        "P05"
-      ],
-      "action": "Complete NORTH and SOUTH P03 product projections, verify32 shared templates and the product.product references needed by BoM components.",
-      "note": "Every component reference used by both company BoM projections must resolve before P05; source CompanyCode never silently restricts a shared product lookup."
-    },
-    {
-      "id": "S4-complete-customer-and-term-exercises",
-      "before": [
-        "P06",
         "P07"
       ],
-      "action": "Complete both company P04 customer/term projections and their owned term lines.",
-      "note": "P06 expects the fully loaded baseline18customers/4terms. P07 expects at least the6 NORTH customers already loaded; its one-field writes preserve the actual current other fields."
+      "action": "Complete the canonical NORTH customer baseline so all six selected refs exist. Preserve actual other target fields during the phone-only update."
+    },
+    {
+      "id": "E5-supplier-repair-branch",
+      "before": [
+        "P10"
+      ],
+      "target_overlay": "target-overlays/vendor-term-repair.json",
+      "action": "Create the reviewed supplier-only repair state separately; do not apply it to a historical customer comparison."
     }
-  ]
+  ],
+  "field_capability_checks": [
+    "Qualify each extension on the verified Odoo 19 and Odoo 20 major, with captured writable fields and shared compatibility/reference policies.",
+    "Company definitions belong to the canonical customer pack. Operation context, source row selection, record assignment and relationship scope remain separate decisions.",
+    "AccountNum and ParentCode are business intent; no standard account hierarchy field is promised.",
+    "No tax correctness, fiscal-position tax mapping, localization or account chart correctness is asserted by these invented labels.",
+    "Current manufacturing setup, native Services ownership, generated variants, version-specific fields and stage order belong only to the canonical manufacturing seed projection."
+  ],
+  "current_manufacturing_pack": {
+    "owner": "scenarios/impodo-practice/manufacturing/v1",
+    "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+    "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+    "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+    "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+  }
 }

@@ -929,7 +929,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         context, workspace_id, actor=actor, schema=schema,
                         expected_revision=workspace_state.revision,
                     )
-                    if kind == "constant_relationship"
+                    if kind in {"relationship", "constant_relationship"}
                     and workspace_state.odoo_company is not None
                     and workspace_state.odoo_company.context_hash != schema.read_context_hash
                     else None
@@ -983,6 +983,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
             ambiguous_values: tuple[str, ...] = ()
             target_checked_at: str | None = None
             target_choices_reused = False
+            scoped_suggestions: dict[str, str] = {}
             selection_payload = {}
             combined_payload = {}
             if kind == "scalar":
@@ -1013,8 +1014,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     raise WorkspaceError(
                         "Linked record matching requires confirmed Odoo matching rules"
                     )
+                related_model = field.relation
                 if (
-                    not field.relation
+                    not related_model
                     or field.type not in {"many2one", "many2many"}
                     or (field.type == "many2many" and kind != "constant_relationship")
                 ):
@@ -1026,7 +1028,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         item
                         for item in _related_business_keys(
                             governance.business_keys,
-                            field.relation,
+                            related_model,
                         )
                         if item.key_id == _text(form, "business_key_id")
                     ),
@@ -1051,11 +1053,20 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         raise WorkspaceError(
                             "Impodo could not verify the selected company. Check access under Company for this load."
                         )
+                    # The refreshed field can have a different company default.
+                    field = next(
+                        item
+                        for refreshed_model in schema.models
+                        if refreshed_model.name == target_model
+                        for item in refreshed_model.fields
+                        if item.name == target_field
+                    )
                 (
                     target_choices,
                     ambiguous_values,
                     checked_at,
                     target_choices_reused,
+                    scoped_suggestions,
                 ) = await run_in_threadpool(
                     _relationship_value_choices,
                     context,
@@ -1066,6 +1077,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     key,
                     refresh=_text(form, "refresh") == "1",
                     constant_key_value=constant_value if kind == "constant_relationship" else None,
+                    suggest_scoped_names=kind == "relationship" and incoming is None,
                     actor=actor,
                 )
                 target_checked_at = checked_at.isoformat()
@@ -1074,7 +1086,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         combined_value_choices,
                         incoming, source_choices, target_choices, ambiguous_values,
                         owner_dataset_id=dataset_id, target_field=target_field,
-                        related_model=field.relation, scoped_key=bool(key.scope_fields),
+                        related_model=related_model, scoped_key=bool(key.scope_fields),
                     )
             blank_fallback_available = (
                 kind == "relationship" and field.type == "many2one"
@@ -1096,6 +1108,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "source_choices": source_choices,
                     "target_choices": target_choices,
                     "ambiguous_values": ambiguous_values,
+                    "scoped_suggestions": scoped_suggestions,
                     "target_checked_at": target_checked_at,
                     "target_choices_reused": target_choices_reused,
                     **selection_payload,

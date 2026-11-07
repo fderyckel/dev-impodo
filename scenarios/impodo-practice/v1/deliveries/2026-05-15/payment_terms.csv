@@ -1,0 +1,5 @@
+CompanyCode,CompanyName,TermCode,Name
+NORTH,Morrow Assembly North,NET30,Morrow Net 30
+NORTH,Morrow Assembly North,NET45,Morrow Net 45
+SOUTH,Morrow Assembly South,NET30,Morrow Net 30
+SOUTH,Morrow Assembly South,NET45,Morrow Net 45

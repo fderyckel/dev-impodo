@@ -68,6 +68,7 @@ class WorkflowIssueProjection:
     secondary_correction_route: str = ""
     detail_label: str = ""
     detail_route: str = ""
+    explanation: str = ""
 
 
 @dataclass(frozen=True, slots=True)

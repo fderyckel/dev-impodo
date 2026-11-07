@@ -53,6 +53,7 @@ from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
 from ..resolution import EffectiveDataset
 from .fields_set_aside import FieldSetAsideEvidence, field_set_aside_evidence
+from .mapping_summary import ReviewWorkbookFieldRule
 
 FROZEN_PREFLIGHT_INPUT_VERSION = 5
 
@@ -160,6 +161,7 @@ class FrozenPreflightInput:
     contract_version: int = FROZEN_PREFLIGHT_INPUT_VERSION
     fields_set_aside: FieldSetAsideEvidence | None = None
     workbook_omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
+    workbook_mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] | None = None
 
     @property
     def content_hash(self) -> str:
@@ -215,6 +217,7 @@ def build_frozen_preflight_input(
     effective: EffectiveDataset | None = None,
     captured_schema: OdooSchemaCatalog | None = None,
     workbook_source_keys: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
+    workbook_mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] | None = None,
 ) -> FrozenPreflightInput:
     """Validate current durable evidence and build the preflight envelope.
 
@@ -318,6 +321,7 @@ def build_frozen_preflight_input(
         source_field_labels=dict(source_field_labels),
         eligible_row_ids=eligible_row_ids,
         captured_schema=captured_schema,
+        workbook_mapping_rules=workbook_mapping_rules,
         fields_set_aside=(
             field_set_aside_evidence(plan, rows, source_field_labels, workbook_source_keys)
             if workbook_source_keys is not None

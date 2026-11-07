@@ -42,7 +42,7 @@ from impodo.domain.workspace.workbench import OdooConnectionMode
 from tests.application.workspace.execution import test_service as support
 
 
-def _comparison(version, mode, model, kind, hybrid, scoped):
+def _comparison_evidence(version, mode, model, kind, hybrid, scoped):
     scope = (
         (IdentityComponent(source_fields=("scope",), target_fields=("scope_code",)),)
         if scoped
@@ -188,6 +188,11 @@ def _comparison(version, mode, model, kind, hybrid, scoped):
         ),
         content_hash=support.HASH,
     )
+    return frozen, result, field
+
+
+def _comparison(version, mode, model, kind, hybrid, scoped):
+    frozen, result, field = _comparison_evidence(version, mode, model, kind, hybrid, scoped)
     snapshot = build_execution_snapshot(
         preflight_run_id=str(uuid4()), frozen=frozen, result=result
     )

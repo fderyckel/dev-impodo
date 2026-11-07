@@ -2,21 +2,13 @@
 
 from __future__ import annotations
 
+import argparse
 from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.worksheet.table import Table, TableStyleInfo
-
-
-OUTPUT_DIR = (
-    Path(__file__).resolve().parents[1]
-    / "scenarios"
-    / "fixtures"
-    / "file-products-and-boms"
-    / "v1"
-)
 
 HEADER_FILL = PatternFill("solid", fgColor="1F4E78")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -258,6 +250,7 @@ BOM_ROWS = [
 
 
 def create_workbook(
+    output_directory: Path,
     file_name: str,
     sheet_name: str,
     headers: list[str],
@@ -314,21 +307,27 @@ def create_workbook(
                     if item.row > 1:
                         item.fill = THIN_FILL
 
-    workbook.save(OUTPUT_DIR / file_name)
+    try:
+        workbook.save(output_directory / file_name)
+    finally:
+        workbook.close()
 
 
-def read_records(file_name: str, sheet_name: str) -> list[dict[str, object]]:
-    workbook = load_workbook(OUTPUT_DIR / file_name, read_only=True, data_only=False)
-    worksheet = workbook[sheet_name]
-    rows = worksheet.iter_rows(values_only=True)
-    headers = list(next(rows))
-    return [dict(zip(headers, row, strict=True)) for row in rows]
+def read_records(workbook_path: Path, sheet_name: str) -> list[dict[str, object]]:
+    workbook = load_workbook(workbook_path, read_only=True, data_only=False)
+    try:
+        worksheet = workbook[sheet_name]
+        rows = worksheet.iter_rows(values_only=True)
+        headers = list(next(rows))
+        return [dict(zip(headers, row, strict=True)) for row in rows]
+    finally:
+        workbook.close()
 
 
-def validate_fixture() -> None:
-    articles = read_records("DEMO_Article.xlsx", "PLW")
-    versions = read_records("DEMO_BOMVersion.xlsx", "Sheet1")
-    lines = read_records("DEMO_BOM.xlsx", "Sheet1")
+def validate_fixture(output_directory: Path) -> None:
+    articles = read_records(output_directory / "DEMO_Article.xlsx", "PLW")
+    versions = read_records(output_directory / "DEMO_BOMVersion.xlsx", "Sheet1")
+    lines = read_records(output_directory / "DEMO_BOM.xlsx", "Sheet1")
 
     assert len(articles) == 6
     assert len(versions) == 2
@@ -371,31 +370,44 @@ def validate_fixture() -> None:
         assert line_unit == article_units[str(row["ItemId"])]
 
 
-def main() -> None:
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def generate_fixture(output_directory: Path) -> tuple[Path, ...]:
+    """Create and validate a fresh output set without changing committed fixtures."""
+    output_directory = Path(output_directory).expanduser()
+    output_directory.mkdir(parents=True, exist_ok=False)
     create_workbook(
-        "DEMO_Article.xlsx",
-        "PLW",
-        ARTICLE_HEADERS,
-        ARTICLE_ROWS,
-        "DemoArticleTable",
+        output_directory,
+        "DEMO_Article.xlsx", "PLW", ARTICLE_HEADERS, ARTICLE_ROWS, "DemoArticleTable",
     )
     create_workbook(
-        "DEMO_BOMVersion.xlsx",
-        "Sheet1",
-        BOM_VERSION_HEADERS,
-        BOM_VERSION_ROWS,
+        output_directory,
+        "DEMO_BOMVersion.xlsx", "Sheet1", BOM_VERSION_HEADERS, BOM_VERSION_ROWS,
         "DemoBomVersionTable",
     )
     create_workbook(
-        "DEMO_BOM.xlsx",
-        "Sheet1",
-        BOM_HEADERS,
-        BOM_ROWS,
-        "DemoBomLineTable",
+        output_directory,
+        "DEMO_BOM.xlsx", "Sheet1", BOM_HEADERS, BOM_ROWS, "DemoBomLineTable",
     )
-    validate_fixture()
+    validate_fixture(output_directory)
+    return tuple(output_directory / name for name in (
+        "DEMO_Article.xlsx", "DEMO_BOMVersion.xlsx", "DEMO_BOM.xlsx",
+    ))
+
+
+def arguments(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--output-directory", type=Path, required=True,
+                        help="A new directory for the three generated workbooks.")
+    return parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = arguments(argv)
+    try:
+        generate_fixture(args.output_directory)
+    except FileExistsError:
+        raise SystemExit("The output directory already exists; choose a new directory.") from None
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

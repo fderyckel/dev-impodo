@@ -353,7 +353,7 @@ def create_local_app(
         local_advanced_coverage_repository,
         run_planning_repository,
     )
-    quality_repository = QualityRepository(database, workspace_state_repository)
+    quality_repository = QualityRepository(database, workspace_state_repository, artifacts)
     normalization_repository = NormalizationRepository(
         database,
         workspace_state_repository,

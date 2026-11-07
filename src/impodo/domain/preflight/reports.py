@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterable, Mapping
-from dataclasses import asdict, dataclass, is_dataclass
+from dataclasses import asdict, dataclass, field, is_dataclass
 from dataclasses import fields as dataclass_fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -36,6 +36,7 @@ from .frozen_input import (
     FrozenStagingEvidence,
     ReviewWorkbookOmittedRow,
 )
+from .mapping_summary import ReviewWorkbookFieldRule
 
 
 @dataclass(frozen=True, slots=True)
@@ -185,6 +186,7 @@ class ReviewWorkbookEvidence:
     target_field_required: Mapping[tuple[str, str], bool]
     fields_set_aside: FieldSetAsideEvidence | None = None
     omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
+    mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] = field(default_factory=dict)
 
 
 def review_workbook_action_priority(

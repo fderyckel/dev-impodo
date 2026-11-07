@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "companies": [
+    {
+      "company_code": "NORTH",
+      "name": "Morrow Assembly North"
+    },
+    {
+      "company_code": "SOUTH",
+      "name": "Morrow Assembly South"
+    }
+  ],
+  "countries": [
+    {
+      "code": "BE"
+    },
+    {
+      "code": "FR"
+    }
+  ],
+  "languages": [
+    {
+      "label": "English",
+      "captured_code_required": true
+    },
+    {
+      "label": "French",
+      "captured_code_required": true
+    }
+  ],
+  "fiscal_positions": [
+    {
+      "company_code": "NORTH",
+      "name": "Domestic"
+    },
+    {
+      "company_code": "NORTH",
+      "name": "Export"
+    },
+    {
+      "company_code": "SOUTH",
+      "name": "Domestic"
+    },
+    {
+      "company_code": "SOUTH",
+      "name": "Export"
+    }
+  ],
+  "payment_terms": [
+    {
+      "company_code": "NORTH",
+      "term_code": "NET30",
+      "name": "Morrow Net 30",
+      "balance_line": {
+        "days": 30,
+        "value_label": "Balance"
+      }
+    },
+    {
+      "company_code": "SOUTH",
+      "term_code": "NET30",
+      "name": "Morrow Net 30",
+      "balance_line": {
+        "days": 30,
+        "value_label": "Balance"
+      }
+    }
+  ],
+  "customers": [
+    {
+      "customer_ref": "MA-N-0001",
+      "company_code": "NORTH",
+      "account_num": "0001",
+      "partition": "PART-N",
+      "party_key": "PTY-0001",
+      "name": "Morrow North Assembly Before Review",
+      "email": "north.01@morrow.example",
+      "phone": "+12025550101",
+      "language_label": "French",
+      "payment_term_key": [
+        "NORTH",
+        "NET30"
+      ],
+      "fiscal_position_key": [
+        "NORTH",
+        "Domestic"
+      ],
+      "vat": null,
+      "country_code": "BE",
+      "chain": "Independent",
+      "address": {
+        "street": "1 Example Workshop Lane",
+        "postcode": "1001",
+        "city": "Fictional North",
+        "country_code": "BE"
+      },
+      "target_record_company_assignment": null
+    },
+    {
+      "customer_ref": "MA-N-0002",
+      "company_code": "NORTH",
+      "account_num": "0002",
+      "partition": "PART-N",
+      "party_key": "PTY-0002",
+      "name": "Morrow North Design",
+      "email": "north.02@morrow.example",
+      "phone": "+12025550102",
+      "language_label": "English",
+      "payment_term_key": [
+        "NORTH",
+        "NET30"
+      ],
+      "fiscal_position_key": [
+        "NORTH",
+        "Domestic"
+      ],
+      "vat": null,
+      "country_code": "BE",
+      "chain": "Morrow Network",
+      "address": {
+        "street": "2 Example Workshop Lane",
+        "postcode": "1002",
+        "city": "Fictional North",
+        "country_code": "BE"
+      },
+      "target_record_company_assignment": null
+    },
+    {
+      "customer_ref": "MA-S-0001",
+      "company_code": "SOUTH",
+      "account_num": "0001",
+      "partition": "PART-S",
+      "party_key": "PTY-0001",
+      "name": "Morrow South Assembly",
+      "email": "south.01@morrow.example",
+      "phone": "+12025550110",
+      "language_label": "French",
+      "payment_term_key": [
+        "SOUTH",
+        "NET30"
+      ],
+      "fiscal_position_key": [
+        "SOUTH",
+        "Domestic"
+      ],
+      "vat": null,
+      "country_code": "FR",
+      "chain": "Morrow Network",
+      "address": {
+        "street": "10 Example Workshop Lane",
+        "postcode": "1010",
+        "city": "Fictional South",
+        "country_code": "FR"
+      },
+      "target_record_company_assignment": null
+    },
+    {
+      "customer_ref": "MA-S-0002",
+      "company_code": "SOUTH",
+      "account_num": "0002",
+      "partition": "PART-S",
+      "party_key": "PTY-0002",
+      "name": "Morrow South Design",
+      "email": "before.review@morrow.example",
+      "phone": "+12025550111",
+      "language_label": "English",
+      "payment_term_key": [
+        "SOUTH",
+        "NET30"
+      ],
+      "fiscal_position_key": [
+        "SOUTH",
+        "Domestic"
+      ],
+      "vat": null,
+      "country_code": "FR",
+      "chain": "Independent",
+      "address": {
+        "street": "11 Example Workshop Lane",
+        "postcode": "1011",
+        "city": "Fictional South",
+        "country_code": "FR"
+      },
+      "target_record_company_assignment": null
+    }
+  ],
+  "kind": "independent_customer_initial_seed",
+  "status": "current_customer_setup_contract_live_evidence_pending",
+  "purpose": "Initial target state for one isolated customer exercise; not a SnapshotConnector snapshot.",
+  "operation_company_policy": "Select exactly one company per load/run. CompanyCode filters source rows; CompanyName resolves res.company.name. Customer records remain shared.",
+  "seed_counts": {
+    "contacts": 4,
+    "payment_terms": 2,
+    "schedule_lines": 2,
+    "companies": 2,
+    "NET45_headers": 0
+  },
+  "scope_notes": [
+    "The live seed creates the2companies,2NET30terms, their stock-generated lines updated to30days, and4contacts. It does not pre-create NET45 or Immediate.",
+    "countries/languages/fiscal_positions and associated source labels remain controlled-target scaffolding; their migration is not qualified by the current runner.",
+    "No category, product, BoM, account, patch or supplier-repair state belongs to this customer seed."
+  ],
+  "schedule_contract": {
+    "parent": "account.payment.term",
+    "key_fields": [
+      "name"
+    ],
+    "scope_fields": [
+      "company_id"
+    ],
+    "child": "account.payment.term.line",
+    "inverse": "payment_id",
+    "sole_line_identity": [
+      "payment_id"
+    ],
+    "value": "percent",
+    "value_amount": "100",
+    "delay_type": "days_after",
+    "days_field": "nb_days",
+    "source_balance_label": "Balance is the source business meaning. It is explicitly implemented as one100% line, not an Odoo selection value.",
+    "source_sequence": "Source Sequence is provenance only; Odoo payment-term lines have no sequence field."
+  }
+}

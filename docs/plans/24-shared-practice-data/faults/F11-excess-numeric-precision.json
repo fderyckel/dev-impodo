@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "status": "proposed_controlled_exercise_overlay",
+  "status": "proposed_fault_not_covered_by_canonical_success_runs",
   "apply_to_fresh_copy_only": true,
   "id": "F11-excess-numeric-precision",
-  "base_file": "deliveries/2026-04-15/bom_rows.csv",
+  "base_file": "../../../scenarios/impodo-practice/manufacturing/v1/deliveries/2026-04-15/bom_rows.csv",
   "mutations": [
     {
       "operation": "set_fields",
@@ -19,6 +19,24 @@
   "expected": {
     "stage": "Numeric-precision advisory then write-field validation",
     "result": "Compare exact prepared precision with current captured field capacity. Block only if a proposed write exceeds it; never round silently.",
-    "parameter": "Set captured target capacity lower than9 decimal places in the controlled target adapter."
+    "parameter": "Set captured target capacity lower than 9 decimal places in the controlled target adapter."
+  },
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "path_resolution": "proposal_pack_root",
+  "current_manufacturing_pack": {
+    "owner": "scenarios/impodo-practice/manufacturing/v1",
+    "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+    "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+    "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+    "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
   }
 }

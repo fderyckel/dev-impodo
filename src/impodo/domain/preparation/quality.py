@@ -1126,6 +1126,10 @@ class QualityCauseCount:
     integral_overflow_count: int = 0
     zeroed_positive_count: int = 0
     cause_key: str = ""
+    # Read-only explanations; excluded from portable evidence and its hashes.
+    missing_match_table: str = ""
+    missing_match_field_label: str = ""
+    explained_by_cause_key: str = ""
 
     def __post_init__(self) -> None:
         if not self.dataset or not self.reason_code or not self.message:
@@ -1232,6 +1236,9 @@ class QualityReviewItem:
     issues: tuple[QualityIssue, ...]
     correction_route: str = ""
     cause_impact: QualityCauseImpact | None = None
+    prepared_row: CanonicalRow | None = None
+    prepared_field_labels: tuple[tuple[str, str], ...] = ()
+    prepared_identity_values: tuple[tuple[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

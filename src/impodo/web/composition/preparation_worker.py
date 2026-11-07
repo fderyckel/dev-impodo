@@ -96,7 +96,7 @@ def create_preparation_worker(
     )
     sessions = PreparationSessionRepository(database, artifacts)
     coverage = AdvancedCoverageRepository(database)
-    quality_repository = QualityRepository(database, workspace_states)
+    quality_repository = QualityRepository(database, workspace_states, artifacts)
     normalization_repository = NormalizationRepository(database, workspace_states)
     quality = QualityService(
         mappings,

@@ -35,6 +35,7 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     bind_snapshot_hashes,
 )
+from impodo.domain.preflight.mapping_summary import workbook_mapping_rules
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
@@ -49,7 +50,11 @@ from impodo.domain.workspace.reference_keys import (
     REFERENCE_POLICY_HASH,
     reference_policy_hash,
 )
-from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
+from impodo.domain.workspace.workbench import (
+    DataClassification,
+    SourceMode,
+    WorkspaceState,
+)
 
 from ..domain.compiler.browser_mapping_compiler import (
     browser_mapping_labels,
@@ -620,6 +625,7 @@ class PreflightService:
             frozen_input_hash=frozen.content_hash,
             fields_set_aside=frozen.fields_set_aside,
             omitted_rows=frozen.workbook_omitted_rows,
+            mapping_rules=frozen.workbook_mapping_rules or {},
             records=tuple(frozen.prepared.records),
             dataset_labels=dict(sorted(frozen.dataset_labels.items())),
             target_model_labels={
@@ -1767,6 +1773,12 @@ class PreflightService:
                 plan=plan,
                 dataset_labels=dataset_labels,
                 source_field_labels=source_field_labels,
+                workbook_mapping_rules=(
+                    workbook_mapping_rules(
+                        revision.definition, selection,
+                        restricted=workspace_state.data_classification is DataClassification.RESTRICTED,
+                    ) if include_workbook_findings else None
+                ),
                 effective=effective,
                 captured_schema=captured_schema,
                 workbook_source_keys=(

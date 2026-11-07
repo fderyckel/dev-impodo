@@ -3,10 +3,13 @@
 from io import BytesIO
 from dataclasses import replace
 from uuid import uuid4
+from unittest.mock import patch
 
 from openpyxl import load_workbook
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.web.composition.page_reads import run_local_operation_sync
+from tests.support.database_probe import count_duckdb_statements
 from impodo.domain.mapping.contracts import (
     RowInclusionCondition,
     RowInclusionMode,
@@ -107,12 +110,38 @@ class BulkDeferredWorkflowTests(HierarchyWorkflowFixture):
         self.assertIsNotNone(review.decision)
         self.assertGreater(review.preview.remaining_write_count, 0)
 
+        def evidence():
+            return run_local_operation_sync(
+                self.context.preflight.review_workbook_evidence, workspace_id, report.run_id,
+            )
+
+        with (
+            patch("impodo.application.preflight_service.workbook_mapping_rules", return_value={}),
+            collect_duckdb_request_timings() as baseline_timings,
+            count_duckdb_statements() as baseline_sql,
+        ):
+            baseline = evidence()
+        with (
+            collect_duckdb_request_timings() as export_timings,
+            count_duckdb_statements() as export_sql,
+        ):
+            detailed = evidence()
+        self.assertTrue(detailed.mapping_rules)
+        self.assertEqual(detailed.frozen_input_hash, baseline.frozen_input_hash)
+        self.assertEqual(detailed.cell_effects, baseline.cell_effects)
+        self.assertEqual(export_timings.connection_count, baseline_timings.connection_count)
+        self.assertEqual(export_timings.schema_check_count, baseline_timings.schema_check_count)
+        self.assertEqual(len(export_sql), len(baseline_sql))
+
         package = self._post(url + "/package", {"csrf_token": self.csrf})
         self.assertEqual(package.status_code, 303, package.text)
         download = self.client.get(url + "/workbook")
         self.assertEqual(download.status_code, 200, download.text[:200])
         workbook = load_workbook(BytesIO(download.content), read_only=True, data_only=True)
         self.addCleanup(workbook.close)
+        overview_rows = tuple(workbook.worksheets[0].iter_rows(values_only=True))
+        self.assertTrue(any("Source column ID" in row for row in overview_rows))
+        self.assertTrue(any("product.category.name" in row for row in overview_rows))
         omissions = tuple(workbook["Deferred issues"].iter_rows(min_row=4, values_only=True))
         self.assertEqual(len(omissions), review.preview.newly_set_aside_count + 1)
         headers = tuple(cell.value for cell in workbook["Deferred issues"][3])

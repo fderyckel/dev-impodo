@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from textwrap import wrap
 from typing import Any
 
 from openpyxl import Workbook
@@ -32,6 +33,9 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.hyperlink import Hyperlink
 
+from impodo.adapters.artifacts.review_relationship_values import (
+    ReviewRelationshipValues,
+)
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredScopePreview,
@@ -41,6 +45,7 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
     preparation_field_reason,
 )
+from impodo.domain.preflight.mapping_summary import ReviewWorkbookFieldRule
 from impodo.domain.preflight.reports import (
     ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
@@ -58,6 +63,7 @@ from impodo.domain.shared.models import (
     PreflightResult,
     PreparedRecord,
     canonical_json_bytes,
+    restore_portable_value,
 )
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
@@ -105,6 +111,7 @@ class _RecordCellProjection:
     row: int
     column: int
     feedback: ReviewWorkbookCellFeedback
+    relationship_note: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -994,6 +1001,9 @@ def _write_transformation_summary(
 ) -> None:
     """Summarize verified preparation effects without evaluating rules again."""
 
+    if evidence is not None and evidence.mapping_rules and evidence.normalization_content_hash:
+        _write_field_rule_summary(sheet, cell_effects, evidence)
+        return
     start_row = sheet.max_row + 2
     sheet.merge_cells(
         start_row=start_row, start_column=1, end_row=start_row, end_column=8,
@@ -1021,7 +1031,8 @@ def _write_transformation_summary(
     note.value = (
         "Saved effects of your Stage 3 rules on all prepared records in this comparison, "
         "including records set aside from the load. Each record is counted once per "
-        "field and rule, so counts can overlap. Only rules with recorded effects are listed."
+        "field and rule, so counts can overlap. Only rules with recorded effects are listed. "
+        "Exact source-column and rule settings are unavailable in this export evidence."
     )
 
     grouped: Counter[tuple[str, str, str, str]] = Counter()
@@ -1078,6 +1089,82 @@ def _write_transformation_summary(
         sheet.cell(row_index, 8).number_format = "#,##0"
         sheet.row_dimensions[row_index].height = 44
     sheet.print_area = f"A1:H{sheet.max_row}"
+
+
+def _write_field_rule_summary(
+    sheet,
+    cell_effects: Mapping[tuple[str, str], tuple[ReviewWorkbookCellEffect, ...]],
+    evidence: ReviewWorkbookEvidence,
+) -> None:
+    """Show exact source-to-target choices with numbered preparation steps."""
+
+    rules = dict(evidence.mapping_rules)
+    affected: Counter[tuple[str, str]] = Counter()
+    for effects in cell_effects.values():
+        affected.update({(item.dataset, item.target_field) for item in effects})
+        for effect in effects:
+            rules.setdefault((effect.dataset, effect.target_field), ReviewWorkbookFieldRule(
+                "", ("Unavailable",), ("Unavailable",),
+                (f"Exact settings unavailable. Saved effect: {effect.rule_name}. {effect.explanation}",),
+            ))
+    start = sheet.max_row + 2
+    sheet.merge_cells(start_row=start, start_column=1, end_row=start, end_column=9)
+    sheet.cell(start, 1, "Stage 3 transformation summary")
+    _style_header(sheet, start, 1, 9, _COLORS["charcoal_dark"])
+    sheet.merge_cells(start_row=start + 1, start_column=1, end_row=start + 1, end_column=9)
+    note = sheet.cell(start + 1, 1, (
+        "Exact saved field mappings and ordered rule settings for this comparison. "
+        "Affected records counts each prepared record with a saved field effect once, "
+        "including records set aside from the load. Counts apply to the whole field, "
+        "not to individual steps. Zero means no recorded field change."
+    ))
+    note.alignment = Alignment(wrap_text=True, vertical="top")
+    note.font = _BODY_FONT
+    sheet.row_dimensions[start + 1].height = 44
+    header = start + 3
+    for column, title in ((1, "Source dataset"), (2, "Source column label"),
+                          (3, "Source column ID"), (4, "Odoo field label"),
+                          (5, "Odoo model.field"), (6, "Transformation steps"),
+                          (9, "Affected records")):
+        sheet.cell(header, column, title)
+    sheet.merge_cells(start_row=header, start_column=6, end_row=header, end_column=8)
+    _style_header(sheet, header, 1, 9, _COLORS["prepared"])
+    sheet.row_dimensions[header].height = 44
+    sheet.column_dimensions["I"].width = 18
+    row_index = header + 1
+    for group_index, ((dataset, target), rule) in enumerate(sorted(rules.items())):
+        first_row = row_index
+        for number, step in enumerate(rule.steps, 1):
+            lines = wrap(
+                f"{number}. {step}", width=65,
+                replace_whitespace=False, drop_whitespace=False,
+            )
+            for offset in range(0, len(lines), 12):
+                if row_index > _EXCEL_MAX_ROW:
+                    raise ReportGenerationError("The transformation summary exceeds the Excel row limit")
+                for column in range(1, 10):
+                    cell = sheet.cell(row_index, column)
+                    cell.fill = _SURFACE_FILL if group_index % 2 == 0 else _PAPER_FILL
+                    cell.font = _BODY_FONT
+                    cell.alignment = Alignment(wrap_text=True, vertical="top")
+                sheet.merge_cells(start_row=row_index, start_column=6, end_row=row_index, end_column=8)
+                sheet.cell(row_index, 6, _safe_cell("\n".join(lines[offset:offset + 12])))
+                sheet.row_dimensions[row_index].height = max(30, 15 * len(lines[offset:offset + 12]) + 6)
+                row_index += 1
+        values = (
+            _dataset_label(dataset, evidence),
+            "\n".join(rule.source_labels) or "No source column",
+            "\n".join(rule.source_keys) or "Not applicable",
+            _target_field_label(rule.target_model, target, evidence),
+            f"{rule.target_model}.{target}" if rule.target_model else target,
+        )
+        for column, value in (*enumerate(values, 1), (9, affected[(dataset, target)])):
+            sheet.cell(first_row, column, _safe_cell(value))
+            if row_index - 1 > first_row:
+                sheet.merge_cells(start_row=first_row, start_column=column,
+                                  end_row=row_index - 1, end_column=column)
+        sheet.cell(first_row, 9).number_format = "#,##0"
+    sheet.print_area = f"A1:I{row_index - 1}"
 
 
 def _prepared_records_by_trace(
@@ -1346,6 +1433,7 @@ def _record_sheet_projection(
         tuple[ReviewWorkbookCellEffect, ...],
     ],
 ) -> _RecordSheetProjection:
+    relationship_values = ReviewRelationshipValues(manifest, prepared_by_trace)
     value_columns = _record_value_columns(
         tuple(prepared_by_trace.values()),
         decisions,
@@ -1417,7 +1505,20 @@ def _record_sheet_projection(
                     and evidence.target_field_required.get((model, field), False)
                 ),
             )
-            displayed_values.append(_display_value(value))
+            display_value = (
+                relationship_values.resolve(record.dataset, field, value)
+                if record is not None
+                else value
+            )
+            relationship_note = (
+                (
+                    f"Relationship lookup key: {_display_value(value)}. "
+                    f"Reviewed linked record: {_display_value(display_value)}."
+                )
+                if display_value != value
+                else ""
+            )
+            displayed_values.append(_display_value(display_value))
             row_feedback.append((label, feedback))
             feedback_counts[feedback.status.value] += 1
             cells.append(
@@ -1425,6 +1526,7 @@ def _record_sheet_projection(
                     row=workbook_row,
                     column=7 + value_index,
                     feedback=feedback,
+                    relationship_note=relationship_note,
                 )
             )
         represented_fields = {
@@ -1716,6 +1818,12 @@ def _evidence_rows(
     manifest: dict[str, Any],
     evidence: ReviewWorkbookEvidence | None,
 ) -> list[list[Any]]:
+    relationship_values = ReviewRelationshipValues(
+        manifest,
+        {record.source_trace_id: record for record in evidence.records}
+        if evidence is not None
+        else {},
+    )
     target = dict(manifest.get("target", {}))
     rows = [
         [
@@ -1798,15 +1906,22 @@ def _evidence_rows(
             ]
         )
     for item in manifest.get("reference_resolutions", ()):
+        reference = restore_portable_value(item.get("reference"))
+        resolved = relationship_values.resolve(
+            str(item.get("dataset") or ""), str(item.get("field") or ""), reference
+        )
+        details = f"{item.get('match_count', 0)} matching record(s)"
+        if resolved != reference:
+            details += f"; Relationship lookup key: {_display_value(reference)}"
         rows.append(
             [
                 "Relationship",
                 _dataset_label(str(item.get("dataset") or ""), evidence),
                 str(item.get("field") or "").replace("_", " ").title(),
                 str(item.get("status") or "").replace("_", " ").title(),
-                _display_value(item.get("reference")),
+                _display_value(resolved),
                 item.get("affected_count"),
-                f"{item.get('match_count', 0)} matching record(s)",
+                details,
             ]
         )
     for item in manifest.get("source_issues", ()):
@@ -2076,8 +2191,10 @@ def _style_record_value_cells(
             fill, font = styles[feedback.status]
             cell.fill = PatternFill("solid", fgColor=fill)
             cell.font = Font(color=font)
-        if feedback.status in comment_statuses:
+        if feedback.status in comment_statuses or projection.relationship_note:
             comment = f"Status: {feedback.status.value}\n{feedback.note}"
+            if projection.relationship_note:
+                comment = f"{comment}\n{projection.relationship_note}"
             if feedback.original_value:
                 comment = f"{comment}\nOriginal value: {feedback.original_value}"
             cell.comment = Comment(comment, "Impodo")

@@ -1249,7 +1249,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
             "impodo.web.composition.target_readers._read_supporting_lookup_snapshots",
             return_value=(metadata, records, access),
         ):
-            choices, ambiguous, _checked_at, reused = _relationship_value_choices(
+            choices, ambiguous, _checked_at, reused, suggestions = _relationship_value_choices(
                 context, workspace, schema, "mrp.workcenter", relation,
                 BusinessKeyDefinition(
                     key_id="calendar-within-company", model="resource.calendar",
@@ -1259,6 +1259,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
             )
         self.assertFalse(reused)
         self.assertEqual(ambiguous, ())
+        self.assertEqual(suggestions, {})
         self.assertEqual(len(choices), 2)
         self.assertEqual(
             {tuple(json.loads(item["value"])) for item in choices},

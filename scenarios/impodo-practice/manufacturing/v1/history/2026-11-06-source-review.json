@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "status": "passed_static_business_data_checks_only",
+  "assertions": {
+    "baseline_bytes_unchanged": 5,
+    "baseline_rows": 118,
+    "reordered_business_rows_equal": 6,
+    "compound_product_join_rows": 32,
+    "category_paths": 12,
+    "category_roots": 3,
+    "ambiguous_Assembly_leaf_paths": 3,
+    "header_attribute_agreement": 6,
+    "one_representative_header_row_per_bom": 6,
+    "bom_lines": 24,
+    "separate_operations": 12,
+    "workcentre_company_links": 12,
+    "seeded_product_count": 8,
+    "seeded_product_changes": [
+      "MA-P-0010"
+    ],
+    "product_price_sum": "1313.50",
+    "component_quantity_sum": "22.500",
+    "operation_minutes_sum": "94.50",
+    "baseline_original_five_rows": 112,
+    "supplied_header_export_rows": 6,
+    "supplied_header_agreement_with_repeated_rows": 24,
+    "initial_owned_category_seed": 2,
+    "initial_unowned_native_category_reference": 1,
+    "initial_available_category_paths": 3,
+    "category_phase_create": 9,
+    "category_phase_unchanged": 3
+  },
+  "not_run": [
+    "Odoo19 controlled matrix",
+    "Odoo20 controlled matrix",
+    "Odoo19 live matrix",
+    "Odoo20 live matrix",
+    "repository quality gate"
+  ],
+  "reason": "Temporary review-only asset draft. Six source files per delivery now include a physical independent header export. No runtime split or prejoined replacement was used."
+}

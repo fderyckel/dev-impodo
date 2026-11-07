@@ -153,7 +153,7 @@
                   <td>
                     {% for issue in item.issues %}
                       <p>
-                        {{ issue.message }}
+                        {{ quality_issue_messages.get(issue.issue_id, issue.message) }}
                         {% set fields = quality_issue_field_labels.get(issue.issue_id, ()) %}
                         {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
                         <small class="row-field">
@@ -222,7 +222,7 @@
                     <details class="technical-details">
                       <summary>Support details</summary>
                       <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>
-                      {% for issue in item.issues %}<small class="row-field"><code>{{ issue.reason_code }} - {{ issue.rule_id }}</code></small>{% endfor %}
+                      {% for issue in item.issues %}<small class="row-field"><code>{{ issue.reason_code }} - {{ issue.rule_id }}</code>: {{ issue.message }}</small>{% endfor %}
                     </details>
                   </td>
                 </tr>

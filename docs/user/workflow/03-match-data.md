@@ -95,8 +95,11 @@ company and their available companies. Choose **Odoo company**, then select
 Impodo opens **Match tables**. **Check matches** automatically refreshes the
 saved Odoo record-type and field checks when the checking-key setup or selected
 company has changed. It keeps the edits submitted with that check.
+When you open **Match source choices** for a linked field such as **Unit**,
+Impodo also checks the fields under the selected company if the previous
+check used a different company context.
 You can also save progress and select **Check company-specific values** to
-refresh earlier, before reviewing individual defaults or linked values.
+refresh explicitly before reviewing individual defaults or linked values.
 The connection and record types have already been checked in Odoo data.
 
 When you open Match data without a chosen company, Impodo brings **Company for
@@ -634,6 +637,13 @@ follow the prompt beside the field. While **Refresh Odoo values** runs, your
 current choices stay visible. If loading fails or times out, select **Try
 again**.
 
+When you link products to existing Odoo categories with **Category name within
+parent category**, **Match values** suggests a category and its parent if the
+source value exactly matches one category name. For example, `Bags` can suggest
+**Bags (Packaging)**. If the name is missing or appears in several places,
+choose the intended category yourself. Select **Use complete matches** when
+the choices are ready, then save and check matches.
+
 For a Fiscal Position or Payment Terms identified by **Name within Company
 (if available)**, choose the Odoo record with the intended company in
 **Match values**. For example, `Domestic (Northwind Factory)` links the row
@@ -758,8 +768,13 @@ should retain the source spelling. For example, a Company chain named
 `Northwind Supply` should keep that capitalization in Odoo. Keep **Name matching
 key** as the **Unique row identifier** for the generated source rows.
 
-If an older mapping uses the internal matching key for the Odoo field, select
-**Use original spelling**, then **Save progress** and **Check matches**. This
+In **Identify records**, open **Matching key or original value?** beside the
+source identifier or the corresponding Odoo field to see the exact column
+to choose. The explanation stays collapsed until you open it.
+
+If an older mapping uses the internal matching key for the Odoo field, open
+that field's **Matching key or original value?** and select **Use original
+spelling**, then **Save progress** and **Check matches**. This
 changes the field's source column and preserves the generated list. If those
 records were already loaded, correct the existing Odoo records before loading
 again.

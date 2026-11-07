@@ -4,7 +4,7 @@
   "privacy": {
     "origin": "Fully synthetic, generated from declared business intent. No customer export, chat row, numeric source ID, or live snapshot was copied.",
     "email_domain": "morrow.example",
-    "phone_range": "Fictional North American 202-555-01xx",
+    "phone_range": "Fictional North American 202-555-01 xx",
     "VAT": "Only blank or the literal placeholder UNKNOW; no tax validity is asserted.",
     "identities": "All source keys are invented textual business keys; no Odoo database IDs or credentials."
   },
@@ -17,28 +17,37 @@
     "source_ids": "Preserve as text, including AccountNum leading zeroes."
   },
   "delivery_lifecycle": {
-    "2026-04-15": "Baseline182-row delivery candidate across11 CSVs; target exercises use separate NORTH/SOUTH execution projections.",
-    "2026-05-15": "Complete62-row replacement of customer/party/address/payment-term input shape only. It excludes manufacturing and accounts by declared Recipe scope, and implies no target deletes.",
-    "2026-05-20": "Independent two-column phone patch exercise."
+    "2026-04-15": "One local eight-row accounts export remains proposed. The five original manufacturing files now have one canonical owner alongside its separate supplied header export.",
+    "2026-05-20": "One local six-row phone patch is a proposed extension; it has no current runner.",
+    "current_customer_deliveries": "Both 62-row customer deliveries are owned only by the canonical customer pack.",
+    "current_manufacturing_deliveries": "Both six-file manufacturing deliveries, 118 rows each, belong only to the canonical manufacturing pack."
   },
   "file_grains": {
-    "customers_core.csv": "One customer account per Partition+CustomerRef; Party is a foreign key, not a globally unique customer key.",
-    "party_details.csv": "One party per Partition+RecId; source RecId is the counterpart of customers_core.Party.",
-    "addresses.csv": "One selected address per Partition+Party; this is deliberately a single-address view, not unrestricted one-to-many history.",
-    "products_core.csv": "One globally prefixed product reference; CompanyCode is available for source join scope, not automatic target ownership.",
-    "product_details.csv": "One exact enrichment row per CompanyCode+ProductRef; Name and Status are export labels distinct from product name/status.",
-    "categories.csv": "One supplied category per CategoryKey; ParentCategoryKey references the same table and blank means root.",
-    "bom_rows.csv": "One component line per BOMRef+Sequence with repeated header attributes; LineRef is the stable source trace key.",
-    "bom_operations.csv": "One operation per BOMRef+OperationRef; do not join to component lines.",
     "accounts.csv": "One proposed account per CompanyCode+AccountNum; field-specific Odoo mapping is pending capability checks.",
-    "payment_terms.csv": "One intended payment term per CompanyCode+TermCode; source TermCode is not a promised native Odoo field.",
-    "payment_term_lines.csv": "One owned balance due-date line per LineKey and term; map through the child inverse relation after verifying captured metadata.",
     "customer_phone_patch.csv": "One phone replacement per CustomerRef; only phone is a write field."
   },
   "not_yet_covered_by_these_files": [
-    "Native Excel date cells, formulas, multi-sheet selection, and named-table ranges need generated XLSX variants. CSV timestamps do not verify Excel ingestion.",
-    "Large 65,299/100,000-row and262-column cases need deterministic generated expansion with separate resource budgets.",
-    "API failures, lost replies, stale evidence, authorization, and restart/schema upgrades need controlled adapters or stored sanitized test state, not fake source rows.",
-    "No executable scenario definition, compiled Recipe, target seed adapter, or live qualification result is included."
-  ]
+    "The two remaining local CSVs have static consistency checks only; no account or phone-patch runtime qualification is asserted.",
+    "Supplier repair, optional date/weight/language mappings, derived hierarchy and related-split provider cases remain separately proposed.",
+    "Native Excel cells, source/column scale, uncertain writes, stale choices and persisted upgrades retain their dedicated evidence and harnesses.",
+    "Canonical customer and manufacturing success receipts do not establish runtime coverage of the eighteen fault specifications."
+  ],
+  "status": "proposed_extension_assets_only",
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "current_manufacturing_pack": {
+    "owner": "scenarios/impodo-practice/manufacturing/v1",
+    "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+    "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+    "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+    "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+  }
 }

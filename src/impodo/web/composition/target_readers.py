@@ -9,6 +9,7 @@ boundary and are never passed into the preflight domain or report.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -1196,12 +1197,14 @@ def _relationship_value_choices(
     *,
     refresh: bool = False,
     constant_key_value: str | None = None,
+    suggest_scoped_names: bool = False,
     actor: Actor,
 ) -> tuple[
     tuple[dict[str, str], ...],
     tuple[str, ...],
     datetime,
     bool,
+    dict[str, str],
 ]:
     """Fetch or reuse bounded Many2one choices as portable workspace evidence."""
 
@@ -1226,6 +1229,16 @@ def _relationship_value_choices(
         if related_model is not None
         else {}
     )
+    parent = field_by_name.get("parent_id")
+    supports_scoped_suggestions = (
+        key.status is BusinessKeyStatus.CONFIRMED
+        and key.key_fields == ("name",)
+        and key.scope_fields == ("parent_id",)
+        and parent is not None
+        and parent.type == "many2one"
+        and parent.relation == relation_model
+    )
+    suggest_scoped_names = suggest_scoped_names and supports_scoped_suggestions
     available_fields = set(field_by_name)
     version_decision = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
     odoo_major_version = (
@@ -1326,7 +1339,9 @@ def _relationship_value_choices(
             actor=actor,
             reference_policy_hash=decision.policy_hash,
         )
-        if current is not None:
+        if current is not None and (
+            not suggest_scoped_names or current.scoped_suggestions is not None
+        ):
             cached_decision = authorize_governed_reference(
                 reference_request,
                 captured_fields=current.field_contracts,
@@ -1353,6 +1368,7 @@ def _relationship_value_choices(
                 current.ambiguous_values,
                 current.captured_at,
                 True,
+                dict(current.scoped_suggestions or ()) if suggest_scoped_names else {},
             )
 
     record_requests = (
@@ -1425,16 +1441,33 @@ def _relationship_value_choices(
         for record in records
     ):
         raise WorkspaceError("Odoo returned records outside the requested matching value")
+    collect_suggestions = supports_scoped_suggestions and not targeted
     by_key: dict[str, list[TargetRecord]] = {}
+    name_counts: Counter[str] = Counter()
+    scoped_values: dict[str, str] = {}
     identity_fields = (*key.key_fields, *key.scope_fields)
     for record in records:
         components = tuple(
             _portable_relationship_choice_component(record.values.get(name))
             for name in identity_fields
         )
+        if collect_suggestions:
+            # Rows without a usable parent still make a bare name ambiguous.
+            name_counts[components[0]] += 1
         if any(not component for component in components):
             continue
-        by_key.setdefault(portable_supporting_value(components), []).append(record)
+        value = portable_supporting_value(components)
+        by_key.setdefault(value, []).append(record)
+        if collect_suggestions:
+            scoped_values[components[0]] = value
+    scoped_suggestions = (
+        tuple(
+            (name, scoped_values[name])
+            for name in sorted(scoped_values)
+            if name_counts[name] == 1
+        )
+        if collect_suggestions else None
+    )
     ambiguous = tuple(
         sorted(
             (value for value, matches in by_key.items() if len(matches) != 1),
@@ -1464,7 +1497,7 @@ def _relationship_value_choices(
     if targeted:
         # A one-key result is not a complete choice catalogue. Never publish it
         # into the cache consumed by later unfiltered relationship browsing.
-        return tuple(choices), ambiguous, captured_at, False
+        return tuple(choices), ambiguous, captured_at, False, {}
     stored = run_local_operation_sync(
         context.supporting_lookups.capture,
         workspace_state.workspace_id,
@@ -1484,6 +1517,7 @@ def _relationship_value_choices(
             for item in choices
         ),
         ambiguous_values=ambiguous,
+        scoped_suggestions=scoped_suggestions,
         actor=actor,
         reference_policy_hash=decision.policy_hash,
     )
@@ -1495,6 +1529,7 @@ def _relationship_value_choices(
         stored.ambiguous_values,
         stored.captured_at,
         False,
+        dict(stored.scoped_suggestions or ()) if suggest_scoped_names else {},
     )
 
 

@@ -12,7 +12,7 @@ there is never a per-row fallback inside this plan.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -440,6 +440,8 @@ def projected_numeric_values_sql(
 
 def projected_encoded_rows_sql(
     projection: PreparedCanonicalProjection,
+    *,
+    prepared_ordinals: Sequence[int] | None = None,
 ) -> str:
     """Return a bounded projector query with one Parquet parameter."""
 
@@ -450,6 +452,7 @@ def projected_encoded_rows_sql(
         projection,
         layout,
         prepared_ordinal_filter=True,
+        prepared_ordinals=prepared_ordinals,
     )
     source_row = _identifier(SOURCE_ROW_COLUMN)
     ordinal = f"{projection.ordinal_start} + {_identifier(PREPARED_ORDINAL_COLUMN)}"
@@ -508,6 +511,7 @@ def _projected_relation_sql(
     layout: _ProjectionLayout,
     *,
     prepared_ordinal_filter: bool = False,
+    prepared_ordinals: Sequence[int] | None = None,
     include_canonical_values: bool = True,
 ) -> str:
     program = projection.program
@@ -587,6 +591,13 @@ def _projected_relation_sql(
         if prepared_ordinal_filter
         else ""
     )
+    if prepared_ordinals is not None:
+        if not prepared_ordinals or len(prepared_ordinals) > 250:
+            raise ValueError("Prepared review ordinals must contain one to 250 rows")
+        source_filter = (
+            f"WHERE {_identifier(PREPARED_ORDINAL_COLUMN)} IN "
+            f"({', '.join('?' for _ in prepared_ordinals)})"
+        )
     canonical_value_columns = (
         f"{proposed} AS proposed_values_json, {references} AS references_json,"
         if include_canonical_values

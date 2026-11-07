@@ -17,6 +17,17 @@ target-specific values, while the saved snapshot retains the complete business
 lineage and protected binding hashes. Execution and read-back use the same
 application lookup planner.
 
+Incoming relationships retain their governed target key and scope fields,
+including nested company references. Snapshot construction restores incoming
+provenance for both newly created owners and existing owners being updated.
+It accepts the historical unshaped and shallow reference representations
+without rewriting their saved comparison evidence or proposed External IDs.
+Unresolved identities remain reviewable blockers.
+
+The execution API scope grants only the exact frozen fields needed to look up
+those nested parents. A lookup capability does not grant parent creation or
+updates. Missing or ambiguous parents stop before a journal or write begins.
+
 Execution applies only the exact writes frozen by a ready final-review result.
 It uses a narrow write capability, journals intent before transport, stops on
 unknown outcomes, and proves the resulting target state through a separate

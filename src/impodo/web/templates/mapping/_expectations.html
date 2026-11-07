@@ -1,7 +1,7 @@
 <details id="business-expectations" class="form-card business-expectations" {% if expectations_open %}open{% endif %}>
   <summary><h2 id="business-expectations-title">What may this load change?</h2></summary>
   {% if expectations.packet %}
-    <p class="muted">{% if expectations.saved %}Saved expectations v{{ expectations.saved.version }}.{% else %}No expectations saved yet. Make an explicit choice for each record type.{% endif %} Blank counts mean no limit; 0 means none.</p>
+    <p class="muted">{% if expectations.saved %}Saved expectations v{{ expectations.saved.version }}.{% else %}No expectations saved yet. Review the allowed changes for each record type.{% endif %} Blank counts mean no limit; 0 means none.</p>
     <form method="post" action="{{ expectations_action or '/workspaces/' ~ workspace_id ~ '/mapping/expectations' }}" data-business-expectations-form>
       <fieldset {% if can_edit is defined and not can_edit %}disabled{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -16,7 +16,13 @@
           <label for="expect-mode-{{ row.index }}">Allowed changes</label>
           <select id="expect-mode-{{ row.index }}" name="mode_{{ row.index }}" required data-expectation-mode>
             <option value="">Choose allowed changes</option>
-            {% set selected_mode = submitted.get('mode_' ~ row.index) if submitted else row.rule.mode.value if row.rule else '' %}
+            {% if submitted %}
+              {% set selected_mode = submitted.get('mode_' ~ row.index) %}
+            {% elif row.rule %}
+              {% set selected_mode = row.rule.mode.value %}
+            {% else %}
+              {% set selected_mode = 'upsert' if row.scope.creates and row.scope.updates else '' %}
+            {% endif %}
             {% for value,label in row.modes %}<option value="{{ value }}" {% if selected_mode == value %}selected{% endif %}>{{ label }}</option>{% endfor %}
           </select>
           <div class="expectation-counts">

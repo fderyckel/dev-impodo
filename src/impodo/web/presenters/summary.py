@@ -84,6 +84,16 @@ from ..target_credentials import (
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
+from .quality_messages import (
+    SOURCE_IDENTITY_REASONS,
+    quality_reason_message,
+    source_identity_next_step,
+)
+from .quality_review import (
+    quality_record_details,
+    quality_review_findings,
+    source_match_message,
+)
 
 
 def _render_target(
@@ -210,6 +220,7 @@ def _render_normalization(
     collision_routes = {}
     quality_field_labels: dict[str, dict[str, str]] = {}
     quality_issue_field_labels: dict[str, tuple[str, ...]] = {}
+    quality_issue_messages: dict[str, str] = {}
     workflow_issue_summary = summarize_workflow_issues(())
     if set_aside_page is not None:
         selection = context.queries.get_mapping_source_selection(workspace_id)
@@ -223,6 +234,9 @@ def _render_normalization(
         quality_issue_field_labels = _quality_issue_field_label_map(
             set_aside_page.items,
             quality_field_labels,
+        )
+        quality_issue_messages = _quality_issue_message_map(
+            set_aside_page.items, quality_field_labels, selection, revision,
         )
         workflow_issue_summary = _quality_workflow_issue_summary(
             workspace_id,
@@ -304,6 +318,7 @@ def _render_normalization(
         set_aside_page=set_aside_page,
         workflow_issue_summary=workflow_issue_summary,
         quality_issue_field_labels=quality_issue_field_labels,
+        quality_issue_messages=quality_issue_messages,
         collision_groups=collision_groups,
         collision_routes=collision_routes,
         set_aside_row_start=(page - 1) * NORMALIZATION_GROUPS_PER_PAGE + 1,
@@ -673,6 +688,10 @@ def _render_summary(
         quality_page.items if quality_page is not None else (),
         quality_field_labels,
     )
+    quality_issue_messages = _quality_issue_message_map(
+        quality_page.items if quality_page is not None else (),
+        quality_field_labels, effective_selection, revision,
+    )
     quality_workflow_issue_summary = _quality_workflow_issue_summary(
         workspace_id,
         quality.run_id if quality is not None else "",
@@ -756,6 +775,19 @@ def _render_summary(
         normalization=normalization,
         resolution=resolution,
         quality_review_page=quality_page,
+        quality_record_details=quality_record_details(
+            quality_page.items if quality_page else (), schema_catalog,
+        ),
+        quality_review_findings=quality_review_findings(
+            quality_page.items if quality_page else (),
+            quality_page.run_cause_counts if quality_page else (), quality_field_labels,
+            quality_issue_messages,
+        ),
+        quality_can_continue=bool(
+            quality and quality.quarantined_count and quality.blocked_count == 0
+            and normalization and normalization.frozen
+            and not report and not workflow_issue_summary.must_fix_count
+        ),
         quality_rows_to_use_urls={
             dataset.name: (
                 f"/workspaces/{workspace_id}/mapping?mapping_dataset={index}"
@@ -765,6 +797,7 @@ def _render_summary(
         },
         workflow_issue_summary=workflow_issue_summary,
         quality_issue_field_labels=quality_issue_field_labels,
+        quality_issue_messages=quality_issue_messages,
         quality_review_row_start=quality_row_start,
         quality_review_row_end=quality_row_end,
         quality_status=quality_status,
@@ -938,6 +971,23 @@ def _render_quality_cause(
     cause = review_page.selected_cause
     if cause is None:
         raise HTTPException(status_code=404, detail="Quality cause not found")
+    selection = context.queries.get_mapping_source_selection(workspace_id)
+    revision = context.queries.get_mapping_revision(workspace_id)
+    schema = context.queries.get_odoo_schema_catalog(workspace_id)
+    field_labels = _quality_field_label_map(revision, selection, schema)
+    issue_fields = _quality_issue_field_label_map(review_page.items, field_labels)
+    issue_messages = _quality_issue_message_map(
+        review_page.items, field_labels, selection, revision,
+    )
+    explained_cause = next(
+        (item for item in review_page.run_cause_counts
+         if item.cause_key == cause.explained_by_cause_key), cause,
+    )
+    cause_summary = _quality_workflow_issue_summary(
+        workspace_id, facts.quality_run_id, (explained_cause,), field_labels,
+        selection, revision, schema,
+    )
+    cause_issue = cause_summary.issues[0]
     row_start = (
         (review_page.page - 1) * page_size + 1
         if review_page.matching_count
@@ -961,9 +1011,19 @@ def _render_quality_cause(
         _workspace_navigation_facts=facts,
         quality_run_id=facts.quality_run_id,
         cause=cause,
-        cause_title=_QUALITY_CAUSE_TITLES.get(
-            cause.reason_code,
-            cause.reason_code.replace("_", " ").title(),
+        cause_title=cause_issue.cause,
+        cause_issue=cause_issue,
+        quality_issue_field_labels=issue_fields,
+        quality_issue_messages=issue_messages,
+        cause_message=(
+            source_match_message(explained_cause, tuple(
+                field_labels.get(cause.dataset, {}).get(field, field)
+                for field in explained_cause.affected_fields
+            )) if explained_cause.missing_match_table else cause_issue.explanation
+        ),
+        quality_record_details=quality_record_details(review_page.items, schema),
+        quality_review_findings=quality_review_findings(
+            review_page.items, review_page.run_cause_counts, field_labels, issue_messages,
         ),
         review_page=review_page,
         row_start=row_start,
@@ -995,7 +1055,13 @@ def _quality_field_label_map(
     """Return dataset-scoped labels for source, target, and synthetic fields."""
 
     labels: dict[str, dict[str, str]] = {}
-    if revision is None or selection is None:
+    if selection is None:
+        return labels
+    for dataset in selection.datasets:
+        labels[dataset.name] = {
+            column.stable_key: column.source_name for column in dataset.columns
+        }
+    if revision is None:
         return labels
     try:
         _dataset_labels, compiled = browser_mapping_labels(
@@ -1040,6 +1106,63 @@ def _quality_field_label_map(
     return labels
 
 
+def _quality_source_identity_fields(
+    dataset_name: str,
+    selection: SourceSelection | None,
+    revision: MappingRevision | None,
+) -> tuple[str, ...]:
+    """Find the saved source identifier even when a duplicate has no fields."""
+
+    if selection is None or revision is None:
+        return ()
+    dataset_id = next(
+        (item.dataset_id for item in selection.datasets if item.name == dataset_name),
+        None,
+    )
+    return next(
+        (
+            mapping.source_identity_column_keys
+            for mapping in revision.definition.datasets
+            if mapping.dataset_id == dataset_id
+        ),
+        (),
+    )
+
+
+def _quality_issue_message_map(
+    items: Sequence[QualityReviewItem],
+    field_labels: dict[str, dict[str, str]],
+    selection: SourceSelection | None,
+    revision: MappingRevision | None,
+) -> dict[str, str]:
+    """Translate row findings using saved column labels, retaining raw evidence."""
+
+    messages = {}
+    for item in items:
+        for issue in item.issues:
+            fields = issue.affected_fields
+            source_fields = ()
+            if issue.reason_code in SOURCE_IDENTITY_REASONS:
+                source_fields = _quality_source_identity_fields(
+                    issue.dataset, selection, revision,
+                )
+            if issue.reason_code in SOURCE_IDENTITY_REASONS and not fields:
+                fields = source_fields
+            labels = field_labels.get(issue.dataset, {})
+            messages[issue.issue_id] = quality_reason_message(
+                issue.reason_code,
+                issue.message,
+                tuple(
+                    labels.get(field, field.replace("_", " ").title())
+                    for field in fields
+                ),
+                source_row_identifier=(
+                    bool(fields) and set(fields) <= set(source_fields)
+                ),
+            )
+    return messages
+
+
 def _quality_issue_field_label_map(
     items: Sequence[QualityReviewItem],
     field_labels: dict[str, dict[str, str]],
@@ -1080,6 +1203,8 @@ _INHERITED_QUALITY_REASONS = frozenset({
 })
 
 _QUALITY_CAUSE_TITLES = {
+    "SOURCE_IDENTITY_INVALID": "Source row identifier is empty or invalid",
+    "SOURCE_IDENTITY_DUPLICATE": "Source rows share the same row identifier",
     "SOURCE_TYPE_INVALID": "Invalid number or value type",
     "SOURCE_FORMULA_INVALID": "Formula calculation failed",
     "INCOMING_RELATIONSHIP_MISSING": "Linked source record is missing",
@@ -1278,6 +1403,8 @@ def _quality_workflow_issue_summary(
     }
     grouped: dict[tuple[object, ...], list[QualityCauseCount]] = {}
     for cause in causes:
+        if cause.explained_by_cause_key:
+            continue
         key = (
             cause.dataset,
             cause.reason_code,
@@ -1290,6 +1417,11 @@ def _quality_workflow_issue_summary(
     issues = []
     for equivalent_causes in grouped.values():
         cause = equivalent_causes[0]
+        message = (
+            cause.message
+            if all(item.message == cause.message for item in equivalent_causes)
+            else ""
+        )
         affected_record_count = sum(
             item.affected_record_count for item in equivalent_causes
         )
@@ -1317,9 +1449,21 @@ def _quality_workflow_issue_summary(
             item.zeroed_positive_count for item in equivalent_causes
         )
         labels = field_labels.get(cause.dataset, {})
+        cause_fields = cause.affected_fields
+        source_fields = ()
+        if cause.reason_code in SOURCE_IDENTITY_REASONS:
+            source_fields = _quality_source_identity_fields(
+                cause.dataset, selection, revision,
+            )
+        if cause.reason_code in SOURCE_IDENTITY_REASONS and not cause_fields:
+            cause_fields = source_fields
+        source_row_identifier = (
+            cause.reason_code == "SOURCE_IDENTITY_DUPLICATE"
+            or bool(cause_fields) and set(cause_fields) <= set(source_fields)
+        )
         affected_fields = tuple(
             labels.get(field, field.replace("_", " ").title())
-            for field in cause.affected_fields
+            for field in cause_fields
         )
         dataset_label = cause.dataset.replace("_", " ").title()
         correction_label, correction_route = _quality_correction_action(
@@ -1330,7 +1474,41 @@ def _quality_workflow_issue_summary(
             target_models=target_models,
             field_owners=field_owners,
             schema_fields=schema_fields,
+            source_row_identifier=source_row_identifier,
         )
+        cause_title = _QUALITY_CAUSE_TITLES.get(
+            cause.reason_code, cause.reason_code.replace("_", " ").title(),
+        )
+        if cause.reason_code == "SOURCE_IDENTITY_INVALID":
+            subject = (
+                "Source row identifier"
+                if source_row_identifier
+                else "Odoo matching value"
+            )
+            problem = (
+                "empty" if message == "required value is empty" else "invalid"
+            )
+            cause_title = f"{subject} is {problem}"
+        explanation = quality_reason_message(
+            cause.reason_code,
+            message or (
+                cause.message
+                if cause.reason_code not in SOURCE_IDENTITY_REASONS
+                else ""
+            ),
+            affected_fields,
+            source_row_identifier=source_row_identifier,
+        )
+        if cause.missing_match_table:
+            correction_label = "Review combined tables"
+            correction_route = f"/workspaces/{workspace_id}/derived-entities#combine-source-tables"
+            cause_title = "No matching source row"
+            explanation = (
+                f"{affected_record_count} {dataset_label.lower()} "
+                f"have no matching row in {cause.missing_match_table}. "
+                f"{cause.missing_match_field_label or ', '.join(affected_fields) or 'Their identifier'} is empty, "
+                "so these records are set aside."
+            )
         issues.append(
             WorkflowIssueProjection(
                 code=(
@@ -1345,13 +1523,10 @@ def _quality_workflow_issue_summary(
                     else WorkflowIssueSeverity.REVIEW
                 ),
                 state=WorkflowIssueState.CURRENT,
-                cause=_QUALITY_CAUSE_TITLES.get(
-                    cause.reason_code,
-                    cause.reason_code.replace("_", " ").title(),
-                ),
+                cause=cause_title,
                 origin=_quality_issue_origin(cause),
                 owner=cause.owner_label or "Data manager",
-                owning_stage="Match data",
+                owning_stage="Source data" if cause.missing_match_table else "Match data",
                 correction_label=correction_label,
                 correction_route=correction_route,
                 preserved_work=(
@@ -1359,8 +1534,14 @@ def _quality_workflow_issue_summary(
                     "or saved rules."
                 ),
                 recheck=(
-                    "Save the correction, then prepare the complete data again."
+                    source_identity_next_step(
+                        cause.reason_code,
+                        source_row_identifier=source_row_identifier,
+                    )
+                    if cause.reason_code in SOURCE_IDENTITY_REASONS
+                    else "Save the correction, then prepare the complete data again."
                 ),
+                explanation=explanation,
                 evidence_revision=evidence_revision,
                 affected_record_types=(dataset_label,),
                 affected_fields=affected_fields,
@@ -1423,6 +1604,7 @@ def _quality_correction_action(
     target_models: dict[str, str],
     field_owners: Mapping[str, Mapping[str, str]],
     schema_fields: Mapping[str, Mapping[str, SchemaField]],
+    source_row_identifier: bool,
 ) -> tuple[str, str]:
     """Return one non-mutating route to the closest owning Match decision."""
 
@@ -1436,6 +1618,20 @@ def _quality_correction_action(
     base_parameters: dict[str, str | int] = {
         "mapping_dataset": dataset_index,
     }
+    if cause.reason_code in SOURCE_IDENTITY_REASONS:
+        identifier = "source" if source_row_identifier else "target"
+        return (
+            (
+                f"Review {dataset_label} row identifier"
+                if source_row_identifier
+                else f"Review {dataset_label} Odoo match"
+            ),
+            _quality_mapping_url(
+                workspace_id,
+                {**base_parameters, "step": "tables", "task": "identity"},
+                anchor=f"{identifier}-identity-{dataset_index}",
+            ),
+        )
     if cause.family in _MANAGER_QUALITY_FAMILIES:
         return (
             f"Open {dataset_label} data checks",

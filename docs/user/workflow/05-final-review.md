@@ -21,6 +21,17 @@ row did not meet your **Rows to use** rule. Select **Review Rows to use** to
 open that table’s rule. **Set aside for a data issue** shows the saved finding
 and the owner responsible for correcting it.
 
+When a combined table has no matching source row, Impodo names the missing
+table and the identifier left empty. For example, if 150 suppliers have no
+matching account row, those 150 suppliers stay set aside. The empty identifiers
+appear as one missing-match finding. You can continue comparing the included
+records when the other required checks are complete.
+
+The record list shows available prepared values with field labels, including
+the name, even when the identifier is missing. Open **More prepared values**
+to inspect the remaining values. Select **Review combined tables** to correct
+the source-table combination, then prepare and approve the data again.
+
 ## Before you start
 
 Prepared data must be complete for the current source, schema, and mapping.
@@ -168,12 +179,19 @@ back. Correct source data or rules in Impodo, then prepare and compare again.
 Editing a workbook cell does not change the saved data or proposed load.
 
 The first tab, **Review overview**, includes a **Stage 3 transformation summary**.
-It groups saved transformation effects by source dataset, Odoo field, and
-applied rule. Each row explains what Impodo did and counts the affected records.
-The summary covers all prepared records in the comparison, including records
-set aside from the load. A record can appear under several fields or rules,
-so these counts overlap. Only rules with recorded effects appear. If saved
-transformation details are unavailable, the summary says so.
+It shows each saved field match with the source column's label and stable ID,
+the Odoo field's label and technical name, and numbered transformation steps.
+Fixed values show the actual value and the rows-to-use condition. Value matches
+show the source and replacement values. Conditional choices show their order,
+conditions, and otherwise value. Text changes list the exact search text or
+pattern, replacement, and whether the operation replaces a prefix, suffix,
+first match, or every match. The steps keep their saved execution order.
+
+**Affected records** counts prepared records with a saved change for the whole
+field, including records set aside from the load. It does not claim a separate
+count for every step. A zero means no field change was recorded. A fixed value
+has no source column. If exact saved settings are unavailable, the summary says
+so. Restricted rule parameters remain hidden.
 
 **Needs attention** is the workbook's action queue. Impodo sorts red **Must
 fix** items before amber **Review** items. Each row identifies the source

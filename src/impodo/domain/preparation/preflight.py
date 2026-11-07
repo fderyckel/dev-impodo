@@ -38,6 +38,7 @@ from impodo.domain.preparation.canonical import (
 )
 from impodo.domain.preparation.company_references import check_company_references
 from impodo.domain.preparation.create_relationships import blank_create_reference
+from impodo.domain.preparation.incoming_references import incoming_business_reference
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.recipe.profile import (
     DatasetSpec,
@@ -55,7 +56,6 @@ from impodo.domain.shared.models import (
     PreflightResult,
     PreparedRecord,
     ReferenceResolution,
-    ScalarValue,
     Severity,
     TargetRecord,
     canonical_json_text,
@@ -571,15 +571,9 @@ def _resolve_records(
                             result = value
                         else:
                             status = "RESOLVED_INCOMING"
-                            result = BusinessReference(
-                                model=target_record.target_model,
-                                key=_resolved_business_components(
-                                    target_record.target_identity
-                                ),
-                                scope=_resolved_business_components(
-                                    target_record.target_scope
-                                ),
-                                **_incoming_reference_shape(plan, target_record.dataset),
+                            result = incoming_business_reference(
+                                plan, target_record.dataset,
+                                target_record.target_identity, target_record.target_scope,
                             )
             evidence.append(
                 ReferenceResolution(
@@ -653,11 +647,9 @@ def _resolve_records(
                 result = value
             else:
                 status = "RESOLVED"
-                result = BusinessReference(
-                    model=target_record.target_model,
-                    key=_resolved_business_components(target_record.target_identity),
-                    scope=_resolved_business_components(target_record.target_scope),
-                    **_incoming_reference_shape(plan, target_record.dataset),
+                result = incoming_business_reference(
+                    plan, target_record.dataset,
+                    target_record.target_identity, target_record.target_scope,
                 )
         else:
             status = "RESOLVED"
@@ -684,33 +676,6 @@ def _resolve_records(
 
     resolved_records = tuple(resolve_record(record) for record in original)
     return resolved_records, tuple(evidence)
-
-
-def _resolved_business_components(
-    values: Iterable[ScalarValue | LogicalReference | BusinessReference],
-) -> tuple[ScalarValue | BusinessReference, ...]:
-    """Require a dependency record's business identity to be fully resolved."""
-
-    components: list[ScalarValue | BusinessReference] = []
-    for value in values:
-        if isinstance(value, LogicalReference):
-            raise TypeError("A resolved dependency still contains a symbolic identity")
-        components.append(value)
-    return tuple(components)
-
-
-def _incoming_reference_shape(
-    plan: CompiledMigrationPlan, dataset_name: str,
-) -> dict[str, tuple[str, ...]]:
-    """Retain governed field paths for identities that contain references."""
-
-    dataset = plan.dataset(dataset_name)
-    return {
-        "target_fields": tuple(field for component in dataset.target_identity.components
-                               for field in component.target_fields),
-        "target_scope_fields": tuple(field for component in dataset.target_identity.scope
-                                     for field in component.target_fields),
-    }
 
 
 def _hybrid_incoming_outcomes(
@@ -886,11 +851,10 @@ def _target_reference(
         raise KeyError("A target identity parent is absent from the captured evidence")
     dataset = plan.dataset(str(resolve.dataset))
     visited = visiting | {pointer}
-    return BusinessReference(
-        model=model,
-        key=_target_identity(plan, dataset.target_identity.components, target, catalog, visiting=visited),
-        scope=_target_identity(plan, dataset.target_identity.scope, target, catalog, visiting=visited),
-        **_incoming_reference_shape(plan, dataset.name),
+    return incoming_business_reference(
+        plan, dataset.name,
+        _target_identity(plan, dataset.target_identity.components, target, catalog, visiting=visited),
+        _target_identity(plan, dataset.target_identity.scope, target, catalog, visiting=visited),
     )
 
 

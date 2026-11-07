@@ -48,6 +48,7 @@ from tests.support.browser_scenarios import (
     uuid4,
 )
 from tests.support.identity import resolve_local_actor
+from tests.support.database_probe import count_duckdb_statements
 
 
 class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -331,18 +332,24 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 side_effect=read_cause_page,
             ),
             collect_duckdb_request_timings() as timings,
+            count_duckdb_statements() as statements,
         ):
             page = self.client.get(
                 f"/workspaces/{workspace_id}/summary/quality-causes/{cause_key}"
             )
 
         self.assertEqual(page.status_code, 200, page.text)
-        self.assertIn("Records behind this finding", page.text)
-        self.assertIn("Direct finding", page.text)
+        self.assertIn("Records affected by this issue", page.text)
+        self.assertIn("Issue on this row", page.text)
         self.assertIn("Contact C002", page.text)
         self.assertIn("Records 1-2 of 2", page.text)
-        self.assertLessEqual(timings.connection_count, 3)
-        self.assertLessEqual(timings.schema_check_count, 3)
+        # Admission opens registry/workspace before the retained page scope.
+        # The page needs four owners: registry, workspace, engine (saved rules
+        # and schema), and Data version (human-readable source column names).
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 4)
+        self.assertLessEqual(len(statements), 42)
+        self.assertEqual(timings.lock_retry_count, 0)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(
         self,

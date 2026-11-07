@@ -1,0 +1,418 @@
+{
+  "schema_version": 1,
+  "kind": "manufacturing_practice_exercise_contracts",
+  "qualification_status": "independent_exercise_declaration_see_dated_qualification_receipts",
+  "delivery_contract": {
+    "baseline": "2026-04-15",
+    "recipe": "2026-05-15",
+    "baseline_kind": "full_snapshot",
+    "recipe_kind": "full_snapshot_reordered_business_identical",
+    "partial_delivery": false,
+    "absent_rows_are_deletes": false,
+    "fresh_source_timestamps": "Business values, including exported timestamps, are unchanged; the delivery itself is a distinct reordered full snapshot."
+  },
+  "source_composition": {
+    "products": {
+      "sources": [
+        "products_core.csv",
+        "product_details.csv"
+      ],
+      "join_keys": [
+        "CompanyCode",
+        "ProductRef"
+      ],
+      "cardinality": "exact_one_to_one",
+      "output_rows": 32,
+      "filter_after_join": true,
+      "authoritative_name": "products_core.Name",
+      "details_name_policy": "Keep the distinct label inspectable as DetailName; do not overwrite the core Name."
+    },
+    "boms": {
+      "source": "bom_headers.csv",
+      "component_source": "bom_rows.csv",
+      "parent_key": [
+        "CompanyCode",
+        "BOMRef"
+      ],
+      "child_key": "Sequence",
+      "source_trace_key": "LineRef",
+      "input_rows": {
+        "headers": 6,
+        "component_lines": 24
+      },
+      "header_mapping_source": "physical bom_headers.csv, select only the chosen company",
+      "header_agreement_fields": [
+        "CompanyCode",
+        "BOMRef",
+        "FinishedProductRef",
+        "HeaderName",
+        "Approved",
+        "Active",
+        "BaseQty",
+        "UnitLabel"
+      ],
+      "retained_repeated_header_fields": [
+        "CompanyCode",
+        "BOMRef",
+        "FinishedProductRef",
+        "HeaderName",
+        "Approved",
+        "Active",
+        "BaseQty",
+        "UnitLabel",
+        "ValidFromText"
+      ],
+      "repeated_source_sequence_10_rows_per_key": 1,
+      "reason": "A separately supplied header export and component export deliberately have different grains. Raw component rows retain their repeated header cells for source evidence. No related split, row representative selection or runtime preprocessor supplies headers in this exercise.",
+      "quantity_rule": "Parse French decimal Quantity directly; QuantitySeries must equal 1 in every baseline row. Header BaseQty=1000 is not a multiplier.",
+      "coverage_limit": "The supplied-header exercise does not establish related-split attribute propagation or child categorical provider persistence through Recipe. Those paths remain proposed until their normal application provider is complete."
+    },
+    "operations": {
+      "source": "bom_operations.csv",
+      "grain": [
+        "CompanyCode",
+        "BOMRef",
+        "OperationRef"
+      ],
+      "rows": 12,
+      "join_to_lines": false,
+      "reason": "An operation applies to its BoM, not to every component; joining twelve operations to twenty-four lines would multiply the grains."
+    }
+  },
+  "scope": {
+    "single_operation_company_per_load": true,
+    "source_company_code_is_native_company_name": false,
+    "shared_models": [
+      "product.category",
+      "product.template",
+      "product.product",
+      "product.tag"
+    ],
+    "scoped_models": [
+      "mrp.bom",
+      "mrp.workcenter"
+    ],
+    "related_company_models": [
+      "mrp.routing.workcenter"
+    ],
+    "bom_identity": "Globally unique prefixed BOMRef maps to code. Company is assigned separately using the chosen company name, then independently checked. Global uniqueness is a practice governance decision, not an Odoo database constraint.",
+    "company_names": {
+      "NORTH": "Morrow Assembly North",
+      "SOUTH": "Morrow Assembly South"
+    },
+    "cross_partition_components_require_all_products": true
+  },
+  "exercises": [
+    {
+      "id": "CATEGORIES",
+      "company_context": "NORTH",
+      "input_files": [
+        "categories.csv"
+      ],
+      "requires_stage": "M0-initial",
+      "mapped_counts": {
+        "product.category": {
+          "create": 9,
+          "update": 0,
+          "unchanged": 3
+        }
+      },
+      "workspace_counts": {
+        "create": 9,
+        "update": 0,
+        "unchanged": 3
+      },
+      "native_identity": "name scoped by recursive parent_id, explicit null for roots",
+      "repeat_unchanged": 12,
+      "initial_category_ownership": "Two owned seeded paths plus the verified native unowned Services root. The native reference is unchanged and excluded from cleanup ownership."
+    },
+    {
+      "id": "PRODUCTS_NORTH",
+      "company_context": "NORTH",
+      "input_files": [
+        "categories.csv",
+        "products_core.csv",
+        "product_details.csv"
+      ],
+      "requires_stage": "M2-product-seed",
+      "row_filter": {
+        "CompanyCode": "NORTH"
+      },
+      "mapped_counts": {
+        "product.category": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "product.template": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 4
+        }
+      },
+      "workspace_counts": {
+        "create": 12,
+        "update": 0,
+        "unchanged": 16
+      },
+      "repeat_unchanged": 28,
+      "source_relationship": "CategoryKey resolves to the mapped category dataset with recursive native name/parent identity.",
+      "many_to_many": {
+        "field": "product_tag_ids",
+        "delimiter": ";",
+        "mode": "replace",
+        "target_key": "product.tag.name"
+      },
+      "active_field_handling": "Do not map active during initial product creation. The normal Odoo default keeps every new template and generated variant active until the explicit status phases.",
+      "intermediate_state_owner": "expected-business-results.json#baseline.initial_product_state"
+    },
+    {
+      "id": "PRODUCTS_SOUTH",
+      "company_context": "SOUTH",
+      "input_files": [
+        "categories.csv",
+        "products_core.csv",
+        "product_details.csv"
+      ],
+      "requires_stage": "M2-product-seed",
+      "row_filter": {
+        "CompanyCode": "SOUTH"
+      },
+      "mapped_counts": {
+        "product.category": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "product.template": {
+          "create": 12,
+          "update": 1,
+          "unchanged": 3
+        }
+      },
+      "workspace_counts": {
+        "create": 12,
+        "update": 1,
+        "unchanged": 15
+      },
+      "repeat_unchanged": 28,
+      "source_relationship": "CategoryKey resolves to the mapped category dataset with recursive native name/parent identity.",
+      "many_to_many": {
+        "field": "product_tag_ids",
+        "delimiter": ";",
+        "mode": "replace",
+        "target_key": "product.tag.name"
+      },
+      "active_field_handling": "Do not map active during initial product creation. The normal Odoo default keeps every new template and generated variant active until the explicit status phases.",
+      "intermediate_state_owner": "expected-business-results.json#baseline.initial_product_state"
+    },
+    {
+      "id": "PRODUCT_STATUS_NORTH",
+      "company_context": "NORTH",
+      "input_files": [
+        "categories.csv",
+        "products_core.csv",
+        "product_details.csv"
+      ],
+      "requires_stage": "M3-products-active",
+      "row_filter": {
+        "CompanyCode": "NORTH"
+      },
+      "mapped_counts": {
+        "product.category": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "product.template": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 15
+        }
+      },
+      "workspace_counts": {
+        "create": 0,
+        "update": 1,
+        "unchanged": 27
+      },
+      "repeat_unchanged": 28,
+      "mapping_reuse": "Use the same exact product combination, category dependencies and product field/relationship rules as the initial product phase, with the active rule added. All other mapped business values must already match.",
+      "active_rule": "StatusCode 10 means true; StatusCode 20 means false.",
+      "only_allowed_changed_fields": {
+        "MA-P-0031": [
+          "active"
+        ]
+      },
+      "expected_update": {
+        "MA-P-0031": {
+          "active": false
+        }
+      },
+      "create_limit": 0,
+      "row_review_population": {
+        "source": 32,
+        "included": 16,
+        "excluded": 16
+      }
+    },
+    {
+      "id": "PRODUCT_STATUS_SOUTH",
+      "company_context": "SOUTH",
+      "input_files": [
+        "categories.csv",
+        "products_core.csv",
+        "product_details.csv"
+      ],
+      "requires_stage": "M3-products-active",
+      "row_filter": {
+        "CompanyCode": "SOUTH"
+      },
+      "mapped_counts": {
+        "product.category": {
+          "create": 0,
+          "update": 0,
+          "unchanged": 12
+        },
+        "product.template": {
+          "create": 0,
+          "update": 1,
+          "unchanged": 15
+        }
+      },
+      "workspace_counts": {
+        "create": 0,
+        "update": 1,
+        "unchanged": 27
+      },
+      "repeat_unchanged": 28,
+      "mapping_reuse": "Use the same exact product combination, category dependencies and product field/relationship rules as the initial product phase, with the active rule added. All other mapped business values must already match.",
+      "active_rule": "StatusCode 10 means true; StatusCode 20 means false.",
+      "only_allowed_changed_fields": {
+        "MA-P-0028": [
+          "active"
+        ]
+      },
+      "expected_update": {
+        "MA-P-0028": {
+          "active": false
+        }
+      },
+      "create_limit": 0,
+      "row_review_population": {
+        "source": 32,
+        "included": 16,
+        "excluded": 16
+      }
+    },
+    {
+      "id": "BOMS_NORTH",
+      "company_context": "NORTH",
+      "input_files": [
+        "bom_headers.csv",
+        "bom_rows.csv",
+        "bom_operations.csv"
+      ],
+      "requires_stage": "M3-all-products-complete",
+      "row_filter": {
+        "CompanyCode": "NORTH"
+      },
+      "mapped_counts": {
+        "mrp.bom": {
+          "create": 3,
+          "update": 0,
+          "unchanged": 0
+        },
+        "mrp.bom.line": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 0
+        },
+        "mrp.routing.workcenter": {
+          "create": 6,
+          "update": 0,
+          "unchanged": 0
+        }
+      },
+      "workspace_counts": {
+        "create": 21,
+        "update": 0,
+        "unchanged": 0
+      },
+      "repeat_unchanged": 21
+    },
+    {
+      "id": "BOMS_SOUTH",
+      "company_context": "SOUTH",
+      "input_files": [
+        "bom_headers.csv",
+        "bom_rows.csv",
+        "bom_operations.csv"
+      ],
+      "requires_stage": "M3-all-products-complete",
+      "row_filter": {
+        "CompanyCode": "SOUTH"
+      },
+      "mapped_counts": {
+        "mrp.bom": {
+          "create": 3,
+          "update": 0,
+          "unchanged": 0
+        },
+        "mrp.bom.line": {
+          "create": 12,
+          "update": 0,
+          "unchanged": 0
+        },
+        "mrp.routing.workcenter": {
+          "create": 6,
+          "update": 0,
+          "unchanged": 0
+        }
+      },
+      "workspace_counts": {
+        "create": 21,
+        "update": 0,
+        "unchanged": 0
+      },
+      "repeat_unchanged": 21
+    }
+  ],
+  "matrix": {
+    "odoo_majors": [
+      19,
+      20
+    ],
+    "access_modes": [
+      "LOCAL",
+      "REMOTE"
+    ],
+    "lanes": [
+      "authoring",
+      "Recipe"
+    ],
+    "fresh_target_sequence": [
+      "CATEGORIES",
+      "M2-product-seed",
+      "PRODUCTS_NORTH",
+      "PRODUCTS_SOUTH",
+      "PRODUCT_STATUS_NORTH",
+      "PRODUCT_STATUS_SOUTH",
+      "BOMS_NORTH",
+      "BOMS_SOUTH"
+    ],
+    "recipe_reuse": "Save each approved phase as an immutable Recipe. Reapply it to its reordered delivery on the same correctly completed state and expect all unchanged. Qualification of initial Recipe creates/updates requires an independently rebuilt matching prerequisite state, not target deletion through an Impodo prepare action."
+  },
+  "accepted_business_checks": [
+    "All twelve category paths remain distinct, including three Assembly leaves.",
+    "Core and detail tables combine to thirty-two rows by both keys, never by row order.",
+    "MA-P-0010 changes only the declared name and price among the seeded mapped values.",
+    "After both initial product phases, all 32 templates and generated variants are active with their intended references. Two explicit company-filtered status phases then change only active on MA-P-0031 and MA-P-0028, leaving the final business oracle unchanged.",
+    "Shared templates remain company-neutral and inactive and zero-price products are retained.",
+    "Every component resolves to its intended product.product variant, not a template ID.",
+    "Both repeated MA-P-0011 lines in MA-BOM-003 survive with their own sequence and quantity.",
+    "Each BoM has four lines and two operations; the two subassembly links remain acyclic.",
+    "All BoMs and work centres belong to the selected company; operations inherit that company.",
+    "Read-back quantities, units, times, tags, active flags, types and ownership match the independent business oracle.",
+    "Repeat and reordered Recipe runs create zero records and change zero mapped values."
+  ]
+}

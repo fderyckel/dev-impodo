@@ -3917,12 +3917,28 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
     write_fields: dict[str, set[str]] = {}
     read_fields: dict[str, set[str]] = {}
     lookup_fields: dict[str, set[str]] = {}
+
+    def register_nested_lookup(value: Any) -> None:
+        if isinstance(value, BusinessReference):
+            fields = (*value.target_fields, *value.target_scope_fields)
+            if fields:
+                lookup_fields.setdefault(value.model, set()).update(fields)
+            for component in (*value.key, *value.scope):
+                register_nested_lookup(component)
+        elif isinstance(value, tuple):
+            for component in value:
+                register_nested_lookup(component)
+
     row_by_id = {row.row_id: row for row in snapshot.rows}
     for dataset in snapshot.datasets:
         lookup_fields.setdefault(dataset.target_model, set()).update(
             (*dataset.identity_fields, *dataset.scope_fields)
         )
     for row in snapshot.rows:
+        # Nested identity reads need their exact frozen parent capabilities,
+        # including parents that are reference-only datasets with no writes.
+        for component in (*row.business_identity, *row.business_scope):
+            register_nested_lookup(component)
         if row.disposition not in {"CREATE", "UPDATE"}:
             continue
         for intent in row.fields:
@@ -3931,6 +3947,7 @@ def execution_api_scope(snapshot: ExecutionSnapshot) -> OdooApiScope:
             if intent.action != "OMIT":
                 read_fields.setdefault(row.target_model, set()).add(intent.field)
             if intent.kind == "relation" and intent.action != "EXPECT_PROTECTED":
+                register_nested_lookup(intent.value)
                 lookup_fields.setdefault(intent.related_model, set()).update(
                     (
                         *intent.related_identity_fields,

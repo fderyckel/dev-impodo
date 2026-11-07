@@ -2289,6 +2289,19 @@ def _mapping_dataset_views(
         }
         existing = existing_by_id.get(source_dataset.dataset_id)
         derived_link = derived_by_dataset.get(source_dataset.dataset_id)
+        source_by_key = {
+            column.stable_key: column for column in source_dataset.columns
+        }
+        generated_key_column = (
+            source_by_key.get(derived_link.canonical_key_column_key)
+            if derived_link is not None
+            else None
+        )
+        generated_value_column = (
+            source_by_key.get(derived_link.name_column_key)
+            if derived_link is not None
+            else None
+        )
         selected_model_name = selected_model_by_dataset[
             source_dataset.dataset_id
         ]
@@ -2374,6 +2387,13 @@ def _mapping_dataset_views(
                 identity_rows.append(
                     {
                         "target_field": target_field,
+                        "generated_value_column": (
+                            generated_value_column
+                            if derived_link is not None
+                            and selected_model_name == derived_link.target_model
+                            and target_field == derived_link.target_name_field
+                            else None
+                        ),
                         "original_spelling_column": (
                             next((column for column in source_dataset.columns
                                   if column.stable_key == derived_link.name_column_key), None)
@@ -2799,12 +2819,12 @@ def _mapping_dataset_views(
                 "index": dataset_index,
                 "active": active,
                 "source": source_dataset,
+                "generated_key_column": generated_key_column,
+                "generated_value_column": generated_value_column,
                 "generated_hierarchy": bool(
                     derived_link is not None and derived_link.hierarchical
                 ),
-                "source_by_key": {
-                    item.stable_key: item for item in source_dataset.columns
-                },
+                "source_by_key": source_by_key,
                 "source_samples": source_samples,
                 "mapping": existing,
                 "row_inclusion_parents": tuple(

@@ -23,6 +23,7 @@ from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
+from tests.support.hierarchy_correction import MappingForm
 from tests.support.hierarchy_odoo import HierarchyOdoo
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
@@ -52,6 +53,45 @@ def expectations_form(page):
 
 
 class MatchingExpectationsTests(HierarchyWorkflowFixture):
+    def test_editors_default_to_upsert_and_preserve_explicit_choices(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace_id, _ = self.hierarchy(major=major)
+                base = f"/workspaces/{workspace_id}"
+                final_review = base + "/summary/expectations"
+
+                def read_form(route):
+                    page = self.client.get(route)
+                    self.assertEqual(page.status_code, 200, page.text[:1000])
+                    return dict(
+                        MappingForm(
+                            page.text, form_attribute="data-business-expectations-form"
+                        ).entries
+                    )
+
+                for route in (base + "/mapping", final_review):
+                    form = read_form(route)
+                    self.assertEqual(form["model_count"], "2")
+                    self.assertEqual(form["mode_0"], "upsert")
+                    self.assertEqual(form["mode_1"], "upsert")
+                self.assertIsNone(
+                    self.context.business_intents.get(workspace_id, actor=self.actor)
+                )
+
+                form["mode_0"] = "none"
+                rejected = self._post(final_review, {**form, "create_min_0": "-1"})
+                self.assertEqual(rejected.status_code, 422, rejected.text[:1000])
+                retry_form = MappingForm(
+                    rejected.text, form_attribute="data-business-expectations-form"
+                )
+                self.assertEqual(dict(retry_form.entries)["mode_0"], "none")
+                saved = self._post(final_review, form)
+                self.assertEqual(saved.status_code, 303, saved.text[:1000])
+                for route in (base + "/mapping", final_review):
+                    reopened = read_form(route)
+                    self.assertEqual(reopened["mode_0"], "none")
+                    self.assertEqual(reopened["mode_1"], "upsert")
+
     def setup_lists(self, *, customer_count=3):
         workspace_id = self.freeze_files(
             {

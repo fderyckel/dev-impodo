@@ -1,0 +1,129 @@
+{
+  "schema_version": 1,
+  "pack": "impodo-practice/manufacturing/v1",
+  "status": "versioned_source_and_business_declarations_see_dated_qualification_receipts",
+  "source_counts": {
+    "csv_files": 12,
+    "physical_data_rows": 236,
+    "baseline_csv_files": 6,
+    "baseline_physical_data_rows": 118,
+    "reordered_csv_files": 6,
+    "reordered_physical_data_rows": 118
+  },
+  "hash_scope": "Source CSVs and the independent oracle, seed and exercise contracts. README, manifest, and execution receipts are excluded.",
+  "files": [
+    {
+      "path": "deliveries/2026-04-15/bom_headers.csv",
+      "data_rows": 6,
+      "role": "baseline_full_snapshot",
+      "separate_header_export": true,
+      "authored_from": "independent declared header business intent; not runtime preparation output",
+      "bytes": 473,
+      "sha256": "406f0fab2233d68f8f42da10ab65acbc34acf11c1b81259d2e2e313555eceb7b"
+    },
+    {
+      "path": "deliveries/2026-04-15/bom_operations.csv",
+      "bytes": 813,
+      "sha256": "31b623a92d2dc9b7b8f560808d539912f784740bea5293f22230507382e213ef",
+      "data_rows": 12,
+      "role": "baseline_full_snapshot",
+      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_operations.csv",
+      "baseline_bytes_unchanged": true
+    },
+    {
+      "path": "deliveries/2026-04-15/bom_rows.csv",
+      "bytes": 3199,
+      "sha256": "9c738fccf607ab190e42b94fa7bef09f9cd50688576996faa4c8a6204e8b22dc",
+      "data_rows": 24,
+      "role": "baseline_full_snapshot",
+      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_rows.csv",
+      "baseline_bytes_unchanged": true
+    },
+    {
+      "path": "deliveries/2026-04-15/categories.csv",
+      "bytes": 431,
+      "sha256": "cf04d0fef1f3ea7f3c2b7a07d3bf867fecafd333c297d29e9ca089c7fc78600c",
+      "data_rows": 12,
+      "role": "baseline_full_snapshot",
+      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/categories.csv",
+      "baseline_bytes_unchanged": true
+    },
+    {
+      "path": "deliveries/2026-04-15/product_details.csv",
+      "bytes": 3726,
+      "sha256": "060a233fb78f91f3892dcf184c4b915569a6f1a878d8b5a37d8c983b6d67842b",
+      "data_rows": 32,
+      "role": "baseline_full_snapshot",
+      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/product_details.csv",
+      "baseline_bytes_unchanged": true
+    },
+    {
+      "path": "deliveries/2026-04-15/products_core.csv",
+      "bytes": 3536,
+      "sha256": "4274d9ed593c6cd23809ad74775420204dcc85b0de9c3df10efc217a36130786",
+      "data_rows": 32,
+      "role": "baseline_full_snapshot",
+      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/products_core.csv",
+      "baseline_bytes_unchanged": true
+    },
+    {
+      "path": "deliveries/2026-05-15/bom_headers.csv",
+      "data_rows": 6,
+      "role": "recipe_reordered_full_snapshot",
+      "separate_header_export": true,
+      "authored_from": "independent declared header business intent; not runtime preparation output",
+      "bytes": 473,
+      "sha256": "e021eed95d4b85ac017c60a83581ae7cdd6d5cbcd179b81dc8f2051088b884a0"
+    },
+    {
+      "path": "deliveries/2026-05-15/bom_operations.csv",
+      "bytes": 813,
+      "sha256": "3b75adca8fd8d15c4e4ff4de754429e9a16bd9716826ba32f383a4edbe3bb811",
+      "data_rows": 12,
+      "role": "recipe_reordered_full_snapshot"
+    },
+    {
+      "path": "deliveries/2026-05-15/bom_rows.csv",
+      "bytes": 3199,
+      "sha256": "e5e34b9d9886ed6fd7fe82412c436629f1e6d1da7d2113517a611818ab732111",
+      "data_rows": 24,
+      "role": "recipe_reordered_full_snapshot"
+    },
+    {
+      "path": "deliveries/2026-05-15/categories.csv",
+      "bytes": 431,
+      "sha256": "06a993dff5fdd6011f0494e3c6f7b49098aaa34654cb96cd7c2de20e19a6f5d1",
+      "data_rows": 12,
+      "role": "recipe_reordered_full_snapshot"
+    },
+    {
+      "path": "deliveries/2026-05-15/product_details.csv",
+      "bytes": 3726,
+      "sha256": "98ddbe57e371622f60f32a772076ffb875e87819dcdc16e31ae161052002bb4a",
+      "data_rows": 32,
+      "role": "recipe_reordered_full_snapshot"
+    },
+    {
+      "path": "deliveries/2026-05-15/products_core.csv",
+      "bytes": 3536,
+      "sha256": "b32f1c02fd338188a90ecfa0b7fdea08e859859937eed71f6ba9ae9e9b48e4b6",
+      "data_rows": 32,
+      "role": "recipe_reordered_full_snapshot"
+    },
+    {
+      "path": "exercise-contracts.json",
+      "bytes": 13419,
+      "sha256": "adafa03e0fac9b765c0860b5e394807f7548c969720f967087397e4a25d6f37f"
+    },
+    {
+      "path": "expected-business-results.json",
+      "bytes": 41594,
+      "sha256": "0e4f0ac07e8bdf4f3ca349aad2751687c4e3f8618b83e0abebe374ac8c34e188"
+    },
+    {
+      "path": "target-seed-projection.json",
+      "bytes": 10467,
+      "sha256": "3cf655e7e1bfd7e5182854c177696ab914c62a80d86a290fe52c4c2572862f1e"
+    }
+  ]
+}

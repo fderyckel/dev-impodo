@@ -1,0 +1,349 @@
+{
+  "schema_version": 1,
+  "kind": "staged_manufacturing_seed_business_specification",
+  "qualification_status": "independent_business_declaration_see_dated_qualification_receipts",
+  "companies": [
+    {
+      "company_code": "NORTH",
+      "name": "Morrow Assembly North"
+    },
+    {
+      "company_code": "SOUTH",
+      "name": "Morrow Assembly South"
+    }
+  ],
+  "required_modules": [
+    "base",
+    "product",
+    "stock",
+    "mrp"
+  ],
+  "edition_policy": "Use a verified disposable target exposing the captured stock models and writable fields. This pack asserts no enterprise-only behavior or accounting localization.",
+  "uoms": [
+    {
+      "name": "Units",
+      "source_choice": "PCE",
+      "must_already_exist": true,
+      "create_duplicate": false
+    }
+  ],
+  "product_tags": [
+    {
+      "name": "MORROW"
+    },
+    {
+      "name": "TRAINING"
+    }
+  ],
+  "work_centres": [
+    {
+      "code": "MA-WC-01",
+      "name": "Morrow Practice Work Centre 01",
+      "company_code": "NORTH",
+      "company_name": "Morrow Assembly North"
+    },
+    {
+      "code": "MA-WC-02",
+      "name": "Morrow Practice Work Centre 02",
+      "company_code": "SOUTH",
+      "company_name": "Morrow Assembly South"
+    },
+    {
+      "code": "MA-WC-03",
+      "name": "Morrow Practice Work Centre 03",
+      "company_code": "NORTH",
+      "company_name": "Morrow Assembly North"
+    },
+    {
+      "code": "MA-WC-04",
+      "name": "Morrow Practice Work Centre 04",
+      "company_code": "SOUTH",
+      "company_name": "Morrow Assembly South"
+    }
+  ],
+  "stages": [
+    {
+      "id": "M0-initial",
+      "requires": "An explicitly allocated disposable target with both reviewed companies, the required modules, and the native unowned Services category verified by its exact XML ID. Other practice-owned setup records must be absent before seed creation.",
+      "categories": [
+        {
+          "category_key": "CAT-01",
+          "path": [
+            "Components"
+          ]
+        },
+        {
+          "category_key": "CAT-02",
+          "path": [
+            "Components",
+            "Metals"
+          ]
+        }
+      ],
+      "products": [],
+      "boms": [],
+      "bom_lines": [],
+      "operations": [],
+      "setup_records": [
+        "companies",
+        "product_tags",
+        "work_centres"
+      ],
+      "shared_category_rule": {
+        "19": "company_id is not present",
+        "20": "company_id is false"
+      },
+      "available_category_paths_before_first_run": [
+        [
+          "Components"
+        ],
+        [
+          "Components",
+          "Metals"
+        ],
+        [
+          "Services"
+        ]
+      ],
+      "ownership_note": "The initial categories array declares only the two owned seeded categories. Services is already available through the unowned native reference; do not create, rename, delete or adopt it."
+    },
+    {
+      "id": "M1-category-complete",
+      "requires_stage": "M0-initial",
+      "action": "Execute CATEGORIES once and independently verify all twelve recursive category paths before seeding any existing product."
+    },
+    {
+      "id": "M2-product-seed",
+      "requires_stage": "M1-category-complete",
+      "products": [
+        {
+          "product_ref": "MA-P-0009",
+          "name": "Practice Component 01",
+          "price": "1.25",
+          "category_path": [
+            "Components",
+            "Metals",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-03",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "MORROW",
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0010",
+          "name": "Practice Component 02 Before Review",
+          "price": "1.00",
+          "category_path": [
+            "Components",
+            "Polymers",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-05",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0011",
+          "name": "Practice Component 03",
+          "price": "3.75",
+          "category_path": [
+            "Components",
+            "Packaging"
+          ],
+          "source_category_key": "CAT-06",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "MORROW",
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0012",
+          "name": "Practice Component 04",
+          "price": "4.00",
+          "category_path": [
+            "Components",
+            "Metals",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-03",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0013",
+          "name": "Practice Component 05",
+          "price": "5.25",
+          "category_path": [
+            "Components",
+            "Polymers",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-05",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "MORROW",
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0014",
+          "name": "Practice Component 06",
+          "price": "6.50",
+          "category_path": [
+            "Components",
+            "Metals",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-03",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0015",
+          "name": "Practice Component 07",
+          "price": "7.75",
+          "category_path": [
+            "Components",
+            "Polymers",
+            "Assembly"
+          ],
+          "source_category_key": "CAT-05",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "MORROW",
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        },
+        {
+          "product_ref": "MA-P-0016",
+          "name": "Practice Component 08",
+          "price": "8.00",
+          "category_path": [
+            "Components",
+            "Packaging"
+          ],
+          "source_category_key": "CAT-06",
+          "product_kind": "goods",
+          "active": true,
+          "uom_key": "Units",
+          "tags": [
+            "TRAINING"
+          ],
+          "target_company_assignment": null,
+          "target_type": "consu"
+        }
+      ],
+      "action": "Seed exactly these eight shared templates and verify their normal generated variants. Preserve the deliberately stale MA-P-0010 name and price until PRODUCTS_SOUTH.",
+      "expected_wrong_product": {
+        "product_ref": "MA-P-0010",
+        "name": "Practice Component 02 Before Review",
+        "price": "1.00"
+      }
+    },
+    {
+      "id": "M3-products-active",
+      "requires_stage": "M2-product-seed",
+      "action": "Execute PRODUCTS_NORTH and PRODUCTS_SOUTH without an active field provider. Verify all 32 shared templates and their normal generated variants are active and have the declared portable product references.",
+      "expected_product_state_owner": "expected-business-results.json#baseline.initial_product_state",
+      "required_template_count": 32
+    },
+    {
+      "id": "M3-all-products-complete",
+      "requires_stage": "M3-products-active",
+      "action": "Execute PRODUCT_STATUS_NORTH and PRODUCT_STATUS_SOUTH using the full saved product join and category mappings. Each phase has zero creates, one product update and 27 unchanged rows; only active may change. Independently verify all final product values and generated variant references before either BoM phase.",
+      "required_template_count": 32,
+      "all_bom_component_refs": [
+        "MA-P-0005",
+        "MA-P-0006",
+        "MA-P-0009",
+        "MA-P-0010",
+        "MA-P-0011",
+        "MA-P-0012",
+        "MA-P-0013",
+        "MA-P-0014",
+        "MA-P-0015",
+        "MA-P-0016",
+        "MA-P-0017",
+        "MA-P-0018",
+        "MA-P-0019",
+        "MA-P-0020",
+        "MA-P-0021",
+        "MA-P-0022",
+        "MA-P-0023",
+        "MA-P-0024"
+      ]
+    },
+    {
+      "id": "M4-boms-complete",
+      "requires_stage": "M3-all-products-complete",
+      "action": "Execute BOMS_NORTH and BOMS_SOUTH in separate company contexts; verify six headers, twenty-four lines, and twelve operations with exact company ownership."
+    }
+  ],
+  "version_fields": {
+    "19": {
+      "bom_unit_field": "product_uom_id",
+      "bom_line_unit_field": "product_uom_id",
+      "product_unit_field": "uom_id",
+      "product_tags_field": "product_tag_ids",
+      "category_company_field": null
+    },
+    "20": {
+      "bom_unit_field": "uom_id",
+      "bom_line_unit_field": "uom_id",
+      "product_unit_field": "uom_id",
+      "product_tags_field": "product_tag_ids",
+      "category_company_field": "company_id"
+    }
+  },
+  "resource_ownership": "Create work centres through ordinary Odoo create so generated resource records and calendars belong to the target. Never copy resource IDs or a version-specific calendar numeric ID.",
+  "cleanup": "Retain a private exact owned-ID ledger. Remove only this allocation and setup/migration records owned by it. Never delete or adopt the native Services category, and never sweep records by a loose name match.",
+  "preexisting_references": [
+    {
+      "source_key": "CAT-10",
+      "path": [
+        "Services"
+      ],
+      "xmlid": "product.product_category_services",
+      "must_already_exist": true,
+      "owned": false
+    }
+  ]
+}

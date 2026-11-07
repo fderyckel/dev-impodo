@@ -1,25 +1,47 @@
 {
   "schema_version": 1,
-  "validation_kind": "Raw corpus validation, not Impodo runtime qualification",
+  "validation_kind": "Static remaining-proposal source and ownership checks; no remaining-proposal runtime qualification",
+  "scope": {
+    "local_csv_files": 2,
+    "local_source_rows": 14,
+    "baseline_rows": 8,
+    "phone_patch_rows": 6,
+    "fault_specs": 18
+  },
+  "current_customer_pack": {
+    "owner": "scenarios/impodo-practice/v1",
+    "relative_root": "../../../scenarios/impodo-practice/v1",
+    "readme": "../../../scenarios/impodo-practice/v1/README.md",
+    "expected_business_results": "../../../scenarios/impodo-practice/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in this proposal metadata are relative to this proposal pack root, including fields inside faults/ and target-overlays/."
+  },
+  "current_manufacturing_pack": {
+    "owner": "scenarios/impodo-practice/manufacturing/v1",
+    "relative_root": "../../../scenarios/impodo-practice/manufacturing/v1",
+    "readme": "../../../scenarios/impodo-practice/manufacturing/v1/README.md",
+    "exercise_contracts": "../../../scenarios/impodo-practice/manufacturing/v1/exercise-contracts.json",
+    "expected_business_results": "../../../scenarios/impodo-practice/manufacturing/v1/expected-business-results.json",
+    "target_seed": "../../../scenarios/impodo-practice/manufacturing/v1/target-seed-projection.json",
+    "path_resolution": "All relative file paths in proposal metadata resolve from the proposal pack root, including fields inside faults/ and target-overlays/."
+  },
   "checks_passed": [
-    "17 CSV row counts total250 (baseline182, fresh62, patch6).",
-    "Exact customer joins resolve18 unique rows per delivery;9 per company.",
-    "Omitting Partition makes party keys duplicate across companies, as intended by F18.",
-    "All source payment-term references resolve to headers and owned lines.",
-    "All12 baseline categories have acyclic resolved parent paths and3 blank roots.",
-    "All32 product category keys and all24 BoM product references resolve.",
-    "Product enrichment keys match exactly.",
-    "All BoM line/operation identities are unique at their declared grain.",
-    "BoM quantity total22.500, operation minutes94.50, product price total1313.50.",
-    "MA-BOM-003 deliberately retains the same component at two distinct sequences.",
-    "Every source fault mutation selects exactly one row in its declared base file."
+    "Exactly two local CSVs contain fourteen rows: eight accounts and six phone patches.",
+    "All five promoted manufacturing baseline CSVs were byte-identical to their canonical owners before removing the duplicate proposal copies.",
+    "No customer or manufacturing CSV remains in the proposal directory.",
+    "Eight account rows retain unique company/code keys and leading zeroes; target account hierarchy capability is not asserted.",
+    "All six phone-patch references exist in the canonical customer baseline.",
+    "All source fault selectors identify exactly one row in the current local or referenced canonical source.",
+    "All exercise sources and canonical README/oracle/seed references resolve."
+  ],
+  "historical_reports": [
+    "history/2026-11-06-original-draft-validation.json",
+    "history/2026-11-06-before-manufacturing-promotion-validation.json"
   ],
   "omitted": [
-    "Impodo browser exercise execution",
-    "Odoo19 target seeding and round trip",
-    "Odoo20 target seeding and round trip",
-    "Recipe publication/application execution",
-    "Runtime adapter fault injection",
-    "Repository quality gate (owned by parent task)"
+    "Runtime execution of remaining proposal extensions",
+    "Runtime execution of the eighteen fault specifications",
+    "Related-split provider and Recipe derivation qualification",
+    "Repository documentation and complete quality gates; the owning task must run them after applying this draft"
   ]
 }

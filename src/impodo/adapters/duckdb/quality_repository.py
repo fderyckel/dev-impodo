@@ -18,6 +18,8 @@ from uuid import UUID, uuid4
 
 import duckdb
 
+from impodo.adapters.artifacts.local_store import LocalArtifactStore
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.domain.preparation.quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
@@ -54,6 +56,12 @@ from .constants import (
     QUALITY_ROW_BATCH_SIZE,
 )
 from .database import DuckDbWorkspaceDatabase
+from .quality_review_details import (
+    explain_source_match_causes,
+    read_prepared_field_labels,
+    read_prepared_identity_values,
+    read_prepared_review_rows,
+)
 from .repository import DuckDbRepository, WorkspaceAggregateReader
 from .serialization import (
     _canonical_json,
@@ -712,9 +720,11 @@ class QualityRepository(DuckDbRepository):
         self,
         database: DuckDbWorkspaceDatabase,
         workspace_states: WorkspaceAggregateReader,
+        artifacts: WorkspaceArtifactStore | None = None,
     ) -> None:
         super().__init__(database)
         self._workspace_states = workspace_states
+        self._artifacts = artifacts or LocalArtifactStore(database.root)
 
     def get_current_quality_ruleset(
         self,
@@ -1629,6 +1639,15 @@ class QualityRepository(DuckDbRepository):
                         canonical_run_id,
                     )
                 )
+            prepared_rows = read_prepared_review_rows(
+                connection, str(current[0]), row_ids,
+                workspace_id=workspace_id, artifacts=self._artifacts,
+            )
+            prepared_labels = read_prepared_field_labels(connection, prepared_rows)
+            identity_values = read_prepared_identity_values(connection, str(current[0]), prepared_rows)
+            run_cause_counts = explain_source_match_causes(
+                connection, canonical_run_id, str(current[0]), run_cause_counts,
+            )
             results = tuple(
                 (
                     QualityRowResult.from_dict(json.loads(str(item[7])))
@@ -1655,6 +1674,11 @@ class QualityRepository(DuckDbRepository):
                     row=item,
                     issues=tuple(issues_by_row[item.row_id]),
                     correction_route=route_by_row.get(item.row_id, ""),
+                    prepared_row=prepared_rows.get(item.row_id),
+                    prepared_identity_values=identity_values.get(item.row_id, ()),
+                    prepared_field_labels=prepared_labels.get(
+                        prepared_rows[item.row_id].target_model, (),
+                    ) if item.row_id in prepared_rows else (),
                 )
                 for item in results
             ),
@@ -1713,6 +1737,9 @@ class QualityRepository(DuckDbRepository):
                 _projected_quality_cause_counts(projection)
                 if projection is not None
                 else None
+            )
+            causes = explain_source_match_causes(
+                connection, canonical_run_id, str(current[0]), causes or (),
             )
             selected_cause = next(
                 (
@@ -1831,6 +1858,12 @@ class QualityRepository(DuckDbRepository):
                 for item in quarantine_rows:
                     entry = QuarantineEntry.from_dict(json.loads(str(item[0])))
                     route_by_row.setdefault(entry.row_id, entry.correction_route)
+            prepared_rows = read_prepared_review_rows(
+                connection, str(current[0]), row_ids,
+                workspace_id=workspace_id, artifacts=self._artifacts,
+            )
+            prepared_labels = read_prepared_field_labels(connection, prepared_rows)
+            identity_values = read_prepared_identity_values(connection, str(current[0]), prepared_rows)
             results = tuple(
                 (
                     QualityRowResult.from_dict(json.loads(str(item[7])))
@@ -1858,6 +1891,11 @@ class QualityRepository(DuckDbRepository):
                     issues=tuple(issues_by_row[result.row_id]),
                     correction_route=route_by_row.get(result.row_id, ""),
                     cause_impact=QualityCauseImpact(str(row[8])),
+                    prepared_row=prepared_rows.get(result.row_id),
+                    prepared_identity_values=identity_values.get(result.row_id, ()),
+                    prepared_field_labels=prepared_labels.get(
+                        prepared_rows[result.row_id].target_model, (),
+                    ) if result.row_id in prepared_rows else (),
                 )
                 for result, row in zip(results, rows, strict=True)
             ),
@@ -1865,6 +1903,7 @@ class QualityRepository(DuckDbRepository):
             page=current_page,
             page_count=page_count,
             selected_cause=selected_cause,
+            run_cause_counts=causes,
         )
 
     def get_quality_collision_groups(
