@@ -68,6 +68,7 @@ LOAD_STAGES = frozenset(
         "write",
         "verification",
         "execution_checks",
+        "prepare_write_values",
     }
 )
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,127}")
@@ -132,6 +133,7 @@ def sanitize_load_facts(value: object) -> dict[str, object]:
         "connection_mode": {"LOCAL", "REMOTE"},
         "entry_point": {"AUTHORING", "RECIPE"},
         "projection": {"INITIAL", "FINAL", "OBSERVED"},
+        "rejection_policy": {"STOP", "CONTINUE"},
         "outcome": {
             "FAILED",
             "COMPLETED",
@@ -169,6 +171,8 @@ def sanitize_load_facts(value: object) -> dict[str, object]:
         "omitted_frame_count",
         "recorded_event_count",
         "workspace_revision",
+        "snapshot_contract_version",
+        "load_policy_version",
     ):
         if _integer(value.get(key)):
             result[key] = value[key]
@@ -232,6 +236,15 @@ def sanitize_load_facts(value: object) -> dict[str, object]:
                 safe["exception_class"] = name
             if _integer(raw.get("omitted_frame_count")):
                 safe["omitted_frame_count"] = raw["omitted_frame_count"]
+            if isinstance(raw.get("failure_category"), str) and raw[
+                "failure_category"
+            ] in {"timeout", "unreachable"}:
+                safe["failure_category"] = raw["failure_category"]
+            if (
+                type(raw.get("attempt_count")) is int
+                and 1 <= raw["attempt_count"] <= 100
+            ):
+                safe["attempt_count"] = raw["attempt_count"]
             safe_causes.append(safe)
         result["causes"] = safe_causes
     diagnostics = value.get("diagnostics")
@@ -294,7 +307,14 @@ def sanitize_load_record(value: object) -> dict[str, object] | None:
         **facts,
     }
     if value["event"] == "terminal":
-        for key in ("context", "failure", "journal", "verification", "last_transport", "capture_failed"):
+        for key in (
+            "context",
+            "failure",
+            "journal",
+            "verification",
+            "last_transport",
+            "capture_failed",
+        ):
             if isinstance(value.get(key), dict):
                 record[key] = sanitize_load_facts(value[key])
         if isinstance(value.get("transport_observation"), str) and value.get(
@@ -328,7 +348,14 @@ def new_load_observation(
     def sink(event: str, facts: Mapping[str, object]) -> None:
         nonlocal event_count, omitted
         with lock:
-            safe = sanitize_load_facts({**common, **facts, "event_id": str(uuid4()), "recorded_at": datetime.now(UTC).isoformat()})
+            safe = sanitize_load_facts(
+                {
+                    **common,
+                    **facts,
+                    "event_id": str(uuid4()),
+                    "recorded_at": datetime.now(UTC).isoformat(),
+                }
+            )
             record = {"event": event, **safe}
             for key in (
                 "job_id",
@@ -339,7 +366,13 @@ def new_load_observation(
             ):
                 if key in safe:
                     common[key] = safe[key]
-            if event in {"context", "failure", "journal", "verification", "capture_failed"}:
+            if event in {
+                "context",
+                "failure",
+                "journal",
+                "verification",
+                "capture_failed",
+            }:
                 retained[event] = safe
             if event == "transport_started":
                 retained["transport_observation"] = "STARTED"

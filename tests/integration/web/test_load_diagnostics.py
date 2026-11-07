@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 import time
 import unittest
@@ -17,6 +18,7 @@ from unittest.mock import patch
 from uuid import uuid4
 from zipfile import ZipFile
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.load_jobs import (
@@ -36,6 +38,12 @@ from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     WriteFailureCode,
 )
+from impodo.domain.execution_snapshot import FieldIntent
+from impodo.domain.odoo.contracts import (
+    ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
+    ConnectorTransportError,
+)
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.domain.workspace.errors import WorkspaceError
@@ -51,6 +59,8 @@ from impodo.web.load_diagnostics import (
     sanitize_load_record,
 )
 from tests.application.workspace.execution import test_service as execution_fixtures
+from tests.support import browser_scenarios
+from tests.support.identity import resolve_local_actor
 
 
 def _bundle(recorder, *, attempt_id=None, max_records=5_000):
@@ -62,6 +72,7 @@ def _bundle(recorder, *, attempt_id=None, max_records=5_000):
                 build_contract=PROCESS_BUILD_CONTRACT,
                 attempt_id=attempt_id,
                 max_records=max_records,
+                capture_failure_count=recorder.capture_failure_count,
             )
         )
     ) as archive:
@@ -109,6 +120,239 @@ def _run_job(recorder, workspace_id, work, *, recipe=False, action="LOAD"):
 
 
 class LoadDiagnosticIntegrationTests(unittest.TestCase):
+    def test_typed_read_failures_explain_credentials_permissions_and_exhausted_transport(
+        self,
+    ):
+        from impodo.adapters.odoo.connectors import _Json2TransportFailure
+
+        cases = (
+            (
+                ConnectorAuthenticationError("PRIVATE_TOKEN"),
+                "LOAD_ODOO_AUTHENTICATION_FAILED",
+            ),
+            (
+                ConnectorAuthorizationError("PRIVATE_PRINCIPAL"),
+                "LOAD_ODOO_READ_ACCESS_DENIED",
+            ),
+            (ConnectorTransportError("PRIVATE_URL"), "LOAD_ODOO_READ_TRANSPORT_FAILED"),
+        )
+        for error, code in cases:
+            with (
+                self.subTest(code=code),
+                tempfile.TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
+                recorder = resources.enter_context(
+                    closing(LocalDiagnosticRecorder(directory))
+                )
+
+                def work(*_args):
+                    if isinstance(error, ConnectorTransportError):
+                        raise error from _Json2TransportFailure(
+                            category="timeout", attempt_count=3
+                        )
+                    raise error
+
+                _run_job(recorder, str(uuid4()), work)
+                members, attempts = _bundle(recorder)
+                self.assertEqual(attempts[0]["failure"]["causes"][0]["code"], code)
+                self.assertNotIn("PRIVATE_", str(members))
+                if isinstance(error, ConnectorTransportError):
+                    self.assertIn(
+                        "Read failure category: `timeout`. Attempts: 3",
+                        members["diagnosis.md"],
+                    )
+
+    def test_recording_failure_count_and_terminal_fallback_expose_lost_event_writes(
+        self,
+    ):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
+            observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
+            event_recorder = recorder._load_recorders[LOAD_EVENT_LOG]
+            with (
+                patch.object(
+                    event_recorder._handler,
+                    "emit",
+                    side_effect=OSError("private storage path"),
+                ),
+                bind_load_observation(observer),
+            ):
+                try:
+                    raise WorkspaceError(
+                        "private source value", load_failure_code="LOAD_PREVIEW_CHANGED"
+                    )
+                except WorkspaceError as error:
+                    record_load_failure(error)
+                observer.emit("terminal", outcome="FAILED")
+            members, attempts = _bundle(recorder)
+            self.assertGreater(
+                json.loads(members["manifest.json"])[
+                    "recording_failure_count_current_session"
+                ],
+                0,
+            )
+            self.assertIn("The load preview changed", members["diagnosis.md"])
+            self.assertGreater(attempts[0]["omitted_recorded_event_count"], 0)
+            self.assertNotIn("private storage", str(members))
+
+    def test_recovery_preserves_separate_attempt_evidence_for_both_majors(self):
+        original_snapshot = execution_fixtures._snapshot
+        service_type = execution_fixtures.ExecutionService
+        for major in (19, 20):
+            for transfer in (False, True):
+                with (
+                    self.subTest(major=major, transfer=transfer),
+                    tempfile.TemporaryDirectory() as directory,
+                    ExitStack() as resources,
+                ):
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
+                    observed = []
+
+                    def wrap(original, action):
+                        def captured(service, *args, **kwargs):
+                            observer = recorder.load_observation(
+                                action=action, request_id=str(uuid4())
+                            )
+                            if observed:
+                                observer.emit(
+                                    "enqueued",
+                                    previous_attempt_id=observed[-1].attempt_id,
+                                )
+                            observed.append(observer)
+                            with bind_load_observation(observer):
+                                try:
+                                    with observe_load_stage("worker"):
+                                        result = original(service, *args, **kwargs)
+                                except Exception:
+                                    observer.emit("terminal", outcome="FAILED")
+                                    raise
+                                observer.emit(
+                                    "terminal",
+                                    outcome="SUCCEEDED",
+                                    execution_run_id=result.run_id,
+                                )
+                                return result
+
+                        return captured
+
+                    initial_name = "execute_transfer" if transfer else "execute"
+                    recovery_name = "resume_transfer" if transfer else "resume"
+                    initial = getattr(service_type, initial_name)
+                    recovery = getattr(service_type, recovery_name)
+                    with (
+                        patch.object(
+                            execution_fixtures,
+                            "_snapshot",
+                            side_effect=lambda: replace(
+                                original_snapshot(), target_odoo_version=f"{major}.0"
+                            ),
+                        ),
+                        patch.object(
+                            service_type,
+                            initial_name,
+                            wrap(initial, "TRANSFER_LOAD" if transfer else "LOAD"),
+                        ),
+                        patch.object(
+                            service_type,
+                            recovery_name,
+                            wrap(
+                                recovery, "TRANSFER_RECOVER" if transfer else "RECOVER"
+                            ),
+                        ),
+                    ):
+                        fixture = execution_fixtures.ExecutionServiceTests()
+                        if transfer:
+                            original_transfer_service = fixture._transfer_service
+
+                            def transfer_service(snapshot):
+                                service, journal, reviewed = original_transfer_service(
+                                    snapshot
+                                )
+                                workspace = replace(
+                                    service.workspaces.get(reviewed.workspace_id),
+                                    destination_verified_odoo_version=f"{major}.0",
+                                )
+                                service.workspaces = SimpleNamespace(
+                                    get=lambda _id: workspace
+                                )
+                                return service, journal, reviewed
+
+                            fixture._transfer_service = transfer_service
+                            fixture.test_interrupted_transfer_resumes_with_same_key_and_external_ids()
+                        else:
+                            fixture.test_interrupted_create_resumes_only_after_exact_readback()
+                    _members, attempts = _bundle(recorder)
+                    by_id = {attempt["attempt_id"]: attempt for attempt in attempts}
+                    self.assertEqual(by_id[observed[0].attempt_id]["outcome"], "FAILED")
+                    recovered = by_id[observed[-1].attempt_id]
+                    self.assertEqual(recovered["outcome"], "SUCCEEDED")
+                    self.assertEqual(recovered["context"]["odoo_major"], major)
+                    self.assertEqual(
+                        recovered["previous_attempt_id"], observed[-2].attempt_id
+                    )
+                    self.assertEqual(
+                        recovered["journal"]["journal_status"], "COMPLETED"
+                    )
+
+    def test_legacy_failure_remains_explicitly_unexplained(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
+            recorder.record_operation_stage(
+                "odoo_load",
+                "write",
+                duration_ms=1400,
+                outcome="failed",
+                exception_class="WorkspaceError",
+            )
+            members, attempts = _bundle(recorder)
+            self.assertEqual(attempts, [])
+            self.assertIn("Legacy event", members["diagnosis.md"])
+            self.assertIn("extent of Odoo writes are unknown", members["diagnosis.md"])
+
+    def test_preparation_failure_identifies_the_attempted_field_without_exporting_its_value(
+        self,
+    ):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            snapshot = execution_fixtures._snapshot()
+            service, _journal = execution_fixtures.ExecutionServiceTests()._service(
+                snapshot
+            )
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
+            row = replace(
+                snapshot.rows[-1],
+                fields=(
+                    FieldIntent("name", "SET_VALUE", {"secret": "PRIVATE_SOURCE"}),
+                ),
+            )
+            observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
+            with bind_load_observation(observer):
+                with self.assertRaises(WorkspaceError):
+                    service._row_values(row, {}, {}, {}, {}, None)
+                observer.emit("terminal", outcome="FAILED")
+            members, attempts = _bundle(recorder)
+            self.assertEqual(attempts[0]["failure"]["stage"], "prepare_write_values")
+            self.assertEqual(attempts[0]["failure"]["fields"], ["name"])
+            self.assertIn("prepared value is not supported", members["diagnosis.md"])
+            self.assertNotIn("PRIVATE_SOURCE", str(members))
+
     def test_transfer_loads_use_the_verified_major_and_share_the_durable_diagnostics(
         self,
     ):
@@ -156,7 +400,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                             item.model for item in scope.models if item.write_fields
                         ),
                     )
-                    recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
 
                     def work(_access, writing, _verifying):
                         run = service.execute_transfer(
@@ -193,7 +439,10 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_failed_verification_keeps_commits_and_does_not_recommend_another_load(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
             snapshot = execution_fixtures._snapshot()
             service, _journal = execution_fixtures.ExecutionServiceTests()._service(
                 snapshot
@@ -201,7 +450,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             executor = execution_fixtures._Executor(
                 execution_api_scope(snapshot).semantic_hash
             )
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def work(_access, writing, _verifying):
                 run = service.execute(
@@ -280,7 +531,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                         executor = execution_fixtures._Executor(
                             execution_api_scope(snapshot).semantic_hash
                         )
-                        recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+                        recorder = resources.enter_context(
+                            closing(LocalDiagnosticRecorder(directory))
+                        )
 
                         def work(_access, _writing, _verifying):
                             service.execute(
@@ -341,7 +594,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                     executor = execution_fixtures._Executor(
                         execution_api_scope(snapshot).semantic_hash, unknown=True
                     )
-                    recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+                    recorder = resources.enter_context(
+                        closing(LocalDiagnosticRecorder(directory))
+                    )
 
                     def work(_access, writing, verifying):
                         run = service.execute(
@@ -371,7 +626,11 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
 
     def test_rejection_after_commits_keeps_specific_odoo_reason_and_totals(self):
         for major in (19, 20):
-            with self.subTest(major=major), tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
+            with (
+                self.subTest(major=major),
+                tempfile.TemporaryDirectory() as directory,
+                ExitStack() as resources,
+            ):
                 snapshot = replace(
                     execution_fixtures._snapshot(), target_odoo_version=f"{major}.0"
                 )
@@ -390,7 +649,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                         "private server payload", diagnostic=diagnostic
                     ),
                 )
-                recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+                recorder = resources.enter_context(
+                    closing(LocalDiagnosticRecorder(directory))
+                )
 
                 def work(_access, writing, _verifying):
                     run = service.execute(
@@ -413,7 +674,10 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_fatal_exception_after_send_retains_original_failure_if_journal_capture_fails(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
             snapshot = execution_fixtures._snapshot()
             service, journal = execution_fixtures.ExecutionServiceTests()._service(
                 snapshot
@@ -421,7 +685,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             executor = execution_fixtures._Executor(
                 execution_api_scope(snapshot).semantic_hash
             )
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def crash(model, values):
                 journal.get_run = lambda *_args: (_ for _ in ()).throw(
@@ -449,12 +715,22 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             self.assertIn('"event":"capture_failed"', members["load-events.jsonl"])
             self.assertNotIn("private source", str(members))
             self.assertNotIn("private path", str(members))
+            members, attempts = _bundle(recorder, attempt_id=str(uuid4()))
+            self.assertEqual(attempts, [])
+            self.assertIn(
+                "requested support reference is not present", members["diagnosis.md"]
+            )
 
     def test_terminal_failure_survives_restart_request_flood_and_missing_event_log(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
 
             def work(*_args):
                 raise WorkspaceError(
@@ -472,7 +748,9 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                 )
             recorder.close()
             (Path(directory) / LOAD_EVENT_LOG).unlink()
-            reopened = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+            reopened = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             members, attempts = _bundle(reopened, max_records=5)
             self.assertEqual(attempts[0]["attempt_id"], observer.attempt_id)
             self.assertIn("The load preview changed", members["diagnosis.md"])
@@ -488,8 +766,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
     def test_limits_incomplete_attempts_selection_and_unknown_custom_reasons_are_explicit(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             first = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             with bind_load_observation(first):
                 with patch("impodo.web.load_diagnostics.MAX_ATTEMPT_EVENTS", 3):
@@ -508,8 +791,13 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             self.assertEqual(attempts[0]["transport_observation"], "UNKNOWN")
 
     def test_exception_causes_and_tampered_logs_cannot_export_messages_or_locals(self):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             with bind_load_observation(observer):
                 try:
@@ -538,11 +826,74 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
 
 
 class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
+    async def test_overlapping_requests_keep_their_own_attempt_and_failure(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
+            expected = {}
+
+            async def app(scope, _receive, send):
+                observer = current_load_observation()
+                code = scope["test_code"]
+                expected[observer.attempt_id] = code
+                await asyncio.sleep(0)
+                self.assertEqual(
+                    current_load_observation().attempt_id, observer.attempt_id
+                )
+                try:
+                    raise WorkspaceError("private value", load_failure_code=code)
+                except WorkspaceError as error:
+                    record_load_failure(error)
+                await send(
+                    {"type": "http.response.start", "status": 422, "headers": []}
+                )
+                await send({"type": "http.response.body", "body": b""})
+
+            async def send(_message):
+                return None
+
+            middleware = RequestDiagnosticsMiddleware(app, recorder=recorder)
+            await asyncio.gather(
+                *(
+                    middleware(
+                        {
+                            "type": "http",
+                            "method": "POST",
+                            "path": f"/workspaces/{uuid4()}/load",
+                            "test_code": code,
+                        },
+                        None,
+                        send,
+                    )
+                    for code in (
+                        "LOAD_PREVIEW_CHANGED",
+                        "LOAD_INCOMING_RELATIONSHIP_INCOMPLETE",
+                    )
+                )
+            )
+            _members, attempts = _bundle(recorder)
+            self.assertEqual(len(attempts), 2)
+            for attempt in attempts:
+                self.assertEqual(
+                    attempt["failure"]["causes"][0]["code"],
+                    expected[attempt["attempt_id"]],
+                )
+            self.assertIsNone(current_load_observation())
+
     async def test_rejected_submission_is_correlated_and_thread_context_is_restored(
         self,
     ):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             captured = {}
 
             async def app(scope, _receive, send):
@@ -585,8 +936,13 @@ class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn("private request value", str(members))
 
     async def test_redirect_to_background_worker_keeps_the_failure_correlated(self):
-        with tempfile.TemporaryDirectory() as directory, ExitStack() as resources:
-            recorder = resources.enter_context(closing(LocalDiagnosticRecorder(directory)))
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
             manager = LoadJobManager()
             resources.callback(manager.shutdown)
             workspace_id = str(uuid4())
@@ -638,3 +994,78 @@ class LoadRequestDiagnosticTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(attempts[0]["outcome"], "FAILED")
             self.assertEqual(attempts[0]["job_id"], manager.latest(workspace_id).job_id)
             self.assertIn("The load preview changed", members["diagnosis.md"])
+
+
+class LoadDiagnosticPageTests(browser_scenarios.ProjectSetupBrowserTestCase):
+    def test_failed_progress_download_selects_the_reference_without_database_reads(
+        self,
+    ):
+        context = self.app.state.context
+        workspace = self.workspaces.create(
+            name="Diagnostic review", source_system="Other"
+        )
+        actor = resolve_local_actor(context)
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            ExitStack() as resources,
+        ):
+            recorder = resources.enter_context(
+                closing(LocalDiagnosticRecorder(directory))
+            )
+            self.app.state.diagnostic_recorder = recorder
+            observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
+
+            def work(*_args):
+                raise WorkspaceError(
+                    "private source label", load_failure_code="LOAD_PREVIEW_CHANGED"
+                )
+
+            with bind_load_observation(observer):
+                job = context.load_jobs.enqueue(
+                    workspace.workspace_id,
+                    workspace.name,
+                    target_database="fictional",
+                    target_server="fictional.example.test",
+                    target_environment="Test",
+                    total_rows=1,
+                    actor=actor,
+                    access_context=context.workspace_access.resolve(
+                        workspace.workspace_id,
+                        actor=actor,
+                        capability=browser_scenarios.Capability.EXPORT_PLAN_EXECUTE,
+                    ),
+                    work=work,
+                )
+            progress_url = (
+                f"/workspaces/{workspace.workspace_id}/load/progress/{job.job_id}"
+            )
+            browser_scenarios._wait_for_load(self.client, progress_url)
+            page = self.client.get(progress_url)
+            self.assertEqual(page.status_code, 200, page.text)
+            self.assertIn(
+                f"Support reference: <code>{observer.attempt_id}</code>", page.text
+            )
+            self.assertIn('name="attempt_id"', page.text)
+            csrf = re.search(r'name="csrf_token" value="([^"]+)"', page.text).group(1)
+            with collect_duckdb_request_timings() as timings:
+                response = self.client.post(
+                    "/diagnostics/bundle",
+                    data={"csrf_token": csrf, "attempt_id": observer.attempt_id},
+                    headers=browser_scenarios.POST_HEADERS,
+                )
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertEqual(timings.connection_count, 0)
+            with ZipFile(BytesIO(response.content)) as archive:
+                attempts = json.loads(archive.read("load-attempts.json"))
+                self.assertEqual(
+                    [item["attempt_id"] for item in attempts], [observer.attempt_id]
+                )
+                self.assertIn(
+                    "The load preview changed", archive.read("diagnosis.md").decode()
+                )
+            rejected = self.client.post(
+                "/diagnostics/bundle",
+                data={"csrf_token": csrf, "attempt_id": "not-a-reference"},
+                headers=browser_scenarios.POST_HEADERS,
+            )
+            self.assertEqual(rejected.status_code, 422)

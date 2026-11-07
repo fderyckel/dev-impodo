@@ -1,10 +1,22 @@
 ---
 audience: developer
 kind: plan
-status: proposed
+status: implemented
 ---
 
 # Explain failed Odoo loads from a diagnostic bundle
+
+## Implementation status on 6 November 2026
+
+The core capture and bundle workflow is implemented with controlled regression
+coverage. Current behavior belongs to the
+[execution contract](../developer/contracts/execution-and-reconciliation.md#safe-write-diagnostics)
+and [Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md#rejection-diagnostics-and-generated-names).
+The design below records the original proposal. Routine diagnostics still
+withhold arbitrary server text and explicitly identify unclassified causes.
+Richer custom-rule classifiers and a separate reviewed protected attachment
+remain future work. No operator session was restarted or live Odoo target
+written to qualify this change.
 
 ## Decision and intended result
 
@@ -15,10 +27,10 @@ evidence for that explanation, and the next safe action. It must also say
 whether Odoo writes were attempted, what is known about their outcomes, and
 which facts remain unavailable.
 
-This is a proposal based on the first supplied bundle, inspected on
-6 November 2026. It does not implement a repair or establish the cause of that
-load failure. The initial delivery should cover fatal load exceptions as well
-as rejected rows. Increasing log volume alone will not meet this goal.
+This design is based on the first supplied bundle, inspected on
+6 November 2026. The implementation cannot reconstruct the discarded cause of
+that historical load failure. It captures fatal load exceptions as well as
+rejected rows for subsequent attempts.
 
 For example, if Impodo stops because a confirmed comparison changed before
 execution, the bundle should identify the failed comparison check and show
@@ -343,5 +355,6 @@ delivery. Measure capture overhead and physical database connections, SQL,
 schema checks, and retries in isolated fixtures. Live restart or browser
 verification must follow the operator's session-preservation requirements.
 
-This proposal changes documentation only. It does not reproduce the failed
-load, contact an Odoo server, or verify a runtime fix for Odoo 19 or Odoo 20.
+The original archive remains historical evidence. Controlled regression
+fixtures verify the new capture for Odoo 19 and Odoo 20; no live target or
+browser session was used for this implementation.

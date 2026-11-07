@@ -162,6 +162,7 @@
       <bpmn:incoming>Flow_LOAD_27</bpmn:incoming>
     </bpmn:endEvent>
     <bpmn:userTask id="Task_Fallout" name="Review fallout; do not blindly retry">
+      <bpmn:documentation>The failed progress page offers a support reference and diagnostic bundle. The bundle explains the recorded failure, durable Odoo outcomes, evidence gaps, and safe recovery requirements. It does not authorize another write.</bpmn:documentation>
       <bpmn:incoming>Flow_LOAD_24</bpmn:incoming>
       <bpmn:outgoing>Flow_LOAD_25</bpmn:outgoing>
     </bpmn:userTask>

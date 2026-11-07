@@ -313,6 +313,14 @@ your Odoo administrator to check the destination error at the time of the
 load. The support bundle includes technical details about the failed
 operation and excludes source values and raw Odoo error messages.
 
+If the load stops unexpectedly, use **Create diagnostic bundle** beside its
+**Support reference**. Share the ZIP with your support engineer or AI agent.
+The reference connects the failed action to its recorded checks, Odoo calls,
+and saved results. The bundle's `diagnosis.md` explains the recorded cause,
+what is known about changes in Odoo, and the next safe action. It also lists
+missing evidence. An older bundle cannot recover an error that Impodo did
+not record. Keep using the saved outcome to verify or recover uncertain work.
+
 ![A fictional load outcome separates one written record, one rejected record, and one record that was not attempted.](../../images/user/16h-load-rejection-diagnostic.png)
 
 Correct the reported setup or data, prepare again, and run a fresh **Check

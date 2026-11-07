@@ -26,12 +26,26 @@ from impodo.domain.execution.models import (
 from impodo.domain.execution.odoo_write import OdooWriteError, OdooWriteRejected
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo.contracts import (
+    ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
+    ConnectorConfigurationError,
+    ConnectorIncompleteResultError,
+    ConnectorTransportError,
+)
 
 LoadEvidenceSink = Callable[[str, Mapping[str, object]], None]
 _OBSERVER: ContextVar[LoadObservation | None] = ContextVar(
     "load_observation", default=None
 )
 _PACKAGE_ROOT = Path(__file__).resolve().parents[3]
+_CONNECTOR_REASONS = (
+    (ConnectorAuthenticationError, "LOAD_ODOO_AUTHENTICATION_FAILED"),
+    (ConnectorAuthorizationError, "LOAD_ODOO_READ_ACCESS_DENIED"),
+    (ConnectorConfigurationError, "LOAD_ODOO_READ_CONFIGURATION_INVALID"),
+    (ConnectorIncompleteResultError, "LOAD_ODOO_READ_INCOMPLETE"),
+    (ConnectorTransportError, "LOAD_ODOO_READ_TRANSPORT_FAILED"),
+)
 
 
 @dataclass(slots=True)
@@ -74,7 +88,13 @@ def emit_load_evidence(event: str, **facts: object) -> None:
         observer.emit(event, **facts)
 
 
-def record_load_failure(error: BaseException, *, stage: str = "") -> None:
+def record_load_failure(
+    error: BaseException,
+    *,
+    stage: str = "",
+    model: str = "",
+    fields: tuple[str, ...] = (),
+) -> None:
     """Retain coded reasons and approved frames, never exception messages."""
     observer = _OBSERVER.get()
     if observer is None or observer.last_error_id == id(error):
@@ -100,8 +120,15 @@ def record_load_failure(error: BaseException, *, stage: str = "") -> None:
                 )
             trace = trace.tb_next
         code = getattr(candidate, "load_failure_code", "")
-        if code not in LOAD_FAILURE_REASONS:
-            code = "LOAD_UNCLASSIFIED"
+        if not isinstance(code, str) or code not in LOAD_FAILURE_REASONS:
+            code = next(
+                (
+                    reason
+                    for error_type, reason in _CONNECTOR_REASONS
+                    if isinstance(candidate, error_type)
+                ),
+                "LOAD_UNCLASSIFIED",
+            )
         causes.append(
             {
                 "exception_class": type(candidate).__name__,
@@ -110,6 +137,13 @@ def record_load_failure(error: BaseException, *, stage: str = "") -> None:
                 "omitted_frame_count": max(0, len(frames) - 8),
             }
         )
+        if isinstance(candidate, ConnectorTransportError):
+            category = getattr(candidate, "category", None)
+            count = getattr(candidate, "attempt_count", None)
+            if isinstance(category, str) and category in {"timeout", "unreachable"}:
+                causes[-1]["failure_category"] = category
+            if type(count) is int and 1 <= count <= 100:
+                causes[-1]["attempt_count"] = count
         candidate = candidate.__cause__ or (
             None if candidate.__suppress_context__ else candidate.__context__
         )
@@ -118,6 +152,8 @@ def record_load_failure(error: BaseException, *, stage: str = "") -> None:
         stage=stage or observer.stage,
         causes=causes,
         cause_chain_truncated=candidate is not None,
+        model=model,
+        fields=list(fields),
     )
 
 
@@ -168,6 +204,7 @@ def observe_load_context(
         source_mode=source_mode,
         connection_mode=connection_mode,
         odoo_major=version.major,
+        snapshot_contract_version=snapshot.contract_version,
     )
 
 
@@ -199,6 +236,10 @@ def observe_load_journal(run: ExecutionRun, *, projection: str = "OBSERVED") -> 
         journal_status=run.status.value,
         row_states={state.value: counts[state.value] for state in ExecutionRowStatus},
         batch_rows=run.batch_rows,
+        rejection_policy=run.load_control.policy.value if run.load_control else "STOP",
+        load_policy_version=run.load_control.contract_version
+        if run.load_control
+        else 0,
         load_control_state=run.load_control.state.value if run.load_control else "",
         pause_reason=run.load_control.reason if run.load_control else "",
         diagnostics=[

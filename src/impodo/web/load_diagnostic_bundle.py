@@ -74,8 +74,12 @@ def _unknowns(attempt: dict[str, Any]) -> list[str]:
         missing.append(
             "No durable journal projection was captured. Journal existence and saved row outcomes are unavailable."
         )
-    if attempt.get("capture_failed") or (attempt.get("journal") and attempt["journal"].get("projection") != "FINAL"):
-        missing.append("Final journal evidence is unavailable. Displayed totals describe the earlier captured snapshot, not the final write outcome.")
+    if attempt.get("capture_failed") or (
+        attempt.get("journal") and attempt["journal"].get("projection") != "FINAL"
+    ):
+        missing.append(
+            "Final journal evidence is unavailable. Displayed totals describe the earlier captured snapshot, not the final write outcome."
+        )
     if not attempt.get("verification"):
         missing.append("No verification result was captured.")
     if attempt.get("terminal_missing"):
@@ -144,11 +148,26 @@ def _diagnosis(
         for attempt in attempts
         if attempt.get("outcome") == "FAILED"
         or attempt.get("failure")
-        or attempt.get("journal", {}).get("row_states", {}).get("FAILED", 0)
+        or any(
+            attempt.get("journal", {}).get("row_states", {}).get(state, 0)
+            for state in (
+                "FAILED",
+                "BLOCKED",
+                "PARTIALLY_APPLIED",
+                "OUTCOME_UNKNOWN",
+                "IN_FLIGHT",
+            )
+        )
         or attempt.get("terminal_missing")
     ]
     if not attempts:
         lines += ["No correlated load attempt was recorded by this capture.", ""]
+        if coverage.get("requested_attempt_retained") is False:
+            lines += [
+                "The requested support reference is not present in the retained history. Export the general bundle to inspect other attempts; do not attribute another attempt's error to this reference.",
+                "",
+            ]
+            legacy_failures = []
         for item in legacy_failures[-5:]:
             lines += [
                 f"Legacy event at {item.get('recorded_at', 'unknown time')}: stage `{item.get('stage', 'unknown')}`, exception `{item.get('exception_class', 'unknown')}`. See `recent-failures.json` or `diagnostics.jsonl` at that timestamp."
@@ -174,6 +193,10 @@ def _diagnosis(
         ]
         failure = attempt.get("failure", {})
         causes = failure.get("causes", [])
+        if failure.get("model"):
+            lines += [
+                f"Context while preparing the write: model `{failure['model']}`, fields `{', '.join(failure.get('fields', []))}`. This identifies the attempted field, not a server-reported faulty source row."
+            ]
         if causes:
             lines += [
                 f"Failure evidence: `{failure.get('event_id', 'retained failure')}`, stage `{failure.get('stage', 'unknown')}`."
@@ -183,6 +206,10 @@ def _diagnosis(
                 lines += [
                     f"- `{code}`: {LOAD_FAILURE_REASONS.get(code, LOAD_FAILURE_REASONS['LOAD_UNCLASSIFIED'])}"
                 ]
+                if cause.get("failure_category"):
+                    lines += [
+                        f"  Read failure category: `{cause['failure_category']}`. Attempts: {cause.get('attempt_count', 'not captured')}."
+                    ]
                 for frame in cause.get("frames", [])[-3:]:
                     lines += [
                         f"  Source: `{frame['module']}:{frame['line']}`, function `{frame['function']}`."
@@ -284,6 +311,8 @@ def load_bundle_members(
         if item["attempt_id"] in selected
         and datetime.fromisoformat(item["recorded_at"]) >= cutoff
     ]
+    omitted_export_events = max(0, len(selected_events) - MAX_LOAD_EVENTS)
+    selected_events = selected_events[-MAX_LOAD_EVENTS:]
     for key in selected:
         history = sorted(by_attempt[key], key=lambda item: item["recorded_at"])
         terminal = next(
@@ -321,13 +350,11 @@ def load_bundle_members(
         attempt["evidence_gaps"] = _unknowns(attempt)
         attempts.append(attempt)
     coverage["attempt_count"] = len(attempts)
-    coverage["omitted_event_count"] = max(
-        0, len(selected_events) - MAX_LOAD_EVENTS
-    ) + sum(
+    coverage["omitted_export_event_count"] = omitted_export_events
+    coverage["omitted_event_count"] = sum(
         item.get("omitted_event_count", 0) + item.get("omitted_recorded_event_count", 0)
         for item in attempts
     )
-    selected_events = selected_events[-MAX_LOAD_EVENTS:]
     coverage["event_count"] = len(selected_events)
     coverage["first_recorded_at"] = (
         selected_events[0]["recorded_at"] if selected_events else None

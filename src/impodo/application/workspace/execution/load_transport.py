@@ -22,6 +22,8 @@ from impodo.domain.execution.odoo_write import (
 from impodo.domain.execution_snapshot import ExecutionRow, FieldIntent
 from impodo.domain.shared.access import Actor
 
+from .load_observation import observe_load_transport
+
 
 class LoadControlRepository(Protocol):
     """Supply short local control operations, never an open database owner."""
@@ -42,9 +44,6 @@ class LoadControlRepository(Protocol):
         rows: Sequence[ExecutionRowAttempt],
         error: OdooWriteRejected,
     ) -> tuple[ExecutionRowAttempt, ...]: ...
-
-
-from .load_observation import observe_load_transport
 
 PreparedCreate = tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
 

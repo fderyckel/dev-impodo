@@ -694,6 +694,40 @@ contract.
 
 ## Rejection diagnostics and generated names
 
+Confirmed load diagnostics now survive fatal exceptions as well as returned
+row rejections. The
+[`load_observation` application boundary](../../../src/impodo/application/workspace/execution/load_observation.py)
+carries an optional observer from the HTTP request to `LoadJobManager` and the
+execution worker. Guards attach reviewed codes from
+[`load_failure_reasons`](../../../src/impodo/domain/execution/load_failure_reasons.py).
+The observer records bounded cause types and package source frames. A failure
+while preparing field values also records the attempted technical model and
+field; it does not claim that Odoo identified a faulty source row.
+
+[`load_diagnostics`](../../../src/impodo/web/load_diagnostics.py) validates each
+event and retains terminal evidence separately from request traffic.
+[`load_diagnostic_bundle`](../../../src/impodo/web/load_diagnostic_bundle.py)
+resanitizes those histories and builds the schema 3 attempt collection,
+timeline, and deterministic explanation. The browser exposes the same opaque
+support reference on failed progress pages. Authenticated, CSRF-protected
+bundle downloads can select that attempt. The exporter performs no workspace
+database reads or Odoo calls.
+
+`ExecutionService._continue_run` projects the already-read initial journal
+and, when diagnostics are bound, reads its final durable state once on exit.
+That synchronous read finishes before progress or further remote work. A
+capture failure preserves the original exception and marks final evidence
+unavailable. The existing execution journal, evidence hashes, and recovery
+rules remain authoritative. No connection is retained across a remote call.
+
+The [load diagnostic integration tests](../../../tests/integration/web/test_load_diagnostics.py)
+cover Odoo 19 and 20 with controlled local and remote execution, Authoring and
+Recipe worker contexts, and destination transfers. They exercise stale
+confirmation, rejection after commits, uncertain transport, failed
+verification, broken diagnostic storage, retention, restart, and privacy.
+These are fixture results; they do not qualify a new live Odoo target or a
+restarted operator session.
+
 Prepared-data confirmation selects `RejectionPolicy.STOP` or `CONTINUE`.
 [`LoadControl`](../../../src/impodo/domain/execution/load_control.py) owns the
 versioned failure windows and durable pause/stop state.
