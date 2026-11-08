@@ -125,6 +125,7 @@ class SupportingLookupService:
         read_context_hash: str,
         actor: Actor,
         reference_policy_hash: str = REFERENCE_POLICY_HASH,
+        allow_prior_credential: bool = False,
     ) -> SupportingLookupSnapshot | None:
         """Resolve exact target-bound evidence for a preflight reference.
 
@@ -132,6 +133,11 @@ class SupportingLookupService:
         authorizes only the key/scope fields present in its bounded request,
         while Match data may have captured different display projections for
         the same portable reference identity.
+
+        A remote comparison may use the previous key's field contract to
+        authorize a bounded live refresh for the same target, reader and company
+        context. The caller must verify current access and live field contracts
+        before reading records. Choices from the old snapshot are never fresh.
         """
 
         self._authorization.require(
@@ -145,7 +151,6 @@ class SupportingLookupService:
             key_fields,
             scope_fields,
             target_hash,
-            read_credential_binding_hash,
             read_principal_hash,
             read_context_hash,
             reference_policy_hash,
@@ -161,16 +166,25 @@ class SupportingLookupService:
                 snapshot.key_fields,
                 snapshot.scope_fields,
                 snapshot.target_hash,
-                snapshot.read_credential_binding_hash,
                 snapshot.read_principal_hash,
                 snapshot.read_context_hash,
                 snapshot.reference_policy_hash,
             )
-            if actual == expected:
+            if actual == expected and (
+                snapshot.read_credential_binding_hash == read_credential_binding_hash
+                or allow_prior_credential
+            ):
                 candidates.append(snapshot)
         if not candidates:
             return None
-        return max(candidates, key=lambda item: (item.captured_at, item.snapshot_id))
+        return max(
+            candidates,
+            key=lambda item: (
+                item.read_credential_binding_hash == read_credential_binding_hash,
+                item.captured_at,
+                item.snapshot_id,
+            ),
+        )
 
     def capture(
         self,

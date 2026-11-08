@@ -242,18 +242,31 @@ class SupportingLookupPersistenceTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        restored = self.service.current_preflight_reference(
-            self.workspace_state.workspace_id,
+        reference = dict(
             relation_model="x.external.reference",
             key_fields=("external_code",),
             scope_fields=("company_code",),
             target_hash=self.target_hash,
-            read_credential_binding_hash="binding",
             read_principal_hash="principal",
             read_context_hash="context",
             actor=LOCAL_ACTOR,
         )
+        workspace_id = self.workspace_state.workspace_id
+        restored = self.service.current_preflight_reference(
+            workspace_id, read_credential_binding_hash="binding", **reference,
+        )
 
+        self.assertIsNone(self.service.current_preflight_reference(
+            workspace_id, read_credential_binding_hash="replacement", **reference,
+        ))
+        self.assertEqual(self.service.current_preflight_reference(
+            workspace_id, read_credential_binding_hash="replacement",
+            allow_prior_credential=True, **reference,
+        ), captured)
+        self.assertIsNone(self.service.current_preflight_reference(
+            workspace_id, read_credential_binding_hash="replacement",
+            allow_prior_credential=True, **{**reference, "read_context_hash": "different"},
+        ))
         self.assertEqual(restored, captured)
         self.assertIsNone(
             self.service.current_preflight_reference(

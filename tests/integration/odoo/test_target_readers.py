@@ -13,6 +13,7 @@ from impodo.application.run.odoo_requirements import (
     OdooCheckRelationshipRequirement,
     OdooCheckSupportingRequirement,
 )
+from impodo.application.supporting_lookup_service import SupportingLookupService
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     ReferenceReadRequirement,
@@ -33,7 +34,7 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
 )
 from impodo.domain.schema.governance import BusinessKeyDefinition
-from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
 from impodo.domain.shared.models import (
     FieldMetadata,
     ModelMetadata,
@@ -49,7 +50,10 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.reference_keys import StandardReferenceFieldContract
+from impodo.domain.workspace.reference_keys import (
+    StandardReferenceFieldContract,
+    reference_policy_hash,
+)
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from impodo.domain.workspace.workbench import OdooConnectionMode, WorkspaceState
 from impodo.web.composition.target_readers import (
@@ -496,6 +500,106 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             ],
         )
         self.assertEqual(self.reader_calls, 1)
+
+    def test_replacement_key_reads_live_linked_units_with_saved_field_contract(self) -> None:
+        relation_model = "uom.uom"
+        self.schema.models = (
+            SimpleNamespace(
+                name="product.template",
+                fields=(SimpleNamespace(name="uom_id", type="many2one", relation=relation_model),),
+            ),
+        )
+        new_key = store_target_credential(
+            self.store, self.workspace_state, TargetCredentialRole.READ,
+            "replacement-secret", persistent=False,
+        )
+        # The comparison command has already checked and rebound the primary schema.
+        self.schema.read_credential_binding_hash = new_key.binding_hash
+        metadata_request = MetadataRequest(model=relation_model, fields=("name",))
+        record_request = RecordRequest(
+            model=relation_model, fields=("name",), domain=(["name", "in", ["Unit"]],),
+        )
+        reference = ReferenceReadRequirement(
+            parent_model="product.template", relationship_field="uom_id",
+            relationship_type="many2one", relation_model=relation_model,
+            key_fields=("name",), scope_fields=(), requested_fields=("name",),
+        )
+        for major in (19, 20):
+            with self.subTest(major=major):
+                self.probe_calls.clear()
+                self.schema.odoo_version = f"{major}.0"
+                policy = reference_policy_hash(major)
+                saved_contract = SupportingLookupSnapshot.capture(
+                    workspace_id=self.workspace_state.workspace_id,
+                    relation_model=relation_model, key_fields=("name",), scope_fields=(),
+                    display_field="name",
+                    field_contracts=(StandardReferenceFieldContract("name", "char", True, False),),
+                    target_hash=self.target_hash,
+                    read_credential_binding_hash=self.first.binding_hash,
+                    read_principal_hash=self.schema.read_principal_hash,
+                    read_permission_hash=self.schema.read_permission_hash,
+                    read_context_hash=self.schema.read_context_hash,
+                    captured_at=datetime(2026, 8, 21, tzinfo=timezone.utc),
+                    captured_by="test:operator",
+                    choices=(), ambiguous_values=(), reference_policy_hash=policy,
+                )
+                requirements = PreflightRequirementPlan(
+                    metadata_requests=(metadata_request,), record_requests=(record_request,),
+                    reference_requirements=(reference,), source_record_count=1,
+                    reference_policy_hash=policy,
+                )
+                context = self._context()
+                context.readiness_reader = None
+                context.supporting_lookups = SupportingLookupService(
+                    SimpleNamespace(list_current_for_model=lambda *_: (saved_contract,)),
+                    CapabilityAuthorizationPolicy(),
+                )
+                fingerprint = TargetFingerprint(
+                    target_hash=self.target_hash, connection_mode="REMOTE", database="production",
+                    odoo_version=f"{major}.0", snapshot_timestamp="2026-08-22T00:00:00Z",
+                )
+                live_model = ModelMetadata(
+                    model=relation_model, description="Unit of Measure",
+                    fields={"name": FieldMetadata("name", "char", "Name", required=True)},
+                )
+                live_metadata = MetadataSnapshot(
+                    fingerprint=fingerprint, models={relation_model: live_model},
+                )
+                live_records = RecordSnapshot(
+                    fingerprint=fingerprint, records={relation_model: (TargetRecord(relation_model, 4, {"name": "Unit"}),)},
+                    requested_fields={relation_model: ("name",)},
+                )
+                with patch("impodo.web.composition.target_readers.Json2ReadConnector") as connector:
+                    remote = connector.return_value
+                    remote.get_model_metadata.return_value = live_metadata
+                    remote.get_records.return_value = live_records
+                    remote.check_company_references.side_effect = lambda metadata, _records: metadata
+                    metadata, records = _read_readiness_snapshots(
+                        context, self.workspace_state, requirements, actor=LOCAL_ACTOR,
+                    )
+                    self.assertIs(records, live_records)
+                    self.assertEqual(metadata.reference_evidence[0].snapshot_id, saved_contract.snapshot_id)
+                    self.assertEqual(connector.call_args.args[0].api_key, "replacement-secret")
+                    remote.get_model_metadata.assert_called_once_with((metadata_request,))
+                    remote.get_records.assert_called_once_with((record_request,))
+                    self.assertEqual(self.probe_calls, [
+                        ("replacement-secret", ("product.template",)),
+                        ("replacement-secret", (relation_model,)),
+                    ])
+
+                    # A previous-key contract does not authorize reading a changed field.
+                    remote.get_records.reset_mock()
+                    remote.get_model_metadata.return_value = replace(
+                        live_metadata,
+                        models={relation_model: replace(
+                            live_model, fields={"name": FieldMetadata("name", "integer", "Name")},
+                        )},
+                    )
+                    with self.assertRaisesRegex(WorkspaceError, "fields changed"):
+                        _read_readiness_snapshots(
+                            context, self.workspace_state, requirements, actor=LOCAL_ACTOR,
+                        )
+                    remote.get_records.assert_not_called()
 
     def test_comparison_rejects_unreviewed_model_outside_primary_schema(
         self,

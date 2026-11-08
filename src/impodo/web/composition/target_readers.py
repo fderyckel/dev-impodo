@@ -494,7 +494,11 @@ def _current_preflight_supporting_references(
     *,
     actor: Actor,
 ) -> tuple[SupportingLookupSnapshot, ...]:
-    """Load exact current evidence for related models outside primary scope."""
+    """Load field contracts for the comparison's bounded related-record reads.
+
+    Remote reads can recheck a contract from the previous key. The reader must
+    still verify the new key and fetch live metadata and records.
+    """
 
     service = getattr(context, "supporting_lookups", None)
     if service is None or not hasattr(service, "current_preflight_reference"):
@@ -515,6 +519,9 @@ def _current_preflight_supporting_references(
             read_context_hash=schema.read_context_hash,
             actor=actor,
             reference_policy_hash=requirements.reference_policy_hash,
+            allow_prior_credential=(
+                workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+            ),
         )
         if snapshot is not None:
             snapshots[snapshot.snapshot_id] = snapshot
