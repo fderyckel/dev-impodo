@@ -782,9 +782,7 @@ PostgreSQL roles, and a provisioner gives each Impodo process only its
 root-owned DSN file. Static contract tests cover the topology, role separation,
 runtime restrictions, and fictional-secret generation.
 
-The
-[2026-10-27 local rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
-resolved and built the topology on Docker Desktop for Apple silicon. It
+The local rehearsal resolved and built the topology on Docker Desktop for Apple silicon. It
 verified live PostgreSQL role creation and migration, TLS health, repeated
 migration no-ops, drain and recovery, non-root read-only application roles,
 role-separated secrets, container recreation, and PostgreSQL and artifact

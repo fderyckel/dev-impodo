@@ -1104,14 +1104,14 @@ def _write_field_rule_summary(
         affected.update({(item.dataset, item.target_field) for item in effects})
         for effect in effects:
             rules.setdefault((effect.dataset, effect.target_field), ReviewWorkbookFieldRule(
-                "", ("Unavailable",), ("Unavailable",),
+                "", ("Unavailable",),
                 (f"Exact settings unavailable. Saved effect: {effect.rule_name}. {effect.explanation}",),
             ))
     start = sheet.max_row + 2
-    sheet.merge_cells(start_row=start, start_column=1, end_row=start, end_column=9)
+    sheet.merge_cells(start_row=start, start_column=1, end_row=start, end_column=8)
     sheet.cell(start, 1, "Stage 3 transformation summary")
-    _style_header(sheet, start, 1, 9, _COLORS["charcoal_dark"])
-    sheet.merge_cells(start_row=start + 1, start_column=1, end_row=start + 1, end_column=9)
+    _style_header(sheet, start, 1, 8, _COLORS["charcoal_dark"])
+    sheet.merge_cells(start_row=start + 1, start_column=1, end_row=start + 1, end_column=8)
     note = sheet.cell(start + 1, 1, (
         "Exact saved field mappings and ordered rule settings for this comparison. "
         "Affected records counts each prepared record with a saved field effect once, "
@@ -1122,15 +1122,13 @@ def _write_field_rule_summary(
     note.font = _BODY_FONT
     sheet.row_dimensions[start + 1].height = 44
     header = start + 3
-    for column, title in ((1, "Source dataset"), (2, "Source column label"),
-                          (3, "Source column ID"), (4, "Odoo field label"),
-                          (5, "Odoo model.field"), (6, "Transformation steps"),
-                          (9, "Affected records")):
+    for column, title in ((1, "Source dataset"), (2, "Source column"),
+                          (3, "Odoo field label"), (4, "Odoo model.field"),
+                          (5, "Transformation steps"), (8, "Affected records")):
         sheet.cell(header, column, title)
-    sheet.merge_cells(start_row=header, start_column=6, end_row=header, end_column=8)
-    _style_header(sheet, header, 1, 9, _COLORS["prepared"])
+    sheet.merge_cells(start_row=header, start_column=5, end_row=header, end_column=7)
+    _style_header(sheet, header, 1, 8, _COLORS["prepared"])
     sheet.row_dimensions[header].height = 44
-    sheet.column_dimensions["I"].width = 18
     row_index = header + 1
     for group_index, ((dataset, target), rule) in enumerate(sorted(rules.items())):
         first_row = row_index
@@ -1142,29 +1140,28 @@ def _write_field_rule_summary(
             for offset in range(0, len(lines), 12):
                 if row_index > _EXCEL_MAX_ROW:
                     raise ReportGenerationError("The transformation summary exceeds the Excel row limit")
-                for column in range(1, 10):
+                for column in range(1, 9):
                     cell = sheet.cell(row_index, column)
                     cell.fill = _SURFACE_FILL if group_index % 2 == 0 else _PAPER_FILL
                     cell.font = _BODY_FONT
                     cell.alignment = Alignment(wrap_text=True, vertical="top")
-                sheet.merge_cells(start_row=row_index, start_column=6, end_row=row_index, end_column=8)
-                sheet.cell(row_index, 6, _safe_cell("\n".join(lines[offset:offset + 12])))
+                sheet.merge_cells(start_row=row_index, start_column=5, end_row=row_index, end_column=7)
+                sheet.cell(row_index, 5, _safe_cell("\n".join(lines[offset:offset + 12])))
                 sheet.row_dimensions[row_index].height = max(30, 15 * len(lines[offset:offset + 12]) + 6)
                 row_index += 1
         values = (
             _dataset_label(dataset, evidence),
             "\n".join(rule.source_labels) or "No source column",
-            "\n".join(rule.source_keys) or "Not applicable",
             _target_field_label(rule.target_model, target, evidence),
             f"{rule.target_model}.{target}" if rule.target_model else target,
         )
-        for column, value in (*enumerate(values, 1), (9, affected[(dataset, target)])):
+        for column, value in (*enumerate(values, 1), (8, affected[(dataset, target)])):
             sheet.cell(first_row, column, _safe_cell(value))
             if row_index - 1 > first_row:
                 sheet.merge_cells(start_row=first_row, start_column=column,
                                   end_row=row_index - 1, end_column=column)
-        sheet.cell(first_row, 9).number_format = "#,##0"
-    sheet.print_area = f"A1:I{row_index - 1}"
+        sheet.cell(first_row, 8).number_format = "#,##0"
+    sheet.print_area = f"A1:H{row_index - 1}"
 
 
 def _prepared_records_by_trace(

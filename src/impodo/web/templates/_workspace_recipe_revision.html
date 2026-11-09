@@ -1,0 +1,12 @@
+{% set revision_review = request.session.get('recipe_revision_review') %}
+{% if revision_review and not revision_review.published and not revision_review.pending_seed and revision_review.workspace_id == workspace_id %}
+  <div class="notice" id="recipe-revision-workspace" tabindex="-1" data-focus-on-hash>
+    <strong>Revising Recipe v{{ revision_review.version }}</strong>
+    <div class="actions">
+      {% if allow_field_refresh and selection and schema and governance %}
+        <button class="button secondary" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
+      {% endif %}
+      <a class="button secondary" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
+    </div>
+  </div>
+{% endif %}

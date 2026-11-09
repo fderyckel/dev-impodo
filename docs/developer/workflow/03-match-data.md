@@ -377,6 +377,19 @@ The route accepts this shape only for `constant_relationship`, so it never
 scans source values to populate that chooser. Reopening uses the saved
 portable constant and the existing target-bound lookup cache.
 
+For source values that link to one existing record outside the primary
+capture, **Load Odoo matching fields** requests metadata for the related model
+reached by that captured field. The command verifies the workspace actor,
+target, and current read access. It returns labels and technical names for
+eligible searchable text fields. Page rendering uses the saved field without
+calling Odoo. During **Check matches**, Impodo validates the selected field
+before making bounded reads for the distinct included source values. The rule
+keeps the related model outside the write scope and can be rebound by a
+Recipe. Previously saved relationship rules keep their keys.
+The [linked field workflow tests](../../../tests/integration/web/test_linked_matching_fields.py)
+cover a Product Template Internal Reference and a custom asset identifier on
+both supported Odoo majors.
+
 For any related model, the constant chooser sends an entered primary matching
 value as `constant_value`. The server accepts it only for
 `constant_relationship`, bounds its length, and uses the selected governed
@@ -1638,7 +1651,7 @@ validation result for the malformed formula.
 | Role | Code |
 | --- | --- |
 | Mapping lifecycle | [`MappingWorkspaceService`](../../../src/impodo/application/workspace/mapping/service.py) |
-| Six-stage user-support plan | [`01-six-stage-workflow-user-support.md`](../../plans/01-six-stage-workflow-user-support.md) |
+| Saved field-effect summaries, freshness, and exact field links | [Request tests](../../../tests/integration/web/test_field_effects.py) and [browser qualification](../../../tests/e2e/test_field_effects.py) |
 | Local Stage 3 ordering recommendation | [`MatchingOrderService`](../../../src/impodo/application/workspace/mapping/order_service.py) |
 | Aggregate identity-health browser projection | [`identity_health.py`](../../../src/impodo/web/presenters/identity_health.py) |
 | Aggregate relationship-health domain | [`relationship_health.py`](../../../src/impodo/domain/relationship_health.py) |
@@ -2072,4 +2085,3 @@ Run the focused Mapping package with:
 - [Canonical staging contract](../contracts/canonical-staging.md)
 - [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)
 - [Related-table authoring guide](../../user/guides/related-tables.md)
-- [Row-inclusion visual qualification and native parity](../../plans/13-source-row-inclusion-rules.md)

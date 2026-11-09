@@ -1,9 +1,9 @@
 # Architecture decisions
 
 Each decision records its own current status. Accepted decisions constrain
-implementation; superseded decisions remain historical evidence and must not
-be used as current architecture. Reversing an accepted decision requires an
-explicit architecture update and review of affected contracts.
+implementation. Superseded decisions belong in Git history. Reversing an
+accepted decision requires an explicit architecture update and review of
+affected contracts.
 
 ## ADR-001 — Prepared records are the portable domain boundary
 
@@ -260,157 +260,9 @@ project deletion or retention expiry.
 - credential removal produces actor-bound, non-secret registry receipts that
   survive project deletion.
 
-## ADR-012 — Project series group contained migration projects
-
-**Status:** Superseded by ADR-014 on 2026-08-22, after ADR-013 replaced it on
-2026-08-19.
-
-This decision is retained as the historical architecture used by the original
-reusable-Recipe Phase 0 fixtures. Do not implement `ProjectSeries` or
-`series_id` from this decision. ADR-014 makes `MigrationProject` the genuine
-business root instead of restoring this compatibility wrapper.
-
-**Decision:** A reusable business migration is represented by a new
-`ProjectSeries` aggregate above existing `MigrationProject` workspaces. Each
-data version remains a complete contained migration project with its own
-`project_id`, DuckDB database, artifacts, credentials, evidence, and audit
-boundary. The series has an independently generated `series_id`, owns the
-edition lineage and recipe history, and never substitutes its identifier for a
-project identifier.
-
-Only one registered edition is active. A newly allocated workspace is pending
-until normal project registration succeeds; it does not replace the current
-registered edition. Activation makes the new edition current and seals the
-prior edition. Sealing is enforced by series-aware application policy and a
-project-local marker, not only by browser presentation.
-
-Reusable recipe configuration belongs to a protected series-scoped store.
-Registry rows contain bounded series, edition, lifecycle, hash, intent, and
-read-model metadata, not confidential recipe payloads or edition evidence.
-
-**Why:** The existing `MigrationProject` is already the authorization,
-credential, filesystem-containment, lifecycle, and immutable-evidence boundary.
-Redefining it or adding a data-version discriminator to every project table
-would weaken those contracts. Cloning a project database would copy stale
-current pointers and evidence. A separate aggregate preserves the contained
-workspace while making portable business meaning reusable.
-
-**Consequences:**
-
-- backfill generates a new series UUID; `series_id = project_id` is forbidden;
-- routes, authorization, credentials, repositories, deletion, and logs keep
-  series and project scopes explicit and reject identifier confusion;
-- series-owned setup is a field-level allowlist and legacy hydration is lazy,
-  authorized, hash-bound, and unavailable to recipe actions until complete;
-- pending, active, sealed, abandoned, and deleting states have explicit
-  transitions and restart-safe recovery;
-- edition creation, recipe publication, persistent read-credential copy, and
-  whole-series deletion use idempotent intents/outboxes across stores;
-- only the active or pending edition may accept the mutations allowed by its
-  state; a sealed edition remains reopenable but cannot become current evidence;
-- full recipe payloads inherit series classification, retention, backup,
-  authorization, and deletion policy in a protected store; and
-- a recipe is execution-engine-neutral configuration, never a source, target,
-  validation, approval, comparison, or execution snapshot.
-
-The superseded detailed contract and acceptance fixtures were removed during
-the Recipe clean-root consolidation; this ADR remains the historical decision
-record.
-
-## ADR-013 — Recipe is the aggregate root and target bindings are application-specific
-
-**Status:** Superseded by ADR-014 on 2026-08-22. The former Recipe-owned
-Project model is not part of the current implementation.
-
-ADR-014 retains this decision's portable Recipe revision, independent target
-binding, credential separation, immutable qualification, and fresh Production
-evidence boundaries. It replaces Recipe ownership of DataVersions and cutover
-selection.
-
-**Decision:** Recipe is Impodo's primary business object and aggregate root.
-It owns immutable Recipe revision lineage, DataVersion lineage, qualification
-history, and the selected cutover candidate. There is no separate
-`ProjectSeries` aggregate.
-
-Each DataVersion has its own identity and provisions one existing contained
-`MigrationProject` workspace. The workspace remains the project-scoped
-authorization, credential, DuckDB, filesystem, artifact, audit, and exact
-evidence boundary. Recipe authoring and application compile through the
-existing mapping, preparation, quality, comparison, execution, and
-reconciliation pipeline rather than introducing a parallel Recipe engine.
-
-A RecipeRevision owns an environment-neutral `OdooTargetContract` containing
-required Odoo version, models, fields, types, relations, business keys, scope,
-selection codes, custom dependencies, and intended write fields. It does not
-own an endpoint, database, API key, authenticated principal, permission set,
-target snapshot, or write approval.
-
-Every Test or Production Recipe application owns a fresh `TargetBinding` to
-the exact remote endpoint/database, current credential generation,
-authenticated principal, permissions, context, schema, references, and probe
-evidence. Test and Production bindings are independent. Credential rotation
-creates a new generation and invalidates target-dependent readiness without
-changing Recipe or source semantics.
-
-One immutable RecipeRevision may become test-qualified only through exact
-application, preparation, comparison, authorized Test execution, read-back,
-controls, and reconciliation evidence. An explicitly selected cutover
-candidate pins that revision and qualification. Test qualification never
-authorizes Production: rollout uses the latest source package, a fresh
-Production TargetBinding, fresh comparison and approval, and separately
-established current write authority.
-
-**Why:** The product need is to let a data manager fine-tune reusable migration
-logic on a Test Odoo server, qualify one revision, and apply that exact logic on
-rollout day to the latest same-format-kind data on a different compatible
-Production server with different or rotated API keys. A series above one
-Recipe adds identity without business meaning. Binding Recipe to one target or
-credential would make tested logic nonportable and could transfer authority
-across environments.
-
-**Consequences:**
-
-- `recipe_id`, `data_version_id`, and `workspace_project_id` are independently
-  generated and never accepted interchangeably;
-- existing project databases are not cloned or given a DataVersion column in
-  every table;
-- existing projects backfill to one Recipe shell and one DataVersion pointing
-  to the contained project workspace;
-- RecipeDraft coordinates exact workspace authoring evidence rather than
-  duplicating all mutable drafts;
-- RecipeRevision excludes source/target snapshots, endpoints, databases,
-  credentials, principals, approvals, numeric Odoo IDs, and execution results;
-- declared parameter definitions make reviewed values such as warehouse and
-  as-of date variable per DataVersion without turning arbitrary constants into
-  mutable Recipe semantics;
-- `MappingDefinition` is the fresh evidence-bound compiled result, not the
-  reusable Recipe;
-- `RecipeApplicationEvidence` records how Recipe, DataVersion, parameters, and
-  TargetBinding produced an exact mapping or blocking assessment;
-- `RecipeQualificationEvidence` remains immutable historical Test evidence and
-  cannot satisfy Production readiness;
-- API keys remain only in the governed secret store; registry and evidence use
-  non-secret hashes, roles, generations, principals, permissions, and probes;
-- read and write bindings remain separate even if an operator supplies the same
-  secret text;
-- a credential change after comparison stops execution until the new binding
-  is probed and target-dependent evidence is refreshed;
-- publication, DataVersion creation, qualification, cutover selection, and
-  whole-Recipe deletion use idempotent cross-store intents;
-- missing prior source rows never imply deletion; and
-- all competing roadmap tracks remain deferred until the Recipe-first
-  definition of done passes.
-
-Historical Recipe-first delivery evidence remains in Git history. The
-replacement architecture is defined by ADR-014 and the current lifecycle
-contracts.
-
 ## ADR-014 — Migration projects coordinate reusable Recipes and cutover plans
 
 **Status:** Accepted and implemented.
-
-**Supersedes:** ADR-012 and ADR-013 for aggregate ownership, DataVersion
-ownership, and cutover coordination.
 
 **Current implementation note:** The browser and persistence path use Project
 roots, Project-owned DataVersion source packages, runs, workspaces, optional
@@ -526,8 +378,7 @@ execution.
 
 **Status:** Accepted and implemented.
 
-**Extends:** ADR-014 for release compatibility. It does not restore storage or
-ownership from ADR-012 or ADR-013.
+**Extends:** ADR-014 for release compatibility.
 
 **First-project baseline, 31 October 2026:** No earlier data projects require
 support. New generations create the complete current DuckDB and PostgreSQL

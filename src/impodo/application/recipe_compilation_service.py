@@ -150,6 +150,7 @@ class RecipeAuthoringParameterRepository(Protocol):
         definitions: RecipeParameterDefinitions,
         *,
         actor: Actor,
+        restore: bool = False,
     ) -> None: ...
 
 
@@ -831,6 +832,7 @@ class RecipeCompiler:
                             }
                             for item in resolver.scope_mappings
                         ],
+                        **({"selected_matching_field": True} if relation.selected_matching_field else {}),
                         "validate_only": relation.validate_only,
                         "value_matches": [
                             portable(asdict(item)) for item in resolver.value_mappings

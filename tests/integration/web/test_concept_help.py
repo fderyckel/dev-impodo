@@ -50,7 +50,8 @@ class ConceptRegistryTests(unittest.TestCase):
             for phrase in forbidden:
                 self.assertNotIn(phrase, source, f"{template.name}: {phrase}")
 
-            visible_fragments = " ".join(re.findall(r">([^<>]+)<", source))
+            template_markup = re.sub(r"{%.*?%}", "", source, flags=re.DOTALL)
+            visible_fragments = " ".join(re.findall(r">([^<>]+)<", template_markup))
             self.assertNotRegex(
                 visible_fragments,
                 r"(?i)\bpublish(?:ed|ing)?\b|\bpublication\b",

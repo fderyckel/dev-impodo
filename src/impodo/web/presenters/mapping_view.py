@@ -47,6 +47,9 @@ from impodo.domain.workspace.derived_entities import (
     related_dataset_links,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.reference_keys import (
+    SELECTED_MATCH_FIELD_PREFIX,
+)
 from impodo.domain.workspace.workbench import SourceMode
 from impodo.web.matching_expectations import matching_expectations_view
 
@@ -619,7 +622,7 @@ def _render_mapping(
             selection,
             schema,
             active_dataset_index,
-            context.queries.get_current_quality_ruleset(workspace_id),
+            context.quality.editable_ruleset(workspace_id, revision.definition, selection),
         )
     expectations = (
         matching_expectations_view(
@@ -2724,6 +2727,21 @@ def _mapping_dataset_views(
                     None,
                     related_keys,
                 )
+            can_choose_matching_field = (
+                source_dataset.origin is not SourceOriginKind.ODOO
+                and field.type == "many2one"
+                and field.relation is not None
+                and field.relation not in models
+                and not field.readonly
+                and field.exportable is not False
+                and field.company_dependent is not True
+            )
+            chosen_matching_field = ""
+            if (
+                can_choose_matching_field and mapping is not None
+                and mapping.selected_matching_field
+            ):
+                chosen_matching_field = mapping.resolver.key_mappings[0].target_field
             constant_components = (
                 (
                     *mapping.constant_reference.key_values,
@@ -2753,6 +2771,12 @@ def _mapping_dataset_views(
                     models,
                 ),
                 "selected_key": selected_relationship_key,
+                "can_choose_matching_field": can_choose_matching_field,
+                "chosen_matching_field": chosen_matching_field,
+                "chosen_matching_field_id": (
+                    SELECTED_MATCH_FIELD_PREFIX + chosen_matching_field
+                    if chosen_matching_field else ""
+                ),
                 "constant_component_values": tuple(
                     item.value for item in constant_components
                 ),

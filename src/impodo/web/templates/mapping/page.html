@@ -14,6 +14,7 @@
   {% set mapping_journey = mapping_journey if mapping_journey is defined else {'step': 'tables', 'task': 'rows', 'company_required': false, 'steps': []} %}
   <div data-mapping-journey data-step="{{ mapping_journey.step }}" data-task="{{ mapping_journey.task }}" data-company-required="{{ 'true' if mapping_journey.company_required else 'false' }}" {% for view in dataset_views if view.active %}data-active-dataset-index="{{ view.index }}"{% endfor %}>
   {% include "mapping/_heading.html" %}
+  {% include "_workspace_recipe_revision.html" %}
   {% if mapping_journey.steps %}
     <p class="mapping-journey-current-step" data-mapping-step-title>
       {% for step in mapping_journey.steps if step.key == mapping_journey.step %}{{ step.label }}{% endfor %}

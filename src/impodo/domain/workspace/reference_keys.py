@@ -2,14 +2,37 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Protocol
 
 from impodo.domain.serialization import content_hash
+from impodo.domain.shared.models import FieldMetadata
 
 REFERENCE_POLICY_VERSION = 5
+_SELECTED_MATCH_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
+SELECTED_MATCH_FIELD_PREFIX = "odoo-field:"
+
+
+def selectable_matching_field_name(name: str) -> bool:
+    """Accept a single technical field name with no traversal or record ID."""
+
+    return name not in {"id", "display_name"} and _SELECTED_MATCH_FIELD.fullmatch(name) is not None
+
+
+def selectable_matching_field(field: FieldMetadata) -> bool:
+    """Offer a searchable text identifier from the checking user's Odoo fields."""
+
+    return (
+        selectable_matching_field_name(field.name)
+        and field.type in {"char", "text"}
+        and field.searchable is not False
+        and (field.stored is not False or field.searchable is True)
+        and field.exportable is not False
+        and field.company_dependent is not True
+    )
 
 
 def allows_case_insensitive_payment_term_lookup(model: str) -> bool:

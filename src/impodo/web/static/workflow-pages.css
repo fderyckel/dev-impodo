@@ -1650,6 +1650,19 @@ label.model-choice input {
   gap: .55rem;
 }
 
+.missing-parent-review > summary {
+  cursor: pointer;
+}
+
+.missing-parent-review > summary h2 {
+  display: inline;
+  margin: 0;
+}
+
+.missing-parent-review[open] > summary {
+  margin-bottom: .8rem;
+}
+
 .readiness-row-summary {
   justify-content: flex-end;
 }

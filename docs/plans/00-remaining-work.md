@@ -2,17 +2,16 @@
 
 ## Status and authority
 
-**Status:** Active roadmap. Plan 13 completion and the next delivery were
-reconciled against the checkout on 2026-10-31. The product-value order below
-remains authoritative.
+**Status:** Active roadmap. The maintainer closed Plan 01 on 2026-11-08.
+Its remaining qualification is tracked by the end-to-end scenario plan.
 
 This is the broad forward-looking roadmap. Detailed plans remain beside it
 while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
 lists those plans and their remaining scope.
 
 Completed behavior belongs in architecture, contracts, and user and developer
-workflow documentation. Point-in-time evidence belongs in an owning plan or
-Git history. Remove completed delivery detail and retire completed plans after
+workflow documentation. Use Git history for retired plans and keep new run evidence in its
+output directory. Remove completed delivery detail and retire completed plans after
 those current references have been verified.
 
 Reviewed exact-join graphs now compose several outputs in one bounded
@@ -38,61 +37,46 @@ does not override this list.
 
 ## Ordered implementation work
 
-1. **Finish the [six-stage Authoring support](01-six-stage-workflow-user-support.md).**
-   This remains the most important change because every data manager benefits
-   when Impodo explains a blocker, names the affected business records, opens
-   the owning correction, and states which evidence remains safe. The next
-   delivery is **Slice 20: field-specific rule-effect links**. Slice 19's
-   Required values checklist and cross-table coverage are implemented, with
-   exact correction links and the existing grouped-default owner. Reuse the
-   current transformation-impact evidence for the next links. Follow with Slice
-   21's complete workflow qualification. Reuse the implemented correction,
-   default, business-intent, and load-recovery owners.
-2. **Complete [hierarchy-root and grouped-cause qualification](04-hierarchy-root-null-scope-and-load-order.md).**
-   This remains important for categories, bills of materials, and other parent
-   structures. It lets the data manager correct one missing or ambiguous
-   parent instead of reviewing thousands of repeated downstream consequences.
-3. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
+1. **Broaden the [Odoo-to-Odoo migration](05-odoo-to-odoo-migration.md).**
    This remains a high-value feature. Extend the qualified Contact path to
-   Product, bills of materials, empty destinations, interruption, and recovery
-   after the hierarchy qualification is reliable.
-4. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
+   Product, bills of materials, empty destinations, interruption, and recovery.
+2. **Add [exact-record repair for known load fallout](06-load-fallout-source-cell-workbook.md).**
    This remains important even though it is not the normal path. When a load
    partly fails, repairing only the reviewed target records can save a data
    manager from rebuilding and repeating the complete migration. Product
    ownership must activate the writer because uncertain outcomes and
    concurrent target edits require strict safeguards.
-5. **Continue the [shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md).**
+3. **Continue the [shared-server implementation](07-linux-server-postgresql-duckdb-implementation.md).**
    A shared server remains strategically important for collaboration, durable
    work, central access, and returning to long-running results. It no longer
    ranks first merely because backend work has started. Continue bounded local
    persistence without displacing the higher direct workflow improvements,
    and do not claim a shared release before the supported-host gate passes.
-6. **Complete the [end-to-end trial and scenario lifecycle](08-end-to-end-trial-and-scenario-qualification.md).**
+4. **Complete the [end-to-end trial and scenario lifecycle](08-end-to-end-trial-and-scenario-qualification.md).**
    This remains important for confidence, training, recovery, and repeatable
    Product and bill-of-material evidence. Its developer regression value is
    substantial, but the normal data-manager workflow above should improve
    before more scheduling and scenario infrastructure is added.
-7. **Qualify [workflow responsiveness and recovery across platforms](09-responsive-workflow-liveness-and-navigation.md).**
+5. **Qualify [workflow responsiveness and recovery across platforms](09-responsive-workflow-liveness-and-navigation.md).**
    This remains important because slow or apparently frozen pages undermine
    confidence. Measure the implemented path first and add a cache or process
    split only when the retained evidence shows a user-visible need.
-8. **Finish [macOS Match data save qualification](10-resilient-match-data-saving.md).**
+6. **Finish [macOS Match data save qualification](10-resilient-match-data-saving.md).**
     This remains important for data managers who use macOS, especially for
     uncertain saves, stale tabs, and restart recovery. The behavior is already
     implemented, so this item closes supported-platform evidence rather than
     adding another workflow.
-9. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
+7. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
     This remains important where large or error-heavy datasets block current
     work. Complete consumer boundaries, bounded finding publication, browser
     recovery, and reproducible measurements. Keep the separate 100,000-row
     mixed and related expansion deferred until real migration demand justifies
     it.
-10. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
+8. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
     The implemented ordering is useful, but the remaining work is primarily
     documentation, visual acceptance, and measurement. Do not redesign the
     algorithm without evidence of a data-manager problem.
-11. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
+9. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
     alongside the product work it protects.** This remains important because
     unclear ownership makes safe changes slower and riskier. It is supporting
     work rather than a standalone data-manager feature, so extract the focused
@@ -117,17 +101,11 @@ approved control facts, bounded counts, pointers, and receipt hashes.
 ## Files that are not separate implementation items
 
 - [Linux server deployment with PostgreSQL control and DuckDB workers](07-vm-deployment-duckdb-worker-management.md)
-  remains the target architecture for item 5. Do not implement it as a second
+  remains the target architecture for item 3. Do not implement it as a second
   server track. Keep it aligned with the detailed plan, then retire duplicated
   delivery detail when current architecture documentation owns the decisions.
 - This file, `00-remaining-work.md`, is the roadmap and ordering authority. It is
   not an implementation item.
-- The [shared-server Phase 0 baseline](90-2026-10-22-shared-server-phase-0-baseline.md)
-  remains useful historical evidence. It requires no implementation.
-- The [local empty-server container rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
-  remains useful current qualification evidence until supported-host evidence
-  supersedes it. Its open findings belong to item 5 rather than a separate
-  implementation stream.
 
 ## Local execution constraint
 
@@ -142,27 +120,6 @@ Clean Linux-host, firewall, certificate, service-manager, and attached-storage
 qualification belongs on an approved external host or continuous-integration
 runner. Record it as omitted when that environment is unavailable; do not ask
 the local user to weaken or change laptop security settings.
-
-## Completed plans and retained evidence
-
-[Plan 13: Source-row inclusion](13-source-row-inclusion-rules.md) is complete
-for its requested scope as of 2026-10-31. The delivery includes Recipe reuse
-on remote Odoo 20, missing-column and ambiguous-column browser checks, and
-normal and interrupted Contact transfers in both directions between local and
-remote Odoo 20. Recovery preserved the original journal and execution snapshot,
-excluded rows stayed out of writes, and cleanup was verified. The detailed
-plan retains the qualification scope and evidence. Native row-inclusion
-execution remains deferred under track 8 below and is outside this completion.
-
-The 2026-10-28 review removed the completed source-table composition plan and
-the completed three-page Production journey plan. Current source composition
-belongs to the Source data workflow and its focused tests. Current Production
-behavior belongs to the Production rollout guide, workflow registry, and run
-tests.
-
-The Stage 1 and Stage 2 page-loading plan was also retired after its implemented
-batches were verified in the current code and workflow documentation. Its only
-open platform measurements already belong to the shared responsiveness plan.
 
 ## Current implemented boundary
 
@@ -595,7 +552,7 @@ parity before it can change capability selection or row limits.
 
 The former “conditional hosted composition” track is no longer deferred. The
 shared-server architecture is approved and retains bounded local trial work as
-item 5 in the current product-value order. Corporate identity providers remain
+item 3 in the current product-value order. Corporate identity providers remain
 sequenced after the first server release; they are not a prerequisite for the
 current container or PostgreSQL phases.
 

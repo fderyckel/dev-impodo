@@ -16,7 +16,7 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
-from impodo.adapters.odoo.lookup_values import lookup_values_equal
+from impodo.adapters.odoo.lookup_values import bounded_lookup_query, lookup_values_equal
 from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
@@ -139,14 +139,15 @@ class Json2ReadbackReader:
             raise OdooReadbackError(
                 "Odoo read-back fields are outside the reviewed load preview"
             )
+        query_domain, candidate_limit = bounded_lookup_query(model, normalized_domains)
         records = self._search(
             model,
-            _combined_lookup_domain(normalized_domains),
+            query_domain,
             tuple(sorted(query_fields)),
-            limit=(2 * len(requested)) + 1,
+            limit=candidate_limit + 1,
             permitted_ids=None,
         )
-        if len(records) > 2 * len(requested):
+        if len(records) > candidate_limit:
             raise OdooReadbackError(
                 "Odoo read-back keys matched too many records safely"
             )
@@ -317,18 +318,6 @@ class Json2ReadbackReader:
                 )
             )
         return tuple(records)
-
-
-def _combined_lookup_domain(
-    domains: Sequence[tuple[tuple[str, str, Any], ...]],
-) -> list[Any]:
-    """Return an Odoo prefix domain for an OR of exact AND keys."""
-
-    combined: list[Any] = ["|"] * (len(domains) - 1)
-    for domain in domains:
-        combined.extend(["&"] * (len(domain) - 1))
-        combined.extend([field, operator, value] for field, operator, value in domain)
-    return combined
 
 
 def _record_matches_lookup(

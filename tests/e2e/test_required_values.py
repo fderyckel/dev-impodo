@@ -5,9 +5,9 @@ IMPODO_REQUIRED_VALUES_SCREENSHOT_DIRECTORY captures two current fictional
 """
 
 import os
-from pathlib import Path
 import sys
 import unittest
+from pathlib import Path
 
 try:
     from playwright.sync_api import expect, sync_playwright
@@ -63,7 +63,8 @@ class RequiredValuesJourneyTests(unittest.TestCase):
                 page.screenshot(path=str(directory / name))
 
         page.goto(base + f"/workspaces/{workspace}/mapping", wait_until="networkidle")
-        page.locator("#required-values-summary").scroll_into_view_if_needed()
+        page.get_by_role("link", name="Check and resolve", exact=False).click()
+        page.locator("#required-values-summary > summary").click()
         capture("11n-mapping-required-values-entry.png")
         link = page.get_by_role("link", name="Review required values", exact=True)
         link.focus()

@@ -13,6 +13,135 @@ _PROVIDER_LABELS = {
     "SOURCE": "Use one source column",
     "SOURCE_WITH_FALLBACK": "Use source value or backup",
 }
+_MAX_REVIEW_ITEMS = 20
+
+
+def build_recipe_change_view(
+    baseline: Mapping[str, object], current: Mapping[str, object],
+) -> Mapping[str, object]:
+    """Summarize reusable field rules and source requirements by logical identity."""
+
+    old_columns, new_columns = _source_columns(baseline), _source_columns(current)
+    old_datasets, new_datasets = _mapped_datasets(baseline), _mapped_datasets(current)
+    old_fields, new_fields = _scalar_fields(old_datasets), _scalar_fields(new_datasets)
+    field_keys = sorted(set(old_fields) | set(new_fields))
+    changes = []
+    counts = {"added": 0, "changed": 0, "removed": 0}
+    for key in field_keys:
+        before, after = old_fields.get(key), new_fields.get(key)
+        if before == after:
+            continue
+        change = "added" if before is None else "removed" if after is None else "changed"
+        counts[change] += 1
+        if len(changes) < _MAX_REVIEW_ITEMS:
+            dataset, model, name = key
+            field = after if after is not None else old_fields[key]
+            mapping = (new_datasets if after is not None else old_datasets)[(dataset, model)]
+            provider = _mapping(field.get("provider"))
+            columns = new_columns if after is not None else old_columns
+            changes.append({
+                "change": change.title(),
+                "model": model,
+                "field": name,
+                "provider": _provider_label(provider),
+                "columns": tuple(
+                    columns.get((dataset, str(column)), _logical_column_label(str(column)))
+                    for column in _sequence(provider.get("source_column_ids"))
+                ),
+                "write_behavior": _write_behavior(mapping, field, provider),
+                "blank_behavior": _blank_behavior(field, provider),
+            })
+    added = sorted(new_columns.keys() - old_columns.keys())
+    removed = sorted(old_columns.keys() - new_columns.keys())
+    return {
+        "fields": changes,
+        "field_counts": counts,
+        "more_fields": sum(counts.values()) - len(changes),
+        "added_columns": tuple(new_columns[key] for key in added[:_MAX_REVIEW_ITEMS]),
+        "removed_columns": tuple(old_columns[key] for key in removed[:_MAX_REVIEW_ITEMS]),
+        "added_column_count": len(added),
+        "removed_column_count": len(removed),
+        "other_changes": _other_changes(baseline, current, old_datasets, new_datasets),
+        "has_changes": baseline != current,
+    }
+
+
+def _mapped_datasets(definition: Mapping[str, object]):
+    return {
+        (str(dataset.get("logical_dataset_id", "")), str(dataset.get("target_model", ""))): dataset
+        for item in _sequence(_mapping(definition.get("mapping")).get("datasets"))
+        for dataset in (_mapping(item),)
+    }
+
+
+def _scalar_fields(datasets: Mapping[tuple[str, str], Mapping[str, object]]):
+    return {
+        (*key, str(field.get("target_field", ""))): field
+        for key, dataset in datasets.items()
+        for item in _sequence(dataset.get("fields"))
+        for field in (_mapping(item),)
+    }
+
+
+def _source_columns(definition: Mapping[str, object]):
+    return {
+        (str(dataset.get("logical_dataset_id", "")), str(column.get("logical_column_id", ""))):
+        str(column.get("source_name") or "Source column")
+        for item in _sequence(_mapping(definition.get("source_shape")).get("datasets"))
+        for dataset in (_mapping(item),)
+        for raw in _sequence(dataset.get("columns"))
+        for column in (_mapping(raw),)
+    }
+
+
+def _other_changes(baseline, current, old_datasets, new_datasets) -> tuple[str, ...]:
+    labels = {
+        "source_preparation": "Source preparation",
+        "quality": "Data checks",
+        "reference_dependencies": "Reference data",
+        "parameter_definitions": "Inputs when reused",
+        "control_definitions": "Controls",
+        "contract_versions": "Recipe format",
+    }
+    changes = [label for key, label in labels.items() if baseline.get(key) != current.get(key)]
+    old_rules = {key: {k: v for k, v in item.items() if k != "fields"} for key, item in old_datasets.items()}
+    new_rules = {key: {k: v for k, v in item.items() if k != "fields"} for key, item in new_datasets.items()}
+    if old_rules != new_rules:
+        changes.append("Table, identity, relationship, or write rules")
+    if any(baseline.get(key) != current.get(key) for key in ("odoo_target_contract", "target_governance")):
+        changes.append("Odoo field requirements")
+    return tuple(changes)
+
+
+def _provider_label(provider: Mapping[str, object]) -> str:
+    kind = provider.get("kind")
+    return _PROVIDER_LABELS.get(str(kind), _label(kind, default="Saved rule"))
+
+
+def _logical_column_label(column: str) -> str:
+    return column.rsplit(".", 1)[-1].removeprefix("column:").replace("_", " ")
+
+
+def _write_behavior(dataset, field, provider) -> str:
+    if field.get("validate_only"):
+        return "Check only"
+    if provider.get("kind") == "ODOO_DEFAULT":
+        return "Let Odoo supply the value on create"
+    return {
+        "CREATE": "Use on create",
+        "UPSERT": "Use on create and eligible updates",
+        "REFERENCE": "Use for reference only",
+    }.get(dataset.get("mode"), "See the saved table rules")
+
+
+def _blank_behavior(field, provider) -> str:
+    if provider.get("kind") == "SOURCE_WITH_FALLBACK":
+        return "Use the saved backup value for a blank source cell"
+    if provider.get("kind") != "SOURCE":
+        return "Follow the saved value rule"
+    if field.get("null_policy") == "ignore_source_null":
+        return "Omit the field when its prepared value is blank"
+    return "Send a blank prepared value to Odoo when the field allows it"
 
 
 def build_recipe_definition_view(
@@ -97,10 +226,7 @@ def _dataset_view(
     fields = tuple(
         {
             "target_field": str(item.get("target_field") or "Odoo field"),
-            "provider": _PROVIDER_LABELS.get(
-                str(provider.get("kind", "")),
-                _label(provider.get("kind"), default="Saved rule"),
-            ),
+            "provider": _provider_label(provider),
             "condition_count": sum(
                 len(_sequence(_mapping(rule).get("conditions")))
                 for rule in _sequence(provider.get("rules"))

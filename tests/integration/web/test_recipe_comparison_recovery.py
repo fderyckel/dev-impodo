@@ -96,8 +96,10 @@ class RecipeComparisonRecoveryBrowserTests(TestCase):
                     workbook = load_workbook(path)
                     self.addCleanup(workbook.close)
                     rows = tuple(workbook.worksheets[0].iter_rows(values_only=True))
-                    self.assertTrue(any("Source column ID" in row for row in rows))
-                    self.assertTrue(any("res.partner.credit_limit" in row for row in rows))
+                    self.assertTrue(any("Source column" in row for row in rows))
+                    self.assertFalse(any("Source column ID" in row for row in rows))
+                    credit_limit = next(row for row in rows if "res.partner.credit_limit" in row)
+                    self.assertEqual(credit_limit[1], "Amount")
 
     def _request(self, application):
         workspace = self.context.migration_workspaces.get(

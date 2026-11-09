@@ -37,6 +37,7 @@ from impodo.application.odoo_connection_service import OdooConnectionTestService
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
 from impodo.application.project.ports import ScopedMigrationProjectQuery
+from impodo.application.recipe_authoring_draft import RecipeAuthoringDraftService
 from impodo.application.run.target_matches import RecipeTargetMatchService
 from impodo.application.shared.artifacts import (
     GovernedArtifactStores,
@@ -379,6 +380,10 @@ def build_web_context(
         odoo_source_restarts=foundation.odoo_source_restarts,
         recipes=authoring.recipes,
         recipe_publication=authoring.recipe_publication,
+        recipe_authoring_drafts=RecipeAuthoringDraftService(
+            foundation.project_authoring, authoring.source_projections,
+            authoring.recipe_application, support.workspace_views,
+        ),
         run_planning=runs.run_planning,
         cutover_plans=services.cutover.cutover_plans,
         test_runs=runs.test_runs,

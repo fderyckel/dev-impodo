@@ -350,18 +350,6 @@ def supports_create_default_capture(field: CreateFieldShape) -> bool:
     )
 
 
-def supports_fixed_create_value(field: CreateFieldShape) -> bool:
-    """Return whether a required field has a generic typed fixed-value editor."""
-
-    return bool(
-        field.required
-        and not field.readonly
-        and field.computed is not True
-        and field.related is not True
-        and field.type in CREATE_FIXED_VALUE_TYPES
-    )
-
-
 def decide_verified_create_default(
     field: CreateFieldView,
 ) -> VerifiedCreateDefaultDecision:

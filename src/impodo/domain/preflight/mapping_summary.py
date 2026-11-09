@@ -21,13 +21,14 @@ from ..mapping.contracts import (
 from ..mapping.row_inclusion_review import describe_row_inclusion_policy
 from ..workspace.contracts import SourceSelection
 
+_UNAVAILABLE_SOURCE_HEADING = "Source heading unavailable"
+
 
 @dataclass(frozen=True, slots=True)
 class ReviewWorkbookFieldRule:
-    """Source labels and identifiers plus an ordered, explicit field recipe."""
+    """Source headings and ordered instructions for a saved field mapping."""
 
     target_model: str
-    source_keys: tuple[str, ...]
     source_labels: tuple[str, ...]
     steps: tuple[str, ...]
 
@@ -44,14 +45,16 @@ def workbook_mapping_rules(
     result: dict[tuple[str, str], ReviewWorkbookFieldRule] = {}
     for mapping in definition.datasets:
         dataset = datasets[mapping.dataset_id]
-        labels = {column.stable_key: column.source_name for column in dataset.columns}
+        labels = {
+            column.stable_key: column.source_name or _UNAVAILABLE_SOURCE_HEADING
+            for column in dataset.columns
+        }
+        for condition in mapping.row_inclusion.conditions:
+            labels.setdefault(condition.source_column_key, _UNAVAILABLE_SOURCE_HEADING)
         scope = (
             "Rows to use conditions withheld for restricted data."
             if restricted
-            else describe_row_inclusion_policy(
-                mapping.row_inclusion,
-                {key: f"{label} [{key}]" for key, label in labels.items()},
-            )
+            else describe_row_inclusion_policy(mapping.row_inclusion, labels)
         )
 
         def add(
@@ -66,8 +69,7 @@ def workbook_mapping_rules(
         ) -> None:
             result[(name, target)] = ReviewWorkbookFieldRule(
                 model,
-                keys,
-                tuple(column_labels.get(key, key) for key in keys),
+                tuple(column_labels.get(key, _UNAVAILABLE_SOURCE_HEADING) for key in keys),
                 (f"Rows to use: {row_scope}", *steps),
             )
 
@@ -124,9 +126,9 @@ def workbook_mapping_rules(
                 *relation.resolver.key_mappings,
                 *relation.resolver.scope_mappings,
             ):
+                heading = labels.get(key.source_column_key, _UNAVAILABLE_SOURCE_HEADING)
                 steps.append(
-                    f"Match {labels.get(key.source_column_key, key.source_column_key)} "
-                    f"[{key.source_column_key}] to {relation.resolver.model or 'incoming record'}.{key.target_field}."
+                    f"Match {heading} to {relation.resolver.model or 'incoming record'}.{key.target_field}."
                 )
             if relation.constant_reference:
                 steps = [
@@ -209,8 +211,7 @@ def _literal(value: object, restricted: bool) -> str:
 def _condition(
     condition: SelectionCondition, labels: Mapping[str, str], restricted: bool
 ) -> str:
-    key = condition.source_column_key
-    column = f"{labels.get(key, key)} [{key}]"
+    column = labels.get(condition.source_column_key, _UNAVAILABLE_SOURCE_HEADING)
     operator = condition.operator.value.replace("_", " ")
     value = (
         ""
@@ -253,7 +254,7 @@ def _scalar_steps(
     elif field.value_source is ScalarValueSource.CONCATENATE and field.concatenation:
         rule = field.concatenation
         columns = ", ".join(
-            f"{labels.get(key, key)} [{key}]" for key in rule.source_column_keys
+            labels.get(key, _UNAVAILABLE_SOURCE_HEADING) for key in rule.source_column_keys
         )
         steps.append(
             f"Combine {columns}, in this order, separated by {literal(rule.separator)}; "

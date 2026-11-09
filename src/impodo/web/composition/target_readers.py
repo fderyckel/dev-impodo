@@ -54,6 +54,7 @@ from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import (
+    FieldMetadata,
     OdooReadIdentity,
     TargetFingerprint,
     TargetRecord,
@@ -75,6 +76,8 @@ from impodo.domain.workspace.reference_keys import (
     authorize_supporting_match_probe,
     captured_reference_field_contracts,
     reference_policy_hash,
+    selectable_matching_field,
+    selectable_matching_field_name,
     standard_reference_key,
     supporting_reference_candidate,
 )
@@ -131,6 +134,7 @@ class _PreparedSupportingLookup:
         MappingSupportingRelationship | OdooCheckRelationshipRequirement,
         ...,
     ] = ()
+    selected_field: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -1746,6 +1750,7 @@ def _capture_supporting_values(
                 )
             )
         )
+        selected_field = False
         for relationship in requirement.relationships:
             parent = models.get(relationship.parent_model)
             relation_field = next(
@@ -1796,13 +1801,31 @@ def _capture_supporting_values(
                 if purpose is ReferenceReadPurpose.MATCH_CHOICES
                 else None
             )
-            if not decision.accepted and not (
-                candidate_probe is not None and candidate_probe.accepted
+            explicitly_selected = (
+                isinstance(relationship, MappingSupportingRelationship)
+                and relationship.allows_selected_field
+            )
+            if not explicitly_selected and (
+                decision.accepted or (candidate_probe is not None and candidate_probe.accepted)
+            ):
+                continue
+            if not (
+                purpose is ReferenceReadPurpose.MATCH_CHOICES
+                and workspace_state.source_mode is SourceMode.FILE
+                and targeted_values is not None
+                and explicitly_selected
+                and relation_field is not None
+                and relation_field.relation == requirement.model_name
+                and requested_fields == requirement.key_fields
+                and len(requested_fields) == 1
+                and not requirement.scope_fields
+                and selectable_matching_field_name(requested_fields[0])
             ):
                 raise WorkspaceError(
                     f"A {workflow_label} relationship is not permitted for "
                     f"{requirement.model_name}"
                 )
+            selected_field = True
         identity = (
             requirement.model_name,
             requirement.key_fields,
@@ -1821,40 +1844,21 @@ def _capture_supporting_values(
                     else None
                 ),
                 relationships=tuple(requirement.relationships),
+                selected_field=selected_field,
             )
         )
 
     if not prepared:
         return ()
-    fields_by_model: dict[str, set[str]] = {}
-    for item in prepared:
-        fields_by_model.setdefault(item.relation_model, set()).update(
-            item.requested_fields
-        )
-    grouped_requests = tuple(
-        (model_name, tuple(sorted(fields_by_model[model_name])))
-        for model_name in sorted(fields_by_model)
-    )
-    record_requests = _supporting_record_requests(
-        tuple(prepared),
-        grouped_requests,
-    )
-    metadata, record_snapshot, access = _read_supporting_lookup_batches(
-        context,
-        workspace_state,
-        schema,
-        actor=actor,
-        grouped_requests=grouped_requests,
-        record_requests=record_requests,
-        verify_schema_access=require_current_access,
-    )
-    if require_current_access and (
-        access.credential_binding_hash, access.principal_hash, access.context_hash
-    ) != (
-        schema.read_credential_binding_hash, schema.read_principal_hash,
-        schema.read_context_hash,
-    ):
-        raise WorkspaceError("Supporting read access changed; check Odoo details again")
+    captures = {}
+    for selected_field in (False, True):
+        group = tuple(item for item in prepared if item.selected_field == selected_field)
+        if group:
+            captures[selected_field] = _read_planned_supporting_values(
+                context, workspace_state, schema, group, actor=actor,
+                require_current_access=require_current_access or selected_field,
+            )
+
     expected_target_hash = target_identity_hash(
         connection_mode=(
             workspace_state.odoo_connection_mode.value
@@ -1864,18 +1868,9 @@ def _capture_supporting_values(
         base_url=workspace_state.odoo_base_url,
         database=workspace_state.odoo_database,
     )
-    if (
-        metadata.fingerprint != record_snapshot.fingerprint
-        or not metadata.complete
-        or not record_snapshot.complete
-    ):
-        raise WorkspaceError("Odoo returned incomplete supporting values")
-    if record_snapshot.fingerprint.target_hash != expected_target_hash:
-        raise WorkspaceError("Odoo supporting values came from a different target")
-
-    captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
     verified: list[_VerifiedSupportingLookup] = []
     for item in prepared:
+        metadata, record_snapshot, _access = captures[item.selected_field]
         returned_model = metadata.models.get(item.relation_model)
         if returned_model is None or any(
             field_name not in returned_model.fields
@@ -1894,6 +1889,8 @@ def _capture_supporting_values(
             raise WorkspaceError(
                 f"Odoo did not return every required value for {item.relation_model}"
             )
+        if item.selected_field:
+            _require_selectable_matching_field(returned_model.fields[item.key_fields[0]])
         returned_contracts = captured_reference_field_contracts(
             returned_model.fields[name] for name in item.requested_fields
         )
@@ -1959,12 +1956,15 @@ def _capture_supporting_values(
             )
         by_key: dict[str, list[TargetRecord]] = {}
         identity_fields = (*item.key_fields, *item.scope_fields)
+        requested_values = frozenset(item.targeted_values or ())
         for record in records:
             raw_values = tuple(
                 _portable_relationship_choice_component(record.values.get(name))
                 for name in identity_fields
             )
-            if any(not value for value in raw_values):
+            if any(not value for value in raw_values) or (
+                item.selected_field and raw_values not in requested_values
+            ):
                 continue
             value = portable_supporting_value(raw_values)
             by_key.setdefault(value, []).append(record)
@@ -1990,9 +1990,15 @@ def _capture_supporting_values(
 
     def publish() -> tuple[SupportingLookupSnapshot, ...]:
         """Publish already verified values; this callback performs no network I/O."""
+        if True in captures:
+            current = context.queries.get_odoo_schema_catalog(workspace_state.workspace_id)
+            state = context.queries.get(workspace_state.workspace_id)
+            if current is None or current.content_hash != schema.content_hash or state.revision != workspace_state.revision:
+                raise WorkspaceError("Odoo details or access changed during the lookup. Check matches again.")
         stored = []
         for verified_item in verified:
             item = verified_item.prepared
+            _metadata, record_snapshot, access = captures[item.selected_field]
             stored.append(
                 context.supporting_lookups.capture(
                     workspace_state.workspace_id,
@@ -2006,7 +2012,7 @@ def _capture_supporting_values(
                     read_principal_hash=access.principal_hash,
                     read_permission_hash=access.permission_hash,
                     read_context_hash=access.context_hash,
-                    captured_at=captured_at,
+                    captured_at=_snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp),
                     choices=verified_item.choices,
                     ambiguous_values=verified_item.ambiguous_values,
                     actor=actor,
@@ -2016,6 +2022,112 @@ def _capture_supporting_values(
         return tuple(stored)
 
     return publish_operation(publish) if publish_operation is not None else publish()
+
+
+def _read_planned_supporting_values(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    prepared: tuple[_PreparedSupportingLookup, ...],
+    *,
+    actor: Actor,
+    require_current_access: bool,
+) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
+    """Check an operator-selected field before any record query uses it."""
+
+    fields_by_model: dict[str, set[str]] = {}
+    for item in prepared:
+        fields_by_model.setdefault(item.relation_model, set()).update(item.requested_fields)
+    grouped_requests = tuple(
+        (model_name, tuple(sorted(fields_by_model[model_name])))
+        for model_name in sorted(fields_by_model)
+    )
+    checked = None
+    checked_access = None
+    if prepared[0].selected_field:
+        checked, _, checked_access = _read_supporting_lookup_batches(
+            context, workspace_state, schema, actor=actor,
+            grouped_requests=grouped_requests, record_requests=(),
+            verify_schema_access=True,
+        )
+        _require_matching_field_metadata(schema, checked)
+        for item in prepared:
+            model = checked.models.get(item.relation_model)
+            _require_selectable_matching_field(model.fields.get(item.key_fields[0]) if model else None)
+    metadata, records, access = _read_supporting_lookup_batches(
+        context, workspace_state, schema, actor=actor,
+        grouped_requests=grouped_requests,
+        record_requests=_supporting_record_requests(prepared, grouped_requests),
+        verify_schema_access=require_current_access,
+    )
+    if require_current_access and (
+        access.credential_binding_hash, access.principal_hash, access.context_hash
+    ) != (
+        schema.read_credential_binding_hash, schema.read_principal_hash,
+        schema.read_context_hash,
+    ):
+        raise WorkspaceError("Supporting read access changed; check Odoo details again")
+    if (
+        metadata.fingerprint != records.fingerprint
+        or not metadata.complete
+        or not records.complete
+    ):
+        raise WorkspaceError("Odoo returned incomplete supporting values")
+    if records.fingerprint.target_hash != schema.connection_target_hash:
+        raise WorkspaceError("Odoo supporting values came from a different target")
+    if checked is not None:
+        _require_matching_field_metadata(schema, metadata)
+        if checked_access != access or checked.models != metadata.models:
+            raise WorkspaceError("The selected Odoo field or access changed during the lookup")
+    return metadata, records, access
+
+
+def _require_selectable_matching_field(field: FieldMetadata | None) -> None:
+    if field is None or not selectable_matching_field(field):
+        raise WorkspaceError(
+            "The selected Odoo field is unavailable or cannot be used for exact text matching"
+        )
+
+
+def _require_matching_field_metadata(
+    schema: OdooSchemaCatalog, metadata: MetadataSnapshot,
+) -> None:
+    expected = assess_odoo_operation(schema.odoo_version, OdooOperation.COMPARE)
+    actual = assess_odoo_operation(metadata.fingerprint.odoo_version, OdooOperation.COMPARE)
+    if (
+        not metadata.complete
+        or metadata.fingerprint.target_hash != schema.connection_target_hash
+        or not expected.allowed
+        or not actual.allowed
+        or actual.version.major != expected.version.major
+    ):
+        raise WorkspaceError("Check the Odoo connection and details before choosing a matching field")
+
+
+def _supporting_matching_fields(
+    context: WebContext,
+    workspace_state: WorkspaceState,
+    schema: OdooSchemaCatalog,
+    relation_model: str,
+    *,
+    actor: Actor,
+) -> tuple[dict[str, str], ...]:
+    """Discover usable identifiers on one authorized linked record type."""
+
+    metadata, _, _access = _read_supporting_lookup_batches(
+        context, workspace_state, schema, actor=actor,
+        grouped_requests=((relation_model, ()),), record_requests=(),
+        verify_schema_access=True, discover_fields=True,
+    )
+    _require_matching_field_metadata(schema, metadata)
+    model = metadata.models.get(relation_model)
+    if model is None or len(model.fields) > 3000:
+        raise WorkspaceError("Impodo could not check the linked Odoo fields within its field limit")
+    return tuple(
+        {"name": field.name, "label": field.label or field.name}
+        for field in sorted(model.fields.values(), key=lambda item: (item.label.casefold(), item.name))
+        if selectable_matching_field(field)
+    )
 
 
 def _ensure_targeted_supporting_read_complete(
@@ -2127,12 +2239,15 @@ def _read_supporting_lookup_batches(
     grouped_requests: tuple[tuple[str, tuple[str, ...]], ...],
     record_requests: tuple[RecordRequest, ...] | None = None,
     verify_schema_access: bool = False,
+    discover_fields: bool = False,
 ) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
     """Batch supporting reads and optionally recheck primary schema access first."""
 
     relation_models = tuple(model_name for model_name, _ in grouped_requests)
+    if discover_fields and (len(relation_models) != 1 or record_requests != ()):
+        raise WorkspaceError("Choose one related model to check for matching fields")
     metadata_requests = tuple(
-        MetadataRequest(model=model_name, fields=field_names)
+        MetadataRequest(model=model_name, fields=field_names, all_fields=discover_fields)
         for model_name, field_names in grouped_requests
     )
     if record_requests is None:
@@ -2173,6 +2288,7 @@ def _read_supporting_lookup_batches(
             metadata_requests,
             record_requests,
             related_models=relation_models,
+            **({"discover_matching_fields": True} if discover_fields else {}),
         )
         return (
             metadata,
@@ -2251,7 +2367,10 @@ def _read_supporting_lookup_batches(
         _target_json2_config(workspace_state, credential.secret)
     )
     return (
-        connector.get_model_metadata(metadata_requests),
+        (
+            connector.get_model_metadata(metadata_requests, include_create_defaults=False)
+            if discover_fields else connector.get_model_metadata(metadata_requests)
+        ),
         connector.get_records(record_requests),
         _SupportingLookupAccess(
             credential_binding_hash=credential.binding_hash,

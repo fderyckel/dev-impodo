@@ -242,6 +242,8 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
         authoring = SimpleNamespace(
             recipes=Mock(),
             recipe_publication=Mock(),
+            recipe_application=Mock(),
+            source_projections=Mock(),
             source_workspace=Mock(),
             data_version_source_projection=Mock(),
             categorical_coverage=Mock(),
@@ -346,6 +348,10 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
 
         self.assertIs(context.workspace_access, foundation.workspace_access)
         self.assertIs(context.mapping_workspace, authoring.mapping_workspace)
+        self.assertIs(context.recipe_authoring_drafts.authoring, foundation.project_authoring)
+        self.assertIs(context.recipe_authoring_drafts.projections, authoring.source_projections)
+        self.assertIs(context.recipe_authoring_drafts.compiler, authoring.recipe_application)
+        self.assertIs(context.recipe_authoring_drafts.workspace_views, support.workspace_views)
         self.assertIs(context.run_planning, runs.run_planning)
         self.assertIs(context.preflight, preparation.preflight)
         self.assertIs(context.execution, execution.execution)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from tests.support.paths import REPOSITORY_ROOT
 
+from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
@@ -12,6 +13,7 @@ import unittest
 from uuid import UUID, uuid4
 
 from impodo.domain.shared.access import Capability, LOCAL_ACTOR
+from impodo.domain.schema.governance import SchemaGovernance
 from impodo.adapters.duckdb.advanced_coverage_repository import (
     AdvancedCoverageRepository,
 )
@@ -602,6 +604,20 @@ class ReferenceDataTests(unittest.TestCase):
 
         with self.assertRaisesRegex(ValueError, "unknown Odoo selection key"):
             validate_odoo_selection_reference_outputs(bundle, definition, catalog)
+        governance = SchemaGovernance(
+            str(uuid4()), 1, catalog.workspace_id, catalog.content_hash,
+            ("res.partner",), (), NOW, "Data Manager",
+        )
+        governed = replace(definition, schema_hash=governance.content_hash)
+        with self.assertRaisesRegex(ValueError, "unknown Odoo selection key"):
+            validate_odoo_selection_reference_outputs(
+                bundle, governed, catalog, governance=governance,
+            )
+        with self.assertRaisesRegex(ValueError, "bindings are stale"):
+            validate_odoo_selection_reference_outputs(
+                bundle, governed, catalog,
+                governance=replace(governance, catalog_hash=HASH_A),
+            )
 
 
 class StructuralPreparationTests(unittest.TestCase):

@@ -103,9 +103,7 @@ the authenticated Platform and Organization administration web process, and then
 loopback TLS proxy. The
 worker remains disabled behind the `worker` profile because its durable
 runtime is not implemented. The first-operator command remains disabled behind
-the `admin` profile until a developer invokes it explicitly. The
-[2026-10-27 local rehearsal](../docs/plans/91-2026-10-27-local-empty-server-container-rehearsal.md)
-records the first complete result on Docker Desktop for Apple silicon.
+the `admin` profile until a developer invokes it explicitly.
 
 ## Verify the local contract
 
@@ -257,9 +255,8 @@ Record the application, PostgreSQL, and proxy image digests, the output of
 results, and sanitized shutdown logs. Do not record the generated secret
 files.
 
-Store sanitized point-in-time results under `docs/reports/`. Keep generated
-secrets and disposable runtime evidence below the ignored `deploy/.local/`
-root.
+Keep generated secrets and disposable rehearsal outputs below the ignored
+`deploy/.local/` root.
 
 The repository-owned PostgreSQL `18.6` and Caddy `2.11.7` builds are local
 rehearsal candidates. Their upstream bases are digest-pinned. A passing

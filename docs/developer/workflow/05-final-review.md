@@ -258,7 +258,8 @@ or per-cell repository lookup.
 The first **Review overview** tab contains a **Stage 3 transformation summary**.
 [`workbook_mapping_rules`](../../../src/impodo/domain/preflight/mapping_summary.py)
 describes the exact mapping and source selection already loaded for the frozen
-comparison. It retains source labels and stable keys, the target model and field,
+comparison. It resolves stable source keys to column headings for the summary
+table and its rule descriptions. It carries the target model and field,
 literal values, conditional choices, formulas, and ordered text parameters.
 These export-only rules pass through `FrozenPreflightInput.workbook_mapping_rules`
 and `ReviewWorkbookEvidence.mapping_rules`. They remain outside the frozen input

@@ -141,6 +141,9 @@
               {% if card.action_url and not card.current %}
                 {% include "_run_application_action.html" %}
               {% endif %}
+              {% if can_revise and not recipes[card.application.recipe_id].archived_at %}
+                <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ card.application.recipe_id }}/revise?version={{ card.application.recipe_revision }}">Revise this Recipe</a>
+              {% endif %}
             </div>
           </li>
         {% endfor %}

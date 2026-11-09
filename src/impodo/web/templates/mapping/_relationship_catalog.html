@@ -193,18 +193,30 @@
                     {% else %}
                       <input type="hidden" name="relation_projection_{{ dataset_index }}_{{ relation_index }}" value="">
                     {% endif %}
-                    <label data-relationship-odoo-control {% if selected_origin == 'dataset' %}hidden{% endif %}>
-                      How should Impodo identify the existing Odoo record?
-                      <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" {% if not row.related_keys %}disabled{% endif %}>
-                        <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
-                        {% for key in row.related_keys %}
-                          <option value="{{ key.key_id }}" data-scope-fields="{{ key.scope_fields | join('|') }}" {% if row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
-                            {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
-                          </option>
-                        {% endfor %}
-                      </select>
-                      {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
-                    </label>
+                    <div data-relationship-odoo-control {% if selected_origin == 'dataset' %}hidden{% endif %}>
+                      <label>
+                        How should Impodo identify the existing Odoo record?
+                        <select name="relation_key_{{ dataset_index }}_{{ relation_index }}" data-linked-matching-key {% if not row.related_keys and not row.can_choose_matching_field %}disabled{% endif %}>
+                          <option value="">{% if row.related_keys or row.can_choose_matching_field %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
+                          {% for key in row.related_keys %}
+                            <option value="{{ key.key_id }}" data-scope-fields="{{ key.scope_fields | join('|') }}" {% if key.key_fields|length == 1 and not key.scope_fields %}data-matching-field="{{ key.key_fields[0] }}"{% endif %} {% if not row.chosen_matching_field and row.selected_key and key.key_id == row.selected_key.key_id %}selected{% endif %}>
+                              {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
+                            </option>
+                          {% endfor %}
+                          {% if row.chosen_matching_field %}
+                            <option value="{{ row.chosen_matching_field_id }}" data-selected-matching-field="{{ row.chosen_matching_field }}" selected>{{ row.chosen_matching_field }}</option>
+                          {% endif %}
+                        </select>
+                      </label>
+                      {% if row.can_choose_matching_field %}
+                        <div data-relationship-field-picker {% if selected_origin != 'target_catalog' %}hidden{% endif %}>
+                          <button type="button" class="button secondary compact" data-load-linked-matching-fields
+                            data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
+                            data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
+                          <small role="status" data-linked-matching-field-status></small>
+                        </div>
+                      {% elif not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
+                    </div>
                     {% if row.metadata.type != 'many2one' %}
                       <label>
                         How should the list change?
@@ -226,7 +238,8 @@
                   </div>
                   <div class="policy-row">
                     <div data-relation-source-policy {% if relation_value_source != 'source' %}hidden{% endif %}>
-                    <label>
+                    <p data-exact-linked-field-note {% if not row.chosen_matching_field %}hidden{% endif %}>Check matches will use the source values as they are to find records by this Odoo field.</p>
+                    <label data-linked-matching-policy {% if row.chosen_matching_field %}hidden{% endif %}>
                       How must source choices identify linked records?
                       {% set relation_policy = mapping.categorical_policy.value if mapping and mapping.categorical_policy else ('' if mapping else 'EXACT_BUSINESS_KEY') %}
                       <select
@@ -258,7 +271,7 @@
                       {% endif %}
                       <input type="hidden" name="relation_blank_create_{{ dataset_index }}_{{ relation_index }}"
                         value="{{ blank_choice|tojson|forceescape if blank_choice else '' }}" data-blank-create-storage>
-                      <div class="value-match-entry relationship-value-match-entry">
+                      <div class="value-match-entry relationship-value-match-entry" data-linked-value-match-entry {% if row.chosen_matching_field %}hidden{% endif %}>
                         {% if row.related_keys %}
                         <button
                           class="button secondary compact"

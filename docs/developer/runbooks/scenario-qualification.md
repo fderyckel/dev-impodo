@@ -84,15 +84,10 @@ The qualification commands do not implement automatic cleanup or
 interrupted-write recovery. Inspect retained evidence after a failure and
 allocate a fresh target for another attempt.
 
-Read each component's dated receipts for the exact observed Odoo 19/20
-release, source/oracle/seed hashes, entrypoint and modes that ran. Controlled
-REMOTE is not live HTTPS evidence. The component qualification records all
-eight controlled combinations of two majors, two access modes and two
-entrypoints separately from four live LOCAL authoring/Recipe journeys across
-the two majors. Live REMOTE HTTPS and visual browser checks were not run.
-Linux/Windows execution and paused hosted checks must be reported separately.
-Native Excel, scale, fault injection and related-split provider cases retain
-their own owners; a valid baseline does not qualify those failure paths.
+Use the run's evidence directory for the observed Odoo release, source and
+answer-key hashes, entrypoint, and connection mode. Keep controlled
+REMOTE, live HTTPS, and browser results separate. Report Linux, Windows, and
+paused hosted checks with their own evidence.
 
 ## Maintain a practice case
 

@@ -38,11 +38,92 @@ document.addEventListener("DOMContentLoaded", () => {
     syncOriginControls();
   };
 
+  const initializeLinkedMatchingFields = (row) => {
+    const load = row.querySelector("[data-load-linked-matching-fields]");
+    if (!load) return;
+    const key = row.querySelector("[data-linked-matching-key]");
+    const origin = row.querySelector("[data-relationship-origin]");
+    const policy = row.querySelector("[data-relation-source-policy]");
+    const policyChoice = policy.querySelector("[data-categorical-policy]");
+    const policyLabel = policy.querySelector("[data-linked-matching-policy]");
+    const exactNote = policy.querySelector("[data-exact-linked-field-note]");
+    const valueMatch = policy.querySelector("[data-linked-value-match-entry]");
+    const blankChoice = policy.querySelector("[data-blank-create-storage]");
+    const status = row.querySelector("[data-linked-matching-field-status]");
+
+    const sync = () => {
+      const exactOnly = Boolean(key.selectedOptions[0]?.dataset.selectedMatchingField);
+      policyLabel.hidden = exactOnly;
+      exactNote.hidden = !exactOnly;
+      valueMatch.hidden = exactOnly;
+      if (exactOnly) policyChoice.value = "EXACT_BUSINESS_KEY";
+    };
+    key.addEventListener("change", () => {
+      if (blankChoice) blankChoice.value = "";
+      sync();
+    });
+    origin.addEventListener("change", () => {
+      const existingOnly = origin.value === "target_catalog";
+      load.closest("[data-relationship-field-picker]").hidden = !existingOnly;
+      for (const option of key.querySelectorAll("[data-selected-matching-field]")) {
+        option.disabled = !existingOnly;
+      }
+      if (!existingOnly && key.selectedOptions[0]?.dataset.selectedMatchingField) {
+        key.value = "";
+        key.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    load.addEventListener("click", async () => {
+      load.disabled = true;
+      status.textContent = "Checking fields in Odoo…";
+      try {
+        const body = new URLSearchParams({
+          csrf_token: mappingForm.querySelector('[name="csrf_token"]').value,
+          target_model: load.dataset.targetModel,
+          target_field: row.dataset.targetField,
+        });
+        const response = await fetch(load.dataset.endpoint, { method: "POST", body });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.detail || "Impodo could not check the Odoo fields.");
+        }
+        const known = new Set(
+          Array.from(key.querySelectorAll("[data-matching-field]"), (option) => option.dataset.matchingField)
+        );
+        const selected = key.value;
+        let available = 0;
+        for (const field of payload.fields) {
+          if (known.has(field.name)) continue;
+          const label = field.label === field.name ? field.label : `${field.label} (${field.name})`;
+          const value = `odoo-field:${field.name}`;
+          const option = Array.from(key.options).find((item) => item.value === value) || new Option();
+          option.value = value;
+          option.textContent = label;
+          option.dataset.selectedMatchingField = field.name;
+          option.disabled = origin.value !== "target_catalog";
+          if (!option.parentElement) key.add(option);
+          available++;
+        }
+        key.value = selected;
+        status.textContent = available
+          ? "Choose a matching field from the list above."
+          : "The list already shows the available matching fields.";
+        if (load.isConnected && origin.value === "target_catalog") key.focus();
+      } catch (error) {
+        status.textContent = error instanceof Error ? error.message : "Impodo could not check the Odoo fields.";
+      } finally {
+        load.disabled = false;
+      }
+    });
+    sync();
+  };
+
   const initializeRelationRow = (row) => {
     if (row.dataset.relationRowInitialized === "true") {
       return;
     }
     row.dataset.relationRowInitialized = "true";
+    initializeLinkedMatchingFields(row);
     for (const controls of row.querySelectorAll(
       "[data-relationship-origin-controls]"
     )) {

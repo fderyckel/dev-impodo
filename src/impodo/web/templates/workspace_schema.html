@@ -593,8 +593,15 @@
   {% endif %}
 
   {% if schema %}
+    {% set revision_review = request.session.get('recipe_revision_review') %}
     {% if is_recipe_run_setup and schema.origin.value != 'LOCAL_MANUAL' %}
       {# A successful Recipe-run Odoo check redirects directly to Review and load. #}
+    {% elif revision_review and revision_review.pending_seed and revision_review.workspace_id == workspace_id and schema.origin.value == 'LIVE_API' and not schema.pending_refresh %}
+      <form class="actions" method="post" action="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="start">
+        <button class="button primary" type="submit">Open Match data</button>
+      </form>
     {% else %}
     {% if schema.origin.value == 'LOCAL_MANUAL' %}
       <div class="notice warning">

@@ -310,6 +310,24 @@ class QualityRule:
 
 
 @dataclass(frozen=True, slots=True)
+class RecipeQualitySeed:
+    """Distinguish editable Authoring checks from a run's pinned checks."""
+
+    rules: tuple[QualityRule, ...]
+    editable: bool = False
+    coverage_scope_hash: str | None = None
+    reference_bundle_hash: str | None = None
+
+    @property
+    def manager_rules(self) -> tuple[QualityRule, ...]:
+        return tuple(rule for rule in self.rules if rule.source is QualityRuleSource.MANAGER_AUTHORED)
+
+    @property
+    def advanced_rules(self) -> tuple[QualityRule, ...]:
+        return tuple(rule for rule in self.rules if rule.source is QualityRuleSource.SCOPE_APPROVED)
+
+
+@dataclass(frozen=True, slots=True)
 class QualityRuleSet:
     """Versioned rule contract bound to one mapping and schema hash."""
 

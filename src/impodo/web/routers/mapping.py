@@ -67,6 +67,7 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     OdooSchemaCatalog,
+    SchemaOrigin,
     SourceSelection,
 )
 from impodo.domain.workspace.derived_entities import (
@@ -77,13 +78,14 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
 from impodo.domain.workspace.supporting_review import SupportingReviewRequiredError
-from impodo.domain.workspace.workbench import WorkspaceStateError
+from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateError
 from impodo.web.composition.target_readers import (
     _capture_mapping_supporting_values,
     _read_readiness_snapshots,
     _refresh_mapping_odoo_defaults,
     _relationship_value_choices,
     _source_value_choices,
+    _supporting_matching_fields,
 )
 from impodo.web.selection_choices import (
     load_selection_refresh,
@@ -846,6 +848,55 @@ def build_mapping_router(context: WebContext) -> APIRouter:
         response.headers["X-Impodo-Catalog-Generation"] = str(generation)
         response.headers["X-Impodo-Catalog-Result"] = "current"
         return response
+
+    @router.post("/workspaces/{workspace_id}/mapping/linked-matching-fields")
+    async def linked_matching_fields(request: Request, workspace_id: str):
+        """Return matching fields for the captured relationship on request."""
+
+        require_session(request)
+        form = await request.form()
+        _secure_form(request, form, {"csrf_token", "target_model", "target_field"})
+        actor = request_identity(request, context.identity_resolver).actor
+
+        def read_inputs():
+            context.schema_workspace.authorization.require(
+                actor, Capability.MAPPING_EDIT, workspace_id=workspace_id,
+            )
+            _require_mapping_idle(context, workspace_id)
+            state = context.queries.get(workspace_id)
+            schema = context.queries.get_odoo_schema_catalog(workspace_id)
+            if (
+                state.source_mode is not SourceMode.FILE
+                or schema is None
+                or schema.origin is not SchemaOrigin.LIVE_API
+                or (state.odoo_company is not None and state.odoo_company.context_hash != schema.read_context_hash)
+            ):
+                raise WorkspaceError("Check Odoo details and the company for this load first")
+            parent = next(
+                (model for model in schema.models if model.name == _text(form, "target_model")),
+                None,
+            )
+            field = next(
+                (item for item in parent.fields if item.name == _text(form, "target_field")),
+                None,
+            ) if parent else None
+            if (
+                parent is None or parent.name not in state.intended_models
+                or field is None or field.type != "many2one" or not field.relation
+                or field.readonly or field.exportable is False or field.company_dependent is True
+                or any(model.name == field.relation for model in schema.models)
+            ):
+                raise WorkspaceError("Choose a current field that links to one existing Odoo record")
+            return state, schema, field.relation
+
+        try:
+            state, schema, relation_model = await run_local_operation(read_inputs)
+            fields = await run_in_threadpool(
+                _supporting_matching_fields, context, state, schema, relation_model, actor=actor,
+            )
+        except (ConnectorError, SecretStoreError, WorkspaceError, WorkspaceStateError) as error:
+            return JSONResponse({"detail": _mapping_mutation_failure_detail(error)}, status_code=422)
+        return JSONResponse({"fields": fields})
 
     @router.post("/workspaces/{workspace_id}/mapping/value-choices")
     async def workspace_mapping_value_choices(

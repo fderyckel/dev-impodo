@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
+from impodo.domain.coverage import validate_odoo_selection_reference_outputs
+from impodo.domain.mapping.mutations import MappingMutationAction, MappingMutationState
+from impodo.domain.recipe_parameters import (
+    EXPORT_AS_OF_PARAMETER_ID,
+    RecipeParameterDefinition,
+    RecipeParameterDefinitions,
+    RecipeParameterType,
+)
 from impodo.domain.run.contracts import (
     MigrationRunPlanIssue,
     MigrationRunPlanIssueLevel,
@@ -15,8 +23,12 @@ from impodo.domain.run.contracts import (
     RecipeApplicationStatus,
     ReferenceRequirement,
 )
-from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceDatasetSet
+from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.workspace.contracts import (
+    OdooSchemaCatalog,
+    SourceDatasetSet,
+    SourceSelection,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_closure import (
     close_supporting_plan,
@@ -24,6 +36,7 @@ from impodo.domain.workspace.supporting_closure import (
     supporting_mapping_conflicts,
 )
 from impodo.domain.workspace.supporting_plan import SupportingSourceDescriptor
+from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..domain.coverage import ReferenceBundle
 from ..domain.mapping.contracts import (
@@ -33,6 +46,7 @@ from ..domain.mapping.contracts import (
 from ..domain.mapping.create_field_policy import (
     CREATE_DEFAULT_DECISION_POLICY_VERSION,
 )
+from ..domain.recipe.models import RecipeError
 from ..domain.recipe_applications import (
     RecipeApplicationError,
     RecipeApplicationIssue,
@@ -41,6 +55,9 @@ from ..domain.recipe_applications import (
 )
 from ..domain.serialization import content_hash
 from .recipe_application_compilation import RecipeApplicationCompiler
+from .recipe_compilation_service import RecipeAuthoringParameterRepository
+from .schema_workspace_service import SchemaWorkspaceService
+from .supporting_review_service import supporting_review_packet
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,23 +124,198 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         *,
         sources,
         schemas,
-        schema_workspace,
+        schema_workspace: SchemaWorkspaceService,
         references,
         preparation,
         mappings,
         categorical,
         application_state,
         row_inclusion_reviews=None,
+        parameters: RecipeAuthoringParameterRepository | None = None,
     ) -> None:
         self.sources = sources
         self.schemas = schemas
-        self.schema_workspace = schema_workspace
+        self._schema_workspace = schema_workspace
         self.references = references
         self.preparation = preparation
         self.mappings = mappings
         self.categorical = categorical
         self.application_state = application_state
         self.row_inclusion_reviews = row_inclusion_reviews
+        self.parameters = parameters
+
+    @property
+    def schema_workspace(self) -> SchemaWorkspaceService:
+        return self._schema_workspace
+
+    def authoring_source_bindings(
+        self, definition: Mapping[str, object], selection: SourceSelection,
+    ) -> dict[str, str]:
+        """Rebind saved file rules without requiring delivery-specific run values."""
+
+        bindings, _, issues = self._source_assessment(definition, selection, {})
+        for issue in issues:
+            if issue.blocks:
+                raise RecipeError(issue.message)
+        return bindings
+
+    @staticmethod
+    def _authoring_parameters(definition: Mapping[str, object]) -> RecipeParameterDefinitions:
+        """Reconstruct declarations without copying any per-delivery values."""
+        parameters = _portable_mapping(definition.get("parameter_definitions"), "Recipe inputs")
+        custom = []
+        for raw in _portable_sequence(parameters.get("parameters", ()), "Recipe inputs"):
+            item = _portable_mapping(raw, "Recipe input")
+            logical_id = str(item["logical_parameter_id"])
+            if logical_id == EXPORT_AS_OF_PARAMETER_ID:
+                continue
+            declaration = RecipeParameterDefinition(
+                name=logical_id.removeprefix("parameter:"),
+                label=str(item["label"]),
+                value_type=RecipeParameterType(str(item["type"])),
+                required=bool(item["required"]),
+            )
+            if content_hash(declaration.to_recipe_dict()) != content_hash(item):
+                raise RecipeError("A saved Recipe input cannot be restored.")
+            custom.append(declaration)
+        return RecipeParameterDefinitions(tuple(custom))
+
+    def require_authoring_seed_supported(self, definition: Mapping[str, object]) -> None:
+        """Leave separately approved advanced checks with their original scope."""
+
+        issues = self._quality_issues(definition)
+        if issues:
+            raise RecipeError(issues[0].message)
+
+    def _authoring_references(
+        self, workspace_id: str, origin_workspace_id: str, definition: Mapping[str, object],
+        *, actor: Actor,
+    ) -> ReferenceBundle | None:
+        required = self.reference_requirements(definition)
+        if not required:
+            return None
+        authorization = self.schema_workspace.authorization
+        authorization.require(actor, Capability.COVERAGE_SCOPE, workspace_id=workspace_id)
+        authorization.require(actor, Capability.PROJECT_VIEW, workspace_id=origin_workspace_id)
+        saved = self.references.get_saved_reference_bundle(
+            origin_workspace_id, tuple(item.content_hash for item in required),
+        )
+        if saved is None:
+            raise RecipeError("This Recipe version’s reference lists are unavailable.")
+        return replace(saved, workspace_id=workspace_id)
+
+    def has_authoring_seed(self, workspace_id: str, operation_id: str) -> bool:
+        """Read the receipt committed with this draft's original mapping write."""
+
+        receipt = self.mappings.mappings.get_mapping_mutation_receipt(workspace_id, operation_id)
+        return receipt is not None and receipt.state is MappingMutationState.COMMITTED
+
+    def seed_authoring_mapping(
+        self, workspace_id: str, *, definition: Mapping[str, object], schema: OdooSchemaCatalog,
+        state: WorkspaceState, operation_id: str, recipe_hash: str, origin_workspace_id: str, actor: Actor,
+    ) -> None:
+        """Materialize editable rules after a fresh capture, leaving checks to Authoring."""
+
+        working = self.mappings.mappings.get_mapping_working_draft(workspace_id)
+        if self.has_authoring_seed(workspace_id, operation_id):
+            if working is not None:
+                return
+            raise RecipeError("The saved field matches for this draft are unavailable.")
+        if working is not None:
+            raise RecipeError("This workspace already has field matches.")
+        self.require_authoring_seed_supported(definition)
+        parameters = self._authoring_parameters(definition)
+        parameter_store = self.parameters
+        if parameters.definitions and parameter_store is None:
+            raise RecipeError("Recipe inputs are unavailable.")
+        preparation = _portable_mapping(definition.get("source_preparation"), "Recipe source preparation")
+        has_preparation = bool(preparation.get("rules") or preparation.get("dataset_uses"))
+        selection = (
+            self.sources.get_source_selection(workspace_id) if has_preparation
+            else self.sources.get_mapping_source_selection(workspace_id)
+        )
+        if selection is None:
+            raise RecipeError("The accepted source tables are unavailable.")
+        bindings = self.authoring_source_bindings(definition, selection)
+        _, target_issues, _ = self._target_assessment(definition, schema)
+        for issue in target_issues:
+            if issue.blocks and issue.code not in {"RECIPE_TARGET_NEW_REQUIRED_FIELD", "RECIPE_CREATE_HOOK_INPUT_MISSING"}:
+                raise RecipeError(issue.message)
+        references = self._authoring_references(
+            workspace_id, origin_workspace_id, definition, actor=actor,
+        )
+        application_definition = self._application_definition(definition)
+        plan = None
+        if has_preparation:
+            plan = self._materialize_preparation(
+                workspace_id, application_definition, bindings, actor=actor, source=selection,
+            )
+        governance = self._materialize_governance(
+            workspace_id, application_definition, actor=actor, schema=schema,
+        )
+        effective = self.sources.get_mapping_source_selection(workspace_id) if has_preparation else selection
+        if effective is None:
+            raise RecipeError("The accepted source tables are unavailable.")
+        controls = _portable_mapping(definition.get("control_definitions"), "Recipe controls")
+        invariants = {
+            str(item["logical_control_id"]): str(item["invariant_expected_total"])
+            for raw in _portable_sequence(controls.get("controls", ()), "Recipe controls")
+            for item in (_portable_mapping(raw, "Recipe control"),)
+            if item.get("invariant_expectation")
+        }
+        effective_bindings = self._effective_bindings(effective, bindings)
+        datasets = self._mapping_datasets(
+            application_definition, effective_bindings, effective,
+            RecipeControlValues(selection.data_version_id, invariants, actor.identity, datetime.now(UTC)),
+            references,
+        )
+        candidate = MappingDefinition(
+            mapping_id=operation_id, source_selection_hash=effective.content_hash,
+            schema_hash=governance.content_hash, datasets=datasets,
+        )
+        quality_rules = self._quality_rules(application_definition, effective_bindings, effective)
+        choices = recipe_supporting_choices(
+            _portable_mapping(application_definition["odoo_target_contract"], "Recipe Odoo target contract"),
+            effective_bindings,
+        )
+        if references is not None:
+            validate_odoo_selection_reference_outputs(
+                references, candidate, schema, governance=governance,
+            )
+        if choices:
+            packet = supporting_review_packet(state, selection, schema, plan, governance)
+            supporting = self.schema_workspace.supporting
+            conflicts = supporting_mapping_conflicts(choices, datasets, schema)
+            if conflicts:
+                raise RecipeError("Review the saved supporting choices in Odoo data.")
+            review_id = str(uuid5(UUID(operation_id), "supporting-choices"))
+            current = supporting.current(workspace_id, actor=actor)
+            if current is None:
+                supporting.save(
+                    packet, expected_binding_hash=packet.binding_hash, expected_version=0,
+                    operation_id=review_id, choices=choices, actor=actor,
+                )
+            else:
+                supporting.require_current(packet, actor=actor, review=current)
+                if current.choices != supporting.normalize(packet, choices):
+                    raise RecipeError("Supporting choices changed. Review them in Odoo data.")
+        self.mappings.begin_mutation(
+            workspace_id, operation_id=operation_id, action=MappingMutationAction.SAVE_PROGRESS,
+            request_hash=content_hash((recipe_hash, selection.content_hash)).removeprefix("sha256:"),
+            submitted_working_draft_version=None, submitted_mapping_revision_version=None, actor=actor,
+        )
+        if references is not None:
+            self.references.save_reference_bundle(workspace_id, references, actor=actor, restore=True)
+        if parameters.definitions and parameter_store is not None:
+            parameter_store.save_parameter_definitions(workspace_id, parameters, actor=actor, restore=True)
+        if quality_rules:
+            self.application_state.save_authoring_quality_seed(
+                workspace_id, operation_id=operation_id, definition=candidate,
+                rules=quality_rules, actor=actor,
+            )
+        self.mappings.save_working_draft(
+            workspace_id, datasets=datasets, expected_version=None, actor=actor, operation_id=operation_id,
+        )
 
     def assess(
         self,

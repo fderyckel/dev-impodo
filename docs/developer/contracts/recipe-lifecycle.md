@@ -100,6 +100,40 @@ the same Recipe are rejected.
 Neither first nor successor publication changes Project, DataVersion, run, or
 workspace identity or ownership.
 
+### Reviewed successor publication
+
+**Revise this Recipe** starts from the exact saved version selected in Recipe
+history or pinned by a run. Impodo authorizes Recipe publication in the Project
+before reading that version. The entry checks its originating Authoring
+workspace, accepted Data version, verified Odoo destination, and current
+compiled rules against the publication evidence. When that workspace is
+closed or diverged, **Create Authoring draft** provisions an independent
+Authoring run and workspace over the saved version’s accepted file delivery.
+The new workspace rebinds the Recipe’s logical source columns and saves an
+editable mapping after fresh Odoo field capture. It uses the original target
+settings as a starting point and establishes new access evidence.
+
+The exact version has a stable provisioning operation and a mapping seed
+receipt. Retries recover the same draft and preserve later mapping edits.
+Impodo restores business checks as editable rules and copies custom input
+declarations. It reads the matching reference bundle from the original
+workspace's immutable history by the saved dataset hashes. It checks saved
+supporting choices against the new capture and records a new workspace review
+before completing the seed. Versions with advanced checks tied to an
+approved coverage scope still stop before draft creation.
+
+The browser session binds the review to the selected version, workspace,
+accepted delivery, Odoo target, and company context. The review compares the
+confirmed draft with the selected version and also shows differences from
+the latest version when those versions differ. The save checks the current
+working draft, the digest of the reviewed compilation, and the Recipe's
+optimistic revision. A retry of the same completed publication returns its
+existing result.
+
+The protected provenance of a reviewed successor records its selected
+baseline. The saved detail compares the two verified envelopes to show the
+same change summary. The version still appends after the latest saved revision.
+
 ## Read and list boundary
 
 Project overview lists Recipes with one bounded registry query. Reading a
@@ -143,6 +177,7 @@ shell.
 
 - `tests/application/project/test_authoring.py`
 - `tests/application/run/test_integrated_recipe_runs.py`
+- `tests/integration/web/test_recipe_optional_field_revision.py`
 - `tests/domain/recipe/test_representative_shapes.py`
 
 ## Related documentation

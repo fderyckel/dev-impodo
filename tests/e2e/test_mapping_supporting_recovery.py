@@ -1,9 +1,9 @@
 """Keep unsaved account mappings through inline related-data review and retry."""
 
 import os
+import unittest
 from dataclasses import replace
 from pathlib import Path
-import unittest
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -133,36 +133,37 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     capture = os.environ.get("IMPODO_RELATED_REVIEW_SCREENSHOT")
                     if not capture and (directory := os.environ.get("IMPODO_STAGE3_SCREENSHOT_DIR")):
                         capture = str(Path(directory) / "11o-related-data-recovery.png")
-                    if capture:
-                        if major == 20:
-                            panel.scroll_into_view_if_needed()
-                            page.evaluate("window.scrollBy(0, -70)")
-                            Path(capture).parent.mkdir(parents=True, exist_ok=True)
-                            page.evaluate("""async () => {
-                                await document.fonts.ready;
-                                let previous = null, stable = 0;
-                                for (let frame = 0; frame < 120; frame += 1) {
-                                    await new Promise(requestAnimationFrame);
-                                    const current = `${scrollX}:${scrollY}`;
-                                    stable = current === previous ? stable + 1 : 0;
-                                    previous = current;
-                                    if (stable >= 4) return;
-                                }
-                            }""")
-                            page.screenshot(path=capture, animations="disabled")
-                            page.set_viewport_size({"width": 390, "height": 844})
-                            self.assertFalse(
-                                page.evaluate(
-                                    "document.documentElement.scrollWidth > innerWidth + 1"
-                                )
+                    if capture and major == 20:
+                        panel.scroll_into_view_if_needed()
+                        page.evaluate("window.scrollBy(0, -70)")
+                        Path(capture).parent.mkdir(parents=True, exist_ok=True)
+                        page.evaluate("""async () => {
+                            await document.fonts.ready;
+                            let previous = null, stable = 0;
+                            for (let frame = 0; frame < 120; frame += 1) {
+                                await new Promise(requestAnimationFrame);
+                                const current = `${scrollX}:${scrollY}`;
+                                stable = current === previous ? stable + 1 : 0;
+                                previous = current;
+                                if (stable >= 4) return;
+                            }
+                        }""")
+                        page.screenshot(path=capture, animations="disabled")
+                        page.set_viewport_size({"width": 390, "height": 844})
+                        self.assertFalse(
+                            page.evaluate(
+                                "document.documentElement.scrollWidth > innerWidth + 1"
                             )
-                            page.set_viewport_size({"width": 1440, "height": 1024})
-                    with page.expect_navigation(wait_until="networkidle"):
-                        with page.expect_response(
+                        )
+                        page.set_viewport_size({"width": 1440, "height": 1024})
+                    with (
+                        page.expect_navigation(wait_until="networkidle"),
+                        page.expect_response(
                             lambda response: urlsplit(response.url).path.endswith("/mapping/save")
                             and response.request.method == "POST"
-                        ) as checked:
-                            confirm.click()
+                        ) as checked,
+                    ):
+                        confirm.click()
                     self.assertEqual(checked.value.status, 200)
                     revision = context.queries.get_mapping_revision(workspace_id)
                     self.assertEqual(
@@ -175,8 +176,14 @@ class MappingSupportingRecoveryBrowserTests(unittest.TestCase):
                     provider = page.locator(
                         '[data-relation-mapping-row][data-target-field="company_ids"] [data-relation-value-source]'
                     )
+                    journey = page.locator("[data-mapping-journey]")
+                    expect(page.locator("[data-mapping-form]")).not_to_have_attribute(
+                        "aria-busy", "true"
+                    )
                     page.locator('.sidebar-subnav-link[href*="step=tables"]').click()
+                    expect(journey).to_have_attribute("data-step", "tables")
                     page.locator('[data-mapping-go-task="links"]').click()
+                    expect(journey).to_have_attribute("data-task", "links")
                     card = page.locator('[data-relation-mapping-row][data-target-field="company_ids"]')
                     if not card.evaluate("element => element.open"):
                         card.locator(":scope > summary").click()

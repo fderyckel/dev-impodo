@@ -22,8 +22,8 @@
   "files": [
     {
       "path": "README.md",
-      "bytes": 6316,
-      "sha256": "0cd25acf56395966ec246da9d3dc6ba68bedb9de31a19436c0f6ebd6349ebabc"
+      "bytes": 6077,
+      "sha256": "22b731d5f2b44537f315e56e29c05ec819803165e754285db1ca5c72ba873ed3"
     },
     {
       "path": "data-dictionary.json",
@@ -137,16 +137,6 @@
       "sha256": "bcd71268d21a6c2ffb4447f83163120bd3321cd040eeaf9a3834810b2e3a2d4b"
     },
     {
-      "path": "history/2026-11-06-before-manufacturing-promotion-validation.json",
-      "bytes": 2106,
-      "sha256": "857539f840f8ae9779ab1dd3cbfcafecbfa9307ab8e9c4199b9e0c06b9c1298a"
-    },
-    {
-      "path": "history/2026-11-06-original-draft-validation.json",
-      "bytes": 1667,
-      "sha256": "47d08d227d78307fefe13b800bfae9cf73ba3c40d74b00057d20e752e8d3b6c5"
-    },
-    {
       "path": "patches/2026-05-20/customer_phone_patch.csv",
       "bytes": 156,
       "sha256": "8de35d076b5d467e7d35cddc17b6b1121f5ae63655cc267e6ad4c9ac45dc487d",
@@ -161,11 +151,6 @@
       "path": "target-seed-projection.json",
       "bytes": 3664,
       "sha256": "e2c4c7304a6a227a3764b0500658b89ca5c03c1ec75babc11650db9f326e6397"
-    },
-    {
-      "path": "validation-evidence.json",
-      "bytes": 2826,
-      "sha256": "1b19a97c1ef20c19e75222d3b20dcd10a4edd12ed9238c38272decb9fc817465"
     }
   ],
   "current_manufacturing_pack": {

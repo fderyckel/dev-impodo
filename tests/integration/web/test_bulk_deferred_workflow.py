@@ -140,8 +140,14 @@ class BulkDeferredWorkflowTests(HierarchyWorkflowFixture):
         workbook = load_workbook(BytesIO(download.content), read_only=True, data_only=True)
         self.addCleanup(workbook.close)
         overview_rows = tuple(workbook.worksheets[0].iter_rows(values_only=True))
-        self.assertTrue(any("Source column ID" in row for row in overview_rows))
-        self.assertTrue(any("product.category.name" in row for row in overview_rows))
+        self.assertTrue(any("Source column" in row for row in overview_rows))
+        self.assertFalse(any("Source column ID" in row for row in overview_rows))
+        category_name = next(row for row in overview_rows if "product.category.name" in row)
+        self.assertEqual(category_name[1], "Name")
+        self.assertEqual(
+            " ".join(category_name[4].split()),
+            "1. Rows to use: Include a row when Key is not C300.",
+        )
         omissions = tuple(workbook["Deferred issues"].iter_rows(min_row=4, values_only=True))
         self.assertEqual(len(omissions), review.preview.newly_set_aside_count + 1)
         headers = tuple(cell.value for cell in workbook["Deferred issues"][3])

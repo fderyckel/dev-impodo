@@ -212,17 +212,5 @@
       "bytes": 5849,
       "sha256": "44bce82bb70ccbcb5c7bc048d98af4e62c2283209cdc750abf5a4beba777d3e3"
     }
-  ],
-  "qualification": {
-    "receipts": "qualification-evidence.json",
-    "live_modes": [
-      "LOCAL"
-    ],
-    "controlled_modes": [
-      "LOCAL",
-      "REMOTE"
-    ],
-    "hosted_ci": "NOT_RUN_PAUSED",
-    "scope": "Exact cases are recorded separately; options do not assert every company/mode combination was executed."
-  }
+  ]
 }

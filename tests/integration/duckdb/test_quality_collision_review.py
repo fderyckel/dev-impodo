@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 from contextlib import nullcontext
 import unittest
+from unittest.mock import Mock
 from uuid import uuid4
 
 import duckdb
 
 from impodo.adapters.duckdb.quality_repository import QualityRepository
+from impodo.application.shared.artifacts import WorkspaceArtifactStore
 
 
 class _DatabasePath:
@@ -74,7 +76,8 @@ class QualityCollisionReviewTests(unittest.TestCase):
                         }),
                     ],
                 )
-            repository = QualityRepository(_Database(connection), None)
+            artifacts = Mock(spec=WorkspaceArtifactStore)
+            repository = QualityRepository(_Database(connection), None, artifacts=artifacts)
 
             groups = repository.get_quality_collision_groups(
                 "workspace", quality_run_id, ("row-1856", "row-1857")
@@ -98,6 +101,7 @@ class QualityCollisionReviewTests(unittest.TestCase):
                 groups["row-1856"].members[0].source_identity_value,
                 "5637257099",
             )
+            self.assertEqual(artifacts.mock_calls, [])
 
 
 if __name__ == "__main__":

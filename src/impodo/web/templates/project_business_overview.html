@@ -137,6 +137,7 @@
       </div>
     </div>
     {% if recipes %}
+      {% set revision_review = request.session.get('recipe_revision_review') %}
       <ol class="overview-stages">
         {% for recipe in recipes %}
           <li class="overview-stage complete" id="recipe-{{ recipe.recipe_id }}" tabindex="-1" data-focus-on-hash>
@@ -145,7 +146,9 @@
               <h3>{{ recipe.display_name }}</h3>
               <p>{{ recipe.business_purpose }} · Recipe v{{ recipe.current_recipe_revision }}</p>
               <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}">Open Recipe</a>
-              {% if recipe_draft and recipe_draft.can_publish %}
+              {% if revision_review and not revision_review.published and revision_review.project_id == project.project_id and revision_review.recipe_id == recipe.recipe_id %}
+                <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
+              {% elif recipe_draft and recipe_draft.can_publish %}
                 <form method="post" action="/projects/{{ project.project_id }}/recipes">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">

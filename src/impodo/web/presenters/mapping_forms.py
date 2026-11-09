@@ -21,6 +21,8 @@ from impodo.domain.recipe.value_rules import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
+    SELECTED_MATCH_FIELD_PREFIX,
+    selectable_matching_field_name,
     standard_reference_key,
     supporting_reference_candidate,
 )
@@ -951,6 +953,7 @@ def _mapping_datasets_from_form(
             value_mappings, blank_source_values = _value_match_decisions_from_form(
                 form, f"relation_value_matches_{dataset_index}_{relation_index}", allow_blank=True,
             )
+            selected_matching_field = False
             if origin is ResolverOrigin.DATASET:
                 if value_mappings:
                     raise ValueError(
@@ -996,16 +999,36 @@ def _mapping_datasets_from_form(
                     ),
                 )
             else:
+                key_id = _text(form, f"relation_key_{dataset_index}_{relation_index}")
+                key = keys.get(key_id)
+                if key_id.startswith(SELECTED_MATCH_FIELD_PREFIX):
+                    selected_matching_field = True
+                    matching_field = key_id.removeprefix(SELECTED_MATCH_FIELD_PREFIX)
+                    if (
+                        pinned_update
+                        or metadata.type != "many2one"
+                        or not metadata.relation
+                        or metadata.relation in models
+                        or metadata.readonly
+                        or metadata.exportable is False
+                        or metadata.company_dependent is True
+                        or not selectable_matching_field_name(matching_field)
+                        or len(selected_sources) != 1
+                        or value_mappings
+                        or blank_source_values
+                        or _text(form, f"relation_categorical_policy_{dataset_index}_{relation_index}")
+                        != CategoricalCoveragePolicy.EXACT_BUSINESS_KEY.value
+                    ):
+                        raise WorkspaceError(
+                            "Choose one source column with exact values for the selected Odoo field"
+                        )
+                    key = BusinessKeyDefinition(
+                        key_id, metadata.relation, (matching_field,),
+                        status=BusinessKeyStatus.CANDIDATE,
+                    )
                 resolver = replace(
                     _target_catalog_resolver(
-                        metadata.relation,
-                        keys.get(
-                            _text(
-                                form,
-                                f"relation_key_{dataset_index}_{relation_index}",
-                            )
-                        ),
-                        selected_sources,
+                        metadata.relation, key, selected_sources,
                         value_mappings=value_mappings,
                     ),
                     value_mappings=value_mappings,
@@ -1026,6 +1049,7 @@ def _mapping_datasets_from_form(
                     set(choice) == {"key", "record"}
                     and choice["key"] == _text(form, f"relation_key_{dataset_index}_{relation_index}")
                     and isinstance(choice["record"], str)
+                    and not str(choice["key"]).startswith(SELECTED_MATCH_FIELD_PREFIX)
                 ):
                     blank_create_values = matched_reference_components(
                         choice["record"], len(resolver.key_mappings) + len(resolver.scope_mappings)
@@ -1120,6 +1144,7 @@ def _mapping_datasets_from_form(
                     value_source=value_source,
                     blank_source_values=blank_source_values,
                     blank_create_values=blank_create_values,
+                    selected_matching_field=selected_matching_field,
                 )
             )
         mode = MappingTargetMode(

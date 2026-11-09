@@ -93,15 +93,13 @@ F09 needs an explicit reviewed divisor rule or business check before its safe
 failure can be qualified. Runtime permissions, partial target lists and lost
 write replies likewise need executable controlled adapters.
 
-## Inspect ownership and history
+## Inspect ownership
 
 - [exercise-contracts.json](exercise-contracts.json) points current subsets to their canonical contracts and retains only the additional proposal decisions.
 - [expected-business-results.json](expected-business-results.json) retains remaining proposal answers without copying customer or manufacturing baseline values.
 - [target-seed-projection.json](target-seed-projection.json) retains account, patch and supplier-repair prerequisites; current seeds belong to their canonical owners.
 - [data-dictionary.json](data-dictionary.json) describes the two local file grains and synthetic provenance.
 - [manifest.json](manifest.json) pins all remaining local proposal assets.
-- [validation-evidence.json](validation-evidence.json) records fourteen-row static checks and omitted work.
-- The reports in [history](history/) retain the original 250-row review and the later 126-row review as dated history.
 
 Account, phone-patch, supplier-repair, generated-hierarchy, split-provider and
 runtime fault qualification remain unexecuted by this proposal. Preserve

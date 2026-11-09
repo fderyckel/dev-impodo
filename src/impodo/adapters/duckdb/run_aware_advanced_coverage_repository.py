@@ -26,7 +26,7 @@ class RunAwareAdvancedCoverageRepository:
             return projection
         return self.local.get_validated_reference_bundle(workspace_id)
 
-    def save_reference_bundle(self, workspace_id, bundle, *, actor):
+    def save_reference_bundle(self, workspace_id, bundle, *, actor, restore=False):
         if self.runs.is_application_workspace(workspace_id):
             raise MigrationRunPlanningError(
                 "Refresh supporting lists once from the integrated run"
@@ -35,6 +35,7 @@ class RunAwareAdvancedCoverageRepository:
             workspace_id,
             bundle,
             actor=actor,
+            restore=restore,
         )
 
     def __getattr__(self, name):

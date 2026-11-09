@@ -427,6 +427,7 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "project_production_activation.html": "production-rollout",
         "project_production_run_new.html": "production-rollout",
         "project_recipe_detail.html": "getting-started",
+        "project_recipe_revision.html": "getting-started",
         "project_recipe_odoo_defaults.html": "integrated-test-runs",
         "project_recipe_run_progress.html": "integrated-test-runs",
         "project_recipe_target_matches.html": "integrated-test-runs",

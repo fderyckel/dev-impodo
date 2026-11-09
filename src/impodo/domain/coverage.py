@@ -16,6 +16,7 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.shared.models import (
     assert_no_numeric_odoo_ids,
@@ -427,6 +428,8 @@ def validate_odoo_selection_reference_outputs(
     bundle: ReferenceBundle,
     mapping_definition: Any,
     schema_catalog: Any,
+    *,
+    governance: SchemaGovernance | None = None,
 ) -> None:
     """Check governed selection outputs against one frozen Odoo schema.
 
@@ -434,9 +437,15 @@ def validate_odoo_selection_reference_outputs(
     does not claim that the later rehearsal target still has the same schema.
     """
 
+    governed = (
+        governance is not None
+        and governance.workspace_id == bundle.workspace_id
+        and governance.catalog_hash == schema_catalog.content_hash
+        and mapping_definition.schema_hash == governance.content_hash
+    )
     if (
         bundle.workspace_id != schema_catalog.workspace_id
-        or mapping_definition.schema_hash != schema_catalog.content_hash
+        or (mapping_definition.schema_hash != schema_catalog.content_hash and not governed)
     ):
         raise ValueError("Reference selection validation bindings are stale")
     references = {item.reference_id: item for item in bundle.datasets}

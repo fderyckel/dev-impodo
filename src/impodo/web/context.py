@@ -87,6 +87,7 @@ from ..application.preflight_service import PreflightService
 from ..application.production_cutover_service import ProductionCutoverService
 from ..application.project.service import MigrationProjectService
 from ..application.recipe.service import RecipeService
+from ..application.recipe_authoring_draft import RecipeAuthoringDraftService
 from ..application.recipe_publication_service import RecipePublicationService
 from ..application.run.planning_service import (
     MigrationRunPlanningService,
@@ -267,6 +268,7 @@ class WebContext:
     odoo_source_restarts: OdooSourceRestartService
     recipes: RecipeService
     recipe_publication: RecipePublicationService
+    recipe_authoring_drafts: RecipeAuthoringDraftService
     run_planning: MigrationRunPlanningService
     cutover_plans: CutoverPlanService
     test_runs: TestRunSetupService

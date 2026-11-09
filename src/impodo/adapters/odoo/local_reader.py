@@ -303,6 +303,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         record_requests: Sequence[RecordRequest],
         *,
         related_models: Sequence[str] = (),
+        discover_matching_fields: bool = False,
     ) -> tuple[MetadataSnapshot, RecordSnapshot]:
         """Capture one consistent, read-only metadata and record snapshot.
 
@@ -313,6 +314,11 @@ payload = {"database": env.cr.dbname, "version": release.version,
 
         metadata = tuple(metadata_requests)
         records = tuple(record_requests)
+        if discover_matching_fields and (
+            records or len(metadata) != 1 or not metadata[0].all_fields
+            or metadata[0].fields or metadata[0].include_unique_constraints
+        ):
+            raise LocalOdooReaderError("Matching field discovery requires one metadata-only request.")
         permitted_related_models = set(related_models)
         if any(
             _MODEL_NAME.fullmatch(model) is None
@@ -337,7 +343,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         for request in metadata:
             if (
                 _MODEL_NAME.fullmatch(request.model) is None
-                or request.all_fields
+                or (request.all_fields and not discover_matching_fields)
                 or any(_FIELD_NAME.fullmatch(field) is None for field in request.fields)
             ):
                 raise LocalOdooReaderError(
@@ -759,10 +765,7 @@ for model_name in requested_models:
         for field_name, details in fields.items()
         if details.get("required")
         and not details.get("readonly")
-        and details.get("type") in {{
-            "boolean", "char", "date", "datetime", "float", "html",
-            "integer", "monetary", "selection", "text",
-        }}
+        and details.get("type") in {tuple(sorted(CREATE_DEFAULT_TYPES))!r}
     )
     captured_models[model_name] = {{
         "description": model._description,
@@ -785,7 +788,7 @@ def _preflight_script(
     record_requests: tuple[RecordRequest, ...],
 ) -> str:
     metadata_payload = [
-        {"model": item.model, "fields": list(item.fields)}
+        {"model": item.model, "fields": list(item.fields), "discover": item.all_fields}
         for item in metadata_requests
     ]
     record_payload = [
@@ -824,7 +827,9 @@ for request in metadata_requests:
     captured_models[request["model"]] = {{
         "description": model._description,
         "fields": fields,
-        "create_defaults": model.default_get(required_default_fields),
+        "create_defaults": (
+            {{}} if request["discover"] else model.default_get(required_default_fields)
+        ),
     }}
 captured_records = {{}}
 for request in record_requests:

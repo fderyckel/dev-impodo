@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from impodo.domain.preparation.quality import QualityRuleSet
+from impodo.domain.schema.governance import SchemaGovernance
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
@@ -145,12 +147,41 @@ class AdvancedCoverageRepository(DuckDbRepository):
         )
         return CoverageScopeRevision.from_dict(json.loads(value)) if value else None
 
+    def get_saved_coverage_scope(
+        self, workspace_id: str, ruleset_hash: str,
+    ) -> CoverageScopeRevision | None:
+        """Recover the scope approved for the Recipe's exact historical ruleset."""
+        rows = self._read_json_rows(
+            workspace_id,
+            """
+            SELECT json_array(rules.ruleset_json, scope.scope_json)
+              FROM quality_ruleset_revision AS rules
+              JOIN coverage_scope_revision AS scope
+                ON scope.content_hash = json_extract_string(rules.ruleset_json, '$.coverage_scope_hash')
+             WHERE rules.content_hash = ?
+             LIMIT 1
+            """,
+            [ruleset_hash],
+        )
+        if not rows:
+            return None
+        ruleset_json, scope_json = json.loads(rows[0])
+        ruleset = QualityRuleSet.from_json(ruleset_json)
+        scope = CoverageScopeRevision.from_dict(json.loads(scope_json))
+        if (
+            ruleset.workspace_id != workspace_id or ruleset.content_hash != ruleset_hash
+            or scope.workspace_id != workspace_id or ruleset.coverage_scope_hash != scope.content_hash
+        ):
+            raise WorkspaceError("Saved advanced checks have an invalid coverage scope.")
+        return scope
+
     def save_reference_bundle(
         self,
         workspace_id: str,
         bundle: ReferenceBundle,
         *,
         actor: Actor,
+        restore: bool = False,
     ) -> None:
         _require(actor, Capability.COVERAGE_SCOPE)
         self._assert_workspace_mutable(workspace_id)
@@ -167,6 +198,8 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 if current is not None and str(current[0]) == bundle.content_hash:
                     connection.rollback()
                     return
+                if restore and current is not None:
+                    raise WorkspaceError("This draft already has different reference lists.")
                 connection.execute(
                     "INSERT OR IGNORE INTO reference_bundle_revision VALUES (?, ?)",
                     [bundle.content_hash, canonical_json(bundle.to_portable_dict())],
@@ -204,6 +237,29 @@ class AdvancedCoverageRepository(DuckDbRepository):
         )
         return ReferenceBundle.from_dict(json.loads(value)) if value else None
 
+    def get_saved_reference_bundle(
+        self, workspace_id: str, dataset_hashes: tuple[str, ...],
+    ) -> ReferenceBundle | None:
+        """Load one immutable bundle by the exact Recipe dependency set."""
+        rows = self._read_json_rows(
+            workspace_id,
+            """
+            SELECT bundle_json FROM reference_bundle_revision
+             WHERE list_sort(json_extract_string(bundle_json, '$.datasets[*].content_hash')) = ?
+             LIMIT 1
+            """,
+            [sorted(dataset_hashes)],
+        )
+        if not rows:
+            return None
+        bundle = ReferenceBundle.from_dict(json.loads(rows[0]))
+        if (
+            bundle.workspace_id != workspace_id
+            or sorted(item.content_hash for item in bundle.datasets) != sorted(dataset_hashes)
+        ):
+            raise WorkspaceError("Saved reference data has an invalid binding")
+        return bundle
+
     def get_validated_reference_bundle(
         self,
         workspace_id: str,
@@ -224,13 +280,18 @@ class AdvancedCoverageRepository(DuckDbRepository):
             self._ensure_workspace_database_schema(connection)
             row = connection.execute(
                 """
-                SELECT mapping.revision_json, schema.catalog_json
+                SELECT mapping.revision_json, schema.catalog_json, governance.governance_json
                   FROM mapping_current AS current
                   JOIN mapping_revision AS mapping
                     ON mapping.mapping_id = current.mapping_id
                    AND mapping.version = current.version
                   JOIN odoo_schema_catalog AS schema
                     ON schema.singleton_id = 1
+                  LEFT JOIN schema_governance_current AS governed
+                    ON governed.singleton_id = 1
+                  LEFT JOIN schema_governance_revision AS governance
+                    ON governance.governance_id = governed.governance_id
+                   AND governance.version = governed.version
                  WHERE current.singleton_id = 1
                 """
             ).fetchone()
@@ -241,7 +302,8 @@ class AdvancedCoverageRepository(DuckDbRepository):
         try:
             mapping = MappingRevision.from_json(str(row[0])).definition
             schema = OdooSchemaCatalog.from_json(str(row[1]))
-            validate_odoo_selection_reference_outputs(bundle, mapping, schema)
+            governance = SchemaGovernance.from_json(str(row[2])) if row[2] is not None else None
+            validate_odoo_selection_reference_outputs(bundle, mapping, schema, governance=governance)
         except (TypeError, ValueError, KeyError) as error:
             raise WorkspaceError(
                 "Reference data no longer matches the captured Odoo selections"

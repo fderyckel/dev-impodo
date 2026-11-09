@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from impodo.domain.project.foundation import (
     FaultInjector,
+    require_hash,
     require_revision,
     require_uuid,
 )
@@ -46,6 +47,28 @@ class RecipeDraft:
     @property
     def can_publish(self) -> bool:
         return self.compiled is not None and not self.issues
+
+
+@dataclass(frozen=True, slots=True)
+class RecipeChangeReview:
+    """Bind a successor save to the selected baseline and reviewed draft."""
+
+    base_version: int
+    draft_hash: str
+
+    def __post_init__(self) -> None:
+        require_revision(self.base_version, "reviewed Recipe version")
+        require_hash(self.draft_hash, "reviewed Recipe draft")
+
+    @staticmethod
+    def hash_draft(compiled: CompiledRecipeDefinition) -> str:
+        """Identify the exact reusable meaning and submitted authoring evidence."""
+
+        return content_hash((
+            compiled.semantic_hash,
+            compiled.mapping_content_hash,
+            compiled.quality_ruleset_hash,
+        ))
 
 
 class RecipePublicationService:
@@ -108,6 +131,7 @@ class RecipePublicationService:
         operation_id: str | None = None,
         recipe_id: str | None = None,
         expected_recipe_revision: int | None = None,
+        change_review: RecipeChangeReview | None = None,
         fault: FaultInjector | None = None,
     ) -> RecipePublication:
         self.authorization.require(
@@ -133,6 +157,13 @@ class RecipePublicationService:
                 "expected_recipe_revision",
             )
         compiled = draft.compiled
+        reviewed_provenance: dict[str, object] = {}
+        if change_review is not None:
+            if draft.recipe is None or change_review.base_version > draft.recipe.current_recipe_revision:
+                raise RecipeError("Choose a saved Recipe version before reviewing changes.")
+            if RecipeChangeReview.hash_draft(compiled) != change_review.draft_hash:
+                raise RecipeError("The Recipe draft changed. Review the current changes before saving.")
+            reviewed_provenance["revision_base_version"] = change_review.base_version
         request_hash = content_hash(
             {
                 "business_purpose": business_purpose.strip(),
@@ -146,6 +177,7 @@ class RecipePublicationService:
                 "schema_hash": compiled.schema_hash,
                 "semantic_hash": compiled.semantic_hash,
                 "workspace_id": workspace_id,
+                **reviewed_provenance,
             }
         )
         return self.repository.publish_recipe(
@@ -165,6 +197,7 @@ class RecipePublicationService:
                 "quality_ruleset_hash": compiled.quality_ruleset_hash,
                 "schema_hash": compiled.schema_hash,
                 "source_selection_hash": compiled.source_selection_hash,
+                **reviewed_provenance,
             },
             operation_id=operation_id or str(uuid4()),
             request_hash=request_hash,

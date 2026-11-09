@@ -12,17 +12,9 @@ status: current
 1 are complete. Phase 2 supported-host qualification remains open, while the
 local Phase 3 persistence trial started on 2026-10-28. The local empty-stack
 Compose rehearsal passed. The image now uses a refreshed pinned
-Bookworm base. The 2026-10-28 local scan found no critical vulnerabilities,
-eight high-severity findings, and no fixable critical or high finding. The
-[2026-10-31 Phase 0 to 4 recheck](92-2026-10-31-phase-0-4-recheck.md)
-supersedes that scan as current evidence. It found additional alerts,
-including fixable findings in the supporting images, and reproduced account,
-secret-isolation, test-fixture, and concurrency gaps. The
-[corrective checkpoint](93-2026-10-31-phase-0-4-corrective-checkpoint.md)
-records the account, secret, concurrency, fixture, and CI corrections and
-their verification limits. The
-[supporting-image remediation report](../reports/2026-10-31-supporting-image-remediation.md)
-records local arm64 and amd64 builds that pass the fixable-alert policy. A
+Bookworm base. The account, secret-isolation, fixture, and concurrency
+corrections are implemented. Local arm64 and amd64 builds passed the
+fixable-alert policy for the replacement supporting images. A
 successful hosted rerun of those replacement builds, unfixed-vulnerability
 and license acceptance,
 production secret and database-role provisioning, remote certificate policy,
@@ -219,10 +211,7 @@ not qualify it as a server profile.
 
 ## Phase 0 - Freeze contracts and classify ownership
 
-**Implementation status on 2026-10-23:** Complete. The current baseline is
-recorded in the
-[Phase 0 baseline report](90-2026-10-22-shared-server-phase-0-baseline.md).
-The accepted
+**Implementation status:** Complete. The accepted
 [server fact-ownership inventory](../architecture/server-fact-ownership.md)
 and portable domain contracts passed their focused review gate. The user's
 instruction to start the next phase on 2026-10-23 records acceptance of the
@@ -983,9 +972,8 @@ and volume persistence.
 Nine focused container-contract tests verify the topology, digest-qualified
 supporting images, role separation, loopback-only publication, disabled worker
 profile, secret references, runtime restrictions, and fictional-secret
-generation, plus the continuous integration image-quality contract. The
-[2026-10-27 local rehearsal](91-2026-10-27-local-empty-server-container-rehearsal.md)
-then resolved and built the topology on Docker Desktop for Apple silicon. It
+generation, plus the continuous integration image-quality contract. The local
+rehearsal resolved and built the topology on Docker Desktop for Apple silicon. It
 verified live PostgreSQL role creation and migration, repeated migration
 no-ops, internal TLS health, drain and recovery, container recreation, and
 PostgreSQL and artifact-volume persistence.
@@ -995,15 +983,6 @@ script, removed role-specific configuration and an implicit writable volume
 from the shared image, retained Caddy's one required file capability, and
 removed a duplicated 369 MB image layer. The final Impodo image was 683 MB and
 ran as UID and GID `10001` with a read-only root filesystem.
-
-A point-in-time Docker Scout scan on 2026-10-28 found no critical
-vulnerabilities and nine high-severity findings. Refreshing the pinned base to
-Python 3.12.16 on Bookworm removed the fixable OpenSSL finding. The rebuilt
-image passed the clean local rehearsal and the repeat scan reported eight high,
-eleven medium, and forty-nine low findings, with no fixable critical or high
-finding. The required-attestation and license policies still failed. The
-[local rehearsal report](91-2026-10-27-local-empty-server-container-rehearsal.md)
-records the sanitized findings and remaining qualification work.
 
 The external secret-provider adapter, production database-role provisioning,
 PostgreSQL service-volume qualification, vulnerability acceptance or upstream

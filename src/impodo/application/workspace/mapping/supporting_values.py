@@ -51,6 +51,7 @@ class MappingSupportingRelationship:
     parent_model: str
     relationship_field: str
     relationship_type: str
+    allows_selected_field: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +110,7 @@ def plan_mapping_supporting_values(
         source_column_keys: tuple[str, ...],
         constant_values: tuple[str, ...] | None = None,
         blank_source_values: tuple[str, ...] = (),
+        allows_selected_field: bool = False,
     ) -> None:
         if (
             resolver is None
@@ -130,6 +132,7 @@ def plan_mapping_supporting_values(
                 parent_model=dataset.target_model,
                 relationship_field=parent_field,
                 relationship_type=relationship_type,
+                allows_selected_field=allows_selected_field,
             )
         )
         if source_column_keys:
@@ -214,6 +217,13 @@ def plan_mapping_supporting_values(
                 ),
                 constant_values=constant_values,
                 blank_source_values=relationship.blank_source_values,
+                allows_selected_field=(
+                    relationship.selected_matching_field
+                    and metadata.type == "many2one"
+                    and not metadata.readonly
+                    and metadata.exportable is not False
+                    and metadata.company_dependent is not True
+                ),
             )
 
     return tuple(

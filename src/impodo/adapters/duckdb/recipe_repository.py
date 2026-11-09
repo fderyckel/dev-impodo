@@ -243,14 +243,38 @@ class RecipeRepository:
 
         semantic_hash = content_hash(compiled_recipe)
         with self.database.connect(self.foundation.registry_path) as connection:
-            version = self._validate_publication_context(
-                connection,
-                project_id=project_id,
-                data_version_id=data_version_id,
-                workspace_id=workspace_id,
-                recipe_id=recipe_id,
-                expected_recipe_revision=expected_recipe_revision,
-            )
+            try:
+                version = self._validate_publication_context(
+                    connection,
+                    project_id=project_id,
+                    data_version_id=data_version_id,
+                    workspace_id=workspace_id,
+                    recipe_id=recipe_id,
+                    expected_recipe_revision=expected_recipe_revision,
+                )
+            except MigrationConflictError:
+                # An exact retry still expects the revision before its own commit.
+                completed = self.foundation._rows(
+                    connection,
+                    """
+                    SELECT * FROM project_operation_intent
+                     WHERE operation_id = ? AND project_id = ? AND owner_kind = 'RECIPE'
+                       AND owner_id = ? AND kind = 'RECIPE_PUBLISH' AND state = 'COMMITTED'
+                       AND request_hash = ? AND expected_revision = ?
+                       AND actor_issuer = ? AND actor_subject = ?
+                    """,
+                    [
+                        operation_id, project_id, recipe_id, request_hash,
+                        expected_recipe_revision, actor.identity.issuer,
+                        actor.identity.subject_id,
+                    ],
+                )
+                if not completed:
+                    raise
+                replay = self.foundation._intent_from_row(completed[0])
+                return self._publication(
+                    replay.owner_id, _stored_revision(replay.result["version"])
+                )
             if recipe_id is not None:
                 existing = connection.execute(
                     "SELECT version FROM recipe_revision "
@@ -496,12 +520,15 @@ class RecipeRepository:
 
     def _publication(self, recipe_id: str, version: int) -> RecipePublication:
         recipe = self.get_recipe(recipe_id)
-        revision = next(
-            item
-            for item in self.list_recipe_revisions(recipe_id)
-            if item.version == version
-        )
-        return RecipePublication(recipe=recipe, revision=revision)
+        with self.database.connect(self.foundation.registry_path) as connection:
+            rows = self.foundation._rows(
+                connection,
+                "SELECT * FROM recipe_revision WHERE recipe_id = ? AND version = ?",
+                [recipe_id, version],
+            )
+        if not rows:
+            raise MigrationNotFoundError("Recipe revision not found")
+        return RecipePublication(recipe=recipe, revision=self._revision_from_row(rows[0]))
 
     @staticmethod
     def _recipe_from_row(row: Mapping[str, object]) -> Recipe:

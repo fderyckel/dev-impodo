@@ -717,6 +717,7 @@ class RelationshipMapping:
     blank_source_action: str = "source_rules"
     # None keeps the source rule. An empty tuple uses the checked Odoo default.
     blank_create_values: tuple[str, ...] | None = None
+    selected_matching_field: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
@@ -781,6 +782,21 @@ class RelationshipMapping:
                 "categorical_policy",
                 CategoricalCoveragePolicy(self.categorical_policy),
             )
+        if type(self.selected_matching_field) is not bool or (
+            self.selected_matching_field and (
+                self.kind != "many2one"
+                or self.value_source is not RelationshipValueSource.SOURCE
+                or self.resolver.origin is not ResolverOrigin.TARGET_CATALOG
+                or self.categorical_policy is not CategoricalCoveragePolicy.EXACT_BUSINESS_KEY
+                or len(self.source_column_keys) != 1
+                or len(self.resolver.key_mappings) != 1
+                or self.resolver.scope_mappings
+                or self.resolver.value_mappings
+                or self.blank_source_values
+                or self.blank_create_values
+            )
+        ):
+            raise ValueError("A selected matching field needs one exact source column and an existing Odoo record")
         if self.value_source is RelationshipValueSource.SOURCE:
             if self.constant_reference is not None:
                 raise ValueError(
@@ -1345,6 +1361,9 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    for relationship in payload.get("relationships", ()):
+        if not relationship["selected_matching_field"]:
+            relationship.pop("selected_matching_field")
     if contract_version < 23:
         for relationship in payload.get("relationships", ()):
             relationship.pop("blank_create_values", None)
@@ -1731,6 +1750,8 @@ def _relationship_from_dict(
     contract_version: int,
 ) -> RelationshipMapping:
     expected_fields = _contract_fields(RelationshipMapping)
+    if "selected_matching_field" not in payload:
+        expected_fields.remove("selected_matching_field")
     if contract_version < 23:
         expected_fields.remove("blank_create_values")
     if contract_version != 19:
@@ -1776,6 +1797,7 @@ def _relationship_from_dict(
         ),
         blank_source_values=payload.get("blank_source_values", ()),
         blank_source_action=str(payload.get("blank_source_action", "source_rules")),
+        selected_matching_field=payload.get("selected_matching_field", False),
         blank_create_values=(
             tuple(payload["blank_create_values"])
             if payload.get("blank_create_values") is not None else None

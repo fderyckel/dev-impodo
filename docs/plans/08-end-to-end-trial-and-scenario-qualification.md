@@ -29,12 +29,42 @@ owns the implemented definition contract, CLI, profile-driven Contact,
 Product, and bill-of-material execution, retained journals, and remote HTTPS
 entry point. Completed implementation detail belongs there and in Git history.
 
-The runner still needs the normal Project, Data version, Recipe application,
-and workspace lifecycle, target provisioning and independent seed attestation,
-automatic recovery entry, a real browser journey, retained live remote
-acceptance, automatic remote cleanup, bounded Odoo-source scenarios,
-Odoo-to-Odoo qualification, and scheduling. The local lifecycle phase has not
-reached its full exit criteria.
+The shared Morrow manufacturing runner exercises the normal Project, Data
+version, Recipe application, and workspace lifecycle. The generic scenario
+runner still needs those lifecycle integrations, target provisioning and seed
+attestation, automatic recovery and cleanup, retained browser and remote lanes,
+bounded Odoo-source scenarios, Odoo-to-Odoo qualification, and scheduling.
+
+### Six-stage workflow qualification follow-up
+
+This plan owns the remaining six-stage workflow checks. Use the
+[qualification runbook](../developer/runbooks/scenario-qualification.md)
+for the current procedure.
+
+- Use fresh disposable HTTPS allocations for Odoo 19 Authoring and Recipe
+  runs and a separate Odoo 20 Authoring load. The earlier Odoo 20 Recipe
+  target already contains the verified manufacturing graph.
+- Extend the live HTTPS fault lane with the Morrow lost-reply case. Keep
+  the controlled and live LOCAL lost-response receipts separate.
+- Finish the combined correction and load checks for changed access,
+  duplicate and ambiguous identities, and known rejection. Verify the
+  workbook, excluded records, and allowed writes against the same approved
+  comparison. Retain the scope of the isolated missing-component, precision,
+  and stale-approval checks when integrating that candidate.
+
+The conditional product ideas remain separate scope decisions. A concrete
+operator case must establish each entry condition before the maintainer
+selects an extension for implementation.
+
+| Possible extension | Evidence needed to bring it into scope |
+| --- | --- |
+| Nested Many2many and constant-provider keys | A supported operator case and a portable definition of every member's complete key, scope, ordering, and normalization. |
+| Target-wide blank-key inventory | An approved bounded scan that can prove complete coverage for the selected read access and company. |
+| Early update-versus-unchanged forecasting | Complete mapped values and a target snapshot from the same evidence revision, plus a decision that benefits from seeing the result earlier. |
+| Combined issue drawer | Observed navigation friction that stage-owned issue summaries and correction links cannot resolve. |
+| Reviewed bulk mapping starter | A repeated mapping task that Recipes, catalogue tools, and current suggestions leave unresolved. |
+
+Native row-inclusion execution remains deferred.
 
 ## Why this is the right capability
 

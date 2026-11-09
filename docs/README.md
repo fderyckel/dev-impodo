@@ -96,8 +96,6 @@ The current delivery sequence is:
 - [End-to-end trial and scenario qualification](plans/08-end-to-end-trial-and-scenario-qualification.md)
   retains normal lifecycle integration, Product and bill-of-material coverage,
   browser and remote lanes, recovery, and scheduling.
-- [Six-stage Authoring workflow user support](plans/01-six-stage-workflow-user-support.md)
-  retains root-cause correction, migration intent, and later setup assistance.
 - [Preparation efficiency and storage](plans/11-preparation-efficiency-and-storage.md)
   retains bounded correctness work and clean measurements. The 100,000-row
   mixed and related expansion is separately deferred in the roadmap.
@@ -105,20 +103,11 @@ The current delivery sequence is:
 Qualification-only follow-up remains in the
 [macOS save](plans/10-resilient-match-data-saving.md),
 [workflow responsiveness](plans/09-responsive-workflow-liveness-and-navigation.md),
-[hierarchy-root](plans/04-hierarchy-root-null-scope-and-load-order.md),
-[Match data ordering](plans/12-smart-match-data-ordering.md), and
-[row-inclusion](plans/13-source-row-inclusion-rules.md) plans.
+and [Match data ordering](plans/12-smart-match-data-ordering.md) plans.
 
 The [known-fallout repair](plans/06-load-fallout-source-cell-workbook.md)
 proposal remains deferred for an exact-record repair writer. Listing the plan
 does not activate it.
-
-Two dated reports remain beside the active server plans because they directly
-qualify that program: the
-[shared-server Phase 0 baseline](plans/90-2026-10-22-shared-server-phase-0-baseline.md)
-and the
-[local empty-server container rehearsal](plans/91-2026-10-27-local-empty-server-container-rehearsal.md).
-Other completed delivery detail remains in Git history.
 
 ## Guides, runbooks, and quality
 
@@ -169,9 +158,8 @@ setup, CLI, release, and acceptance procedures live under
 
 Keep one active authority for each concept. When a contract changes, update
 its implementation, fixtures, examples, generated artifacts, tests, and links
-together. Label proposals and historical delivery documents explicitly; use
-Git history instead of retaining stale architecture summaries in the active
-documentation tree.
+together. Label proposals explicitly. Use Git history for superseded documents and
+keep generated qualification outputs in the run's evidence directory.
 
 For workflow changes, update the paired user and developer stage pages and the
 workflow registry. Also update the owning module/class/method docstrings and

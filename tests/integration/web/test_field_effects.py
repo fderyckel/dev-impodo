@@ -10,7 +10,7 @@ from impodo.application.workspace.mapping.field_effects import FieldEffectsProje
 from impodo.domain.mapping.contracts import (
     ScalarValueSource,
 )
-from tests.support.browser_scenarios import ProjectSetupBrowserTestCase, POST_HEADERS
+from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
 from tests.support.field_effects import field_effects_workspace
 from tests.support.identity import resolve_local_actor
 
@@ -38,9 +38,11 @@ class FieldEffectsBrowserTests(ProjectSetupBrowserTestCase):
                         collect_duckdb_request_timings() as timing,
                     ):
                         page = self.client.get(
-                            f"/workspaces/{workspace}/mapping?scalar_page_size=50"
+                            f"/workspaces/{workspace}/mapping?step=tables&task=fields&scalar_page_size=50"
                         )
                     self.assertEqual(page.status_code, 200, page.text)
+                    journey = page.context["mapping_journey"]
+                    self.assertEqual((journey["step"], journey["task"]), ("tables", "fields"))
                     self.assertEqual(
                         page.text.count('data-field-effects-state="Current"'), 6
                     )

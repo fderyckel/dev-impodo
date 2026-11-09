@@ -22,9 +22,7 @@ manufacturing exercise does not qualify the separate related-split provider.
 Proposed fault JSON files do not establish completed runtime fault checks.
 
 Read the [shared data proposal](24-shared-practice-data-and-scenarios.md) for
-the business story and delivery plan, and the
-[cleanup inventory](24-fixture-cleanup-inventory.md) for the proposed ownership
-of existing files.
+the business story, delivery plan, and ownership of the remaining fixtures.
 
 The reader should use this catalogue to choose an exercise, identify its
 expected result, and decide whether a failure belongs to the input data,
@@ -433,7 +431,7 @@ directories. Cleanup must use owned receipts and dependency order; it must
 not delete pre-existing records merely because a business key resembles a
 fixture. These requirements follow the current
 [qualification runbook](../developer/runbooks/scenario-qualification.md),
-[hierarchy qualification plan](04-hierarchy-root-null-scope-and-load-order.md),
+[hierarchy runner instructions](../../scripts/README.md),
 and [version qualification boundaries](14-odoo-19-and-20-support.md).
 
 ## Failure classification
@@ -451,27 +449,3 @@ failures remain proposed. Conventional continuation, isolation, failure
 budgets, durable stop, and guarded continuation have controlled implementation
 coverage. Keep those claims separate as recorded in
 [the tax and continuation plan](20-tax-validation-and-rejected-record-continuation.md).
-
-## Chat evidence behind the cases
-
-These titles and chat IDs identify the reviewed historical evidence. The
-practice data must preserve the failure shape without copying customer names,
-business codes, row values, workspace identifiers, target details, or logs.
-
-| Reviewed chat | Chat ID | Finding carried into this catalogue |
-| --- | --- | --- |
-| Find payment term load failure | `01a1b016-2f53-76d2-8ba4-f7f014ce4830` | UC04 exercises real comparison and saved reopening because the previous regression test manually constructed the old relationship representation. |
-| Explain mapping blockers | `01a1a769-55f2-7201-be5c-9fcf6248eeba` | UC06 separates children of excluded headers from children with absent headers. |
-| Find why the task failed | `01a1a6a5-4736-7121-bd01-4f22789185a4` | UC08 distinguishes intentional exclusions, accepted writes, and read-back differences. A missing operation company also stopped a separate attempt before writes. |
-| Recover supplier payment terms | `01a1a03b-d9a3-7322-8451-53da24db7f35` | UC05 repairs the wrong relationship field through an update-only workflow and explicit blank decisions. |
-| Explain case mismatch blocks | `01a1a016-5088-77e1-803e-94c27e5d79c9` | UC10 reviews distinct shared choices. The original bundle did not establish that differing payment schedules were equivalent. |
-| Fix remote Odoo unit lookup | `01a1a6f4-ee0d-7f93-9b3b-fb8f3b5b849d` | UC12 distinguishes a denied lookup before fetch from an absent unit. |
-| Fix mapping save review loop | `01a1aac8-1091-7202-bd86-572994f711a4` | UC12 and UC13 preserve choices and drafts while showing the actual stale-access or conflicting-field condition. |
-| Diagnose customer upload failure | `01a1a66d-b3d0-7c81-9ecc-17ae69e6238b` | UC14 retains generic batch rejection as an unresolved cause and distinguishes affected rows from proven defective records. |
-| Diagnose snapshot save failure | `01a19d2c-a03a-7841-a04f-3a54ebccf4cd` | UC19 preserves the native XLSX empty-row failure shape and original physical row numbers without copying the original workbook. |
-| UI Issues | `01a1ab48-c2f3-7230-89fc-13a2c1ccb4f6` | UC20 exercises the actual disconnect form, save, check, and reopen sequence so hidden stale controls cannot restore the old relationship. |
-
-This review covers those accessible chats and the cited repository evidence.
-It does not claim that every historical conversation or every private failed
-trial was available. New failures should add a small named variation and an
-independent expected result when their cause becomes established.

@@ -10,6 +10,23 @@
     <span class="status ready">Saved</span>
   </div>
 
+  {% if can_revise %}
+    <div class="actions">
+      <a class="button primary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision.version }}">Revise this Recipe</a>
+    </div>
+  {% endif %}
+
+  {% if base_version %}
+    <section class="form-card" aria-labelledby="saved-recipe-changes-title">
+      <h2 id="saved-recipe-changes-title">Changes from Recipe v{{ base_version }}</h2>
+      {% if change_summary %}
+        {% with summary = change_summary %}{% include "_recipe_change_summary.html" %}{% endwith %}
+      {% else %}
+        <p>Impodo could not verify the earlier version for this comparison.</p>
+      {% endif %}
+    </section>
+  {% endif %}
+
   <section class="form-card" aria-labelledby="recipe-summary-title">
     <div class="page-heading compact">
       <div>
@@ -103,6 +120,5 @@
 
   <div class="actions">
     <a class="button secondary" href="/projects/{{ project.project_id }}#recipe-{{ recipe.recipe_id }}">Back to data project</a>
-    {% if authoring_workspace %}<a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open Authoring workspace</a>{% endif %}
   </div>
 {% endblock %}

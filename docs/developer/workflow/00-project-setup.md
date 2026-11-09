@@ -130,6 +130,25 @@ to the exact Recipe card. **Open Recipe** reads one verified revision on the
 Project-scoped Recipe detail route; the Project list remains a bounded registry
 projection.
 
+**Revise this Recipe** goes through `build_recipe_revision_router` with an
+explicit version. The route uses the verified publication provenance to read
+one workspace and checks that its rules, accepted delivery, and saved Odoo
+details fit the baseline. Match data and Prepare data link back to the same
+review. The page compiles the confirmed draft and uses `build_recipe_change_view`
+to describe field rules and source requirements. `RecipePublicationService`
+checks the reviewed digest before using its normal revision-checked save.
+The entry, review, and save keep their database work in bounded local
+operations. A run card only supplies the exact version it already holds.
+
+`RecipeAuthoringDraftService` provisions the separate Authoring run when the
+original workspace is closed or diverged. It projects the accepted file
+delivery and uses the normal Odoo setup and capture. The mapping compiler
+rebinds the exact rules after that capture and commits the seed receipt with
+the working draft. The same local operation restores business checks, input
+declarations, reference lists, and supporting choices. Reference history is
+read only for versions that require it. Reopening the creation action looks
+up the existing draft in the registry.
+
 ## Background preparation
 
 The browser captures Project, DataVersion, run, and workspace identities before
@@ -244,6 +263,7 @@ and phone-width placement.
 | Run target setup | [`MigrationRunTargetSetupService`](../../../src/impodo/domain/run/setup.py) |
 | Optional compilation and publication | [`RecipeCompiler.compile_workspace`](../../../src/impodo/application/recipe_compilation_service.py), [`RecipeApplicationCompiler._field`](../../../src/impodo/application/recipe_application_compilation.py), and [`RecipePublicationService`](../../../src/impodo/application/recipe_publication_service.py) |
 | Project Recipe presentation | [`build_recipe_definition_view`](../../../src/impodo/web/presenters/recipes.py) and [`project_recipe_detail.html`](../../../src/impodo/web/templates/project_recipe_detail.html) |
+| Exact Recipe revision and change review | [`build_recipe_revision_router`](../../../src/impodo/web/routers/recipe_revision.py), [`build_recipe_change_view`](../../../src/impodo/web/presenters/recipes.py), and [`RecipeChangeReview`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
 | Bounded navigation query | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
@@ -274,6 +294,7 @@ and phone-width placement.
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)
 - [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)
 - [`tests/domain/recipe/test_representative_shapes.py`](../../../tests/domain/recipe/test_representative_shapes.py)
+- [`tests/integration/web/test_recipe_optional_field_revision.py`](../../../tests/integration/web/test_recipe_optional_field_revision.py)
 
 ## Related documentation
 

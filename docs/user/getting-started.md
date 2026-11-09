@@ -89,6 +89,31 @@ work area per selected Recipe. The Recipe run shows **Fresh data**, **Check
 Odoo**, and **Review and load** instead of the Authoring workspace's six
 stages.
 
+### Revise a saved Recipe version
+
+Select **Open Recipe** in the data project. Under **Recipe versions**, open the
+version you want to revise and select **Revise this Recipe**. The page names the
+starting version, its Data version, and the Odoo database. **Open Match data**
+is available when Impodo can verify the saved rules in that version's open
+Authoring workspace.
+
+If Impodo offers **Create Authoring draft**, select it to use the accepted data
+from that version in a separate workspace. Check the Odoo destination, load
+its fields, then select **Open Match data**. Impodo restores the saved field
+matches, business checks, custom input definitions, reference lists, and
+supporting choices for that version.
+
+In **Match data**, select **Check for new or changed Odoo fields**. If Impodo
+finds an optional field you need, select **Apply new optional fields**, then
+map it and check and confirm the field matches. Select **Review Recipe changes**
+to see the field rules, additional source columns, write behavior, and blank
+handling before saving. Follow any preparation or data-check action shown on
+the review page.
+
+Select **Save a new Recipe version** when the summary matches your intent.
+The saved version shows the same changes from your starting version. Existing
+runs keep the version they started with.
+
 ## What Complete means
 
 The data project overview lists the Authoring data version and workspace. The

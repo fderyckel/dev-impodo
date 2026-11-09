@@ -131,13 +131,15 @@ live Odoo servers. The [canary safety tests](../../../tests/integration/odoo/tes
 cover explicit write authorization and cleanup after a lost create reply.
 
 The separate [`qualify_row_inclusion_transfer.py`](../../../scripts/qualify_row_inclusion_transfer.py)
-qualifies the complete transfer path between two disposable final Odoo 20
-servers. Its scalar Contact cases run in both directions, with and without a
+qualified the complete transfer path on 2026-10-31 between disposable LOCAL
+Community `20.0-20261015` and REMOTE Enterprise `20.0+e` servers. The LOCAL
+image was `odoo@sha256:d5e3a26baa044867c826dddc09058f10e2582706bf83c146ea04fea889720c76`.
+The scalar Contact cases passed in both directions, with and without a
 controlled interruption after the first accepted `Model.load()` batch. Recovery
 reopens durable application state with the same private vault and resumes the
 original journal and execution snapshot. Each case verifies two included rows,
-absence of the excluded row, and a repeat match with no creates. The
-[runner safety tests](../../../tests/integration/odoo/test_row_transfer_qualification.py)
+absence of the excluded row, a repeat match with no creates, and fixture
+cleanup. The [runner safety tests](../../../tests/integration/odoo/test_row_transfer_qualification.py)
 cover explicit write authorization, accepted-reply interruption, and exact
 cleanup after a lost unlink reply. Failed cleanup retains a private temporary
 manifest of the synthetic references so a later check can resolve that exact
@@ -575,8 +577,10 @@ HTTP or native-reader call. This is fixture evidence, not a live latency claim.
 The runner starts no Odoo or PostgreSQL service and performs no Linux server
 administration. Cleanup requires exact receipted IDs, complete business-path
 read-back, and absence of foreign dependents. Failures retain a sanitized
-receipt and private recovery evidence. Offline tests do not fill live
-acceptance cells.
+receipt and private recovery evidence. The live cases covered generated and
+supplied roots, Recipe replay, interruption recovery, and real access
+rejection for Odoo 19 and final Odoo 20 in both LOCAL and REMOTE modes.
+Hosted runtime source revisions and image digests were unavailable.
 
 `ExecutionService` consumes the frozen topological component layers through
 pages of at most 500 rows. A page never mixes components. It groups only
@@ -1069,6 +1073,7 @@ qualify another remote topology.
 - [`tests/domain/preparation/test_hierarchy_identity.py`](../../../tests/domain/preparation/test_hierarchy_identity.py)
 - [`tests/integration/web/test_hierarchy_recipe.py`](../../../tests/integration/web/test_hierarchy_recipe.py)
 - [`tests/integration/web/test_hierarchy_recovery.py`](../../../tests/integration/web/test_hierarchy_recovery.py)
+- [Morrow manufacturing lost-reply recovery](../../../tests/integration/web/test_practice_manufacturing.py)
 - [`tests/integration/web/test_hierarchy_workflow.py`](../../../tests/integration/web/test_hierarchy_workflow.py)
 - [`tests/integration/web/test_correction_workflow.py`](../../../tests/integration/web/test_correction_workflow.py)
 - [`tests/application/test_correction_jobs.py`](../../../tests/application/test_correction_jobs.py)

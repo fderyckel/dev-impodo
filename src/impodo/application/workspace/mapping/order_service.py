@@ -29,7 +29,6 @@ from impodo.domain.mapping.contracts import (
     MappingDefinition,
     MappingTargetMode,
     RelationshipMapping,
-    RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
@@ -2547,20 +2546,6 @@ def _relational_probe_source_token(
     return _relational_identity_token(tuple(components))
 
 
-def _translated_identity_values(
-    values: tuple[str | None, ...],
-    resolver: RelationshipResolver,
-) -> tuple[str | None, ...]:
-    """Apply the reviewed single-key translation used by a resolver."""
-
-    if not values or not resolver.value_mappings or values[0] is None:
-        return values
-    translations = {
-        item.source_value: item.target_value for item in resolver.value_mappings
-    }
-    return (translations.get(values[0], values[0]), *values[1:])
-
-
 def _relational_identity_token(
     values: tuple[object | None, ...],
 ) -> str | None:
@@ -3337,15 +3322,6 @@ def _not_checkable_identity_result(
         status=MatchingIdentityCheckStatus.NOT_CHECKABLE,
         not_checkable_reason=reason,
     )
-
-
-def _matching_key_value(value: object) -> str | None:
-    if value is None or value is False:
-        return None
-    if isinstance(value, (list, tuple)):
-        return None
-    normalized = str(value).strip()
-    return normalized or None
 
 
 def _safe_matching_order_failure(_error: Exception) -> str:

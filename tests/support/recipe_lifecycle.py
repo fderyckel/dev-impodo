@@ -14,8 +14,10 @@ from impodo.domain.shared.models import (
     OdooReadIdentity,
     OdooWriteIdentity,
     TargetFingerprint,
+    TargetRecord,
 )
 from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent
+from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.composition.preparation_job_manager import PreparationJobManager
 from impodo.web.run_commands import (
     publish_compared_application,
@@ -51,11 +53,10 @@ def metadata_for_schema(schema, requested=None):
 class FictionalOdoo:
     """Store actual requested writes and return them independently on read-back."""
 
-    imports_external_ids = True
-
-    def __init__(self, snapshot, scope):
+    def __init__(self, snapshot, scope, *, imports_external_ids):
         self.target_hash = snapshot.target_hash
         self.scope_hash = scope.semantic_hash
+        self.imports_external_ids = imports_external_ids
         self.records = {}
         self.external_ids = {}
         self.write_batches = []
@@ -81,6 +82,9 @@ class FictionalOdoo:
         for identifier, external_id in zip(identifiers, external_ids, strict=True):
             self.external_ids[external_id] = ExternalIdBinding(external_id, model, identifier)
         return identifiers
+
+    def update_row(self, model, record_id, values):
+        self.records[(model, record_id)].update(values)
 
     def read_ids(self, model, identifiers, fields):
         return tuple(ReadbackRecord(identifier, {field: self.records[(model, identifier)][field] for field in fields})
@@ -120,7 +124,21 @@ def prepare_test_application(case, context, application, root):
 
 
 def complete_application(case, context, application, *, expected_total, write_identity=None):
-    """Approve, compare, execute and verify persisted evidence without replacing services."""
+    """Complete the two-record customer balance fixture."""
+
+    execution, reconciliation, records = execute_test_application(
+        case, context, application, target_records={}, expected_creates=2,
+        expected_updates=0, write_identity=write_identity,
+    )
+    case.assertEqual(sum(Decimal(str(values["credit_limit"])) for values in records.values()), Decimal(expected_total))
+    return execution, reconciliation
+
+
+def execute_test_application(
+    case, context, application, *, target_records, expected_creates,
+    expected_updates, write_mode="create", write_identity=None,
+):
+    """Compare and verify real Test evidence against a scoped fictional target."""
 
     workspace_id, actor = application.workspace_id, resolve_local_actor(context)
     state = context.workspace_states.repository.get(workspace_id)
@@ -143,12 +161,11 @@ def complete_application(case, context, application, *, expected_total, write_id
     write = store_target_credential(context.secret_store, owner, TargetCredentialRole.WRITE,
         "fictional-current-write-key", persistent=False)
     write_generation = write.binding_hash
-    # This fixture explicitly intends to create its two new balance records.
     if context.business_intents.get(workspace_id, actor=actor) is None:
         inputs = context.business_intents.inputs(workspace_id, actor=actor)
         context.business_intents.save(
             workspace_id,
-            intent=BusinessIntent(tuple(BusinessModelIntent(model.model, "create")
+            intent=BusinessIntent(tuple(BusinessModelIntent(model.model, write_mode)
                 for model in inputs.scope.models)),
             expected_version=0,
             expected_binding_hash=inputs.binding_hash,
@@ -165,15 +182,24 @@ def complete_application(case, context, application, *, expected_total, write_id
     case.assertTrue(summary.frozen)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
 
-    def empty_target(requirements):
+    def read_target(requirements):
         case.assertTrue(all(request.domain for request in requirements.record_requests))
         metadata = metadata_for_schema(schema, {request.model: request.fields for request in requirements.metadata_requests})
         requested = {request.model: request.fields for request in requirements.record_requests}
-        return metadata, RecordSnapshot(metadata.fingerprint, {model: () for model in requested}, requested)
+        records = {
+            model: tuple(
+                TargetRecord(model, record_id, {field: values[field] for field in fields})
+                for (record_model, record_id), values in target_records.items()
+                if record_model == model
+            )
+            for model, fields in requested.items()
+        }
+        return metadata, RecordSnapshot(metadata.fingerprint, records, requested)
 
-    report = context.preflight.compare(workspace_id, reader=empty_target, actor=actor)
+    report = context.preflight.compare(workspace_id, reader=read_target, actor=actor)
     case.assertEqual(report.status, "READY")
-    case.assertEqual(report.create_count, 2)
+    case.assertEqual(report.create_count, expected_creates)
+    case.assertEqual(report.update_count, expected_updates)
     publish_compared_application(
         context,
         application.application_id,
@@ -193,22 +219,26 @@ def complete_application(case, context, application, *, expected_total, write_id
         read_credential_generation=snapshot.read_credential_binding_hash,
         expected_read_credential_generation=snapshot.read_credential_binding_hash,
         write_identity=write_identity, write_credential_generation=write_generation, actor=actor)
-    adapter = FictionalOdoo(snapshot, preview.api_scope)
+    adapter = FictionalOdoo(
+        snapshot, preview.api_scope,
+        imports_external_ids=state.odoo_connection_mode is OdooConnectionMode.REMOTE,
+    )
+    adapter.records.update({key: dict(values) for key, values in target_records.items()})
     execution = context.execution.execute(workspace_id, expected_snapshot_hash=snapshot.semantic_hash,
         executor=adapter, actor=actor, read_identity=read_identity,
         read_credential_binding_hash=snapshot.read_credential_binding_hash,
         write_identity=write_identity, write_credential_binding_hash=write_generation)
     case.assertEqual(execution.status.value, "COMPLETED")
-    case.assertEqual(execution.committed_count, 2)
-    case.assertEqual(sum(Decimal(str(values["credit_limit"])) for values in adapter.records.values()), Decimal(expected_total))
+    expected_count = expected_creates + expected_updates
+    case.assertEqual(execution.committed_count, expected_count)
     reconciliation = context.reconciliation.reconcile(workspace_id, expected_execution_run_id=execution.run_id,
         reader=adapter, actor=actor, write_identity=write_identity, write_credential_binding_hash=write_generation)
     case.assertEqual(reconciliation.status.value, "VERIFIED", reconciliation.rows)
-    case.assertEqual(reconciliation.verified_count, 2)
+    case.assertEqual(reconciliation.verified_count, expected_count)
     publish_reconciled_application(
         context,
         application.application_id,
         application.migration_run_id,
         actor=actor,
     )
-    return execution, reconciliation
+    return execution, reconciliation, adapter.records

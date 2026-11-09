@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Revise {{ recipe.display_name }} · Impodo{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">Starting from Recipe v{{ revision.version }}</p>
+      <h1>Revise {{ recipe.display_name }}</h1>
+    </div>
+  </div>
+
+  <section class="form-card" aria-labelledby="recipe-authoring-title">
+    <h2 id="recipe-authoring-title">Authoring workspace</h2>
+    {% if workspace and (active or eligible or revision_draft) %}
+      <p>Data version {{ workspace.data_version_number }} · Odoo database {{ workspace.database }}</p>
+    {% endif %}
+    {% if active %}
+      <a class="button secondary" href="{{ workspace.mapping_url }}">Open Match data</a>
+    {% elif revision_draft and revision_draft.state.value == 'CLOSED' %}
+      <p>This Authoring draft is closed.</p>
+    {% else %}
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if eligible or revision_draft %}
+          <input type="hidden" name="action" value="start">
+          <button class="button primary" type="submit">{% if workspace %}Open Match data{% else %}Check Odoo{% endif %}</button>
+        {% else %}
+          <p>Use this version’s accepted data in a new draft.</p>
+          <input type="hidden" name="action" value="create_draft">
+          <button class="button primary" type="submit">Create Authoring draft</button>
+        {% endif %}
+      </form>
+    {% endif %}
+  </section>
+
+  {% if active %}
+    <section class="form-card" aria-labelledby="recipe-changes-title">
+      <h2 id="recipe-changes-title">Changes from Recipe v{{ revision.version }}</h2>
+      {% if summary %}
+        {% include "_recipe_change_summary.html" %}
+      {% elif issue %}
+        <p>{{ issue.message }} {{ issue.recovery_action }}</p>
+        {% if issue.recovery_step.value == 'prepare-data' %}
+          <a class="button secondary" href="/workspaces/{{ workspace.workspace_id }}/prepare">Open Prepare data</a>
+        {% endif %}
+      {% else %}
+        <p>Check and confirm the current field matches to review the changes.</p>
+      {% endif %}
+    </section>
+    {% if latest_summary %}
+      <section class="form-card" aria-labelledby="recipe-latest-changes-title">
+        <h2 id="recipe-latest-changes-title">Changes to the latest version, Recipe v{{ latest_version }}</h2>
+        {% with summary = latest_summary %}{% include "_recipe_change_summary.html" %}{% endwith %}
+      </section>
+    {% endif %}
+    {% if draft_hash %}
+      <form class="actions" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="publish">
+        <input type="hidden" name="review_id" value="{{ review_id }}">
+        <input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
+        <input type="hidden" name="draft_hash" value="{{ draft_hash }}">
+        <input type="hidden" name="working_hash" value="{{ workspace.working_hash or '' }}">
+        <button class="button primary" type="submit">Save a new Recipe version</button>
+      </form>
+    {% endif %}
+  {% endif %}
+
+  <div class="actions">
+    <a class="button secondary" href="/projects/{{ recipe.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ revision.version }}">Back to Recipe v{{ revision.version }}</a>
+  </div>
+{% endblock %}

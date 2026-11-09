@@ -358,7 +358,9 @@
 
 [data-relationship-incoming-control][hidden],
 [data-relationship-odoo-control][hidden],
-[data-relationship-combined-control][hidden] {
+[data-relationship-combined-control][hidden],
+[data-linked-matching-policy][hidden],
+[data-linked-value-match-entry][hidden] {
   display: none;
 }
 

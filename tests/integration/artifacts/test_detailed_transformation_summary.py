@@ -9,6 +9,14 @@ from openpyxl import load_workbook
 
 from impodo.adapters.artifacts.reporting import write_review_workbook
 from impodo.domain.mapping.contracts import (
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+    RowInclusionCondition,
+    RowInclusionMode,
+    RowInclusionPolicy,
+    ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
     SelectionCondition,
@@ -27,11 +35,11 @@ from tests.integration.artifacts import test_transformation_summary as summary_f
 
 
 class DetailedTransformationSummaryTests(TestCase):
-    def rules(self, *fields, restricted=False):
+    def rules(self, *fields, restricted=False, **mapping_changes):
         revision, _validation, selection, _schema = (
             mapping_fixtures.MappingReviewWorkbookTests()._evidence()
         )
-        mapping = replace(revision.definition.datasets[0], fields=fields)
+        mapping = replace(revision.definition.datasets[0], fields=fields, **mapping_changes)
         definition = replace(revision.definition, datasets=(mapping,))
         return workbook_mapping_rules(definition, selection, restricted=restricted)
 
@@ -69,11 +77,10 @@ class DetailedTransformationSummaryTests(TestCase):
             ),
         )
         active = rules[("Orders", "active")]
-        self.assertEqual(active.source_keys, ())
+        self.assertEqual(active.source_labels, ())
         self.assertIn('set the initial value to "true"', "\n".join(active.steps))
         self.assertIn("For every included row", "\n".join(active.steps))
         vat = rules[("Orders", "vat")]
-        self.assertEqual(vat.source_keys, ("name",))
         self.assertEqual(vat.source_labels, ("Order Reference",))
         self.assertEqual(vat.target_model, "sale.order")
         steps = "\n".join(vat.steps)
@@ -125,15 +132,59 @@ class DetailedTransformationSummaryTests(TestCase):
         )
         choices = "\n".join(rules[("Orders", "tracking")].steps)
         self.assertIn("first matching", choices)
-        self.assertIn('Order Reference [name] (string) equals "Belgium"', choices)
+        self.assertIn('Order Reference (string) equals "Belgium"', choices)
         self.assertIn('use "be"', choices)
         self.assertIn('no condition matches, use "other"', choices)
         self.assertIn('"French" → "fr_FR"', "\n".join(rules[("Orders", "lang")].steps))
         fallback = "\n".join(rules[("Orders", "note")].steps)
         self.assertIn('produces null, use "No notes"', fallback)
 
-    def test_formula_source_ids_come_from_variables_and_not_quoted_text(self):
-        for expression, expected in (("column_1", ("name",)), ("'column_1'", ())):
+    def test_filter_and_multi_column_steps_use_source_headings(self):
+        rules = self.rules(
+            ScalarFieldMapping(
+                target_field="note",
+                value_source=ScalarValueSource.CONCATENATE,
+                concatenation=ScalarConcatenation(("name", "external_id")),
+            ),
+            row_inclusion=RowInclusionPolicy(
+                mode=RowInclusionMode.MATCHING_ROWS,
+                conditions=(
+                    RowInclusionCondition(
+                        "00000000-0000-4000-8000-000000000001",
+                        "name", SelectionConditionOperator.EQUALS, "BOM",
+                    ),
+                    RowInclusionCondition(
+                        "00000000-0000-4000-8000-000000000002",
+                        "external_id", SelectionConditionOperator.IS_NOT_BLANK,
+                    ),
+                ),
+            ),
+            relationships=(
+                RelationshipMapping(
+                    target_field="partner_id",
+                    kind="many2one",
+                    source_column_keys=("external_id",),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model="res.partner",
+                        key_mappings=(ReferenceKeyMapping("external_id", "ref"),),
+                    ),
+                ),
+            ),
+        )
+        note = rules[("Orders", "note")]
+        self.assertEqual(note.source_labels, ("Order Reference", "External ID"))
+        self.assertEqual(
+            note.steps[0],
+            "Rows to use: Include a row when Order Reference is exactly BOM and External ID is not blank.",
+        )
+        self.assertIn("Combine Order Reference, External ID, in this order", note.steps[1])
+        partner = rules[("Orders", "partner_id")]
+        self.assertEqual(partner.source_labels, ("External ID",))
+        self.assertIn("Match External ID to res.partner.ref.", partner.steps)
+
+    def test_formula_source_headings_come_from_variables_and_not_quoted_text(self):
+        for expression, expected in (("column_1", ("Order Reference",)), ("'column_1'", ())):
             with self.subTest(expression=expression):
                 rules = self.rules(
                     ScalarFieldMapping(
@@ -143,7 +194,7 @@ class DetailedTransformationSummaryTests(TestCase):
                         transform=ScalarTransformPolicy(formula=expression),
                     )
                 )
-                self.assertEqual(rules[("Orders", "computed")].source_keys, expected)
+                self.assertEqual(rules[("Orders", "computed")].source_labels, expected)
 
     def test_restricted_rule_parameters_remain_withheld(self):
         rules = self.rules(
@@ -162,7 +213,7 @@ class DetailedTransformationSummaryTests(TestCase):
         self.assertNotIn("PRIVATE-", text)
         self.assertIn("Hidden for restricted data", text)
 
-    def test_export_shows_label_and_id_with_field_level_counts_for_both_majors(self):
+    def test_export_shows_headings_with_field_level_counts_for_both_majors(self):
         fixture = summary_fixtures.TransformationSummaryTests()
         for major in (19, 20):
             for mode in ("local", "remote"):
@@ -177,7 +228,6 @@ class DetailedTransformationSummaryTests(TestCase):
                     effect = fixture._effect(record)
                     rule = ReviewWorkbookFieldRule(
                         "res.partner",
-                        ("column_7",),
                         ("Customer Name",),
                         (
                             "Use the source column value.",
@@ -192,7 +242,6 @@ class DetailedTransformationSummaryTests(TestCase):
                             (record.dataset, "active"): ReviewWorkbookFieldRule(
                                 "res.partner",
                                 (),
-                                (),
                                 (
                                     'For every included row, set the initial value to "true".',
                                 ),
@@ -205,32 +254,35 @@ class DetailedTransformationSummaryTests(TestCase):
                     self.addCleanup(workbook.close)
                     sheet = workbook.worksheets[0]
                     rows = list(sheet.iter_rows(values_only=True))
+                    headers = next(row for row in rows if "Transformation steps" in row)
+                    self.assertEqual(
+                        tuple(value for value in headers if value is not None),
+                        (
+                            "Source dataset", "Source column", "Odoo field label",
+                            "Odoo model.field", "Transformation steps", "Affected records",
+                        ),
+                    )
                     name = next(
                         row
                         for row in rows
-                        if len(row) > 4 and row[4] == "res.partner.name"
+                        if row[3] == "res.partner.name"
                     )
                     self.assertEqual(
-                        name[1:5],
-                        (
-                            "Customer Name",
-                            "column_7",
-                            "Contact name",
-                            "res.partner.name",
-                        ),
+                        name[1:4],
+                        ("Customer Name", "Contact name", "res.partner.name"),
                     )
-                    self.assertEqual(name[8], 1)
+                    self.assertEqual(name[7], 1)
                     active = next(
                         row
                         for row in rows
-                        if len(row) > 4 and row[4] == "res.partner.active"
+                        if row[3] == "res.partner.active"
                     )
                     self.assertEqual(active[1], "No source column")
-                    self.assertEqual(active[8], 0)
+                    self.assertEqual(active[7], 0)
                     self.assertTrue(
-                        any(row[5] and "title" in str(row[5]) for row in rows)
+                        any(row[4] and "title" in str(row[4]) for row in rows)
                     )
-                    self.assertIn("$A$1:$I$", str(sheet.print_area))
+                    self.assertIn("$A$1:$H$", str(sheet.print_area))
                     self.assertEqual(manifest.read_bytes(), original)
 
     def test_long_rule_lists_keep_every_parameter_without_exceeding_cell_limits(self):
@@ -246,7 +298,6 @@ class DetailedTransformationSummaryTests(TestCase):
                 mapping_rules={
                     (record.dataset, "name"): ReviewWorkbookFieldRule(
                         "res.partner",
-                        ("name",),
                         ("Customer Name",),
                         (text,),
                     )
@@ -255,13 +306,14 @@ class DetailedTransformationSummaryTests(TestCase):
             write_review_workbook(manifest, path, review_evidence=evidence)
             workbook = load_workbook(path)
             self.addCleanup(workbook.close)
-            cells = [cell.value for cell in workbook.worksheets[0]["F"] if cell.value]
+            sheet, _, rows = fixture._summary_rows(workbook)
+            cells = [row[4] for row in rows if row[4]]
             self.assertIn('"target-999"', "\n".join(cells))
-            self.assertEqual("".join(value.replace("\n", "") for value in cells[1:]), "1. " + text)
+            self.assertEqual("".join(value.replace("\n", "") for value in cells), "1. " + text)
             self.assertTrue(all(len(value) < 32767 for value in cells))
             self.assertTrue(
                 all(
                     row.height is None or row.height <= 409
-                    for row in workbook.worksheets[0].row_dimensions.values()
+                    for row in sheet.row_dimensions.values()
                 )
             )

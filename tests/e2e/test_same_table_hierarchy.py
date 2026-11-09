@@ -62,9 +62,16 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
         page = context.new_page()
         errors = []
         page.on("pageerror", lambda error: errors.append(str(error)))
-        page.goto(f"{base}/workspaces/{workspace_id}/mapping", wait_until="networkidle")
+        mapping = f"{base}/workspaces/{workspace_id}/mapping"
+        parent_warning = page.get_by_text(
+            "1 included record(s) refer to a parent", exact=False
+        )
         if zero_root:
-            expect(page.get_by_text("1 included record(s) refer to a parent", exact=False)).to_be_visible()
+            page.goto(mapping + "?step=check", wait_until="networkidle")
+            page.locator("#required-values-summary > summary").click()
+            expect(parent_warning).to_be_visible()
+        page.goto(mapping + "?step=tables&task=identity", wait_until="networkidle")
+        if zero_root:
             page.get_by_label("A parent value of 0 means no parent", exact=False).check()
         columns = {column.source_name: column.stable_key for column in source.columns}
         expect(page.locator('[name="source_identity_0"]')).to_have_values(
@@ -100,9 +107,10 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
         ).to_be_visible()
         if zero_root:
             expect(page.locator('[name="identity_zero_root_0_1"]')).to_be_checked()
+            page.get_by_role("link", name="Check and resolve", exact=False).click()
             page.locator('[data-check-mapping]').click()
             page.wait_for_load_state("networkidle")
-            expect(page.get_by_text("1 included record(s) refer to a parent", exact=False)).to_have_count(0)
+            expect(parent_warning).to_have_count(0)
         self.assertEqual(errors, [])
         output = os.environ.get("IMPODO_SAME_TABLE_HIERARCHY_SCREENSHOT")
         if output and major == 20:

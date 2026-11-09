@@ -166,7 +166,7 @@ def supporting_mapping_conflict_details(
             continue
         for dataset in by_model.get(choice.source_model, ()):
             providers = [
-                (item.resolver, *relationship_target_fields(item))
+                (item.resolver, *relationship_target_fields(item), item.selected_matching_field)
                 for item in dataset.relationships
                 if item.target_field == choice.field_name
             ]
@@ -175,6 +175,7 @@ def supporting_mapping_conflict_details(
                     item.resolver,
                     tuple(part.target_field for part in item.resolver.key_mappings),
                     tuple(part.target_field for part in item.resolver.scope_mappings),
+                    False,
                 )
                 for item in (*dataset.target_identity, *dataset.target_scope)
                 if item.target_fields == (choice.field_name,)
@@ -205,9 +206,11 @@ def supporting_mapping_conflict_details(
                     and all(
                         resolver.origin is ResolverOrigin.TARGET_CATALOG
                         and resolver.model == field.relation
-                        and key == choice.key_fields
-                        and scope == choice.scope_fields
-                        for resolver, key, scope in providers
+                        and (
+                            selected_field
+                            or (key == choice.key_fields and scope == choice.scope_fields)
+                        )
+                        for resolver, key, scope, selected_field in providers
                     )
                 )
             elif action is SupportingChoiceAction.INCOMING:
@@ -240,7 +243,7 @@ def supporting_mapping_conflict_details(
                                 ResolverOrigin.DATASET,
                                 ResolverOrigin.TARGET_THEN_DATASET,
                             }
-                            for resolver, _key, _scope in providers
+                            for resolver, _key, _scope, _selected_field in providers
                         )
                     )
             elif action is SupportingChoiceAction.CHECKED_DEFAULT:
@@ -276,8 +279,11 @@ def supporting_mapping_conflict_details(
                         matching_fields=(*choice.key_fields, *choice.scope_fields) if (
                             action is SupportingChoiceAction.REUSE and providers
                             and all(resolver.origin is ResolverOrigin.TARGET_CATALOG and resolver.model == field.relation
-                                    for resolver, _key, _scope in providers)
-                            and any(key != choice.key_fields or scope != choice.scope_fields for _resolver, key, scope in providers)
+                                    for resolver, _key, _scope, _selected_field in providers)
+                            and any(
+                                not selected_field and (key != choice.key_fields or scope != choice.scope_fields)
+                                for _resolver, key, scope, selected_field in providers
+                            )
                         ) else (),
                     )
                 )

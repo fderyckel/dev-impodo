@@ -41,6 +41,7 @@ stages:
     developer_doc: docs/developer/workflow/00-project-setup.md
     router_modules:
       - src/impodo/web/routers/migration_projects.py
+      - src/impodo/web/routers/recipe_revision.py
       - src/impodo/web/routers/workspace_setup.py
       - src/impodo/web/routers/target.py
     templates:
@@ -48,6 +49,7 @@ stages:
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
       - src/impodo/web/templates/project_recipe_detail.html
+      - src/impodo/web/templates/project_recipe_revision.html
       - src/impodo/web/templates/workspace_overview.html
       - src/impodo/web/templates/workspace_files.html
       - src/impodo/web/templates/workspace_review.html
@@ -67,6 +69,7 @@ stages:
       - src/impodo/adapters/duckdb/foundation_workspace_records.py::FoundationWorkspaceRecords.resolve_workspace_access_context
       - src/impodo/adapters/duckdb/schema/forward_upgrades.py::ensure_current_schema
       - src/impodo/application/recipe_publication_service.py::RecipePublicationService
+      - src/impodo/application/recipe_publication_service.py::RecipeChangeReview
       - src/impodo/application/workspace_data_version_source_service.py::WorkspaceDataVersionSourceService
       - src/impodo/adapters/duckdb/data_version_source_repository.py::DataVersionOwnedSourceRepository
       - src/impodo/application/shared/artifacts.py::DataVersionSourceArtifactStore
@@ -89,10 +92,12 @@ stages:
       - src/impodo/web/presenters/user_help.py::UserHelpTarget
       - scripts/capture_contextual_user_help.py::capture
       - src/impodo/web/presenters/recipes.py::build_recipe_definition_view
+      - src/impodo/web/presenters/recipes.py::build_recipe_change_view
     tests:
       - tests/integration/web/test_concept_help.py
       - tests/integration/web/test_user_help.py
       - tests/application/project/test_authoring.py
+      - tests/integration/web/test_recipe_optional_field_revision.py
       - tests/integration/web/test_file_intake_performance.py
       - tests/architecture/test_identity_semantics.py
       - tests/application/workspace/test_access.py
@@ -616,6 +621,7 @@ stages:
       - src/impodo/web/presenters/matching_health_issues.py::matching_health_workflow_issue_summary
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
+      - tests/integration/web/test_linked_matching_fields.py
       - tests/integration/web/test_mapping_journey.py
       - tests/integration/web/test_mapping_journey_mutations.py
       - tests/e2e/test_mapping_journey.py
@@ -687,6 +693,8 @@ stages:
       - tests/application/workspace/mapping/test_required_values.py
       - tests/integration/web/test_required_values.py
       - tests/e2e/test_required_values.py
+      - tests/integration/web/test_field_effects.py
+      - tests/e2e/test_field_effects.py
       - tests/application/workspace/mapping/test_matching_health_issues.py
       - tests/integration/web/test_matching_health_issues_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
@@ -715,8 +723,6 @@ stages:
       - docs/developer/contracts/canonical-staging.md
     references:
       - docs/plans/12-smart-match-data-ordering.md
-      - docs/plans/13-source-row-inclusion-rules.md
-      - docs/plans/01-six-stage-workflow-user-support.md
 
   - id: prepare
     order: 4
@@ -1037,6 +1043,7 @@ stages:
       - tests/integration/web/test_execution.py
       - tests/integration/web/test_hierarchy_workflow.py
       - tests/integration/web/test_hierarchy_recovery.py
+      - tests/integration/web/test_practice_manufacturing.py
       - tests/integration/web/test_hierarchy_recipe.py
       - tests/integration/odoo/test_hierarchy_qualification.py
       - tests/domain/preparation/test_hierarchy_identity.py

@@ -1,25 +1,30 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
 import json
-from pathlib import Path
+import sys
 import tempfile
 import unittest
-
-from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from contextlib import redirect_stdout
 from dataclasses import replace
+from io import StringIO
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 from impodo.adapters.odoo.local_reader import (
     LocalOdooMetadataReader,
     LocalOdooReaderError,
     LocalShellResult,
 )
 from impodo.adapters.odoo.local_stack import LocalStackProfile
+from impodo.domain.odoo.company import OdooCompanySelection
+from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
+from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.workbench import (
-    WorkspaceState,
     OdooConnectionMode,
+    WorkspaceState,
 )
-
+from tests.support.paths import REPOSITORY_ROOT
 
 ROOT = REPOSITORY_ROOT
 MARKER = "__IMPODO_LOCAL_ODOO_JSON__"
@@ -43,7 +48,9 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
                     "version": version,
                     "version_info": info,
                 }
-                reader = LocalOdooMetadataReader(runner=lambda *_: _result(payload))
+                reader = LocalOdooMetadataReader(
+                    runner=lambda *_, payload=payload: _result(payload)
+                )
                 if allowed:
                     self.assertEqual(
                         reader.get_target_fingerprint(
@@ -224,6 +231,72 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertIn("allfields=[]", script)
         self.assertIn("ensure_ascii=True", script)
         self.assertIn("env.cr.rollback()", script)
+
+    def test_local_schema_captures_required_many2one_create_default(self) -> None:
+        state = replace(
+            self.workspace_state,
+            odoo_company=OdooCompanySelection(
+                target_identity_hash(
+                    connection_mode="LOCAL",
+                    base_url=self.workspace_state.odoo_base_url,
+                    database=self.workspace_state.odoo_database,
+                ),
+                1,
+                "Fixture",
+            ),
+        )
+        for major in (19, 20):
+            with self.subTest(major=major):
+                self._check_required_many2one_default(state, major)
+
+    def _check_required_many2one_default(
+        self, state: WorkspaceState, major: int
+    ) -> None:
+        env = MagicMock()
+        env.return_value = env
+        env.cr.dbname = state.odoo_database
+        env["ir.model.constraint"].sudo().search.return_value = []
+        product = MagicMock()
+        env.__getitem__.side_effect = {
+            "product.template": product,
+            "ir.model.constraint": env["ir.model.constraint"],
+        }.__getitem__
+        product.sudo.return_value = product
+        product._description = "Product"
+        product.fields_get.return_value = {
+            "uom_id": {
+                "type": "many2one", "required": True, "relation": "uom.uom",
+            },
+            "categ_id": {
+                "type": "many2one", "required": False, "relation": "product.category",
+            },
+            "readonly_ref": {"type": "many2one", "required": True, "readonly": True},
+        }
+        product.default_get.side_effect = lambda fields: {
+            field: 1 for field in fields
+        }
+        release = SimpleNamespace(
+            version=f"{major}.0", version_info=(major, 0, 0, "final", 0, "")
+        )
+
+        def runner(_command, script, _cwd, _timeout):
+            output = StringIO()
+            with (
+                patch.dict(sys.modules, {"odoo": SimpleNamespace(release=release)}),
+                redirect_stdout(output),
+            ):
+                exec(script, {"env": env})  # noqa: S102 -- Run the fixed shell program against the fake Odoo environment.
+            return LocalShellResult(0, output.getvalue(), "")
+
+        snapshot = LocalOdooMetadataReader(runner=runner).get_model_metadata(
+            state, self.profile, ("product.template",)
+        )
+        self.assertEqual(
+            snapshot.create_defaults["product.template"], {"uom_id": 1}
+        )
+        product.default_get.assert_called_once_with(["uom_id"])
+        env.cr.rollback.assert_called_once_with()
+
 
     def test_profile_must_match_the_exact_local_target(self) -> None:
         mismatched = WorkspaceState(

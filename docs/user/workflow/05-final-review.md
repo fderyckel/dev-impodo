@@ -179,8 +179,10 @@ back. Correct source data or rules in Impodo, then prepare and compare again.
 Editing a workbook cell does not change the saved data or proposed load.
 
 The first tab, **Review overview**, includes a **Stage 3 transformation summary**.
-It shows each saved field match with the source column's label and stable ID,
-the Odoo field's label and technical name, and numbered transformation steps.
+It shows each saved field match with the source column heading, the Odoo
+field's label and technical name, and numbered transformation steps. The steps
+also use source headings, so a filter can read “Include a row when Active is
+exactly Oui and Approved is exactly Oui.”
 Fixed values show the actual value and the rows-to-use condition. Value matches
 show the source and replacement values. Conditional choices show their order,
 conditions, and otherwise value. Text changes list the exact search text or

@@ -49,6 +49,7 @@ from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
     QualityRuleFamily,
+    RecipeQualitySeed,
     QualityRunStatus,
     QualityRun,
     SourceAccountingState,
@@ -260,7 +261,7 @@ class QualityEvaluationTests(unittest.TestCase):
             lambda _project_id, ruleset, *, actor: ruleset
         )
         seed_repository = MagicMock()
-        seed_repository.get_quality_seed.return_value = (seed,)
+        seed_repository.read_quality_seed.return_value = RecipeQualitySeed((seed,))
         service = QualityService(
             MagicMock(),
             MagicMock(),
@@ -292,7 +293,7 @@ class QualityEvaluationTests(unittest.TestCase):
         )
 
         self.assertIn(seed, ruleset.manager_rules)
-        seed_repository.get_quality_seed.assert_called_once_with(
+        seed_repository.read_quality_seed.assert_called_once_with(
             self.workspace_state.workspace_id,
             MAPPING_HASH,
         )
@@ -1071,7 +1072,7 @@ class QualityEvaluationTests(unittest.TestCase):
         repository.publish_quality_ruleset.side_effect = lambda workspace_id, ruleset, **kwargs: ruleset
         repository.publish_quality_run.return_value = SimpleNamespace(can_compare=True)
         seeds = MagicMock()
-        seeds.get_quality_seed.return_value = (seed,)
+        seeds.read_quality_seed.return_value = RecipeQualitySeed((seed,))
         service = QualityService(MagicMock(), MagicMock(), repository, recipe_quality=seeds)
         run, _ = service.evaluate_and_publish(
             self.workspace_state,

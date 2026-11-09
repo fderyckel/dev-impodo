@@ -1148,7 +1148,7 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
 
     def test_matching_rule_without_description_uses_odoo_field_label(self) -> None:
-        workspace_id, _dataset, _business_key = self._mapping_ready_workspace(
+        workspace_id, _dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=0,
             relationship_field_count=1,
             business_key_description="",
@@ -1157,8 +1157,17 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         page = self.client.get(f"/workspaces/{workspace_id}/mapping")
 
         self.assertEqual(page.status_code, 200)
-        self.assertIn(">\n                        Reference\n", page.text)
-        self.assertIn(">\n                            Reference\n", page.text)
+        for control_name in ("business_key_0", "relation_key_0_0"):
+            options = re.findall(
+                rf'<select\b[^>]*\bname="{control_name}"[^>]*>(.*?)</select>',
+                page.text,
+                re.DOTALL,
+            )
+            self.assertEqual(len(options), 1, control_name)
+            self.assertRegex(
+                options[0],
+                rf'<option\b[^>]*\bvalue="{re.escape(business_key.key_id)}"[^>]*>\s*Reference\s*</option>',
+            )
         self.assertNotIn("Confirmed matching rule", page.text)
 
     def test_country_matching_uses_reviewed_code_without_schema_recapture(

@@ -15,7 +15,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
-from impodo.domain.coverage import ReferenceBundle
+from impodo.domain.coverage import CoverageScopeRevision, ReferenceBundle
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
@@ -177,6 +177,25 @@ class RecipeReferenceRepository(Protocol):
         """Return the current reference bundle, if one exists."""
         ...
 
+    def get_saved_reference_bundle(
+        self, workspace_id: str, dataset_hashes: tuple[str, ...],
+    ) -> ReferenceBundle | None: ...
+
+    def save_reference_bundle(
+        self, workspace_id: str, bundle: ReferenceBundle, *, actor: Actor, restore: bool = False,
+    ) -> None: ...
+
+    def get_saved_coverage_scope(
+        self, workspace_id: str, ruleset_hash: str,
+    ) -> CoverageScopeRevision | None: ...
+
+    def get_coverage_scope(self, workspace_id: str) -> CoverageScopeRevision | None: ...
+
+    def save_coverage_scope(
+        self, workspace_id: str, scope: CoverageScopeRevision,
+        *, expected_parent_version: int | None, actor: Actor,
+    ) -> None: ...
+
 
 class RecipePreparationRepository(Protocol):
     """Read and publish source-preparation plans for a Recipe application."""
@@ -210,9 +229,13 @@ class RecipeApplicationCompiler:
 
     sources: RecipeSourceRepository
     schemas: RecipeSchemaRepository
-    schema_workspace: RecipeSchemaWorkspace
     references: RecipeReferenceRepository
     preparation: RecipePreparationRepository
+
+    @property
+    def schema_workspace(self) -> RecipeSchemaWorkspace:
+        """Return the workspace owner used for target governance."""
+        raise NotImplementedError
 
     @staticmethod
     def _parameter_values(definitions, supplied):
@@ -797,8 +820,8 @@ class RecipeApplicationCompiler:
         return issues
 
     @staticmethod
-    def _quality_rules(definition, bindings, selection):
-        """Compile manager-authored Recipe checks into fresh physical rules."""
+    def _quality_rules(definition, bindings, selection, *, approved_scope=False, references=None):
+        """Compile reusable checks using fresh table and reference bindings."""
 
         datasets = {item.dataset_id: item for item in selection.datasets}
         mapping_datasets = {
@@ -810,9 +833,17 @@ class RecipeApplicationCompiler:
             for dataset in mapping_datasets.values()
             for field in dataset.get("fields", ())
         }
+        references_by_hash = {item.content_hash: item for item in references.datasets} if references else {}
+        references_by_logical = {
+            item["logical_reference_id"]: references_by_hash.get(item["content_hash"])
+            for item in dict(definition.get("reference_dependencies", {})).get("references", ())
+        } if references_by_hash else {}
         rules = []
         for item in dict(definition["quality"]).get("rules", ()):
-            if str(item.get("origin")) != QualityRuleSource.MANAGER_AUTHORED.value:
+            origin = str(item.get("origin"))
+            if origin != QualityRuleSource.MANAGER_AUTHORED.value and (
+                not approved_scope or origin != QualityRuleSource.SCOPE_APPROVED.value
+            ):
                 continue
             logical_dataset = str(item["dataset_id"])
             physical_dataset = str(bindings[logical_dataset])
@@ -824,6 +855,14 @@ class RecipeApplicationCompiler:
                     "data_version_id": selection.data_version_id,
                 }
             )
+            parameters = {
+                str(key): str(value) for key, value in dict(item.get("parameters", {})).items()
+            }
+            if "reference_id" in parameters:
+                reference = references_by_logical.get(parameters["reference_id"])
+                if reference is None or reference.content_hash != parameters.get("reference_content_hash"):
+                    raise RecipeApplicationError(f"Reference data for check {item['name']} is unavailable.")
+                parameters["reference_id"] = reference.reference_id
             rules.append(
                 QualityRule(
                     rule_id=rule_id,
@@ -834,13 +873,10 @@ class RecipeApplicationCompiler:
                     input_fields=tuple(
                         field_names[str(value)] for value in item.get("field_ids", ())
                     ),
-                    parameters={
-                        str(key): str(value)
-                        for key, value in dict(item.get("parameters", {})).items()
-                    },
+                    parameters=parameters,
                     outcome=QualityOutcomePolicy(str(item["severity"])),
                     owner_role=QualityOwnerRole(str(item["owner_role"])),
-                    source=QualityRuleSource.MANAGER_AUTHORED,
+                    source=QualityRuleSource(origin),
                     review_by_days=(
                         int(item["review_by_days"])
                         if item.get("review_by_days") is not None
@@ -851,7 +887,7 @@ class RecipeApplicationCompiler:
             )
         return tuple(sorted(rules, key=lambda item: item.rule_id))
 
-    def _materialize_governance(self, project_id, definition, *, actor):
+    def _materialize_governance(self, project_id, definition, *, actor, schema=None):
         """Create application-owned key governance only when it is not current."""
 
         keys = tuple(
@@ -881,7 +917,8 @@ class RecipeApplicationCompiler:
         desired_shapes = {
             (item.model, item.key_fields, item.scope_fields) for item in keys
         }
-        schema = self.schemas.get_odoo_schema_catalog(project_id)
+        if schema is None:
+            schema = self.schemas.get_odoo_schema_catalog(project_id)
         if schema is None:
             raise RecipeApplicationError(
                 "Capture the Odoo schema before applying Recipe governance"
@@ -901,6 +938,7 @@ class RecipeApplicationCompiler:
         bindings,
         *,
         actor,
+        source=None,
     ):
         """Recreate portable derived-source rules for the current selection."""
 
@@ -910,7 +948,8 @@ class RecipeApplicationCompiler:
         )
         if not semantic_rules and not semantic_uses:
             return None
-        source = self.sources.get_source_selection(project_id)
+        if source is None:
+            source = self.sources.get_source_selection(project_id)
         if source is None:
             raise RecipeApplicationError(
                 "Freeze source data before materializing Recipe preparation"
@@ -1660,6 +1699,7 @@ class RecipeApplicationCompiler:
         return RelationshipMapping(
             blank_source_values=item.get("blank_source_values", ()),
             blank_create_values=item.get("blank_create_values"),
+            selected_matching_field=item.get("selected_matching_field", False),
             target_field=str(item["target_field"]),
             kind=str(item["kind"]),
             source_column_keys=tuple(

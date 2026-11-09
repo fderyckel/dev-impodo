@@ -1,0 +1,34 @@
+{% if summary.has_changes %}
+  <ul>
+    {% for change in ('added', 'changed', 'removed') %}
+      {% set count = summary.field_counts[change] %}
+      {% if count %}<li>{{ change|capitalize }} {{ count }} mapped Odoo field{% if count != 1 %}s{% endif %}</li>{% endif %}
+    {% endfor %}
+    {% if summary.added_column_count %}
+      <li>Uses {{ summary.added_column_count }} additional source column{% if summary.added_column_count != 1 %}s{% endif %} already in the accepted data. {{ summary.added_columns|join(', ') }}{% if summary.added_column_count > summary.added_columns|length %} and more{% endif %}.</li>
+    {% endif %}
+    {% if summary.removed_column_count %}
+      <li>Requires {{ summary.removed_column_count }} fewer source column{% if summary.removed_column_count != 1 %}s{% endif %}. {{ summary.removed_columns|join(', ') }}{% if summary.removed_column_count > summary.removed_columns|length %} and more{% endif %}.</li>
+    {% endif %}
+  </ul>
+  {% if summary.fields %}
+    <dl class="definition-list">
+      {% for field in summary.fields %}
+        <div>
+          <dt>{{ field.change }} <code>{{ field.model }}.{{ field.field }}</code></dt>
+          <dd>
+            {{ field.provider }}{% if field.columns %} · {{ field.columns|join(', ') }}{% endif %}.
+            {% if field.change != 'Removed' %}{{ field.write_behavior }}. {{ field.blank_behavior }}.{% endif %}
+          </dd>
+        </div>
+      {% endfor %}
+    </dl>
+    {% if summary.more_fields %}<p>{{ summary.more_fields }} more field rule changes.</p>{% endif %}
+  {% endif %}
+  {% if summary.other_changes %}<p><strong>Other changes</strong> · {{ summary.other_changes|join(', ') }}</p>{% endif %}
+  {% if not summary.fields and not summary.added_column_count and not summary.removed_column_count and not summary.other_changes %}
+    <p>The saved source requirements or Recipe settings differ.</p>
+  {% endif %}
+{% else %}
+  <p>The reusable rules match this version.</p>
+{% endif %}

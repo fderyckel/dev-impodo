@@ -196,6 +196,14 @@ against the new expectations locally; otherwise compare again in Final review.
 These expectations govern prepared file imports. Odoo-to-Odoo transfers keep
 their destination-owned matching and approval controls.
 
+### Review a field's rule effects
+
+After **Check matches**, return to **Match fields**. The field's **Rule effects**
+summary shows the saved counts for that check. Select **Review this field’s
+rule effects** to open the review filtered to the exact table and field.
+When an edit marks the counts **Needs refresh**, check matches again before
+using those counts to judge the revised rule.
+
 ### Review required values across tables
 
 In **Check and resolve**, open **Review required values and check details**,
@@ -617,6 +625,21 @@ the workbook has no separate **Checked later** sheet. Stage 4 still publishes
 and reviews the prepared rows, and the separate Stage 5 review workbook still
 documents the proposed load. After you change a field match, select **Check
 matches** and recreate the matching review workbook.
+
+For a field that links to one existing Odoo record, the source column
+supplies the value and the matching rule specifies the Odoo field to look in.
+In **Connect linked values**, choose **A value from the source** and **Only
+existing Odoo records**. If the linked model is outside the migration scope,
+select **Load Odoo matching fields** below the matching rule, then choose the
+field containing your source values. For example, on a bill of materials,
+connect **ItemID** to the **Product** relationship and choose **Internal
+Reference** as the matching field. The same control can use an available
+custom text identifier.
+
+Save the rule and check matches. Impodo checks the distinct included values
+against the selected Odoo field. Reopen the relationship to see the saved
+field. The matching rule for the bill of materials itself still identifies
+the BoM.
 
 For reviewed Odoo 19 references such as Country, Language, and Currency,
 Impodo checks the parent relationship and exact portable key through one

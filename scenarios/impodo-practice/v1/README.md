@@ -213,32 +213,13 @@ read-only lookup regressions, run:
 .venv/bin/python -m unittest tests.domain.preparation.test_incoming_reference_shapes tests.domain.execution.test_incoming_reference_snapshot tests.application.workspace.execution.test_nested_reference_scope -v
 ```
 
-## What the current evidence establishes
+## Interpret a qualification run
 
-All three exercises passed live Odoo 19 and 20 checks through both authoring
-and Recipe entrypoints on 6 November 2026. Live checks used native LOCAL reads
-and JSON-2 writes on disposable Community targets with PostgreSQL 18.6.
-They verified exact business values, complete schedules, saved-workspace
-reopening, reconciliation, unchanged repeats and preservation of the excluded
-company. The [recorded receipts](qualification-evidence.json) contain counts,
-input hashes and the independently verified Odoo source pins.
-
-Controlled tests cover both majors with LOCAL and REMOTE contracts, including
-missing or ambiguous parents and prohibited parent writes. Live REMOTE HTTPS,
-visual browser behavior, Linux and Windows execution, interruption recovery
-and hosted CI were not run for this pack. Hosted workflows remain paused.
-No user's running Impodo server or browser was restarted.
-
-The May delivery changes one phone, one payment-term assignment, and a source
-language label. The current runner does not map Language, so it does not
-qualify review of the new Italian choice. Extra manufacturing, category,
-account, patch, supplier-repair, Excel, and fault-injection exercises are
-outside this customer pack's current qualification.
+Use the run's output directory to check the Odoo release, connection mode,
+entry point, and cases exercised. The current runner leaves Language outside
+its mapping. Review the Italian choice separately if your migration includes it.
 
 `expected-business-results.json` declares the business answers independently.
-`target-seed-projection.json` declares the four initial contacts and two NET30
-terms. `manifest.json` pins the input and oracle bytes. Source rows and target
-IDs observed during a run belong to its private operational evidence.
-Status labels inside the pinned seed and answer files describe their original
-drafting state. Current qualification results are recorded in
-`qualification-evidence.json`.
+`target-seed-projection.json` declares the initial Contacts and payment terms.
+`manifest.json` pins the input and answer-key bytes. Source rows and target IDs
+observed during a run belong in its private evidence directory.

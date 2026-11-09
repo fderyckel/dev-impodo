@@ -50,6 +50,7 @@ from ..run_commands import recover_run_preparation, start_next_preparation
 from ..run_review import build_integrated_run_review
 from ..security import require_session
 from ..selection_choices import load_selection_refresh, refresh_selection_choices
+from .recipe_revision import can_revise_recipe
 
 
 def build_integrated_runs_router(context: WebContext) -> APIRouter:
@@ -243,6 +244,7 @@ def build_integrated_runs_router(context: WebContext) -> APIRouter:
             applications=ordered_applications,
             recipes=recipes,
             issues=issues,
+            can_revise=can_revise_recipe(actor),
             target_schema=target_schema,
             plan_revision=plan_revision,
             qualification=(qualifications[0] if qualifications else None),

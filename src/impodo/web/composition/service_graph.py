@@ -480,6 +480,13 @@ class AuthoringRecipeApplicationState(RecipeMappingPolicy, Protocol):
         actor: Actor,
     ) -> None: ...
 
+    def save_authoring_quality_seed(
+        self, workspace_id: str, *, operation_id: str, definition: MappingDefinition,
+        rules: tuple[QualityRule, ...], actor: Actor,
+        coverage_scope_hash: str | None = None,
+        reference_bundle_hash: str | None = None,
+    ) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class FoundationServiceGraph:
@@ -753,6 +760,7 @@ def build_authoring_service_graph(
         categorical=categorical_coverage,
         application_state=recipe_applications,
         row_inclusion_reviews=row_inclusion_reviews,
+        parameters=recipe_parameters,
     )
     return AuthoringServiceGraph(
         business_intents=BusinessIntentService(

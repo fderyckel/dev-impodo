@@ -26,7 +26,7 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
-from impodo.adapters.odoo.lookup_values import lookup_values_equal
+from impodo.adapters.odoo.lookup_values import bounded_lookup_query, lookup_values_equal
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.execution.odoo_write import (
@@ -143,10 +143,7 @@ class Json2WriteExecutor:
                 conditions.append((field, "=", value))
             normalized.append(tuple(conditions))
 
-        query_domain: list[Any] = ["|"] * (len(normalized) - 1)
-        for domain in normalized:
-            query_domain.extend(["&"] * (len(domain) - 1))
-            query_domain.extend([list(condition) for condition in domain])
+        query_domain, candidate_limit = bounded_lookup_query(model, normalized)
         fields = tuple(sorted(requested_fields))
         response = self._post(
             model,
@@ -154,13 +151,13 @@ class Json2WriteExecutor:
             {
                 "domain": query_domain,
                 "fields": ["id", *fields],
-                "limit": (2 * len(normalized)) + 1,
+                "limit": candidate_limit + 1,
                 "order": "id asc",
                 "context": target_record_read_context(self.config.context),
             },
             write=False,
         )
-        if not isinstance(response, list) or len(response) > 2 * len(normalized):
+        if not isinstance(response, list) or len(response) > candidate_limit:
             raise OdooWriteRejected("Odoo returned an invalid bulk lookup result")
         results: list[list[int]] = [[] for _domain in normalized]
         for item in response:

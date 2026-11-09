@@ -18,7 +18,7 @@ from impodo.domain.project.foundation import (
     MigrationOperationState,
     require_uuid,
 )
-from impodo.domain.shared.access import Actor
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
@@ -182,6 +182,29 @@ class MigrationProjectAuthoringService:
     def _child_operation(request_id: str, name: str) -> str:
         return str(uuid5(UUID(request_id), name))
 
+    def open_revision_workspace(
+        self, project: MigrationProject, data_version: DataVersion, *,
+        label: str, run_operation: str, workspace_operation: str, actor: Actor,
+    ) -> tuple[MigrationWorkspace, WorkspaceState]:
+        """Provision or resume one Authoring workspace for an accepted delivery."""
+
+        for capability in (Capability.MIGRATION_RUN_CREATE, Capability.MIGRATION_WORKSPACE_CREATE):
+            self.projects.authorization.require(actor, capability, project_id=project.project_id)
+        run = self._run(project, data_version, operation_id=run_operation, actor=actor, label=label)
+        project = self.projects.get(project.project_id, actor=actor)
+        workspace = self._workspace(
+            project, data_version, run, operation_id=workspace_operation, actor=actor, label=label,
+        )
+        try:
+            state = self.workspace_states.repository.get(workspace.workspace_id)
+        except WorkspaceStateNotFoundError:
+            state = self.workspace_states.provision_migration_workspace(
+                workspace.workspace_id, actor=actor, name=workspace.display_name,
+                source_system=project.source_system_identity, source_mode=SourceMode.FILE,
+                data_classification=project.data_classification.value, retention_days=project.retention_days,
+            )
+        return workspace, state
+
     def _data_version(
         self,
         project: MigrationProject,
@@ -212,6 +235,7 @@ class MigrationProjectAuthoringService:
         *,
         operation_id: str,
         actor: Actor,
+        label: str | None = None,
     ) -> MigrationRun:
         repository = self.runs.repository
         try:
@@ -223,7 +247,7 @@ class MigrationProjectAuthoringService:
                 expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 purpose=MigrationRunPurpose.AUTHORING,
-                label=f"{project.display_name} authoring run",
+                label=label or f"{project.display_name} authoring run",
                 operation_id=operation_id,
             )
         if intent.state is MigrationOperationState.COMMITTED:
@@ -238,6 +262,7 @@ class MigrationProjectAuthoringService:
         *,
         operation_id: str,
         actor: Actor,
+        label: str | None = None,
     ) -> MigrationWorkspace:
         repository = self.migration_workspaces.repository
         try:
@@ -249,7 +274,7 @@ class MigrationProjectAuthoringService:
                 expected_workspace_revision=project.optimistic_revision,
                 data_version_id=data_version.data_version_id,
                 migration_run_id=run.migration_run_id,
-                display_name=f"{project.display_name} mapping workspace",
+                display_name=label or f"{project.display_name} mapping workspace",
                 operation_id=operation_id,
             )
         if intent.state is MigrationOperationState.COMMITTED:

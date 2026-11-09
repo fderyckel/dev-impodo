@@ -1,6 +1,6 @@
 # Morrow Assembly manufacturing practice
 
-Use this pack to practise a manufacturing migration with category paths, product enrichment, separate BoM headers, component lines and operations. Users and coding agents work from the same fictional source files, starting states and independent business answers. The dated [qualification receipts](qualification-evidence.json) record the completed Odoo 19 and 20 checks.
+Use this pack to practise a manufacturing migration with category paths, product enrichment, separate BoM headers, component lines and operations. Users and coding agents work from the same fictional source files, starting states and independent business answers.
 
 Each delivery contains six source files and 118 physical rows: 12 categories, 32 product core rows, 32 product detail rows, 6 BoM headers, 24 component rows and 12 operations. The five original baseline files retain their 112 rows byte-for-byte. The new header export supplies six separate fictional business records. A second delivery contains all six files with the same business values in a different order. It adds no changed price, date or product that lacks a declared answer.
 
@@ -97,6 +97,7 @@ python -m scripts.qualify_practice_manufacturing \
 
 Select `--entrypoint recipe` for the distinct reordered delivery. A live run replaces `--controlled` with the allocated `--target-descriptor` and explicit `--allow-write`. Select the descriptor's exact major and mode. The runner verifies source hashes before target access, loads each stage through normal services, reopens persisted work, reconciles actual values and checks an unchanged repeat. It starts no Impodo service or browser and retains the disposable target.
 
-The 6 November 2026 receipts record all eight controlled combinations of Odoo 19/20, LOCAL/REMOTE and authoring/Recipe; four live LOCAL journeys across both majors and entrypoints; and both live manual setup flows. The final practice graph has 32 templates and variants, 6 BoMs, 24 lines and 12 operations. Each BoM phase preserves the other company's graph. PostgreSQL 18.6 was observed. Live HTTPS REMOTE, visual browser, Linux/Windows execution and the PostgreSQL 17 matrix were not run. Hosted workflows remain paused.
-
-The [history-to-case map](history-to-case-map.json) connects relevant earlier chats and commits to current checks and their limits. It also retains the confirmed Odoo 20 inactive-create distinction. A failed local metadata capture remains a failed attempt with an unconfirmed cause; the successful fresh run does not turn it into a passed check. The manual continuation's private-file mode checks were exercised on macOS; Windows behavior is unverified.
+Use the run's evidence directory to distinguish controlled checks from live
+Odoo, browser, and host qualification. The staged exercise creates BoM headers
+before applying their final active state. A direct inactive create is a
+separate Odoo behavior.

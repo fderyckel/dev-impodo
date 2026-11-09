@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from uuid import uuid4
 
 from fastapi import APIRouter, Request
@@ -21,24 +22,26 @@ from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.domain.workspace.workbench import SourceMode
 
 from ...domain.data_version.models import DataVersionPurpose
-from ...domain.recipe.models import RecipeError
+from ...domain.recipe.models import RecipeError, RecipeIntegrityError
 from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
-from ..presenters.recipes import build_recipe_definition_view
+from ..presenters.recipes import build_recipe_change_view, build_recipe_definition_view
 from ..request_identity import request_identity
 from ..security import require_session
 from ..target_credentials import (
     TargetCredentialRemovalReason,
     delete_target_credentials,
 )
+from .recipe_revision import build_recipe_revision_router, can_revise_recipe
 
 
 def build_migration_projects_router(context: WebContext) -> APIRouter:
     """Build Project-native list, creation, overview, and publication routes."""
 
     router = APIRouter()
+    router.include_router(build_recipe_revision_router(context))
 
     @router.get("/projects", response_class=HTMLResponse)
     async def project_list(request: Request):
@@ -373,29 +376,19 @@ def _render_recipe_detail(
         selected_version,
         actor=identity.actor,
     )
-    workspaces = context.migration_workspaces.list_for_project(
-        project_id,
-        actor=identity.actor,
-    )
-    authoring_data_version_ids = {
-        item.data_version_id
-        for item in context.data_versions.list(project_id, actor=identity.actor)
-        if item.purpose is DataVersionPurpose.AUTHORING
-    }
-    authoring_workspace = next(
-        (
-            item
-            for item in sorted(
-                workspaces,
-                key=lambda item: item.created_at,
-                reverse=True,
-            )
-            if item.recipe_application_id is None
-            and item.state is MigrationWorkspaceState.OPEN
-            and item.data_version_id in authoring_data_version_ids
-        ),
-        None,
-    )
+    change_summary = None
+    provenance = envelope.get("provenance")
+    base_version = provenance.get("revision_base_version") if isinstance(provenance, Mapping) else None
+    if type(base_version) is int and 1 <= base_version < selected_version:
+        try:
+            base = context.recipes.read_revision(recipe_id, base_version, actor=identity.actor)
+        except (MigrationNotFoundError, RecipeIntegrityError):
+            base = {}
+        before, after = base.get("recipe"), envelope.get("recipe")
+        if isinstance(before, Mapping) and isinstance(after, Mapping):
+            change_summary = build_recipe_change_view(before, after)
+    else:
+        base_version = None
     return _render(
         request,
         "project_recipe_detail.html",
@@ -406,7 +399,9 @@ def _render_recipe_detail(
             sorted(revisions, key=lambda item: item.version, reverse=True)
         ),
         recipe_view=build_recipe_definition_view(envelope),
-        authoring_workspace=authoring_workspace,
+        can_revise=recipe.archived_at is None and can_revise_recipe(identity.actor),
+        change_summary=change_summary,
+        base_version=base_version,
     )
 
 

@@ -78,6 +78,10 @@ that an unused source column needs no action does not block this review.
 
 ![The Recipe sidebar shows all three stages, and the red Review prepared data action appears above the progress details.](../../images/user/03b-recipe-run-review.png)
 
+Use **Revise this Recipe** on a run card to open the version listed on that
+card. The revision page uses the version's Authoring workspace when Impodo can
+verify that it still matches. See [Revise a saved Recipe version](../getting-started.md#revise-a-saved-recipe-version).
+
 Before creating Recipe work areas, the same Odoo check confirms that the
 Recipe order has no cycle and that two Recipes do not claim the same writable
 Odoo field. Reordering two conflicting Recipes is not a safe repair; one

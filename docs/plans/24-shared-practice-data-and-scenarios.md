@@ -56,10 +56,8 @@ every historical chat, attachment, other execution host, or unavailable
 conversation was reviewed. The ChatGPT listing did not identify an Impodo
 migration investigation.
 
-The [inventory appendix](24-fixture-cleanup-inventory.md) records paths,
-consumers, duplication, and the proposed disposition. The
-[scenario catalogue](24-practice-scenario-catalogue.md) records the regression
-evidence and acceptance requirements.
+The [scenario catalogue](24-practice-scenario-catalogue.md) records the
+exercise scope and acceptance requirements.
 
 The main findings are:
 
@@ -228,9 +226,8 @@ Likewise, a rejected batch does not establish that every row in it is bad.
 
 The catalogue also includes a diagnostic-only investigation: give an agent a
 sanitized failure bundle and ask it to explain what is known about the writes.
-The concurrent diagnostics proposal, `23-load-diagnostics-for-agent-investigation.md`,
-owns any new exporter behavior. It remains outside this isolated change. This dataset proposal must not imply that
-the proposed diagnostic fields already exist.
+The [execution contract](../developer/contracts/execution-and-reconciliation.md#safe-write-diagnostics)
+defines the current diagnostic fields and their privacy boundary.
 
 ## Proposed repository ownership
 
