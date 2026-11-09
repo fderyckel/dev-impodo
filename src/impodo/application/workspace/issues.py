@@ -69,6 +69,8 @@ class WorkflowIssueProjection:
     detail_label: str = ""
     detail_route: str = ""
     explanation: str = ""
+    preview_route: str = ""
+    preview_fields: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -174,10 +174,14 @@ class QualityQueryRepository(Protocol):
         *,
         page: int,
         page_size: int,
+        direct_only: bool = False,
     ) -> QualityReviewPage: ...
     def get_quality_collision_groups(
         self, workspace_id: str, run_id: str, row_ids: tuple[str, ...]
     ) -> dict[str, QualityCollisionGroup]: ...
+    def get_quality_collision_group_sizes(
+        self, workspace_id: str, run_id: str, row_ids: tuple[str, ...],
+    ) -> dict[str, int]: ...
 
 
 class TransformationImpactQueryRepository(FieldEffectsRepository, Protocol):
@@ -371,6 +375,7 @@ class BrowserQueryService:
         *,
         page: int,
         page_size: int,
+        direct_only: bool = False,
     ) -> QualityReviewPage:
         return self._quality.get_quality_cause_review_page(
             workspace_id,
@@ -378,7 +383,13 @@ class BrowserQueryService:
             cause_key,
             page=page,
             page_size=page_size,
+            direct_only=direct_only,
         )
+
+    def get_quality_collision_group_sizes(
+        self, workspace_id: str, run_id: str, row_ids: tuple[str, ...],
+    ) -> dict[str, int]:
+        return self._quality.get_quality_collision_group_sizes(workspace_id, run_id, row_ids)
 
     def get_quality_collision_groups(
         self, workspace_id: str, run_id: str, row_ids: tuple[str, ...]

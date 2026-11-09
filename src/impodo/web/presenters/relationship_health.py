@@ -18,7 +18,8 @@ _UNCHECKED_MESSAGES = {
         "Save a complete relationship provider and matching rule first."
     ),
     RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE: (
-        "Confirm the related record's Odoo matching rule before testing values."
+        "In Odoo data, confirm the matching rule for the related record type "
+        "and any linked rules it uses. Then run Check saved relationships."
     ),
     RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP: (
         "This relationship shape cannot be simulated safely yet."
@@ -202,6 +203,12 @@ def _relationship_card(
         "blocked_count": checked.blocked_count if checked else 0,
         "edit_url": edit_url,
         "edit_label": "Change matching rule",
+        "rule_confirmation_url": (
+            f"/workspaces/{workspace_id}/schema#schema-governance"
+            if result is not None and result.not_checkable_reason
+            is RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+            else ""
+        ),
         "review_url": (f"/workspaces/{workspace_id}/mapping/relationship-choices?" + urlencode({
             "dataset": source.dataset_id, "field": relationship.target_field, "check": check_id,
         })) if checked is not None and checked.blocked_count else "",

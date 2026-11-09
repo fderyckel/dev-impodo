@@ -16,6 +16,9 @@
       <span class="status review">Choose problems</span>
     {% endif %}
   </div>
+  {% if not deferred_review or not deferred_review.decision %}
+    <p><a href="/workspaces/{{ workspace_id }}/summary#migration-issues">Back to migration issues</a></p>
+  {% endif %}
 
   {% if error %}<p class="notice warning" role="alert">{{ error }}</p>{% endif %}
 
@@ -34,8 +37,8 @@
         </div>
         <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Return to Final review</a>
       </section>
-    {% elif deferred_review.bulk_preview %}
-      <p><a href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose individual problems instead</a></p>
+    {% elif deferred_review.bulk_preview or deferred_review.finding_options %}
+      {% if deferred_review.bulk_preview %}<p><a href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose individual problems instead</a></p>{% endif %}
       {% if preview.remaining_run_issue_count %}
         <section class="notice warning" aria-label="Problems affecting the whole comparison">
           <strong>Fix these problems before loading</strong>
@@ -118,7 +121,7 @@
             </tbody>
           </table>
         </div>
-        <details{% if not deferred_review.bulk_preview %} open{% endif %}>
+        <details{% if not deferred_review.bulk_preview and not deferred_review.finding_options %} open{% endif %}>
         <summary>Review a sample of omitted records</summary>
         <div class="table-scroll">
           <table class="data-table readiness-row-table">
@@ -139,6 +142,36 @@
         </details>
       </section>
 
+      {% if deferred_review.finding_options and (deferred_review.finding_options|length > 1 or not preview.ready_with_records_set_aside) %}
+        <section class="form-card" aria-labelledby="finding-options-title">
+          <h2 id="finding-options-title">Choose which findings to include</h2>
+          <p>Select other findings if their rows should also stay out of this load.</p>
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="comparison_id" value="{{ deferred_review.comparison_id }}">
+            <input type="hidden" name="finding" value="">
+            <div class="choice-grid">
+              {% for option in deferred_review.finding_options %}
+                <label class="mode-card">
+                  <input type="checkbox" name="finding" value="{{ option.index }}"{% if option.selected %} checked{% endif %}>
+                  <span>
+                    <strong>{{ option.finding.reason }}</strong>
+                    <small class="row-field">{{ option.finding.dataset_label }}{% if option.finding.field %} · {{ option.finding.field }}{% endif %} · {{ option.finding.affected_record_count }} affected</small>
+                  </span>
+                </label>
+              {% endfor %}
+            </div>
+            <div class="actions"><button class="button secondary" type="submit">Update preview</button></div>
+          </form>
+          {% if preview.remaining_problem_record_count %}
+            <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit" name="select_all" value="1">Preview all problem groups</button>
+            </form>
+          {% endif %}
+        </section>
+      {% endif %}
+
       {% if not deferred_review.decision %}
         <section class="next-action-card {% if preview.ready_with_records_set_aside %}ready{% else %}blocked{% endif %}" aria-labelledby="accept-scope-title">
           <div>
@@ -151,7 +184,11 @@
               <p>Resolve enough problems to leave records ready to load, then compare with Odoo again.</p>
             {% else %}
               <h2 id="accept-scope-title">The remainder is not safe yet</h2>
-              <p>Review the remaining problems and compare with Odoo again after correcting any that affect the whole run.</p>
+              {% if deferred_review.finding_options and not preview.remaining_run_issue_count %}
+                <p>Include the remaining problems in the preview, or correct those rows before loading.</p>
+              {% else %}
+                <p>Review the remaining problems and compare with Odoo again after correcting any that affect the whole run.</p>
+              {% endif %}
             {% endif %}
           </div>
           {% if preview.ready_with_records_set_aside %}
@@ -161,6 +198,8 @@
               <input type="hidden" name="preview_hash" value="{{ preview.semantic_hash }}">
               {% if deferred_review.bulk_preview %}
                 <input type="hidden" name="select_all" value="1">
+              {% elif deferred_review.finding_options %}
+                {% for option in deferred_review.finding_options if option.selected %}<input type="hidden" name="finding" value="{{ option.index }}">{% endfor %}
               {% else %}
                 {% for issue_id in preview.selected_issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
               {% endif %}

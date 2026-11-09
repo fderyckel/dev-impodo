@@ -27,7 +27,7 @@ _IDENTITY_REVIEW_CAUSES = {
         "The saved identity is incomplete"
     ),
     MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE.value: (
-        "The Odoo matching rule is not confirmed"
+        "The identity check needs a confirmed Odoo matching rule"
     ),
     MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY.value: (
         "A related identity component has no direct governed projection"
@@ -51,7 +51,7 @@ _RELATIONSHIP_REVIEW_CAUSES = {
         "The saved relationship is incomplete"
     ),
     RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE.value: (
-        "The related record's matching rule is not confirmed"
+        "The relationship check needs a confirmed Odoo matching rule"
     ),
     RelationshipHealthNotCheckableReason.UNSUPPORTED_RELATIONSHIP.value: (
         "This relationship shape is not supported by the bounded check"
@@ -168,6 +168,7 @@ def _identity_issue(
     else:
         cause = f"{dataset_name} has blank identity values"
     review_reason = str(card.get("not_checkable_reason", ""))
+    confirmation_url = str(card.get("rule_confirmation_url", ""))
     schema_changed = (
         review_reason
         == MatchingIdentityNotCheckableReason.ODOO_SCHEMA_CHANGED.value
@@ -178,7 +179,7 @@ def _identity_issue(
     )
     origin = (
         WorkflowIssueOrigin.ODOO_SCHEMA
-        if schema_changed
+        if schema_changed or confirmation_url
         else WorkflowIssueOrigin.SOURCE_DATA
         if source_problem or source_unavailable
         else WorkflowIssueOrigin.ODOO_DATA
@@ -204,6 +205,13 @@ def _identity_issue(
             "Refresh Odoo data, save the current matching choices, then run "
             "Check current data again."
         )
+    if confirmation_url:
+        correction_label = "Review matching rules in Odoo data"
+        correction_route = confirmation_url
+        recheck = (
+            "Confirm the matching rules in Odoo data, including any linked "
+            "record types used by this identity. Then run Check saved identities."
+        )
     return WorkflowIssueProjection(
         code=f"MATCH_IDENTITY_HEALTH:{dataset_id}",
         severity=severity,
@@ -211,7 +219,7 @@ def _identity_issue(
         cause=cause,
         origin=origin,
         owner=owner,
-        owning_stage="Match data",
+        owning_stage="Odoo data" if confirmation_url else "Match data",
         correction_label=correction_label,
         correction_route=correction_route,
         preserved_work=(
@@ -254,6 +262,7 @@ def _relationship_issue(
         correction_label = str(inverse_action.get("label", correction_label))
         correction_route = str(inverse_action.get("url", correction_route))
     review_reason = str(card.get("not_checkable_reason", ""))
+    confirmation_url = str(card.get("rule_confirmation_url", ""))
     schema_changed = (
         review_reason
         == RelationshipHealthNotCheckableReason.ODOO_SCHEMA_CHANGED.value
@@ -278,6 +287,13 @@ def _relationship_issue(
             "again."
         )
     )
+    if confirmation_url:
+        correction_label = "Review matching rules in Odoo data"
+        correction_route = confirmation_url
+        recheck = (
+            "Confirm the related record type's matching rule in Odoo data, "
+            "including any linked rules it uses. Then run Check saved relationships."
+        )
     return WorkflowIssueProjection(
         code=(
             f"MATCH_RELATIONSHIP_HEALTH:{dataset_id}:"
@@ -288,7 +304,7 @@ def _relationship_issue(
         cause=cause,
         origin=(
             WorkflowIssueOrigin.ODOO_SCHEMA
-            if schema_changed
+            if schema_changed or confirmation_url
             else WorkflowIssueOrigin.SOURCE_DATA
             if source_problem
             else WorkflowIssueOrigin.ODOO_DATA
@@ -300,7 +316,7 @@ def _relationship_issue(
             if (target_only and not source_problem) or schema_changed
             else "Data manager"
         ),
-        owning_stage="Match data",
+        owning_stage="Odoo data" if confirmation_url else "Match data",
         correction_label=correction_label,
         correction_route=correction_route,
         preserved_work=(

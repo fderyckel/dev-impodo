@@ -61,7 +61,11 @@
           {% endif %}
           {% if item.repeated_source_url %}<a class="button primary compact" href="{{ item.repeated_source_url }}" data-duplicate-rows-url="{{ item.repeated_source_url|replace('/identity-choices?', '/duplicate-rows?') }}">Review repeated source identities</a>{% endif %}
           {% if item.ambiguous_target_url %}<a class="button primary compact" href="{{ item.ambiguous_target_url }}">Review ambiguous Odoo matches</a>{% endif %}
-          <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
+          {% if item.rule_confirmation_url %}
+            <a class="button primary compact" href="{{ item.rule_confirmation_url }}">Review matching rules in Odoo data</a>
+          {% else %}
+            <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
+          {% endif %}
           </div>
         </article>
       {% endfor %}

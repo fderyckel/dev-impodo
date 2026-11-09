@@ -34,6 +34,7 @@ from impodo.application.workspace.preparation.preparation_service import (
 )
 from impodo.adapters.polars_transformation import PolarsTransformationAdapter
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.preparation.quality import RecipeQualitySeed
 from impodo.domain.data_version.models import DataVersionPurpose
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.run.models import MigrationRunPurpose
@@ -373,18 +374,20 @@ class PreparationCancellationBoundaryTests(unittest.TestCase):
         derived = MagicMock()
         derived.get_derived_entity_plan.return_value = None
         staging = MagicMock()
+        quality = MagicMock()
+        quality.preparation_inputs.return_value = (None, RecipeQualitySeed(()))
         service = PreparationService(
-            workspaces,
-            sources,
-            derived,
-            mappings,
-            staging,
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            MagicMock(),
-            PolarsTransformationAdapter(),
+            workspaces=workspaces,
+            sources=sources,
+            derived_entities=derived,
+            mappings=mappings,
+            staging=staging,
+            sessions=MagicMock(),
+            artifacts=MagicMock(),
+            authorization=MagicMock(),
+            quality=quality,
+            normalization=MagicMock(),
+            columnar_transformations=PolarsTransformationAdapter(),
             resolution=None,
         )
         checkpoints = 0

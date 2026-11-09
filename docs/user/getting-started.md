@@ -103,6 +103,11 @@ its fields, then select **Open Match data**. Impodo restores the saved field
 matches, business checks, custom input definitions, reference lists, and
 supporting choices for that version.
 
+If the Recipe has advanced checks, select **Review advanced checks** after
+checking Odoo. Review which checks apply to this delivery, then select
+**Approve coverage and open Match data**. Preparation runs the checks under
+the approval recorded for this draft.
+
 In **Match data**, select **Check for new or changed Odoo fields**. If Impodo
 finds an optional field you need, select **Apply new optional fields**, then
 map it and check and confirm the field matches. Select **Review Recipe changes**

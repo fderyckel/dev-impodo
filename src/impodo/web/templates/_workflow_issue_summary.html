@@ -52,7 +52,16 @@
             <p><strong>Owner:</strong> {{ issue.owner }}</p>
             <p><strong>What to do:</strong> {{ issue.recheck }}</p>
             <div class="actions">
-              <a class="button primary" href="{{ issue.correction_route }}" {% if 'cause=repeated_source' in issue.correction_route %}data-duplicate-rows-url="{{ issue.correction_route|replace('/identity-choices?', '/duplicate-rows?') }}"{% endif %}>{{ issue.correction_label }}</a>
+              {% if issue.preview_route %}
+                <form method="post" action="{{ issue.preview_route }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  {% for name, value in issue.preview_fields %}
+                    <input type="hidden" name="{{ name }}" value="{{ value }}">
+                  {% endfor %}
+                  <button class="button primary" type="submit">Preview rows to set aside</button>
+                </form>
+              {% endif %}
+              <a class="button {{ 'secondary' if issue.preview_route else 'primary' }}" href="{{ issue.correction_route }}" {% if 'cause=repeated_source' in issue.correction_route %}data-duplicate-rows-url="{{ issue.correction_route|replace('/identity-choices?', '/duplicate-rows?') }}"{% endif %}>{{ issue.correction_label }}</a>
               {% if issue.secondary_correction_route %}
                 <a class="button secondary" href="{{ issue.secondary_correction_route }}">{{ issue.secondary_correction_label }}</a>
               {% endif %}

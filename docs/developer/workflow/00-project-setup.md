@@ -145,9 +145,11 @@ original workspace is closed or diverged. It projects the accepted file
 delivery and uses the normal Odoo setup and capture. The mapping compiler
 rebinds the exact rules after that capture and commits the seed receipt with
 the working draft. The same local operation restores business checks, input
-declarations, reference lists, and supporting choices. Reference history is
-read only for versions that require it. Reopening the creation action looks
-up the existing draft in the registry.
+declarations, reference lists, and supporting choices. For advanced checks,
+**Review advanced checks** shows the scope from the saved ruleset. The
+approval command binds it to the draft's accepted source selection. Scope
+and reference history are read only for versions that require them.
+Reopening the creation action looks up the existing draft in the registry.
 
 ## Background preparation
 

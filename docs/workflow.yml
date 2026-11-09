@@ -889,6 +889,7 @@ stages:
       - tests/integration/web/test_summary_presenter.py
       - tests/integration/web/test_deferred_scope_presenter.py
       - tests/integration/web/test_deferred_scope_routes.py
+      - tests/integration/web/test_deferred_finding_workflow.py
       - tests/integration/web/test_bulk_deferred_workflow.py
       - tests/integration/duckdb/test_preflight_repository.py
       - tests/integration/duckdb/test_preflight_attempts.py

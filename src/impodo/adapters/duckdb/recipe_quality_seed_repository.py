@@ -15,6 +15,7 @@ from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 from ...domain.serialization import canonical_json, content_hash
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
+from .source_repository import WorkspaceSourceProjectionReader
 
 _AUTHORING_SEED_PREFIX = "authoring:"
 
@@ -26,9 +27,12 @@ class RecipeQualitySeedRepository(DuckDbRepository):
         self,
         database: DuckDbWorkspaceDatabase,
         access_contexts: WorkspaceAccessRepository,
+        *,
+        projected_sources: WorkspaceSourceProjectionReader | None = None,
     ) -> None:
         super().__init__(database)
         self._access_contexts = access_contexts
+        self._projected_sources = projected_sources
 
     def save_quality_seed(
         self,
@@ -126,15 +130,22 @@ class RecipeQualitySeedRepository(DuckDbRepository):
                  WHERE singleton_id = 1
                 """,
             ).fetchone()
-        if row is None:
-            if not editable_only and self._access_contexts.resolve_workspace_access_context(
-                workspace_id
-            ).recipe_application_id is not None:
-                raise WorkspaceError(
-                    "Recipe business checks are missing. Reapply the pinned Recipe "
-                    "before preparing this run."
-                )
-            return RecipeQualitySeed(())
+            if row is not None:
+                seed = self._decode_seed(row, mapping_content_hash, editable_only=editable_only)
+                if seed.coverage_scope_hash is not None and not editable_only:
+                    self._require_coverage_binding(connection, workspace_id, seed)
+                return seed
+        if not editable_only and self._access_contexts.resolve_workspace_access_context(
+            workspace_id
+        ).recipe_application_id is not None:
+            raise WorkspaceError(
+                "Recipe business checks are missing. Reapply the pinned Recipe "
+                "before preparing this run."
+            )
+        return RecipeQualitySeed(())
+
+    @staticmethod
+    def _decode_seed(row, mapping_content_hash: str, *, editable_only: bool) -> RecipeQualitySeed:
         editable = str(row[0]).startswith(_AUTHORING_SEED_PREFIX)
         if editable_only and not editable:
             return RecipeQualitySeed(())
@@ -159,37 +170,34 @@ class RecipeQualitySeedRepository(DuckDbRepository):
             )
         if not editable or not isinstance(payload, dict):
             raise WorkspaceError("Stored Recipe quality seed is invalid")
-        seed = RecipeQualitySeed(
+        return RecipeQualitySeed(
             tuple(QualityRule.from_dict(dict(item)) for item in payload["rules"]),
             editable, payload["coverage_scope_hash"], payload["reference_bundle_hash"],
         )
-        if not editable_only:
-            self.require_coverage_binding(
-                workspace_id, seed.coverage_scope_hash, seed.reference_bundle_hash,
-            )
-        return seed
-
-    def require_coverage_binding(
-        self, workspace_id: str, scope_hash: str | None, reference_hash: str | None,
-    ) -> None:
+    def _require_coverage_binding(self, connection, workspace_id: str, seed: RecipeQualitySeed) -> None:
         """Keep a restored check bound to the approved selection and exact lists."""
-        rows = self._read_json_rows(
-            workspace_id,
+        reference_hash = seed.reference_bundle_hash
+        row = connection.execute(
             """
-            SELECT scope.content_hash
+            SELECT scope.source_selection_hash, json_extract_string(source.selection_json, '$.content_hash')
               FROM coverage_scope_current AS active
               JOIN coverage_scope_revision AS scope
                 ON scope.scope_id = active.scope_id AND scope.version = active.version
-              JOIN source_selection AS source ON source.singleton_id = 1
+              LEFT JOIN source_selection AS source ON source.singleton_id = 1
               LEFT JOIN reference_bundle_current AS refs ON refs.singleton_id = 1
              WHERE active.singleton_id = 1 AND scope.content_hash = ?
-               AND scope.source_selection_hash = json_extract_string(source.selection_json, '$.content_hash')
                AND (? IS NULL OR refs.content_hash = ?)
             """,
-            [scope_hash, reference_hash, reference_hash],
-        )
-        if not rows:
-            raise WorkspaceError("The approved coverage scope or its reference lists changed.")
+            [seed.coverage_scope_hash, reference_hash, reference_hash],
+        ).fetchone()
+        if row is not None:
+            expected, actual = row
+            if actual is None and self._projected_sources is not None:
+                selection = self._projected_sources.get_source_selection(workspace_id)
+                actual = selection.content_hash if selection is not None else None
+            if expected == actual:
+                return
+        raise WorkspaceError("The approved coverage scope or its reference lists changed.")
 
     def assert_mapping_adaptation(
         self, workspace_id: str, definition: MappingDefinition,

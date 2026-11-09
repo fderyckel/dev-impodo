@@ -115,16 +115,18 @@ def build_recipe_revision_router(context: WebContext) -> APIRouter:
                 "expected_recipe_revision",
                 "draft_hash",
                 "working_hash",
+                "coverage_review_hash",
             },
         )
         identity = request_identity(request, context.identity_resolver)
         action = _text(form, "action")
-        if action not in {"start", "create_draft", "publish"}:
+        if action not in {"start", "create_draft", "approve_coverage", "publish"}:
             raise HTTPException(422, "Choose a Recipe revision action.")
         args = (request, context, identity, project_id, recipe_id, version)
         if action != "publish":
             started = await run_local_operation(
-                _start_review, *args, create=action == "create_draft"
+                _start_review, *args, create=action == "create_draft",
+                coverage_review_hash=_text(form, "coverage_review_hash") if action == "approve_coverage" else "",
             )
             if isinstance(started, HTMLResponse):
                 return started
@@ -363,6 +365,7 @@ def _start_review(
     version: int,
     *,
     create: bool,
+    coverage_review_hash: str = "",
 ) -> tuple[dict[str, object], str] | HTMLResponse:
     saved = _selected_revision(context, identity, project_id, recipe_id, version)
     session = request.session.get(_SESSION_KEY, {})
@@ -409,9 +412,15 @@ def _start_review(
                 "workspace_id": revision_draft.workspace_id,
                 "revision_draft": True,
                 "pending_seed": True,
+                "coverage_required": bool(
+                    context.recipe_authoring_drafts.compiler.advanced_checks(
+                        context.recipe_authoring_drafts.definition(saved),
+                    )
+                ),
             }, f"/workspaces/{revision_draft.workspace_id}/target"
         context.recipe_authoring_drafts.seed(
-            saved, revision_draft, workspace.schema, workspace.state, actor=identity.actor
+            saved, revision_draft, workspace.schema, workspace.state, actor=identity.actor,
+            coverage_review_hash=coverage_review_hash,
         )
         return {
             **_review_binding(saved, workspace, identity),
@@ -540,6 +549,14 @@ def _render_review_page(
     draft_hash = ""
     baseline = saved.envelope.get("recipe")
     latest_version = saved.recipe.current_recipe_revision
+    coverage_review = None
+    if revision_draft is not None and workspace is not None and not active and workspace.working_hash is None:
+        try:
+            coverage_review = context.recipe_authoring_drafts.coverage_review(
+                saved, workspace.schema, actor=identity.actor,
+            )
+        except ValueError as coverage_error:
+            error = str(coverage_error)
     if (
         active
         and workspace is not None
@@ -577,6 +594,8 @@ def _render_review_page(
         revision=saved.revision,
         workspace=workspace,
         revision_draft=revision_draft,
+        coverage_review=coverage_review,
+        can_approve_coverage=identity.actor.has(Capability.COVERAGE_SCOPE),
         active=active,
         eligible=eligible,
         summary=summary,

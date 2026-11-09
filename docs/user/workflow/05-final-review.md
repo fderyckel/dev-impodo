@@ -78,12 +78,18 @@ again. Your older form cannot overwrite them silently.
 4. Review totals for **New in Odoo**, **Different from Odoo**, **Already
    matches**, **Needs attention**, and **Set aside**.
 5. Inspect field-level differences and relationship resolutions.
-6. Select **Preview all problem groups** to see which records would stay out
-   of this load. Select **Choose affected groups** to preview individual
-   problems. Both previews include the linked records that must stay together.
-7. Review the omitted records and **Writes remaining**. Select **Set aside
-   all problem groups** to confirm the bulk preview when safe writes remain.
-   Correct any problems that affect the whole comparison, then compare again.
+6. On a **Must fix** card, select **Preview rows to set aside** to see what
+   would stay out of this load because of that finding. If other findings
+   still block the load, you can select them on the preview and click
+   **Update preview**. You can also start with **Preview all problem groups**
+   or use **Choose affected groups** to review individual records. Each
+   preview includes linked records that must stay together.
+7. Review the omitted records, **Writes remaining**, and **Still blocked**.
+   If safe writes remain and nothing is still blocked, select **Set aside
+   affected groups for this load** (or **Set aside all problem groups** from
+   the bulk preview). Impodo returns you to Final review with the reduced
+   load ready to review. Correct any problem that affects the whole comparison,
+   then compare again.
 8. Download the workbook when you need to review the proposed load in Excel or
    keep a durable rehearsal record.
 

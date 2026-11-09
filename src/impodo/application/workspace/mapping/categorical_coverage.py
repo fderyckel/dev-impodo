@@ -45,7 +45,7 @@ from impodo.domain.mapping.validation.evidence import (
 )
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.serialization import content_hash
-from impodo.domain.source_snapshot import SourceSnapshot
+from impodo.domain.source_snapshot import SOURCE_ROW_COLUMN, SourceSnapshot
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SourceDataset,
@@ -397,6 +397,8 @@ class CategoricalCoverageService:
         workspace_id: str,
         dataset_id: str,
         source_column_keys: Sequence[str],
+        *,
+        include_source_numbers: bool = False,
     ) -> tuple[tuple[object, ...], ...]:
         """Project exact rule operands without identity trimming or blank coercion.
 
@@ -414,8 +416,11 @@ class CategoricalCoverageService:
             or not set(keys).issubset(item.stable_key for item in dataset.columns)
         ):
             raise WorkspaceError("Choose current rows-to-use columns")
-        frame = self._scan_dataset(workspace_id, selection, dataset_id, keys)
-        return tuple(frame.select(keys).iter_rows())
+        frame = self._scan_dataset(
+            workspace_id, selection, dataset_id, keys,
+            include_source_numbers=include_source_numbers,
+        )
+        return tuple((frame if include_source_numbers else frame.select(keys)).iter_rows())
 
     def source_condition_rows_at_positions(
         self, workspace_id: str, dataset_id: str,
@@ -842,6 +847,7 @@ class CategoricalCoverageService:
         dataset_id: str,
         source_column_keys: Sequence[str],
         *, source_positions: Sequence[int] | None = None,
+        include_source_numbers: bool = False,
     ) -> pl.DataFrame:
         physical = self.sources.get_source_selection(workspace_id)
         if (
@@ -849,6 +855,8 @@ class CategoricalCoverageService:
             and physical is not None
             and dataset_id not in {item.dataset_id for item in physical.datasets}
         ):
+            if include_source_numbers:
+                raise WorkspaceError("Choose rows from a table with a frozen source file")
             frame = self.logical_values.project(
                 workspace_id, selection, dataset_id, source_column_keys,
             )
@@ -883,12 +891,12 @@ class CategoricalCoverageService:
                 expected_sha256=snapshot.parquet_sha256,
             ) as path:
                 snapshot_path = validate_source_snapshot_path(path, snapshot)
+                columns = [pl.col(value_columns[key]).alias(key) for key in source_column_keys]
+                if include_source_numbers:
+                    columns.insert(0, pl.col(SOURCE_ROW_COLUMN))
                 query = (
                     pl.scan_parquet(snapshot_path)
-                    .select(
-                        pl.col(value_columns[key]).alias(key)
-                        for key in source_column_keys
-                    )
+                    .select(columns)
                 )
                 if source_positions is not None:
                     query = _select_source_positions(query, source_positions)

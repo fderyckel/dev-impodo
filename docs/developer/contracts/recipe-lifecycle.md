@@ -119,8 +119,15 @@ Impodo restores business checks as editable rules and copies custom input
 declarations. It reads the matching reference bundle from the original
 workspace's immutable history by the saved dataset hashes. It checks saved
 supporting choices against the new capture and records a new workspace review
-before completing the seed. Versions with advanced checks tied to an
-approved coverage scope still stop before draft creation.
+before completing the seed.
+
+For advanced checks, the published quality ruleset hash identifies the
+historical coverage scope. The data manager reviews its declarations and
+approves them for the draft after Odoo capture. Impodo records a new approval
+against the frozen source selection and rebinds any reference lists by
+content hash. The ruleset used for preparation carries that approval and
+the draft's checked field matches. Preparation rejects an outdated scope
+or reference list, and an interrupted seed resumes the same approval.
 
 The browser session binds the review to the selected version, workspace,
 accepted delivery, Odoo target, and company context. The review compares the

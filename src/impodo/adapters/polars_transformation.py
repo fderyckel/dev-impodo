@@ -271,6 +271,7 @@ def iter_polars_prepared_batches(
     batch_size: int = POLARS_TRANSFORMATION_BATCH_ROWS,
     materialize_records: bool = True,
     collect_impacts: bool = True,
+    prepared_ordinals: tuple[int, ...] | None = None,
 ) -> Iterator[ColumnarTransformationBatch]:
     """Adapt a verified prepared artifact without re-running transformations.
 
@@ -298,6 +299,15 @@ def iter_polars_prepared_batches(
         cache=False,
         parallel="auto",
     ).select(layout.output_columns)
+    expected_rows = prepared_snapshot.row_count
+    if prepared_ordinals is not None:
+        expected_rows = len(prepared_ordinals)
+        if (
+            prepared_ordinals != tuple(sorted(set(prepared_ordinals)))
+            or any(not 0 <= ordinal < prepared_snapshot.row_count for ordinal in prepared_ordinals)
+        ):
+            raise SourceLoadError("Prepared snapshot review positions are invalid")
+        lazy = lazy.filter(pl.col(PREPARED_ORDINAL_COLUMN).is_in(prepared_ordinals))
     rule_observations, rule_expressions = (
         _compile_rule_observations(program, layout) if collect_impacts else ((), ())
     )
@@ -339,14 +349,14 @@ def iter_polars_prepared_batches(
                     raise SourceLoadError("Prepared source row order is invalid")
                 previous_source_row = source_row
             observed_rows += len(batch.source_rows)
-            if observed_rows > prepared_snapshot.row_count:
+            if observed_rows > expected_rows:
                 raise SourceLoadError("Prepared source row count is invalid")
             yield batch
     except SourceLoadError:
         raise
     except (OSError, pl.exceptions.PolarsError) as error:
         raise SourceLoadError("Prepared snapshot values are unreadable") from error
-    if observed_rows != prepared_snapshot.row_count:
+    if observed_rows != expected_rows:
         raise SourceLoadError("Prepared source row count is invalid")
 
 

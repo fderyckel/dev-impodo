@@ -298,8 +298,9 @@ evidence. **Open Match data** loads the saved rules as an editable draft.
 Retries recover the draft from the registry and keep later edits. File Recipe
 drafts restore saved business checks, custom input declarations, exact
 reference lists, and supporting choices verified against the new capture.
-Versions with advanced checks tied to an approved coverage scope still stop
-before draft creation.
+When the saved version has advanced checks, the data manager reviews its
+historical coverage scope after checking Odoo and approves it for the new
+draft. Preparation uses the new approval and the draft's checked matches.
 Live qualification remains part of the delivery sequence.
 
 1. **Prove the smallest Recipe change.** Exercise the existing Authoring

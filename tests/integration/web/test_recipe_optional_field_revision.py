@@ -9,18 +9,26 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
-from impodo.domain.coverage import ReferenceBundle, ReferenceDataSet, ReferenceEntry, ReferenceValueKind
+from impodo.domain.coverage import (
+    CoverageApplicability, CoverageDeclaration, CoverageFamily, CoverageScopeRevision,
+    ReferenceBundle, ReferenceDataSet, ReferenceEntry, ReferenceValueKind,
+)
 from impodo.domain.mapping.contracts import DatasetMapping, IdentityComponentMapping, ReferenceLookupMapping, ScalarFieldMapping
 from impodo.domain.mapping.validation.evidence import mapping_issue_fingerprint
-from impodo.domain.preparation.quality import QualityOutcomePolicy, QualityRuleFamily, manager_quality_rule
+from impodo.domain.preparation.quality import (
+    QualityOutcomePolicy, QualityOwnerRole, QualityRule, QualityRuleFamily,
+    QualityRuleSource, manager_quality_rule,
+)
 from impodo.domain.recipe.models import RecipeError, RecipeIntegrityError
 from impodo.domain.recipe_parameters import RecipeParameterDefinition, RecipeParameterDefinitions, RecipeParameterType
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Capability
 from impodo.domain.shared.models import FieldMetadata
 from impodo.domain.workspace.supporting_review import SupportingChoice, SupportingChoiceAction
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.target_credentials import (
     TargetCredentialRole,
@@ -59,7 +67,13 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
                 with self.subTest(major=major, mode=mode):
                     self._exercise_revision(major, mode, with_dependencies=True)
 
-    def _exercise_revision(self, major, mode, *, with_dependencies=False):
+    def test_historical_draft_requires_fresh_coverage_approval(self):
+        for major in (19, 20):
+            for mode in OdooConnectionMode:
+                with self.subTest(major=major, mode=mode):
+                    self._exercise_revision(major, mode, with_dependencies=True, with_advanced=True)
+
+    def _exercise_revision(self, major, mode, *, with_dependencies=False, with_advanced=False):
         context = self.app.state.context
         actor = resolve_local_actor(context)
         project = context.project_authoring.create(
@@ -155,7 +169,7 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         context.schema_workspace.govern(workspace_id, business_keys=(key,), actor=actor)
 
         if with_dependencies:
-            self._exercise_dependencies(project, snapshot, mode, dataset, actor)
+            self._exercise_dependencies(project, snapshot, mode, dataset, actor, with_advanced=with_advanced)
             return
 
         mapping_path = f"/workspaces/{workspace_id}/mapping"
@@ -433,7 +447,7 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
             revise_url, project, original, expanded, mode, extra_checks
         )
 
-    def _exercise_dependencies(self, project, snapshot, mode, dataset, actor):
+    def _exercise_dependencies(self, project, snapshot, mode, dataset, actor, *, with_advanced=False):
         context = self.app.state.context
         compiler = context.recipe_authoring_drafts.compiler
         origin_id = project.workspace.workspace_id
@@ -475,10 +489,18 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
             name="Review customer names", input_fields=("name", "comment"),
             outcome=QualityOutcomePolicy.WARNING,
         )
-        context.quality.save_manager_rules(
+        ruleset = context.quality.save_manager_rules(
             context.quality.configuration(origin_id, dataset.dataset_id), (rule,), actor=actor,
         )
+        if with_advanced:
+            scope, advanced = self._approve_origin_coverage(origin_id, dataset, reference, bundle, ruleset, actor)
         original = self._publish_original(project)
+        if with_advanced:
+            changed_scope = replace(
+                scope, version=2, parent_version=1,
+                declarations=tuple(replace(item, rationale="Changed after publication") for item in scope.declarations),
+            )
+            compiler.references.save_coverage_scope(origin_id, changed_scope, expected_parent_version=1, actor=actor)
         compiler.references.save_reference_bundle(
             origin_id,
             replace(bundle, datasets=(replace(
@@ -498,6 +520,7 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         workspace_id = self._exercise_new_draft(
             revise_url, project, original, snapshot, mode, False, with_dependencies=True,
             interrupt_seed=snapshot.fingerprint.odoo_version == "19.0" and mode is OdooConnectionMode.LOCAL,
+            with_advanced=with_advanced,
         )
         self.assertEqual(compiler.parameters.get_parameter_definitions(workspace_id), parameters)
         self.assertEqual(compiler.references.get_reference_bundle(workspace_id), replace(bundle, workspace_id=workspace_id))
@@ -513,6 +536,15 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(lookup.reference_content_hash, reference.content_hash)
         revision = self._confirm_current_datasets(workspace_id, working.definition.datasets, actor)
+        if with_advanced:
+            self.assertIsNone(context.quality.current_ruleset(workspace_id))
+            planned, _ = context.quality.preparation_inputs(
+                workspace_id, revision.definition, context.queries.get_source_selection(workspace_id),
+            )
+            self.assertIn(advanced.name, {item.name for item in planned.rules})
+            context.preparation.prepare(workspace_id, actor=actor)
+            quality = context.quality.current_run(workspace_id)
+            self.assertIn("ADVANCED_CHECK_FAILED", {item.reason_code for item in quality.issues})
         self.assertIn("Review customer names", self.client.get(
             f"/workspaces/{workspace_id}/mapping?step=check",
         ).text)
@@ -523,14 +555,67 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         )
         configuration = context.quality.configuration(workspace_id, selection.datasets[0].dataset_id)
         changed = replace(restored.manager_rules[0], name="Revised business check")
-        context.quality.save_manager_rules(configuration, (changed,), actor=actor)
-        self.assertEqual(context.quality.current_ruleset(workspace_id).manager_rules, (changed,))
+        restored_ruleset = context.quality.save_manager_rules(configuration, (changed,), actor=actor)
+        self.assertEqual(restored_ruleset.manager_rules, (changed,))
+        if with_advanced:
+            new_scope = compiler.references.get_coverage_scope(workspace_id)
+            self.assertEqual(new_scope.declarations, scope.declarations)
+            self.assertNotEqual(new_scope.scope_id, scope.scope_id)
+            self.assertEqual(new_scope.approved_by, actor.identity)
+            self.assertGreater(new_scope.approved_at, scope.approved_at)
+            self.assertEqual(new_scope.source_selection_hash, selection.content_hash)
+            self.assertEqual(restored_ruleset.coverage_scope_hash, new_scope.content_hash)
+            self.assertEqual(restored_ruleset.reference_bundle_hash, replace(bundle, workspace_id=workspace_id).content_hash)
+            restored_check = next(item for item in restored_ruleset.rules if item.name == advanced.name)
+            self.assertEqual(replace(restored_check, rule_id=advanced.rule_id), advanced)
+            self.assertEqual(compiler.references.get_coverage_scope(origin_id), changed_scope)
         self.assertEqual(context.quality.current_ruleset(origin_id).manager_rules, (rule,))
         published = self.client.get(revise_url)
         self.assertIn("Changes from Recipe v1", published.text)
         saved = self._post(revise_url, self._publication_review_form(published.text))
         self.assertEqual(saved.status_code, 303, saved.text)
         self.assertTrue(saved.headers["location"].endswith("?version=2"))
+        if with_advanced and mode is OdooConnectionMode.LOCAL:
+            compiler.references.save_coverage_scope(
+                workspace_id, replace(new_scope, version=2, parent_version=1),
+                expected_parent_version=1, actor=actor,
+            )
+            with self.assertRaisesRegex(WorkspaceError, "approved coverage scope"):
+                context.preparation.prepare(workspace_id, actor=actor)
+
+    def _approve_origin_coverage(self, workspace_id, dataset, reference, bundle, ruleset, actor):
+        context = self.app.state.context
+        selection = context.queries.get_source_selection(workspace_id)
+        declarations = tuple(
+            CoverageDeclaration(
+                family,
+                CoverageApplicability.APPLICABLE if family is CoverageFamily.TC_14 else CoverageApplicability.INAPPLICABLE,
+                "Use the approved customer codes" if family is CoverageFamily.TC_14 else "Outside this import",
+                (dataset.name,) if family is CoverageFamily.TC_14 else (),
+            )
+            for family in CoverageFamily
+        )
+        scope = CoverageScopeRevision(
+            str(uuid4()), workspace_id, 1, None, selection.content_hash,
+            declarations, actor.identity, datetime.now(UTC),
+        )
+        compiler = context.recipe_authoring_drafts.compiler
+        compiler.references.save_coverage_scope(workspace_id, scope, expected_parent_version=None, actor=actor)
+        advanced = QualityRule(
+            rule_id=content_hash("Approved customer codes"), dataset=dataset.name,
+            family=QualityRuleFamily.APPROVED_CODE_LIST, name="Approved customer codes",
+            explanation="Check customer values against the approved list.",
+            input_fields=("name",),
+            parameters={"reference_id": reference.reference_id, "reference_content_hash": reference.content_hash},
+            outcome=QualityOutcomePolicy.WARNING, owner_role=QualityOwnerRole.DATA_MANAGER,
+            source=QualityRuleSource.SCOPE_APPROVED,
+        )
+        context.quality.publish_ruleset(workspace_id, replace(
+            ruleset, version=ruleset.version + 1, parent_version=ruleset.version,
+            rules=tuple(sorted((*ruleset.rules, advanced), key=lambda item: item.rule_id)),
+            coverage_scope_hash=scope.content_hash, reference_bundle_hash=bundle.content_hash,
+        ), actor=actor)
+        return scope, advanced
 
     def _confirm_current_datasets(self, workspace_id, datasets, actor):
         context = self.app.state.context
@@ -550,7 +635,7 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
 
     def _exercise_new_draft(
         self, revise_url, project, original, snapshot, mode, extra_checks, *,
-        with_dependencies=False, interrupt_seed=False,
+        with_dependencies=False, interrupt_seed=False, with_advanced=False,
     ):
         context = self.app.state.context
         actor = resolve_local_actor(context)
@@ -581,7 +666,7 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         self.assertLessEqual(timing.connection_count, 6, timing)
         self.assertLessEqual(timing.schema_check_count, 5, timing)
         # Checking a diverged origin also compiles its current dependency declarations.
-        self.assertLessEqual(len(statements), 380 if with_dependencies else 365)
+        self.assertLessEqual(len(statements), 395 if with_advanced else 380 if with_dependencies else 365)
         target_url = created.headers["location"]
         self.assertTrue(target_url.endswith("/target"), target_url)
         workspace_id = target_url.split("/")[2]
@@ -644,23 +729,39 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
             )
         self.assertEqual(checked.status_code, 303, checked.text)
         checked_page = self.client.get(checked.headers["location"])
-        self.assertIn(f'action="{revise_url}"', checked_page.text)
-        self.assertIn("Open Match data", checked_page.text)
+        seed_form = {"csrf_token": self.csrf, "action": "start"}
+        if with_advanced:
+            self.assertIn(f'href="{revise_url}"', checked_page.text)
+            self.assertIn("Review advanced checks", checked_page.text)
+            self.assertNotIn("Approve coverage and open Match data", checked_page.text)
+            references = context.recipe_authoring_drafts.compiler.references
+            self.assertIsNone(references.get_coverage_scope(workspace_id))
+            self.assertEqual(self._post(revise_url, seed_form).status_code, 422)
+            review = self.client.get(revise_url)
+            self.assertIn("Approved customer codes", review.text)
+            self.assertIn("Use the approved customer codes", review.text)
+            self.assertNotIn("Changed after publication", review.text)
+            token = search(r'name="coverage_review_hash" value="([^"]+)"', review.text).group(1)
+            seed_form.update(action="approve_coverage", coverage_review_hash=token)
+            stale = self._post(revise_url, {**seed_form, "coverage_review_hash": content_hash("stale")})
+            self.assertEqual(stale.status_code, 422)
+            self.assertIsNone(references.get_coverage_scope(workspace_id))
+        else:
+            self.assertIn(f'action="{revise_url}"', checked_page.text)
+            self.assertIn("Open Match data", checked_page.text)
         if interrupt_seed:
             with patch.object(
                 context.mapping_workspace, "save_working_draft",
                 side_effect=RecipeError("Interrupted draft seed"),
             ):
-                interrupted = self._post(revise_url, {"csrf_token": self.csrf, "action": "start"})
+                interrupted = self._post(revise_url, seed_form)
             self.assertEqual(interrupted.status_code, 422, interrupted.text)
             self.assertIsNone(context.queries.get_mapping_working_draft(workspace_id))
         with (
             collect_duckdb_request_timings() as seed_timing,
             count_duckdb_statements() as seed_sql,
         ):
-            started = self._post(
-                revise_url, {"csrf_token": self.csrf, "action": "start"}
-            )
+            started = self._post(revise_url, seed_form)
         self.assertEqual(started.status_code, 303, started.text)
         self.assertIn(
             f"/workspaces/{workspace_id}/mapping", started.headers["location"]
@@ -668,7 +769,9 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         # Reference history adds the origin's foundation and engine stores.
         self.assertLessEqual(seed_timing.connection_count, 6 if with_dependencies else 4, seed_timing)
         self.assertLessEqual(seed_timing.schema_check_count, 5 if with_dependencies else 3, seed_timing)
-        self.assertLessEqual(len(seed_sql), 295 if with_dependencies else 200)
+        # A fresh approval adds one scope read, its audit write, and source validation.
+        self.assertLessEqual(len(seed_sql), 330 if with_advanced else 295 if with_dependencies else 200)
+        self.assertEqual(seed_timing.lock_retry_count, 0)
         saved = context.queries.get_mapping_working_draft(workspace_id)
         self.assertEqual(
             [field.target_field for field in saved.definition.datasets[0].fields],

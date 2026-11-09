@@ -5,7 +5,9 @@ the comparison and the unique source key; positions are never persisted as row
 rules. Callers keep review, preview and save in one bounded local operation.
 """
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from hashlib import sha256
 from uuid import NAMESPACE_URL, uuid5
 
 from impodo.domain.mapping.contracts import (
@@ -24,12 +26,20 @@ from impodo.domain.mapping.row_inclusion import (
 )
 from impodo.domain.mapping.source_conditions import parse_source_text_list
 from impodo.domain.matching_order import (
+    MatchingIdentityChoice,
+    MatchingIdentityChoiceCause,
     MatchingIdentityChoiceFilter,
     MatchingIdentityChoicePage,
+)
+from impodo.domain.preparation.quality import (
+    QualityCauseImpact,
+    QualityReviewPage,
+    quality_identity_key,
 )
 from impodo.domain.relationship_dependencies import extract_dataset_dependency_edges
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.shared.models import portable_value
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
     SourceDataset,
@@ -40,6 +50,19 @@ from impodo.domain.workspace.errors import WorkspaceError
 from .categorical_coverage import CategoricalCoverageService
 from .order_service import MatchingOrderService
 from .service import MappingWorkspaceService
+
+PREPARED_DUPLICATE_REASONS = frozenset({
+    "SOURCE_IDENTITY_DUPLICATE", "POST_TRANSFORM_IDENTITY_COLLISION",
+})
+
+
+@dataclass(frozen=True, slots=True)
+class PreparedDuplicateEvidence:
+    """Current preparation finding and its bounded protected membership."""
+
+    run_id: str
+    page: QualityReviewPage
+    collision_sizes: Mapping[str, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,6 +79,8 @@ class DuplicateRows:
     unavailable: str
     exclusion_source_key: str
     identifier_message: str
+    quality_cause: str = ""
+    source_numbers: tuple[object, ...] = ()
 
 
 class DuplicateRowReview:
@@ -80,6 +105,7 @@ class DuplicateRowReview:
         after: int | None = None,
         before: int | None = None,
         exclusion_source_key: str = "",
+        prepared: PreparedDuplicateEvidence | None = None,
         actor: Actor,
     ) -> DuplicateRows:
         """Authorize and bind the displayed rows to the exact saved check."""
@@ -95,9 +121,14 @@ class DuplicateRowReview:
             raise WorkspaceError(
                 "Save your matching choices and check current data before reviewing duplicate rows."
             )
-        dataset = next(
-            (item for item in selection.datasets if item.dataset_id == dataset_id), None
-        )
+        cause = prepared.page.selected_cause if prepared is not None else None
+        dataset = next((
+            item for item in selection.datasets
+            if (item.name == cause.dataset if cause is not None else item.dataset_id == dataset_id)
+        ), None)
+        if dataset is None or (dataset_id and dataset_id != dataset.dataset_id):
+            raise WorkspaceError("Choose a current table for duplicate review.")
+        dataset_id = dataset.dataset_id
         mapping = next(
             (
                 item
@@ -106,7 +137,7 @@ class DuplicateRowReview:
             ),
             None,
         )
-        if dataset is None or mapping is None:
+        if mapping is None:
             raise WorkspaceError("Choose a current table for duplicate review.")
         exclusion_key = exclusion_source_key or (
             mapping.source_identity_column_keys[0]
@@ -130,7 +161,7 @@ class DuplicateRowReview:
             before=before,
             expected_check_id=check_id,
             actor=actor,
-        )
+        ) if prepared is None else None
         keys = tuple(
             dict.fromkeys(
                 (
@@ -150,16 +181,24 @@ class DuplicateRowReview:
         keys = tuple(dict.fromkeys((*keys, *(gate.source_keys if gate else ())))) or (
             dataset.columns[0].stable_key,
         )
-        raw = self.values.source_condition_rows(workspace_id, dataset_id, keys)
+        raw = self.values.source_condition_rows(
+            workspace_id, dataset_id, keys,
+            include_source_numbers=prepared is not None,
+        )
         admitted = tuple(
             (position, row)
             for position, values in enumerate(raw)
-            if row_is_included(
-                mapping.row_inclusion, row := dict(zip(keys, values, strict=True)), gate
-            )
+            if row_is_included(mapping.row_inclusion, row := dict(zip(
+                keys, values if prepared is None else values[1:], strict=True,
+            )), gate)
         )
         included = tuple(row for _, row in admitted)
-        if any(item.member_position > len(included) for item in page.rows):
+        if prepared is not None:
+            page = _prepared_duplicate_page(
+                prepared, dataset, draft,
+                {raw[position][0]: index for index, (position, _) in enumerate(admitted, 1)},
+            )
+        if page is None or any(item.member_position > len(included) for item in page.rows):
             raise WorkspaceError(
                 "The duplicate rows no longer agree with this check. Check current data again."
             )
@@ -215,6 +254,9 @@ class DuplicateRowReview:
             unavailable,
             exclusion_key,
             identifier_message,
+            cause.cause_key if cause is not None else "",
+            tuple(raw[admitted[item.member_position - 1][0]][0] for item in page.rows)
+            if prepared is not None else (),
         )
 
     @staticmethod
@@ -386,6 +428,7 @@ class DuplicateRowReview:
             "preview_hash": content_hash(
                 {
                     "check": review.page.check_id,
+                    "quality_cause": review.quality_cause,
                     "draft": review.draft.content_hash,
                     "data": review.selection.content_hash,
                     "data_version_id": review.selection.data_version_id,
@@ -499,3 +542,62 @@ class DuplicateRowReview:
             operation_id=operation_id,
             actor=actor,
         )
+
+
+def _prepared_duplicate_page(
+    evidence: PreparedDuplicateEvidence,
+    dataset: SourceDataset,
+    draft: MappingWorkingDraft,
+    included_positions: Mapping[object, int],
+) -> MatchingIdentityChoicePage:
+    """Adapt current preparation evidence to the shared exact exclusion preview."""
+
+    page = evidence.page
+    cause = page.selected_cause
+    if cause is None or cause.reason_code not in PREPARED_DUPLICATE_REASONS:
+        raise WorkspaceError("Choose a current duplicate finding from Prepare data.")
+    members = []
+    for item in page.items:
+        if item.cause_impact is not QualityCauseImpact.DIRECT:
+            continue
+        row = item.prepared_row
+        if (
+            row is None
+            or row.dataset != dataset.name
+            or row.lineage.physical_sources != {dataset.dataset_id: (row.source_row,)}
+            or row.lineage.mapping_hash != draft.content_hash
+            or row.lineage.source_selection_hash != draft.definition.source_selection_hash
+            or row.source_row not in included_positions
+        ):
+            raise WorkspaceError("The prepared duplicate rows no longer match the saved source and rules. Prepare data again.")
+        if cause.reason_code == "SOURCE_IDENTITY_DUPLICATE":
+            count = next((issue.affected_count for issue in row.issues if issue.code == cause.reason_code), 0)
+            group_hash = content_hash(portable_value(row.source_identity))
+            label = " / ".join("(blank)" if value is None else str(value) for value in row.source_identity)
+            field = "Source identifier"
+        else:
+            count = evidence.collision_sizes.get(row.row_id, 0)
+            key = quality_identity_key(row)
+            if count < 2 or key is None:
+                raise WorkspaceError("The saved Odoo collision group is unavailable. Prepare data again.")
+            group_hash = "sha256:" + sha256(key).hexdigest()
+            label = " / ".join(str(value) for _, value in item.prepared_identity_values) or item.row.record_label
+            field = "Odoo match"
+        members.append(MatchingIdentityChoice(
+            ordinal=len(members), dataset_id=dataset.dataset_id,
+            target_field=field, related_model=row.target_model,
+            related_fields=(field,), key=(label[:4096],),
+            cause=MatchingIdentityChoiceCause.REPEATED_SOURCE,
+            target_match_count=0, incoming_match_count=0,
+            group_hash=group_hash, member_origin="source",
+            member_position=included_positions[row.source_row], source_match_count=count,
+        ))
+    if not members:
+        raise WorkspaceError("There are no directly affected duplicate rows on this page.")
+    start = (page.page - 1) * 100 + 1
+    return MatchingIdentityChoicePage(
+        tuple(members), page.matching_count, start, min(start + 99, page.matching_count),
+        page.page - 1 if page.page > 1 else None,
+        page.page + 1 if page.page < page.page_count else None,
+        check_id=evidence.run_id,
+    )

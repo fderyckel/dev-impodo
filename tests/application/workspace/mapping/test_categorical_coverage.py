@@ -88,7 +88,10 @@ class _RecordingCoverageService(CategoricalCoverageService):
         selection,
         dataset_id,
         source_column_keys,
+        *,
+        include_source_numbers: bool = False,
     ) -> pl.DataFrame:
+        assert not include_source_numbers, "This fixture models value-only projections"
         self.scan_calls.append((dataset_id, tuple(source_column_keys)))
         return self.frame.select(source_column_keys)
 

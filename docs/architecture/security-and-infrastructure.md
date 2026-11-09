@@ -1,373 +1,148 @@
+---
+audience: developer
+kind: architecture
+status: current
+---
+
 # Security and infrastructure
 
-## Purpose
+The local application runs the migration workflow for one workstation
+operator. The Linux container rehearsal runs health and account administration
+behind a loopback HTTPS proxy. The two applications have separate session
+and storage boundaries. See [shared-server fact ownership](server-fact-ownership.md).
 
-This document summarizes Impodo's current security boundary, implemented
-controls, infrastructure dependencies, and unresolved acceptance work. The
-[Windows workstation requirements](../developer/setup/windows.md)
-contain the detailed endpoint-provisioning checklist.
+## Local browser
 
-## At a glance
+The launcher binds a port selected by the operating system on `127.0.0.1`.
+It exchanges a single-use launch token for a signed browser session and
+removes the token from the active URL. A supervised child restart keeps the
+session signing key. Starting a new launcher replaces the key.
 
-| Area | Current boundary |
-| --- | --- |
-| Application | Local Python process and browser UI bound to `127.0.0.1` |
-| Recipe state | Bounded registry plus AES-256-GCM protected immutable Recipe and qualification payloads |
-| DataVersion data | Owner-protected local files, immutable Parquet snapshots, and one contained DuckDB workspace |
-| Source intake | Governed `.csv` and `.xlsx` only |
-| Odoo reads | Fixed local reads or closed remote Odoo 19/final Odoo 20 JSON-2 `fields_get` and `search_read` |
-| Odoo writes | Separate explicit local or remote JSON-2 load/create/update capability, bound to one reviewed preview |
-| Execution evidence | Durable per-row journal plus hash-bound read-back reconciliation and fallout export |
-| Current scale | 100,000 verified native-columnar direct rows; 50,000 Python-fallback direct rows; composed reviewed exact joins use volume advisories and have 65,299- and 100,000-input worker qualification; 25,000 other derived/materialized rows |
-| Hosted service | Not part of the current deployment |
+State-changing routes check CSRF and same-origin requests. Middleware checks
+the exact host and applies framing denial and `Cache-Control: no-store`.
+The launcher disables API documentation, proxy forwarding, and access logs.
+The session uses loopback HTTP with an HttpOnly cookie. The workstation
+account and launch session establish the local operator's identity. That
+operator receives all local capabilities, which services check before
+governed operations. See the
+[launcher](../../src/impodo/web/launcher.py) and
+[loopback middleware](../../src/impodo/web/security.py).
 
-## Trust boundaries
+## Source files and local storage
 
-```text
-Managed workstation
+- Intake validates bounded CSV and XLSX uploads using file content. Spawned
+  workers inspect files with time and memory limits. Validation covers
+  workbook structure, compressed size, macros, external connections,
+  embedded content, and formulas.
+- Impodo stages uploads under generated filenames, checks their SHA-256
+  hashes, and publishes immutable originals. It freezes confirmed source
+  tables as immutable Parquet snapshots. The Data version owns the accepted
+  data, and each Workspace stores references to the datasets it uses.
+- The Project registry, Data version stores, and Workspace stores have
+  separate DuckDB owners. Standard repository connections disable external
+  access and extension autoload. Specific snapshot adapters enable filesystem
+  access for application-controlled paths.
+- The Windows default is `%LOCALAPPDATA%\Impodo\projects`. Normal mode
+  verifies owner-restricted filesystem permissions and rejects Git
+  checkouts, sync roots, network drives, symlinks, and junctions. Development
+  mode is for synthetic or disposable data.
+- Application-constructed snapshot paths stay inside the owner root.
+  Prepared Parquet is immutable. Its manifest binds the source, mapping,
+  schema, transformation, row count, and file hash before the current
+  pointer advances.
 
-  managed browser
-        |
-        | random 127.0.0.1 HTTP port
-        v
-  Impodo / FastAPI
-        |-- protected application root and Recipe registry
-        |-- encrypted Recipe/qualification payloads
-        |-- per-DataVersion DuckDB and immutable source/prepared snapshots
-        |-- resource-bounded source-file worker
-        |-- local credential vault
-        |
-        | fixed literal-loopback metadata/record reads, no API key
-        | or outbound HTTPS read-only JSON-2 with a read account
-        v
-  authorised Odoo 19 or final Odoo 20 read target
+Impodo encrypts protected Recipe payloads, qualification evidence, and
+restricted Odoo evidence with AES-256-GCM. The vault holds the scoped keys.
+Bulk source files, workspace data, and ordinary reports rely on filesystem
+permissions and workstation disk encryption. Post-load field-difference
+artifacts use that same owner-restricted storage and bind the exact file by
+hash. See the
+[Windows workstation requirements](../developer/setup/windows.md),
+[artifact store](../../src/impodo/adapters/artifacts/local_store.py), and
+[project root controls](../../src/impodo/adapters/protected_evidence/project_security.py).
 
-  Separate explicit load path
-        |
-        | literal-loopback or outbound HTTPS Odoo 19/final Odoo 20 JSON-2
-        | preview-scoped search_read / load / create / write
-        | dedicated least-privilege API key
-        v
-  approved disposable local or remote Odoo database
-```
+## Credentials and Odoo reads
 
-Impodo has no public listener, inbound Odoo connection, application cloud
-storage, telemetry service, direct PostgreSQL target access, or SSH surface.
-It has no Odoo delete, arbitrary import, caller-selected method, generic RPC,
-SQL, `sudo`, or workflow-action surface.
+Impodo supports Odoo 19 and final Odoo 20. Local reads use fixed scripts with
+the selected `odoo.conf`. Optional stack controls can stop only the Odoo and
+PostgreSQL processes the current Impodo session started. Remote reads require
+HTTPS outside literal loopback. The JSON-2 read adapter uses bounded model
+and record reads, selected default lookups, and fixed identity and
+permission probes. It exposes no caller-selected API method. See the
+[local reader](../../src/impodo/adapters/odoo/local_reader.py) and
+[JSON-2 read connector](../../src/impodo/adapters/odoo/connectors.py).
 
-## Implemented controls
+API keys stay in process memory or the operating-system vault. Credential
+bindings identify the owner, role, and exact target. Conventional file-source
+loads use a write role for execution and read-back. Odoo-to-Odoo transfer uses
+separate source-fetch and destination-transfer roles. Credentials never enter
+migration evidence or portable Recipes. Impodo records non-secret credential
+generations and identity hashes so it can detect changes and recheck current
+access. See the
+[credential vault](../../src/impodo/adapters/protected_evidence/credential_vault.py)
+and [execution access contract](../developer/contracts/execution-and-reconciliation.md#authorization-and-binding).
 
-### Local browser
+The service account's ACLs, record rules, permitted companies, and field
+permissions remain part of the Odoo security boundary. Impodo's model-level
+access probes supplement those controls.
 
-- Uvicorn binds an operating-system-selected port on literal `127.0.0.1`.
-- A random single-use launch token is exchanged for a signed browser session
-  that belongs to the current Impodo launcher and is removed from the active
-  URL. A supervised server-child restart retains the signing secret, while a
-  new launcher rotates it and invalidates the earlier session.
-- State changes require CSRF and same-origin validation; `GET` is not used for
-  mutations.
-- Host validation, restrictive response headers, framing denial, and
-  `Cache-Control: no-store` reduce browser attack surface.
-- API documentation, CORS, proxy forwarding, and access logs are disabled.
-- Transformation-report filtering and CSV download use JavaScript shipped with
-  Impodo. No CDN, browser extension, or Node.js runtime is required.
-- Application services enforce fine-grained capabilities and retain stable
-  actor identity in governed audit records. In the current single-user local
-  composition, the authenticated local operator receives all capabilities;
-  Windows account access, the launch session, and physical workstation control
-  remain the user boundary. Hosted role assignment is not implemented.
+## Odoo writes and recovery
 
-Loopback uses HTTP, so the session cookie cannot use `Secure`. Literal
-loopback binding, exact-host validation, the ephemeral port, and the launch
-secret reduce but do not remove that limitation.
+**Load into Odoo** requires explicit confirmation and a current reviewed
+snapshot for the exact target. The service checks the target, credential role,
+company context, and reviewed model and field scope before opening the writer.
+The closed JSON-2 adapter permits exact-key reads, bounded create and External
+ID import calls, and updates to exact reviewed records. Request bodies are
+limited to 1 MiB. Odoo business actions, deletion, generic RPC, and SQL are
+outside that surface. JSON-2 checks and writes use separate requests, so Odoo
+can change between them.
 
-### Source files
+Impodo journals each write attempt before sending it. If the outcome is
+unknown, Impodo stops further writes and requires read-back before recovery.
+For conventional loads, the selected continuation policy can isolate
+classified rejections when the batch is known to have committed nothing.
+Recovery and read-back remain bound to the original snapshot and journal. See
+[execution and reconciliation](../developer/contracts/execution-and-reconciliation.md).
 
-- Intake accepts only bounded CSV and XLSX files and does not trust browser
-  content types.
-- Paths, signatures, Office containers, macros, external connections,
-  embedded content, compression ratios, formulas, and size limits are checked.
-- Validation and inspection run in spawned workers with time and memory
-  limits.
-- Files are copied under generated names through partial staging and atomic
-  rename; display names are metadata only.
-- Registered source bytes are SHA-256 hashed and remain immutable.
-- Freezing parses each selected table once through that same strict reader and
-  publishes a lossless, content-addressed Parquet snapshot below the owning
-  DataVersion artifact root. Temporary fragments are contained and removed on
-  every exit path; the completed file is schema/count/semantic/hash checked
-  before atomic rename and DuckDB pointer publication.
+The qualified-plan Production path applies to file-source runs. It requires
+an active Production run with a fresh frozen Data version, an authenticated
+selected CutoverPlan, and a different same-major target from the qualified
+Test run. It uses distinct Production read and write credentials. Impodo
+repeats the authority and dependency checks before constructing a writer.
+See the [Production run contract](../developer/contracts/production-run-lifecycle.md).
 
-Endpoint antivirus or content-disarm requirements remain an organizational
-policy decision.
+## Linux server rehearsal
 
-### Recipe and DataVersion storage
+The Compose rehearsal publishes only its loopback TLS proxy. The web process
+runs with a fixed unprivileged identity and reads its secrets from protected
+files. PostgreSQL has separate schema migration and runtime roles.
 
-- Normal Windows storage is `%LOCALAPPDATA%\Impodo\projects` on a local drive.
-- Impodo creates and verifies an owner-protected DACL before opening project
-  data.
-- On Windows, normal mode rejects Git checkouts, sync roots, network drives,
-  symlinks, and junctions. Development mode is for synthetic or disposable
-  data only.
-- The protected root contains the bounded Recipe/DataVersion registry and
-  encrypted protected Recipe store. Recipe, DataVersion, and workspace IDs are
-  distinct and are resolved explicitly.
-- Each DataVersion source package and each MigrationWorkspace use separate
-  DuckDB stores behind application-owned repositories; users and mappings
-  receive no SQL console. The workspace store keeps source references, not a
-  copy of the accepted source package.
-- Native-columnar preparation publishes a mapping-bound immutable prepared
-  Parquet snapshot. Its manifest binds the exact source snapshot, mapping,
-  schema, transformation program, row count, physical schema, and Parquet
-  bytes. DuckDB advances its current pointer only after canonical publication
-  succeeds.
-- Snapshot paths are application-constructed from validated dataset and hash
-  bindings. Traversal and symlink escapes are rejected, and Windows refuses a
-  governed snapshot path longer than the 259 UTF-16-code-unit portable limit
-  before filesystem access.
-- DuckDB external access and extension autoload are disabled, and connections
-  have bounded memory and threads.
-
-Application-level encryption is implemented for immutable Recipe and
-qualification payloads and for protected Odoo provenance, not for every
-workspace artifact. Recipe payloads use AES-256-GCM with one Recipe-scoped key
-kept in the operating-system vault. Odoo provenance uses the same primitive
-with a project-scoped key and a narrow typed sidecar. Authenticated context
-binds each payload, and exact ciphertext bytes are hash-verified at the
-repository boundary and on read. Protected directories/files use private
-`0700`/`0600` permissions where POSIX modes apply. Authorized services enforce
-retained-history quota, expiry, invalidation, and key deletion during project
-deletion. Numeric IDs, protected filters, principal/company identifiers, and
-target-bound current/difference values use this restricted sidecar class.
-Bulk source values remain one governed typed artifact under the project's
-classification and are not copied into that sidecar. Existing portable project
-evidence still depends on full-disk encryption and operating-system access
-controls.
-
-Post-load field-difference detail follows that ordinary local-artifact model:
-it is owner-restricted, authorization-checked, and SHA-256-bound, but is not
-wrapped in a second application encryption layer. The same values already
-exist in the governed source workbook, prepared data, and generated review
-workbook, so selectively encrypting only this copy would add a recovery key
-without establishing a coherent confidentiality boundary.
-
-### Secrets
-
-- Remote read API keys and disposable-target load API keys remain in memory or
-  the local credential vault under separate read/write service labels.
-- Stored credential identifiers and versioned envelopes are bound to the
-  project, role, connection mode, URL, and database. Read-side routes retrieve
-  only the read role; write and read-back routes retrieve only the write role,
-  with no legacy or cross-role fallback.
-- Model and schema evidence records a random, secret-independent read-
-  credential-generation hash. It detects an Impodo-side credential rotation
-  but is not represented as an Odoo principal or permission fingerprint.
-- Remote identity probing is a fixed JSON-2 sequence: the API key's own
-  `res.users/context_get`, one exact self-record `search_read`, one bounded
-  active-company ID projection, and `has_access('read')` for service-selected
-  models. Only principal, observed-permission, and context hashes leave the
-  connector boundary. No user/group catalogue, company business fields, or
-  caller-selected method is exposed.
-- A separate remote write-identity connector first exercises that same closed
-  self/context/read sequence for every model in the reviewed execution scope,
-  then calls only `has_access('write')` for models with reviewed write fields.
-  It performs no write and exposes only write-principal, observed-permission,
-  and context hashes.
-- Successful credential storage or replacement adds an actor-bound DuckDB
-  audit event containing the random credential-generation binding and storage
-  class. Secrets and raw Odoo identity values remain excluded.
-- Prepared-data recovery may stage a re-entered write key in memory, but it
-  commits that generation only after a read-only probe matches the interrupted
-  run's target, principal, observed permissions, and company context. The
-  reauthorization audit records only the old and new random binding hashes and
-  storage class. The commit fails if the vault entry changed during the remote
-  check. A failed check does not replace the vault entry.
-- Target change and project deletion remove both role-qualified vault entries.
-  Each entry that existed produces an actor-bound, non-secret registry receipt
-  containing its binding hash when recoverable, storage class, target hash, and
-  removal reason. The receipt survives project-directory deletion.
-- Credentials are excluded from the registry, DataVersion and workspace
-  databases, mappings, reports, browser storage, and logs.
-- Credential generations are operational bindings to the exact target and
-  run/workspace context. They are not DataVersion source evidence. Secrets
-  never enter a Recipe revision, qualification, or cutover candidate, and Test
-  credentials are never copied to Production.
-- Authenticated redirects are refused; API keys and Odoo error bodies are
-  redacted from public errors.
-
-### Odoo access
-
-The remote read connector requires HTTPS outside literal loopback and exposes
-only qualified Odoo 19 or final Odoo 20 JSON-2 `fields_get`, `search_read`, and the fixed identity sequence
-above. Reads are projected, batched by model, and paginated deterministically.
-The separately confirmed writer described below does not widen that read
-connector.
-
-Local read mode uses the explicitly selected `odoo.conf` and fixed scripts for
-the model catalogue, `fields_get`, and bounded `search_read`. It requires no
-Odoo API key and is not a generic shell or RPC interface. Optional local-stack
-controls use fixed argument lists and may stop only the exact Odoo/PostgreSQL
-processes started by the current Impodo session.
-
-Odoo-side defense in depth remains mandatory: a dedicated service user,
-explicit ACLs and record rules, permitted-company context, model/field scope,
-and governed key rotation and revocation.
-
-### Controlled Test and qualified-plan Production execution
-
-The writer is a separate adapter from every read connector. A load is allowed
-only when all of these are true:
-
-- the MigrationRun target binding is Local or Remote and identifies supported
-  Odoo 19 or final Odoo 20;
-- the current immutable execution snapshot matches the page the operator
-  reviewed and contains no blocked or ambiguous rows;
-- the writer target hash matches the exact URL and database in that snapshot;
-- the per-preview API scope matches the exact captured models, lookup fields,
-  readable fields, and writable fields;
-- no earlier run already consumed that snapshot; and
-- a separate target-bound write-role credential is supplied or already stored;
-  target setup may create it from the same explicitly approved secret, but the
-  setup read role is never substituted during execution; and
-- for remote execution, the write credential has read-back access to every
-  scoped model and write access to every model with reviewed write fields, and
-  its context matches the reviewed schema context; and
-- the operator makes one explicit **Load into Odoo** request with the execute
-  capability.
-
-The closed JSON-2 surface permits exact-key `search_read`, remote External-ID
-`load` batches or local `create` batches of at most 50 rows, and one uniquely
-re-matched record per `write`. Request bodies are capped at 1 MiB. Standard,
-extended, and custom models are supported only when they appear in the
-captured schema and reviewed preview; there is no global model or field
-permission that can widen a particular run.
-
-Required-at-create relationship cycles block the preview before any write.
-For an explicitly deferrable cycle, Impodo creates the records first and then
-applies the exact reviewed relationship with one second ORM `write`. If that
-patch is rejected, the row is recorded as partially applied; if its outcome is
-unknown, later writes stop. In both cases the already-created Odoo ID remains
-in the protected journal for reconciliation.
-
-Every proposed write is journaled. A definitive rejection is recorded without
-pretending the row committed. A lost or invalid write response becomes
-**outcome unknown**, is never retried automatically, and stops later writes in
-the run. Reconciliation reads committed rows by journaled ID, re-matches
-uncertain outcomes by governed business key, compares reviewed fields, and
-stores a hash-bound result with a downloadable fallout CSV. Only an uncertain
-create proven absent is marked safe to plan again; updates are never declared
-retry-safe merely because read-back could not find them.
-
-For ordinary workspaces this remains a disposable-target migration
-capability. Production authority exists only for an active Project Production
-run that pins the current selected and authenticated CutoverPlan, a fresh
-frozen Production DataVersion, a different same-major Odoo 19 or final Odoo 20
-target, and exact current
-read and write credential generations. The guard is repeated before writer
-construction. Neither qualification nor selection alone authorizes a write.
-
-This boundary does not authorize arbitrary Odoo business actions or direct
-database writes. The reviewed API scope, execution snapshot, journal, and
-read-back rules remain unchanged in Production.
-
-The current Odoo-source round-trip policy still records native source-system
-Production writes as `PRODUCTION_WRITE_UNSUPPORTED`. Impodo writes only through
-fresh file-source Production applications after exact activation. JSON-2
-proves the configured endpoint/database, not a restored or cloned database
-instance, and separate read/write requests cannot provide an atomic
-compare-and-write transaction.
-
-## Infrastructure dependency
-
-Normal use requires a managed and patched workstation, full-disk encryption,
-EDR/antimalware, host firewall, a supported browser, approved Python 3.12,
-writable local application/temp storage, and an accepted internal Impodo
-bundle. Remote access additionally requires trusted TLS and governed
-network/VPN routing. Remote reads need an evidenced read-only Odoo account. A
-disposable local or remote load requires a separate least-privilege Odoo API
-key whose ACLs, record rules, companies, and field access cover only the
-reviewed rehearsal scope.
-
-Excel review packages are generated locally with the controlled Python
-`openpyxl` dependency already required for XLSX intake. Node.js is not an
-Impodo workstation dependency.
-
-The columnar preparation track pins Polars `1.43.2` and its matching
-`polars-runtime-32` wheel in the authoritative Windows/Python 3.12 binary-only
-lock. Polars is distributed under the OSI-approved MIT License; the wheel
-retains its `LICENSE` metadata, and the internal release process records the
-resolved package in dependency-audit and CycloneDX SBOM evidence. Polars now
-executes only the application-constructed local Parquet ingestion/scan plan;
-it receives no browser-controlled path or expression. DuckDB external access
-remains disabled because snapshot bytes move through the artifact and
-repository ports rather than DuckDB filesystem readers.
-
-Impodo requires no inbound firewall opening. Detailed installation and
-verification steps belong in the
-[workstation runbook](../developer/setup/windows.md), not in
-this security summary.
+The server sets a Secure, host-only, HttpOnly session cookie and a separate
+CSRF cookie. It checks the configured Host and Origin on account forms,
+limits request bodies to 64 KiB, and denies framing and caching. The account
+services use scrypt password verifiers, persistent throttles, and process-local
+limits on concurrent login and token operations. PostgreSQL stores only
+digests of session handles, CSRF secrets, and one-time tokens. Activation
+and recovery links carry their tokens in URL fragments. The form script
+removes the fragment from browser history and submits the token in a POST body.
+Public recovery requests return a generic acknowledgement. Authorized
+administrators deliver the links privately during the rehearsal. See the
+[rehearsal runbook](../../deploy/README.md) and
+[server browser middleware](../../src/impodo/web/composition/server_session_http.py).
 
 ## Data handling
 
-- Record the Recipe classification. The current browser bootstrap stores
-  `INTERNAL`; do not treat that technical default as customer approval for
-  confidential or restricted data.
-- Keep sources, DuckDB data, snapshots, reports, and audit evidence only in
-  their protected DataVersion or workspace roots below the Project boundary.
-- Never place project data in Git, email, unauthorized shared storage, or
-  unapproved sync/cloud locations.
-- Keep raw sources immutable and retain evidence for derived corrections.
-- Keep credentials outside DataVersion and workspace artifacts and remove
-  related vault entries when the Project closes.
-- Keep execution journals and reconciliation results inside the protected
-  project boundary. They may contain target-specific Odoo record IDs; portable
-  mappings, staging evidence, manifests, workbooks, and CSV reports must not.
-- Retain project data through acceptance and reconciliation, then apply the
-  data owner's documented retention, legal-hold, backup, and deletion rules.
+Use the protected Project root for sources, stores, reports, and audit
+evidence. Keep original files immutable and retain the evidence for reviewed
+corrections. Odoo record IDs needed for recovery belong in protected evidence,
+outside portable mappings and reports. The local default classification is
+`INTERNAL`. Classification, retention, backup, legal holds, deletion, and
+support access follow the data owner's policies.
 
-SSD deletion assurance depends on encryption and key governance, not claims
-of reliable per-file overwriting.
-
-## Acceptance gaps
-
-Before using real customer data or claiming production readiness, complete:
-
-- an accepted, clean, evidence-producing internal release bundle;
-- organization-specific workstation and protected-root verification;
-- live Odoo read and writer ACL, record-rule, field-access,
-  company-scope, and key-lifecycle proof;
-- representative source-volume and sanitized live-target acceptance;
-- the 100,000-row Windows repetition before making a cross-platform claim;
-- an explicit decision on loopback HTTP and endpoint content scanning;
-- customer-approved classification, retention, backup, legal hold, deletion,
-  and support-access rules;
-- any required threat model, privacy assessment, penetration test, and
-  customer security review.
-
-These gaps do not authorize broadening the read connector or deploying the
-current writer as a production executor. The writer remains separate,
-disposable-target-only, and bound to the exact captured-schema fields in one
-reviewed preview. Remote capability is not production authorization.
-
-## Evidence and references
-
-Project evidence:
-
-- [Product vision and current delivery boundary](../product-vision.md)
-- [Architecture overview](overview.md)
-- [Python code map and execution boundary](python-code-map.md)
-- [Recipe and data-version lifecycle contract](../developer/contracts/recipe-lifecycle.md)
-- [Contained project lifecycle contract](../developer/contracts/project-lifecycle.md)
-- [Preflight contract](../developer/contracts/preflight.md)
-- [Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md)
-- [Platform support and testing](../developer/reference/platform-support-and-testing.md)
-- [Internal release runbook](../developer/runbooks/internal-release.md)
-- [Windows workstation requirements](../developer/setup/windows.md)
-
-External control references:
-
-- [OWASP File Upload Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html)
-- [OWASP CSRF Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
-- [DuckDB security overview](https://duckdb.org/docs/current/operations_manual/securing_duckdb/overview)
-- [Odoo 19 External JSON-2 API](https://www.odoo.com/documentation/19.0/developer/reference/external_api.html)
+The Windows runbook covers managed endpoints, disk encryption, antimalware,
+host firewall, local storage, and approved bundles. Remote Odoo acceptance
+covers TLS, network routing, and live account permissions. The platform
+reference records the verification scope for Windows, macOS, and Linux. See
+the [Windows workstation requirements](../developer/setup/windows.md),
+[remote Odoo acceptance runbook](../developer/runbooks/remote-odoo-acceptance.md),
+and [platform support and testing](../developer/reference/platform-support-and-testing.md).

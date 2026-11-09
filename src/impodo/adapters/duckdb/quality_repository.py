@@ -1696,6 +1696,7 @@ class QualityRepository(DuckDbRepository):
         *,
         page: int = 1,
         page_size: int = 50,
+        direct_only: bool = False,
     ) -> QualityReviewPage:
         """Read one indexed page from a publication-time cause closure."""
 
@@ -1756,8 +1757,9 @@ class QualityRepository(DuckDbRepository):
                 SELECT COUNT(*)
                   FROM quality_cause_member
                  WHERE run_id = ? AND cause_key = ?
+                   AND (NOT ? OR impact_kind = 'DIRECT')
                 """,
-                [canonical_run_id, cause_key],
+                [canonical_run_id, cause_key, direct_only],
             ).fetchone()
             matching_count = int(count_row[0]) if count_row else 0
             if matching_count < 1:
@@ -1815,6 +1817,7 @@ class QualityRepository(DuckDbRepository):
                   JOIN quality_cause_member AS member
                     ON member.row_id = logical_quality.row_id
                  WHERE member.run_id = ? AND member.cause_key = ?
+                   AND (NOT ? OR member.impact_kind = 'DIRECT')
                  ORDER BY logical_quality.dataset,
                           logical_quality.source_row,
                           logical_quality.row_id
@@ -1824,6 +1827,7 @@ class QualityRepository(DuckDbRepository):
                     *relation_parameters,
                     canonical_run_id,
                     cause_key,
+                    direct_only,
                     page_size,
                     offset,
                 ],
@@ -1905,6 +1909,38 @@ class QualityRepository(DuckDbRepository):
             selected_cause=selected_cause,
             run_cause_counts=causes,
         )
+
+    def get_quality_collision_group_sizes(
+        self, workspace_id: str, run_id: str, row_ids: Sequence[str],
+    ) -> dict[str, int]:
+        """Count complete prepared groups for one bounded comparison page."""
+
+        if not row_ids:
+            return {}
+        if len(row_ids) > 100:
+            raise WorkspaceError("Too many collision rows were requested")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        placeholders = ", ".join("?" for _ in row_ids)
+        with self._connect(database_path) as connection:
+            rows = connection.execute(
+                f"""
+                WITH selected AS (
+                    SELECT row.run_id, row.row_id, row.quality_identity_key
+                      FROM quality_run AS quality
+                      JOIN canonical_staging_row AS row ON row.run_id = quality.staging_run_id
+                     WHERE quality.run_id = ? AND row.row_id IN ({placeholders})
+                ), group_sizes AS (
+                    SELECT member.quality_identity_key, COUNT(*) AS size
+                      FROM canonical_staging_row AS member
+                      JOIN (SELECT DISTINCT run_id, quality_identity_key FROM selected) AS keys
+                        ON member.run_id = keys.run_id
+                       AND member.quality_identity_key = keys.quality_identity_key
+                     GROUP BY member.quality_identity_key
+                )
+                SELECT row_id, size FROM selected JOIN group_sizes USING (quality_identity_key)
+                """, [run_id, *row_ids],
+            ).fetchall()
+        return {str(row_id): int(size) for row_id, size in rows}
 
     def get_quality_collision_groups(
         self,

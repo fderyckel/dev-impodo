@@ -100,10 +100,17 @@ complete data again.
 
 Select **Review affected records** to inspect the complete set behind one
 card. The paged list labels a record as a **Direct finding**, **Affected
-parent**, **Affected child**, or **Affected sibling**. It shows only saved
-prepared-data evidence and does not rerun preparation, read Odoo, or change a
-source or rule. Return to the card's correction action, make the deliberate
-change, and prepare the complete data again.
+parent**, **Affected child**, or **Affected sibling**.
+
+When source rows share an identifier or prepared rows share an Odoo match,
+select **Review duplicate rows** on the issue. You can also open **Choose rows
+to exclude** from its affected-records page. Compare the values and tick
+**Exclude** for each copy to leave out. **Review exclusions** shows the effect
+on the row selection and any affected relationships. **Apply exclusions and
+prepare again** saves the choices and checks them before preparing the data.
+Impodo asks you to review any new matching warnings or dependent row choices
+before continuing. The picker is available for file tables in editable
+workspaces that allow protected row comparisons.
 
 For a mapped number, a card can say **Prepared value exceeds Odoo precision**.
 This means an exact prepared value needs more decimal places or total digits

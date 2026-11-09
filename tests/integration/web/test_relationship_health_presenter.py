@@ -91,6 +91,23 @@ class RelationshipHealthPresenterTests(unittest.TestCase):
         self.assertTrue(card["ready"])
         self.assertIn("exactly one Bill of Material", card["message"])
 
+    def test_unconfirmed_linked_rule_opens_odoo_data_for_confirmation(self) -> None:
+        owner, parent = _dataset_views()
+        result = RelationshipHealthResult(
+            owner_dataset_id="bom-lines", target_field="bom_id", relationship_kind="many2one",
+            resolver_origin=ResolverOrigin.TARGET_THEN_DATASET, related_model="mrp.bom",
+            dependency_dataset_id="boms", required=True, status=RelationshipHealthStatus.NOT_CHECKABLE,
+            not_checkable_reason=RelationshipHealthNotCheckableReason.UNCONFIRMED_MATCHING_RULE,
+        )
+        view = relationship_health_view(
+            workspace_id="workspace:test", dataset_views=(owner, parent),
+            live_check=SimpleNamespace(check_id="check", relationship_health_results=(result,), schema_changed=False),
+            live_check_current=True, check_attempt=None, working_draft_is_current=True,
+        )
+        card = view["cards"][0]
+        self.assertEqual(card["rule_confirmation_url"], "/workspaces/workspace:test/schema#schema-governance")
+        self.assertIn("Check saved relationships", card["message"])
+
     def test_one2many_points_to_the_child_inverse_many2one(self) -> None:
         owner, child = _dataset_views()
         one2many = SimpleNamespace(

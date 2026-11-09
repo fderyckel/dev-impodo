@@ -1,12 +1,14 @@
 <dialog class="duplicate-rows-dialog" data-duplicate-rows-dialog aria-labelledby="duplicate-rows-title"
   data-endpoint="/workspaces/{{ workspace_id }}/mapping/duplicate-rows"
+  data-csrf-token="{{ csrf_token }}"
+  {% if prepared_duplicate_review %}data-prepared-duplicate-review{% endif %}
   data-check-url="/workspaces/{{ workspace_id }}/mapping/order/check">
   <div class="dialog-heading">
     <div><p class="eyebrow">Repeated source identities</p><h2 id="duplicate-rows-title">Compare duplicate rows</h2></div>
     <button type="button" class="dialog-close" data-close-duplicate-rows aria-label="Close duplicate review" autofocus>×</button>
   </div>
-  <p>Compare rows with the same Odoo matching identity. Select only the rows you want to exclude from this migration. If both records belong, review the matching rule instead.</p>
-  <p class="muted">Highlighted values differ among the rows shown in each group. Included source positions belong to this check, rather than physical file row numbers.</p>
+  <p>Compare the rows in each group. Select only the rows you want to exclude from this migration. If both records belong, review the matching rule.</p>
+  <p class="muted">Highlighted values differ among the rows shown in each group.{% if not prepared_duplicate_review %} Included source positions belong to this check, rather than physical file row numbers.{% endif %}</p>
   <p role="status" aria-live="polite" data-duplicate-status></p>
   <div data-duplicate-groups></div>
   <div class="actions" data-duplicate-pages hidden>
@@ -21,6 +23,6 @@
     <button type="button" class="button secondary" data-close-duplicate-rows>Cancel</button>
     <button type="button" class="button secondary" data-duplicate-retry hidden>Try again</button>
     <button type="button" class="button primary" data-duplicate-review aria-describedby="duplicate-exclusion-error" disabled>Review exclusions</button>
-    <button type="button" class="button primary" data-duplicate-apply hidden>Apply exclusions and check identities</button>
+    <button type="button" class="button primary" data-duplicate-apply hidden>{{ 'Apply exclusions and prepare again' if prepared_duplicate_review else 'Apply exclusions and check identities' }}</button>
   </div>
 </dialog>

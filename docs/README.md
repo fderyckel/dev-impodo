@@ -57,21 +57,13 @@ local tooling below `.agents/` is intentionally outside that contract.
 - [Security and infrastructure](architecture/security-and-infrastructure.md) — factual
   overview of the local architecture, implemented controls, infrastructure
   requirements, data handling, verification evidence, and current limitations.
-- [Server fact ownership](architecture/server-fact-ownership.md) — proposed
-  PostgreSQL, DuckDB, artifact, local-only, and derived-projection authority
-  for the shared-server profile, including cross-store recovery rules.
+- [Server fact ownership](architecture/server-fact-ownership.md) — explains how
+  the implemented stores own saved facts, artifacts, leases, and recovery evidence.
 - [End-to-end migration product vision](product-vision.md) — complete product
   workflow, mapping architecture, staging, relation handling, executor
   boundary, edge cases, and roadmap.
 - [Architecture decisions](decisions/README.md) — accepted decisions that
   constrain implementation.
-
-## Process models
-
-- [Current Impodo BPMN models](bpmn/README.md) — BPMN 2.0 overview and detailed
-  diagrams for Project/workspace setup and all six implemented browser responsibilities,
-  including the current file-source, Odoo-source, and disposable-target
-  boundaries.
 
 ## Plans
 

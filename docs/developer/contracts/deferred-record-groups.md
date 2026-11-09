@@ -67,8 +67,10 @@ the Odoo owner to change the field precision and refresh Odoo evidence.
 
 ## Reviewed decision and execution
 
-The browser requests a preview after the data manager selects individual root
-issues or chooses all selectable issues. Acceptance requires the comparison
+The browser requests a preview after the data manager selects findings from
+the current comparison report, selects individual root issues, or chooses all
+selectable issues. A report finding selects only the row issues it represents.
+Acceptance requires the comparison
 identifier and preview semantic hash submitted by that page.
 `PreflightService.accept_deferred_scope` then:
 

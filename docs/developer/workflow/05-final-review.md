@@ -370,9 +370,14 @@ are calculated against the intended write rows and captured Odoo digits; the
 path never rounds a value implicitly.
 
 The browser renders the local preview through
-`workspace_deferred_scope.html`. The bulk action selects every row issue on
-the server. Acceptance posts the comparison identifier, preview hash, and
-either the bulk choice or individual issue identifiers.
+`workspace_deferred_scope.html`. A **Must fix** card for a row finding opens
+that preview with the finding selected. The service resolves the card's
+position in the saved report to row issues using the same table, issue code,
+and field label as the report. It verifies the affected row count before
+using the selection. The preview can add other findings without reopening
+the row list. The bulk action selects every row issue on the server.
+Acceptance posts the comparison identifier, preview hash, and the selected
+findings, the bulk choice, or individual issue identifiers.
 `PreflightService.accept_deferred_scope` recalculates and verifies the preview
 before publishing the decision and the reduced execution evidence. Preview,
 acceptance, navigation, and workbook generation make no Odoo request.
@@ -575,6 +580,7 @@ contact Odoo while writing them.
 - [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
 - [`tests/integration/web/test_deferred_scope_presenter.py`](../../../tests/integration/web/test_deferred_scope_presenter.py)
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
+- [Preview and accept set-asides from Final review findings](../../../tests/integration/web/test_deferred_finding_workflow.py)
 - [Bulk selection and Excel export](../../../tests/integration/web/test_bulk_deferred_workflow.py)
 - [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)

@@ -1,15 +1,30 @@
 {% extends "base.html" %}
 {% block title %}Affected records - {{ migration_project.display_name }} - Impodo{% endblock %}
+{% block page_styles %}
+  {% if duplicate_picker_url %}<link rel="stylesheet" href="{{ url_for('static', path='/mapping-duplicate-rows.css') }}">{% endif %}
+{% endblock %}
+{% block page_scripts %}
+  {% if duplicate_picker_url %}<script src="{{ url_for('static', path='/mapping-duplicate-rows.js') }}" defer></script>{% endif %}
+{% endblock %}
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
+  {% set prepared_duplicate_review = duplicate_picker_url and migration_project.data_classification.value != 'RESTRICTED' and workspace_navigation.journey != 'RECIPE_APPLICATION' %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">Preparation issue</p>
       <h1>{{ cause_title }}</h1>
       <p>{{ cause_message }}</p>
       {% if cause_issue.affected_fields %}<p><strong>Source or mapped fields:</strong> {{ cause_issue.affected_fields|join(', ') }}</p>{% endif %}
-      <p><strong>What to do:</strong> {{ cause_issue.recheck }}</p>
-      <a class="button primary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+      {% if prepared_duplicate_review %}
+        <p>Compare the duplicate rows and select which copies to exclude before preparing again.</p>
+        <div class="actions">
+          <button class="button primary" type="button" data-duplicate-rows-url="{{ duplicate_picker_url }}"{% if open_duplicate_picker %} data-duplicate-auto-open{% endif %}>Choose rows to exclude</button>
+          <a class="button secondary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+        </div>
+      {% else %}
+        <p><strong>What to do:</strong> {{ cause_issue.recheck }}</p>
+        <a class="button primary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+      {% endif %}
       {% if cause.policy.value == 'QUARANTINE' %}
         <p>These records are set aside. This finding does not block comparison of the remaining included records.</p>
       {% endif %}
@@ -79,7 +94,7 @@
                   {% else %}
                     <p>This record was set aside because a related record has an issue. Correct the related record, then prepare the complete data again.</p>
                   {% endfor %}
-                  {% if cause.reason_code not in ['SOURCE_IDENTITY_INVALID', 'SOURCE_IDENTITY_DUPLICATE'] and item.correction_route %}<p><strong>Next step:</strong> {{ item.correction_route }}</p>{% endif %}
+                  {% if not prepared_duplicate_review and cause.reason_code not in ['SOURCE_IDENTITY_INVALID', 'SOURCE_IDENTITY_DUPLICATE'] and item.correction_route %}<p><strong>Next step:</strong> {{ item.correction_route }}</p>{% endif %}
                   <details class="technical-details">
                     <summary>Support details</summary>
                     <code>{{ row.effective_disposition.value }} - {{ row.row_id }}</code>
@@ -109,4 +124,5 @@
       <p>{{ cause.message }}</p>
     </details>
   </section>
+  {% if prepared_duplicate_review %}{% include "mapping/_duplicate_rows_dialog.html" %}{% endif %}
 {% endblock %}

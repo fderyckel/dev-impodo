@@ -51,7 +51,7 @@ from impodo.domain.workspace.supporting_closure import portable_supporting_choic
 from impodo.domain.workspace.supporting_lookups import SupportingLookupSnapshot
 from impodo.domain.workspace.supporting_review import SupportingChoice
 
-from ..domain.coverage import ReferenceBundle
+from ..domain.coverage import CoverageScopeRevision, ReferenceBundle
 from ..domain.mapping.artifacts import MappingRevision, MappingSubmission
 from ..domain.mapping.contracts import (
     MAPPING_CONTRACT_VERSION,
@@ -136,6 +136,8 @@ class RecipeAuthoringPreparationRepository(Protocol):
 
 class RecipeAuthoringReferenceRepository(Protocol):
     def get_reference_bundle(self, workspace_id: str) -> ReferenceBundle | None: ...
+
+    def get_coverage_scope(self, workspace_id: str) -> CoverageScopeRevision | None: ...
 
 
 class RecipeAuthoringParameterRepository(Protocol):
@@ -343,6 +345,23 @@ class RecipeCompiler:
                 ),
             )
         try:
+            references = self.references.get_reference_bundle(workspace_id)
+            if ruleset.coverage_scope_hash is not None:
+                scope = self.references.get_coverage_scope(workspace_id)
+                if (
+                    scope is None
+                    or scope.content_hash != ruleset.coverage_scope_hash
+                    or scope.source_selection_hash != base_selection.content_hash
+                    or (ruleset.reference_bundle_hash is not None and (
+                        references is None or references.content_hash != ruleset.reference_bundle_hash
+                    ))
+                ):
+                    return None, (self._issue(
+                        "RECIPE_COVERAGE_SCOPE_STALE",
+                        "The advanced checks no longer match the approved coverage scope or reference lists.",
+                        "Review the approved data checks before saving this Recipe.",
+                        RecipeDraftRecoveryStep.PREPARE_DATA,
+                    ),)
             # A Recipe may describe reusable rules, but never a pinned Odoo ID.
             review = (
                 self.supporting_decisions.require_mapping(
@@ -368,7 +387,7 @@ class RecipeCompiler:
                 governance=governance,
                 ruleset=ruleset,
                 preparation=self.preparation.get_derived_entity_plan(workspace_id),
-                references=self.references.get_reference_bundle(workspace_id),
+                references=references,
                 parameter_definitions=parameter_definitions,
                 supporting_references=(
                     load_current_mapping_supporting_references(

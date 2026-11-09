@@ -41,6 +41,7 @@ from ...domain.serialization import canonical_json
 from .constants import RESOLUTION_ROW_BATCH_SIZE
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
+from .source_repository import WorkspaceSourceProjectionReader
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,8 +62,12 @@ class ResolutionRunSummary:
 class AdvancedCoverageRepository(DuckDbRepository):
     """Store advanced input revisions and immutable reviewed effective data."""
 
-    def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
+    def __init__(
+        self, database: DuckDbWorkspaceDatabase,
+        *, projected_sources: WorkspaceSourceProjectionReader | None = None,
+    ) -> None:
         super().__init__(database)
+        self._projected_sources = projected_sources
 
     def save_coverage_scope(
         self,
@@ -84,9 +89,12 @@ class AdvancedCoverageRepository(DuckDbRepository):
                 selected = connection.execute(
                     "SELECT selection_json FROM source_selection WHERE singleton_id = 1"
                 ).fetchone()
-                if selected is None or SourceSelection.from_json(
-                    str(selected[0])
-                ).content_hash != scope.source_selection_hash:
+                selection = (
+                    SourceSelection.from_json(str(selected[0])) if selected is not None
+                    else self._projected_sources.get_source_selection(workspace_id)
+                    if self._projected_sources is not None else None
+                )
+                if selection is None or selection.content_hash != scope.source_selection_hash:
                     raise WorkspaceError(
                         "Coverage scope no longer matches the frozen source selection"
                     )

@@ -28,6 +28,71 @@ from tests.support.database_probe import count_duckdb_statements
 
 
 class DuplicateRowExclusionTests(HierarchyWorkflowFixture):
+    def test_prepared_duplicate_picker_saves_exact_rows_and_reconfirms(self):
+        for major, mode, reason in (
+            (19, "LOCAL", "SOURCE_IDENTITY_DUPLICATE"),
+            (19, "REMOTE", "POST_TRANSFORM_IDENTITY_COLLISION"),
+            (20, "LOCAL", "POST_TRANSFORM_IDENTITY_COLLISION"),
+            (20, "REMOTE", "SOURCE_IDENTITY_DUPLICATE"),
+        ):
+            with self.subTest(major=major, mode=mode):
+                self.setup_rows(major=major, mode=mode, source_identity_names=("Reference", "Site"))
+                workspace = self.workspace_id
+                original = self.context.queries.get_mapping_working_draft(workspace)
+                revision = self.submit(workspace, original.definition.datasets)
+                _staging, quality = self.prepare(workspace)
+                finding = next(
+                    item for item in self.context.queries.get_quality_review_page(
+                        workspace, quality.run_id, status="", dataset="", page=1,
+                        page_size=10, include_run_cause_counts=True,
+                    ).run_cause_counts if item.reason_code == reason
+                )
+                detail = f"/workspaces/{workspace}/summary/quality-causes/{finding.cause_key}"
+                findings = self.client.get(f"/workspaces/{workspace}/normalization?status=set_aside")
+                self.assertEqual(findings.status_code, 200, findings.text)
+                self.assertIn(f'{detail}?pick=1', findings.text)
+                page = self.client.get(detail + "?pick=1")
+                self.assertEqual(page.status_code, 200, page.text)
+                self.assertIn("Choose rows to exclude", page.text)
+                self.assertIn("data-duplicate-auto-open", page.text)
+                with collect_duckdb_request_timings() as timing:
+                    compared = self.client.get(self.endpoint, params={
+                        "check": quality.run_id, "quality_cause": finding.cause_key,
+                    })
+                self.assertEqual(compared.status_code, 200, compared.text)
+                self.assertEqual(timing.lock_retry_count, 0)
+                self.assertLessEqual(timing.connection_count, 6)
+                data = compared.json()
+                self.assertEqual(data["matching_count"], 7)
+                self.assertEqual(data["groups"][0]["rows"][0]["values"][0], "ROW-1")
+                self.assertEqual(data["groups"][0]["rows"][0]["source_row"], 2)
+                options = {
+                    "positions": (1, 2, 3, 4, 5, 6),
+                    "check_id": quality.run_id,
+                    "quality_cause": finding.cause_key,
+                    "expected_version": str(data["expected_version"]),
+                    "expected_parent_version": str(revision.version),
+                }
+                preview = self.command(**options)
+                self.assertEqual(preview.status_code, 200, preview.text)
+                self.assertEqual(preview.json()["excluded_count"], 6)
+                apply = {
+                    **options, "action": "apply", "operation_id": str(uuid4()),
+                    "preview_hash": preview.json()["preview_hash"],
+                }
+                applied = self.command(**apply)
+                self.assertEqual(applied.status_code, 200, applied.text)
+                self.assertEqual(applied.json().get("prepare_url"), f"/workspaces/{workspace}/summary/check", applied.text)
+                self.assertEqual(self.command(**apply).json(), applied.json())
+                current = self.context.queries.get_mapping_revision(workspace)
+                self.assertIsNotNone(self.context.queries.get_mapping_submission(workspace, current.version))
+                checked, confirmation = self.context.row_inclusion_reviews.current(workspace, actor=self.actor)
+                self.assertEqual(checked.excluded_count, 6)
+                self.assertIsNotNone(confirmation)
+                _staging, prepared = self.prepare(workspace)
+                self.assertEqual(prepared.excluded_count, 6)
+                self.assertEqual(len(self.reads), 1)
+
     def test_pending_replay_does_not_reject_the_original_save(self):
         self.setup_rows()
         preview = self.command().json()

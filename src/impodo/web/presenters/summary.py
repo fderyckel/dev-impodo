@@ -22,6 +22,9 @@ from impodo.application.workspace.issues import (
     WorkflowIssueSummary,
     summarize_workflow_issues,
 )
+from impodo.application.workspace.mapping.duplicate_rows import (
+    PREPARED_DUPLICATE_REASONS,
+)
 from impodo.application.workspace.source_readiness import (
     assess_source_stage_readiness,
 )
@@ -37,6 +40,7 @@ from impodo.domain.preparation.quality import (
     QualityRuleFamily,
 )
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
+from impodo.domain.source_binding import SourceOriginKind
 from impodo.domain.staging.fields import synthetic_field, synthetic_relationship_field
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -246,6 +250,7 @@ def _render_normalization(
             selection,
             revision,
             schema,
+            link_duplicate_review=workspace_state.source_mode is SourceMode.FILE,
         )
         collision_items = tuple(
             item
@@ -636,7 +641,7 @@ def _render_summary(
         if workspace_state.source_mode is SourceMode.FILE and report is not None and load_preview is not None
         else None
     )
-    deferred_scope_available = bool(
+    deferred_scope_available = not decision_exists and bool(
         deferred_scope_available
         or (
             report is not None
@@ -700,10 +705,12 @@ def _render_summary(
         effective_selection,
         revision,
         schema_catalog,
+        link_duplicate_review=workspace_state.source_mode is SourceMode.FILE,
     )
     readiness_workflow_issue_summary = _readiness_workflow_issue_summary(
         workspace_id,
-        report,
+        None if deferred_scope and deferred_scope.decision else report,
+        allow_set_aside=deferred_scope_available,
     )
     workflow_issue_summary = summarize_workflow_issues(
         (
@@ -985,9 +992,19 @@ def _render_quality_cause(
     )
     cause_summary = _quality_workflow_issue_summary(
         workspace_id, facts.quality_run_id, (explained_cause,), field_labels,
-        selection, revision, schema,
+        selection, revision, schema, link_duplicate_review=False,
     )
     cause_issue = cause_summary.issues[0]
+    duplicate_picker_url = (
+        f"/workspaces/{workspace_id}/mapping/duplicate-rows?" + urlencode({
+            "check": facts.quality_run_id, "quality_cause": cause_key,
+        })
+        if cause.reason_code in PREPARED_DUPLICATE_REASONS
+        and navigation_snapshot.workspace_state.source_mode is SourceMode.FILE
+        and selection is not None
+        and any(dataset.name == cause.dataset and dataset.origin is SourceOriginKind.FILE for dataset in selection.datasets)
+        else ""
+    )
     row_start = (
         (review_page.page - 1) * page_size + 1
         if review_page.matching_count
@@ -1013,6 +1030,8 @@ def _render_quality_cause(
         cause=cause,
         cause_title=cause_issue.cause,
         cause_issue=cause_issue,
+        duplicate_picker_url=duplicate_picker_url,
+        open_duplicate_picker=request.query_params.get("pick") == "1",
         quality_issue_field_labels=issue_fields,
         quality_issue_messages=issue_messages,
         cause_message=(
@@ -1221,6 +1240,8 @@ _QUALITY_CAUSE_TITLES = {
 def _readiness_workflow_issue_summary(
     workspace_id: str,
     report: ReadinessReport | None,
+    *,
+    allow_set_aside: bool = False,
 ) -> WorkflowIssueSummary:
     """Adapt complete-run Final review evidence without reading decision rows."""
 
@@ -1228,7 +1249,13 @@ def _readiness_workflow_issue_summary(
         return summarize_workflow_issues(())
     issue_counts = report.issue_counts or _legacy_readiness_issue_counts(report)
     issues = []
-    for issue in issue_counts:
+    for position, issue in enumerate(issue_counts):
+        can_preview = (
+            allow_set_aside
+            and bool(report.issue_counts)
+            and issue.status == "blocked"
+            and issue.technical_code != "FINAL_REVIEW_BLOCKED"
+        )
         params = {
             "status": issue.status,
             "dataset": issue.dataset,
@@ -1266,9 +1293,18 @@ def _readiness_workflow_issue_summary(
                     "data, saved field matches, prepared data, or Odoo."
                 ),
                 recheck=(
+                    "Preview the affected rows and any linked records that would stay out of this load."
+                    if can_preview else
                     "Complete the correction, prepare the complete data again, "
                     "then compare with Odoo."
                 ),
+                preview_route=(
+                    f"/workspaces/{workspace_id}/summary/deferred-groups/preview"
+                    if can_preview else ""
+                ),
+                preview_fields=(
+                    ("comparison_id", report.run_id), ("finding", str(position)),
+                ) if can_preview else (),
                 evidence_revision=report.run_id,
                 affected_record_types=(issue.dataset_label,),
                 affected_fields=((issue.field,) if issue.field else ()),
@@ -1372,6 +1408,8 @@ def _quality_workflow_issue_summary(
     selection: SourceSelection | None,
     revision: MappingRevision | None,
     schema: OdooSchemaCatalog | None,
+    *,
+    link_duplicate_review: bool = False,
 ) -> WorkflowIssueSummary:
     """Project complete-run quality causes through the shared issue contract."""
 
@@ -1379,6 +1417,10 @@ def _quality_workflow_issue_summary(
         dataset.name: (index, dataset.dataset_id)
         for index, dataset in enumerate(selection.datasets if selection else ())
     }
+    duplicate_tables = {
+        dataset.name for dataset in selection.datasets
+        if dataset.origin is SourceOriginKind.FILE
+    } if link_duplicate_review and selection is not None else set()
     target_models = {
         mapping.dataset_id: mapping.target_model
         for mapping in (revision.definition.datasets if revision else ())
@@ -1509,6 +1551,19 @@ def _quality_workflow_issue_summary(
                 f"{cause.missing_match_field_label or ', '.join(affected_fields) or 'Their identifier'} is empty, "
                 "so these records are set aside."
             )
+        elif cause.reason_code == "POST_TRANSFORM_IDENTITY_COLLISION":
+            explanation = (
+                "Each affected row shares an Odoo match with another row in "
+                "its group. Impodo set these rows aside for review."
+            )
+        detail_route = (
+            f"/workspaces/{workspace_id}/summary/quality-causes/{cause.cause_key}"
+            if cause.cause_key else ""
+        )
+        duplicate_review = bool(
+            cause.dataset in duplicate_tables and detail_route and evidence_revision
+            and cause.reason_code in PREPARED_DUPLICATE_REASONS
+        )
         issues.append(
             WorkflowIssueProjection(
                 code=(
@@ -1526,15 +1581,19 @@ def _quality_workflow_issue_summary(
                 cause=cause_title,
                 origin=_quality_issue_origin(cause),
                 owner=cause.owner_label or "Data manager",
-                owning_stage="Source data" if cause.missing_match_table else "Match data",
-                correction_label=correction_label,
-                correction_route=correction_route,
+                owning_stage=(
+                    "Prepare data" if duplicate_review else
+                    "Source data" if cause.missing_match_table else "Match data"
+                ),
+                correction_label="Review duplicate rows" if duplicate_review else correction_label,
+                correction_route=f"{detail_route}?pick=1" if duplicate_review else correction_route,
                 preserved_work=(
                     "Opening this action does not change accepted source data "
                     "or saved rules."
                 ),
                 recheck=(
-                    source_identity_next_step(
+                    "Compare the rows, select any copies to exclude, then prepare again."
+                    if duplicate_review else source_identity_next_step(
                         cause.reason_code,
                         source_row_identifier=source_row_identifier,
                     )
@@ -1569,12 +1628,7 @@ def _quality_workflow_issue_summary(
                 detail_label=(
                     "Review affected records" if cause.cause_key else ""
                 ),
-                detail_route=(
-                    f"/workspaces/{workspace_id}/summary/quality-causes/"
-                    f"{cause.cause_key}"
-                    if cause.cause_key
-                    else ""
-                ),
+                detail_route=detail_route,
             )
         )
     return summarize_workflow_issues(issues)

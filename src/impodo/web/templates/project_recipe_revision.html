@@ -17,6 +17,35 @@
       <a class="button secondary" href="{{ workspace.mapping_url }}">Open Match data</a>
     {% elif revision_draft and revision_draft.state.value == 'CLOSED' %}
       <p>This Authoring draft is closed.</p>
+    {% elif coverage_review %}
+      <h3>Review advanced checks</h3>
+      <ul>
+        {% for check in coverage_review.checks %}
+          <li><strong>{{ check.name }}</strong> · {{ check.explanation }}</li>
+        {% endfor %}
+      </ul>
+      <details>
+        <summary>Coverage scope</summary>
+        <ul>
+          {% for item in coverage_review.scope.declarations %}
+            <li>
+              <strong>{{ item.family.value }}</strong> · {{ 'Applies' if item.applicability.value == 'APPLICABLE' else 'Does not apply' }}
+              {% if item.datasets %} · {{ item.datasets | join(', ') }}{% endif %}
+              <div>{{ item.rationale }}</div>
+            </li>
+          {% endfor %}
+        </ul>
+      </details>
+      {% if can_approve_coverage %}
+        <form method="post" class="actions">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="action" value="approve_coverage">
+          <input type="hidden" name="coverage_review_hash" value="{{ coverage_review.binding_hash }}">
+          <button class="button primary" type="submit">Approve coverage and open Match data</button>
+        </form>
+      {% else %}
+        <p>A data manager with coverage approval access must approve these checks.</p>
+      {% endif %}
     {% else %}
       <form method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

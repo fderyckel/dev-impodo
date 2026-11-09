@@ -264,13 +264,16 @@ class PreparationService:
                 workspace_id, revision.definition.datasets, self.schemas,
                 workspace_state, physical_selection, derived_plan,
             )
+        quality_ruleset, quality_seed = self.quality.preparation_inputs(
+            workspace_id, revision.definition, effective_selection,
+        )
         capability = compile_preparation_capability(
             definition=revision.definition,
             physical_selection=physical_selection,
             effective_selection=effective_selection,
             source_snapshots=source_snapshots,
             derived_plan=derived_plan,
-            current_ruleset=self.quality.current_ruleset(workspace_id),
+            current_ruleset=quality_ruleset,
             reference_bundle=reference_bundle,
         )
         capability.require_supported()
@@ -526,6 +529,7 @@ class PreparationService:
                 reference_bundle,
                 numeric_fields=numeric_fields,
                 actor=actor,
+                planned_seed=quality_seed,
                 allow_materialized_fallback=(
                     capability.permits_materialized_fallback
                 ),

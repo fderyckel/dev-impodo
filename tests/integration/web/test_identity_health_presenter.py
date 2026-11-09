@@ -80,6 +80,22 @@ class IdentityHealthPresenterTests(unittest.TestCase):
         self.assertIn("related Odoo record", card["message"])
         self.assertFalse(card["checked"])
 
+    def test_unconfirmed_rules_open_odoo_data_for_the_next_decision(self) -> None:
+        result = MatchingIdentityResult(
+            dataset_id="products", target_model="product.template",
+            target_fields=("default_code", "categ_id"),
+            status=MatchingIdentityCheckStatus.NOT_CHECKABLE,
+            not_checkable_reason=MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE,
+        )
+        view = identity_health_view(
+            workspace_id="workspace:test", dataset_views=(_dataset_view(),),
+            live_check=SimpleNamespace(check_id="check", identity_results=(result,), schema_changed=False),
+            live_check_current=True, check_attempt=None, working_draft_is_current=True,
+        )
+        card = view["cards"][0]
+        self.assertEqual(card["rule_confirmation_url"], "/workspaces/workspace:test/schema#schema-governance")
+        self.assertIn("linked records", card["message"])
+
 
 def _dataset_view():
     key = SimpleNamespace(

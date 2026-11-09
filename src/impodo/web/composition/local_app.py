@@ -348,7 +348,9 @@ def create_local_app(
         database,
         artifacts,
     )
-    local_advanced_coverage_repository = AdvancedCoverageRepository(database)
+    local_advanced_coverage_repository = AdvancedCoverageRepository(
+        database, projected_sources=workspace_physical_sources,
+    )
     advanced_coverage_repository = RunAwareAdvancedCoverageRepository(
         local_advanced_coverage_repository,
         run_planning_repository,
@@ -423,7 +425,9 @@ def create_local_app(
             comparison_codec=ProtectedOdooComparisonCodec(),
         ),
     )
-    recipe_application_state = RecipeQualitySeedRepository(database, database)
+    recipe_application_state = RecipeQualitySeedRepository(
+        database, database, projected_sources=workspace_physical_sources,
+    )
     authoring_services = build_authoring_service_graph(
         exact_join_groups=DuckDbExactJoinGroupEvaluator(database),
         grouped_exact_joins=DuckDbGroupedExactJoinSource(database),

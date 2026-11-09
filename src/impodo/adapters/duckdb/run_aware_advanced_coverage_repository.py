@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from impodo.domain.coverage import CoverageScopeRevision
 from impodo.domain.run.contracts import MigrationRunPlanningError
 
 from .migration_run_planning_repository import MigrationRunPlanningRepository
@@ -19,6 +20,10 @@ class RunAwareAdvancedCoverageRepository:
         if projection is not None:
             return projection
         return self.local.get_reference_bundle(workspace_id)
+
+    def get_coverage_scope(self, workspace_id: str) -> CoverageScopeRevision | None:
+        """Read the scope approved in this workspace."""
+        return self.local.get_coverage_scope(workspace_id)
 
     def get_validated_reference_bundle(self, workspace_id):
         projection = self.runs.get_workspace_reference_bundle(workspace_id)

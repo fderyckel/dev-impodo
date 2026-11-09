@@ -6,181 +6,98 @@ status: current
 
 # Impodo architecture
 
-## Purpose
+Impodo's local browser application prepares source data, compares proposed
+changes with Odoo, and loads approved changes into Odoo 19 or final Odoo 20.
+The Linux server runs the shared control plane for accounts and administration.
+The server entry point for the migration workflow refuses startup. See
+[Security and infrastructure](security-and-infrastructure.md) and
+[Server fact ownership](server-fact-ownership.md).
 
-Impodo is a local browser application that helps a data manager prepare,
-compare, and load governed data into Odoo 19 or final Odoo 20.
+## Project, data, and workspaces
 
-A **Project** is the business and governance root. It can finish as one-off
-migration work with no Recipe, or it can contain separately versioned Recipes.
-A **Recipe** is an optional saved set of reusable transformation rules. A
-Recipe never owns the Project's source data, DataVersions, runs, workspaces,
-target credentials, approvals, or cutover decision.
+A Project holds one migration effort. Impodo creates a Project, a draft
+Authoring DataVersion, an Authoring run, and an open workspace when the
+operator submits **New project** at `/projects/new`. Retrying the same
+operation returns the same identities. The Project overview at
+`/projects/{project_id}` links to `/workspaces/{workspace_id}`.
 
-## Ownership model
+| Object | What it owns |
+| --- | --- |
+| `MigrationProject` | Membership of its DataVersions, runs, workspaces, and optional Recipes. It also owns the CutoverPlan and rollout selection. |
+| `DataVersion` | One source delivery. It holds file or Odoo capture references, inspection results, accepted source choices, logical datasets, and snapshot references. Accepting the DataVersion freezes this package. |
+| `MigrationRun` | One use of a DataVersion. The run owns the draft target setup and, after capture, the immutable `TargetBinding`. Integrated runs also own shared target schema and reference evidence. |
+| `MigrationWorkspace` | Work on selected datasets for one run. It holds source references and the current mapping, preparation, review, and load evidence. Each Recipe application has its own workspace. |
+| `Recipe` | Immutable revisions of reusable rules. Each revision defines logical source inputs, mapping and preparation rules, Odoo requirements, business keys, checks, parameters, and controls. |
+| `CutoverPlan` | Immutable revisions that pin the Recipes to run, their order, field-level write ownership, combined Odoo requirements, and shared controls. Test qualifications bind to exact plan revisions. |
 
-```text
-MigrationProject
-|-- DataVersion 1..many
-|   `-- complete immutable source package
-|-- MigrationRun 1..many
-|   |-- one mutable target setup before capture
-|   |-- one immutable TargetBinding and unioned requirement plan
-|   `-- RecipeApplication 0..many
-|       `-- one isolated MigrationWorkspace
-|           |-- bounded DataVersion dataset references
-|           `-- fresh mapping and current application evidence
-`-- zero, one, or several Recipes
-    `-- immutable RecipeRevision lineage
-`-- one versioned CutoverPlan
-    |-- exact Recipe revisions, dependencies, ownership, and controls
-    `-- immutable Test qualifications and Project rollout selections
-```
+For example, a Project may accept a workbook with products and bills of
+materials. The DataVersion keeps both datasets. An application workspace for a
+product Recipe reads the product dataset through its saved reference. A later
+run can apply the same Recipe revision to a newly accepted workbook and
+produce its own review and load evidence.
 
-The Project, DataVersion, MigrationRun, MigrationWorkspace, and Recipe each
-have a distinct UUID. Supplying an identifier from another namespace fails
-closed.
+The registry owns each workspace's setup state and optimistic revision.
+`WorkspaceState` is the mapping engine's view of the workspace. Its
+`workspace_projection_cache` stores workbench state without duplicating
+registry identity. See the [Project lifecycle contract](../developer/contracts/project-lifecycle.md).
 
-Choosing **New project** at `/projects/new` creates the Project, Authoring
-DataVersion 1, Authoring run 1, and one open MigrationWorkspace in one
-restart-safe workflow. It does not create a Recipe. The Project overview at
-`/projects/{project_id}` shows the bounded registry projection and opens the
-authoring work through `/workspaces/{workspace_id}`.
+## Authoring workflow
 
-The registry also owns the workspace's `DRAFT` or `READY` setup state and its
-optimistic revision. The contained engine has no independent workspace
-lifecycle. Its flat `WorkspaceState` API is a workbench projection keyed by
-`workspace_id`, not another identity or aggregate root. The engine persists a
-singleton `workspace_projection_cache` with no embedded Project, DataVersion,
-run, or workspace identity.
+1. **Source data** inspects CSV and XLSX files or captures a bounded set of
+   Odoo source records. The operator accepts the delivery as a DataVersion.
+2. **Odoo data** uses read-only access to capture the permitted model and field
+   definitions and record the business keys used for matching.
+3. **Match data** records field mappings, transformations, relationships, and
+   rules for which rows to include.
+4. **Prepare data** builds canonical staging, checks data quality, and records
+   normalization decisions.
+5. **Final review** compares prepared rows with Odoo and freezes the reviewed
+   operations for approval.
+6. **Load into Odoo** checks authorization, journals writes, and reads records
+   back to reconcile the result.
 
-Every authenticated `/workspaces/{workspace_id}` request resolves one verified
-`WorkspaceAccessContext` from the registry before route code opens a contained
-store or external boundary. Authorization uses the context's genuine parent
-Project ID. The request reuses that immutable lineage, and Odoo capture and
-load workers receive the same context instead of separate UUID strings.
-Missing, wrong-kind, mismatched, and inaccessible workspace identities return
-the same opaque result before workspace evidence, credentials, protected
-artifacts, or Odoo adapters open.
+The Odoo-source transfer path captures source records separately and reviews
+how to match and load them into another database of the same Odoo major
+version. Eligible verified Authoring loads also support reviewed corrections
+to previously loaded records. See [Load into Odoo](../user/workflow/06-load-into-odoo.md).
 
-## Source and workspace boundary
+The operator can finish a one-off migration in the Authoring workspace.
+To reuse its rules, the operator can save a Recipe from the Project overview
+once the workspace has an accepted source delivery and current mapping,
+schema governance, and quality evidence. Publication creates a Recipe and
+its first revision, or adds an immutable revision to an existing Recipe.
+The revision stores portable rules. Publication records its origin
+separately, and each run keeps its own source rows, target access, and
+execution evidence. See the [Recipe publication contract](../developer/contracts/recipe-lifecycle.md).
 
-One DataVersion owns the complete draft and accepted source package: immutable file
-references, inspection catalogues, parsing confirmations, logical datasets,
-source-snapshot references, and protected Odoo capture references when the
-source is Odoo. Source bytes, snapshots, and protected Odoo origin sidecars are
-stored under the DataVersion identity.
+## Integrated Test and Production
 
-A MigrationWorkspace stores only the dataset identities and snapshot hashes
-it selects from that frozen package in `workspace.duckdb`. The mapping engine
-reads those contracts through `WorkspaceMappingSourceProjection`; it does not
-copy the DataVersion database, source bytes, or source rows. During Authoring,
-the contained engine retains bounded invalidation caches for draft source
-inspection decisions, while canonical catalogues and confirmations are read
-from and written to the DataVersion package. Preparation workers receive the
-exact Project, DataVersion, run, application, and workspace identities before
-spawn and verify both isolated stores against `workspace_linkage` before
-reading evidence.
+A Test setup pins exact Recipe revisions and their dependency order. The
+operator accepts a fresh DataVersion and checks an Odoo target of the major
+version required by the Recipes. The run captures schema and supporting
+references for their combined requirements. Activation creates one workspace
+per Recipe application and binds the run to an exact CutoverPlan revision.
+Each application reads only its required slice of the shared target evidence.
 
-One MigrationRun owns the mutable Odoo target choice used during setup. A
-successful target capture replaces that draft choice with an immutable
-`TargetBinding`; neither value belongs to an individual workspace. Workspace
-pages receive an explicit `WorkspaceOwnerView` containing the Project,
-MigrationWorkspace, DataVersion, MigrationRun, and optional run target setup.
-Source-package detail remains in the separate DataVersion store and is loaded
-only by pages that own source detail.
+Before a dependent application writes, Impodo checks that each declared
+predecessor has current, verified reconciliation. Qualification checks the
+completed application evidence, execution order, and shared controls.
+The registry stores identifiers and hashes, and Impodo encrypts the full
+qualification evidence under a Project key. Changing the plan creates a new
+revision that needs its own qualification before the operator can select it
+for rollout. See the [Integrated Test run](../developer/contracts/integrated-run-lifecycle.md)
+and [Cutover plan](../developer/contracts/cutover-plan-lifecycle.md) contracts.
 
-## Optional Recipe publication
+Production setup uses the selected, qualified revision with a new file-based
+DataVersion and a different target of the same Odoo major version. Activation
+checks the source bindings, plan, controls, target, and separate read and
+write credentials before creating application workspaces. Production uses the
+same compiler and execution services as Test, with its own comparison,
+approval, writes, and reconciliation. Before constructing a Production
+writer, Impodo checks the current selection and credential authority again.
+See the [Production run lifecycle contract](../developer/contracts/production-run-lifecycle.md).
 
-After the data manager freezes source data and submits eligible mapping,
-governance, and quality evidence, the Project overview offers **Save as a new
-Recipe**. The compiler reads only the selected immutable dataset contracts and
-current workspace evidence. Publication creates a Project-scoped Recipe and
-Recipe revision 1 together through a restart-safe operation.
-
-A later eligible workspace state can publish a successor revision under the
-same Recipe identity. Publication records the origin Project, DataVersion,
-workspace, mapping, schema, quality, actor, and time as provenance. It does not
-change the Project ID, DataVersion ID, DataVersion owner, run, workspace, or
-cutover authority.
-
-A Recipe revision contains portable logical source shapes, preparation and
-mapping rules, Odoo requirements, governed keys, reusable checks, references,
-parameters, and controls. It excludes source rows, physical source identities,
-target identity, credentials, numeric Odoo record IDs, approvals, writes,
-read-back, and reconciliation evidence.
-
-## Browser workflow
-
-The authoring workspace retains the six data-manager stages:
-
-1. **Source data** accepts and freezes uploaded CSV or XLSX data, or captures a
-   bounded Odoo-source snapshot.
-2. **Odoo data** captures the permitted Odoo 19 or final Odoo 20 model and
-   field contract with a read-only identity.
-3. **Match data** records governed keys, mappings, transformations,
-   relationships, and derived-entity rules.
-4. **Prepare data** builds canonical staging, evaluates quality rules, and
-   records normalization decisions.
-5. **Final review** compares prepared rows with Odoo and freezes an exact
-   execution snapshot when permitted.
-6. **Load into Odoo** requires explicit confirmation, records each write, and
-   reconciles the committed result.
-
-Completing these stages does not require Recipe publication. A Project can plan
-one integrated Test run over several exact Recipe revisions and create fresh,
-isolated application drafts. The Project binds that run to an immutable
-CutoverPlan revision, requires ordered execution and verified read-back in
-every application, publishes exact integrated qualification, and records
-rollout selection separately. Production applies that selected meaning to a
-fresh DataVersion and different same-major Odoo 19 or final Odoo 20 target with independent credentials
-and evidence.
-
-## Integrated Test run boundary
-
-One accepted Test DataVersion supplies the complete source package. The run
-planner selects only each Recipe's logical datasets, validates the dependency
-graph and conservative field-level write ownership, and provisions one
-workspace per application. The run captures one filtered same-major Odoo schema and
-one filtered supporting-reference bundle for the union of requirements.
-`MigrationRunTargetSchema` and `MigrationRunReferenceBundle` carry the
-`migration_run_id`; they retain the source workspace provenance without
-pretending that the run UUID is a workspace UUID.
-
-Run-aware adapters expose only an application's required slice to the existing
-mapping services and reject per-application target recapture. Integrated
-status and issues are registry projections, so the run page does not open one
-workspace database or call Odoo per Recipe.
-
-## Integrated qualification boundary
-
-One CutoverPlan revision pins the exact Recipe revisions, dependencies,
-field-level write ownership, unioned requirements, and Project shared
-controls. A downstream application cannot begin an Odoo write until each
-declared predecessor has current verified reconciliation.
-
-Qualification reads each application workspace once and makes no Odoo call.
-Full per-application and integrated payloads are encrypted under a
-Project-scoped key; the registry retains bounded identity and hash
-projections. Changing selected Recipe meaning or dependency order appends a
-new unqualified plan revision. Selecting a qualified revision records only a
-rollout candidate and grants no Production authority.
-
-## Production rollout boundary
-
-A selected candidate can start a setup-only Production run. The setup creates
-a fresh complete DataVersion, run, and workspace but no target binding or
-write authority. Activation rechecks current source coverage, plan meaning,
-Odoo compatibility, controls, write ownership, and separate read/write
-credential evidence before creating isolated application workspaces.
-
-Production uses the same compiler, source projections, run-level target
-capture, workspace stages, execution journal, and reconciliation service as
-Integrated Test. It copies no Test rows, credentials, mappings, comparisons,
-approvals, or outcomes. The current selection and credential authority are
-checked again before writer construction.
-
-## Persistence layout
+## Local storage and access
 
 ```text
 <root>/registry.duckdb
@@ -193,89 +110,53 @@ checked again before writer construction.
 <root>/projects/<project_id>/workspaces/<workspace_id>/workspace-engine.duckdb
 ```
 
-The registry stores bounded Project, DataVersion, run target and requirement,
-Production activation, Recipe application, workspace, Recipe, issue, and
-operation projections. The
-DataVersion database stores the source package. The small workspace database
-stores exact source references. `workspace-engine.duckdb` is the contained current
-mapping engine state. Its schema uses workspace-owned field names and audit
-facts; the historical filename is not a Project aggregate identity. Every
-workspace-store or engine open verifies the complete Project, workspace,
-DataVersion, run, and optional application linkage first.
+The registry keeps compact Project and run records for list and status
+pages. The DataVersion database stores source metadata and evidence
+references. `workspace.duckdb` stores the selected dataset IDs and snapshot
+hashes, and `workspace-engine.duckdb` stores the workspace's working
+evidence. `WorkspaceMappingSourceProjection` reads source contracts and
+snapshots through the DataVersion references.
 
-The first-project baseline dated 31 October 2026 creates the registry,
-DataVersion, workspace reference store, and workspace engine directly at
-schema version 1 under distinct generations. Future structural changes can
-register consecutive forward upgrades. Each database's complete path runs
-in one transaction and validates the exact final shape before repository
-access. An interruption rolls back that database so its next open can retry.
+Each authenticated workspace request resolves a `WorkspaceAccessContext` in
+one registry query. The context identifies the parent Project, DataVersion,
+run, workspace, and any Recipe application. Impodo checks access against that
+Project before opening child stores, artifacts, credentials, or Odoo
+adapters. It gives missing, mismatched, and inaccessible workspace IDs the
+same response. Background workers reuse verified lineage. Preparation
+workers check the linkage and build contract before reading either store,
+and progress requests reuse the verified job context.
 
-A different generation, a version below the supported baseline, a newer
-version, a missing migration step, or a malformed shape is rejected without
-mutation. Development resets and automatic archives of superseded layouts
-have been removed. See [Storage and release versioning](../developer/reference/storage-and-release-versioning.md)
-for the separate version owners and maintenance rules.
+Each database has its own schema generation and version. The workspace
+engine is at version 3. The registry, DataVersion, and workspace reference
+stores are at version 1. Impodo validates linkage and schema before repository
+access. It applies supported upgrades in one transaction per database and
+rejects incompatible generations, versions, or malformed schemas without
+changing the database. See
+[Storage and release versioning](../developer/reference/storage-and-release-versioning.md).
 
-## Odoo and performance boundaries
+## Odoo access and performance
 
-Remote read access uses closed qualified Odoo 19 or final Odoo 20 JSON-2
-operations. Read adapters cannot
-create, write, unlink, import, execute SQL, or call arbitrary model methods.
-The separate writer acts only after exact schema-bound evidence and explicit
-confirmation. It supports Odoo 19 and final Odoo 20, including qualified-plan
-Production with independent credentials and current target evidence.
+Remote read adapters expose a fixed set of read-only JSON-2 operations.
+Writes use a separate adapter and require current target evidence and explicit
+approval. The compatibility policy checks the verified Odoo
+version for the requested operation. See
+[Odoo compatibility](../../src/impodo/domain/odoo/compatibility.py) and the
+[Execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md).
 
-Project and run list projections are bounded registry reads. The overview
-currently opens only its one Authoring workspace when computing Recipe
-publication readiness; it does not open a workspace per Project, DataVersion,
-run, Recipe, or list row. Odoo readers batch fields and records per model,
-comparison builds reusable indexes, and no workflow may introduce one Odoo or
-repository call per source row. One normal workspace request resolves one
-Project-owned lineage row. A progress request for a verified preparation,
-Odoo-capture, or load job reuses its immutable lineage packet and performs no
-second registry read.
+Project and run lists read registry summaries. Recipe publication readiness
+can open the Authoring workspace, and an explicit qualification review can
+read each application once without contacting Odoo. Odoo readers batch fields
+and records by model. Comparison reuses lookup indexes. These paths avoid
+repository or Odoo calls per source row.
 
 ## Code organization
 
-The production package is layer-first and capability-aware. Portable business
-meaning lives below `domain`; owner-qualified coordination and consumer-owned
-ports live below `application`; DuckDB, artifact, protected-evidence, job, and
-Odoo implementations live below `adapters`; and browser delivery plus concrete
-runtime construction lives below `web`.
+`domain` defines business rules and contracts. `application` coordinates use
+cases through ports. `adapters` implements storage, jobs, and Odoo access.
+`web` handles HTTP and assembles the runtime. Mapping, preparation, and
+execution are capabilities of a workspace or run, with evidence owned by
+the corresponding workspace or run.
 
-Project, Data version, workspace, Recipe, migration run, and Cutover state
-remain separate in both paths and public contracts. Mapping, Preparation, and
-Execution do not create extra owners: their pure decisions live in domain
-capability packages, while their state-changing use cases remain qualified by
-the workspace or run that owns the evidence.
-
-Adapters stay grouped by external technology, and browser modules stay grouped
-by delivery role. These are intentional parts of the implemented structure,
-not unfinished owner-package moves. The
-[code-organization guide](code-organization.md) defines the complete placement,
-dependency, transaction, browser-asset, test, and review rules.
-
-## Main implementation boundaries
-
-| Responsibility | Current implementation |
-| --- | --- |
-| Project, DataVersion, run, and workspace roots | `domain/project/models.py`, `application/project/service.py`, `domain/data_version/models.py`, `application/data_version/service.py`, `domain/run/models.py`, `application/run/service.py`, `domain/workspace/models.py`, `application/workspace/service.py` |
-| Exact registry and isolated stores | `adapters/duckdb/migration_foundation_database.py`, `migration_foundation_repository.py` |
-| Forward-only storage upgrades | `adapters/duckdb/schema/forward_upgrades.py` plus one versioned registry in each store schema module |
-| Project-native creation | `application/migration_project_authoring_service.py` |
-| DataVersion source ownership | `application/data_version/source_packages.py`, `application/workspace_data_version_source_service.py` |
-| Mapping read projection | `application/workspace_source_projection.py` |
-| Owner-specific artifact storage | ports in `application/shared/artifacts.py`; local implementation in `adapters/artifacts/local_store.py` |
-| Optional Recipe publication | `domain/recipe/models.py`, `application/recipe/service.py`, `application/recipe_publication_service.py`, `adapters/duckdb/recipe_repository.py` |
-| Integrated Test planning | `domain/run/contracts.py`, `application/run/planning_service.py`, `adapters/duckdb/migration_run_planning_repository.py` |
-| Fresh Recipe application | `application/recipe_application_service.py`, `adapters/duckdb/run_aware_schema_repository.py`, `adapters/duckdb/run_aware_advanced_coverage_repository.py` |
-| Browser composition | `web/composition/local_app.py` builds local services; `web/composition/http_app.py` installs shared routes; `web/app.py` preserves the local import; route ownership remains in `web/routers` |
-
-## Related documentation
-
-- [Project lifecycle contract](../developer/contracts/project-lifecycle.md)
-- [Recipe publication contract](../developer/contracts/recipe-lifecycle.md)
-- [Evidence lifecycle](../developer/contracts/evidence-lifecycle.md)
-- [Code organization](code-organization.md)
-- [Python code map](python-code-map.md)
-- [Integrated run lifecycle](../developer/contracts/integrated-run-lifecycle.md)
+[Code organization](code-organization.md) explains dependency and database
+rules. The [Python code map](python-code-map.md) traces the workflows to
+implementation and tests.

@@ -10,6 +10,7 @@ from uuid import UUID, uuid4, uuid5
 
 from impodo.domain.coverage import validate_odoo_selection_reference_outputs
 from impodo.domain.mapping.mutations import MappingMutationAction, MappingMutationState
+from impodo.domain.preparation.quality import QualityRuleSource
 from impodo.domain.recipe_parameters import (
     EXPORT_AS_OF_PARAMETER_ID,
     RecipeParameterDefinition,
@@ -28,6 +29,7 @@ from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SourceDatasetSet,
     SourceSelection,
+    canonical_mapping_source_selection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_closure import (
@@ -38,7 +40,7 @@ from impodo.domain.workspace.supporting_closure import (
 from impodo.domain.workspace.supporting_plan import SupportingSourceDescriptor
 from impodo.domain.workspace.workbench import WorkspaceState
 
-from ..domain.coverage import ReferenceBundle
+from ..domain.coverage import CoverageScopeRevision, ReferenceBundle
 from ..domain.mapping.contracts import (
     MappingDefinition,
     RowInclusionMode,
@@ -180,12 +182,43 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             custom.append(declaration)
         return RecipeParameterDefinitions(tuple(custom))
 
-    def require_authoring_seed_supported(self, definition: Mapping[str, object]) -> None:
-        """Leave separately approved advanced checks with their original scope."""
+    @staticmethod
+    def advanced_checks(definition: Mapping[str, object]) -> tuple[dict[str, object], ...]:
+        """Read the exact advanced rules requiring fresh Authoring approval."""
+        quality = _portable_mapping(definition["quality"], "Recipe checks")
+        return tuple(
+            rule for item in _portable_sequence(quality.get("rules", ()), "Recipe checks")
+            for rule in (_portable_mapping(item, "Recipe check"),)
+            if rule.get("origin") == QualityRuleSource.SCOPE_APPROVED.value
+        )
 
-        issues = self._quality_issues(definition)
-        if issues:
-            raise RecipeError(issues[0].message)
+    def _authoring_scope(
+        self, workspace_id: str, origin: CoverageScopeRevision, selection: SourceSelection,
+        effective: SourceSelection, *, actor: Actor,
+    ) -> tuple[CoverageScopeRevision, bool]:
+        self.schema_workspace.authorization.require(
+            actor, Capability.COVERAGE_SCOPE, workspace_id=workspace_id,
+        )
+        names = {dataset.name for source in (selection, effective) for dataset in source.datasets}
+        if any(set(declaration.datasets) - names for declaration in origin.declarations):
+            raise RecipeError("A table in the saved coverage scope is unavailable in this draft.")
+        scope_id = str(uuid5(UUID(workspace_id), "recipe-coverage"))
+        current = self.references.get_coverage_scope(workspace_id)
+        if current is not None:
+            if (
+                current.source_selection_hash != selection.content_hash
+                or current.declarations != origin.declarations
+                or current.scope_id != scope_id
+            ):
+                raise RecipeError("This draft already has a different approved coverage scope.")
+            return current, False
+        scope = CoverageScopeRevision(
+            scope_id=scope_id,
+            workspace_id=workspace_id, version=1, parent_version=None,
+            source_selection_hash=selection.content_hash, declarations=origin.declarations,
+            approved_by=actor.identity, approved_at=datetime.now(UTC),
+        )
+        return scope, True
 
     def _authoring_references(
         self, workspace_id: str, origin_workspace_id: str, definition: Mapping[str, object],
@@ -212,7 +245,8 @@ class RecipeApplicationService(RecipeApplicationCompiler):
 
     def seed_authoring_mapping(
         self, workspace_id: str, *, definition: Mapping[str, object], schema: OdooSchemaCatalog,
-        state: WorkspaceState, operation_id: str, recipe_hash: str, origin_workspace_id: str, actor: Actor,
+        state: WorkspaceState, operation_id: str, recipe_hash: str, origin_workspace_id: str,
+        coverage_scope: CoverageScopeRevision | None = None, actor: Actor,
     ) -> None:
         """Materialize editable rules after a fresh capture, leaving checks to Authoring."""
 
@@ -223,15 +257,17 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             raise RecipeError("The saved field matches for this draft are unavailable.")
         if working is not None:
             raise RecipeError("This workspace already has field matches.")
-        self.require_authoring_seed_supported(definition)
+        if coverage_scope is None and self.advanced_checks(definition):
+            raise RecipeError("Review and approve the saved advanced checks.")
         parameters = self._authoring_parameters(definition)
         parameter_store = self.parameters
         if parameters.definitions and parameter_store is None:
             raise RecipeError("Recipe inputs are unavailable.")
         preparation = _portable_mapping(definition.get("source_preparation"), "Recipe source preparation")
         has_preparation = bool(preparation.get("rules") or preparation.get("dataset_uses"))
+        needs_physical_selection = has_preparation or coverage_scope is not None
         selection = (
-            self.sources.get_source_selection(workspace_id) if has_preparation
+            self.sources.get_source_selection(workspace_id) if needs_physical_selection
             else self.sources.get_mapping_source_selection(workspace_id)
         )
         if selection is None:
@@ -253,7 +289,13 @@ class RecipeApplicationService(RecipeApplicationCompiler):
         governance = self._materialize_governance(
             workspace_id, application_definition, actor=actor, schema=schema,
         )
-        effective = self.sources.get_mapping_source_selection(workspace_id) if has_preparation else selection
+        effective = selection
+        if has_preparation:
+            effective = self.sources.get_mapping_source_selection(workspace_id)
+        elif coverage_scope is not None:
+            if self.preparation.get_derived_entity_plan(workspace_id) is not None:
+                raise RecipeError("This draft already has source preparation.")
+            effective = canonical_mapping_source_selection(selection)
         if effective is None:
             raise RecipeError("The accepted source tables are unavailable.")
         controls = _portable_mapping(definition.get("control_definitions"), "Recipe controls")
@@ -273,7 +315,10 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             mapping_id=operation_id, source_selection_hash=effective.content_hash,
             schema_hash=governance.content_hash, datasets=datasets,
         )
-        quality_rules = self._quality_rules(application_definition, effective_bindings, effective)
+        quality_rules = self._quality_rules(
+            application_definition, effective_bindings, effective,
+            approved_scope=coverage_scope is not None, references=references,
+        )
         choices = recipe_supporting_choices(
             _portable_mapping(application_definition["odoo_target_contract"], "Recipe Odoo target contract"),
             effective_bindings,
@@ -308,10 +353,23 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             self.references.save_reference_bundle(workspace_id, references, actor=actor, restore=True)
         if parameters.definitions and parameter_store is not None:
             parameter_store.save_parameter_definitions(workspace_id, parameters, actor=actor, restore=True)
+        approved_scope, needs_approval_write = (
+            self._authoring_scope(
+                workspace_id, coverage_scope, selection, effective, actor=actor,
+            )
+            if coverage_scope is not None else (None, False)
+        )
         if quality_rules:
             self.application_state.save_authoring_quality_seed(
                 workspace_id, operation_id=operation_id, definition=candidate,
                 rules=quality_rules, actor=actor,
+                coverage_scope_hash=approved_scope.content_hash if approved_scope else None,
+                reference_bundle_hash=references.content_hash if approved_scope and references else None,
+            )
+        if needs_approval_write and approved_scope is not None:
+            # A partial attempt with a staged rule still fails closed until the scope exists.
+            self.references.save_coverage_scope(
+                workspace_id, approved_scope, expected_parent_version=None, actor=actor,
             )
         self.mappings.save_working_draft(
             workspace_id, datasets=datasets, expected_version=None, actor=actor, operation_id=operation_id,

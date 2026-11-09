@@ -17,7 +17,8 @@ _UNCHECKED_MESSAGES = {
         "Save a complete source identifier and Odoo matching rule first."
     ),
     MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE: (
-        "Confirm this Odoo matching rule before testing current records."
+        "In Odoo data, confirm the rule for this record type and the rules it "
+        "uses for linked records. Then run Check saved identities."
     ),
     MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY: (
         "This identity depends on a related Odoo record without a direct "
@@ -146,6 +147,11 @@ def _identity_card(
         if selected_key is not None
         else ()
     )
+    needs_confirmation = (
+        result is not None
+        and result.not_checkable_reason
+        is MatchingIdentityNotCheckableReason.UNCONFIRMED_MATCHING_RULE
+    )
     return {
         "dataset_id": source.dataset_id,
         "dataset_name": source.name,
@@ -202,6 +208,10 @@ def _identity_card(
             f"/workspaces/{workspace_id}/mapping/identity-choices?" + urlencode({
                 "dataset": source.dataset_id, "kind": "duplicates", "cause": "ambiguous_identity_target", "check": check_id,
             }) if result_counts and result_counts.target_ambiguous_key_count else ""
+        ),
+        "rule_confirmation_url": (
+            f"/workspaces/{workspace_id}/schema#schema-governance"
+            if needs_confirmation else ""
         ),
         "edit_url": f"{view['edit_url']}#target-identity-{view['index']}",
     }

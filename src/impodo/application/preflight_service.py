@@ -87,6 +87,7 @@ from ..domain.preflight.missing_parents import (
     missing_parent_groups,
 )
 from ..domain.preflight.reports import (
+    ReadinessIssueCount,
     ReadinessReport,
     ReadinessRowPage,
     ReviewWorkbookCellEffect,
@@ -167,6 +168,23 @@ def _direct_local_operation[T](function: Callable[[], T]) -> T:
 
 
 @dataclass(frozen=True, slots=True)
+class DeferredFindingSelection:
+    """Select summary findings by position in one saved comparison report."""
+
+    comparison_id: str
+    indexes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class DeferredFindingOption:
+    """One complete, selectable finding in the current comparison."""
+
+    index: str
+    finding: ReadinessIssueCount
+    selected: bool
+
+
+@dataclass(frozen=True, slots=True)
 class DeferredScopeReview:
     """Current isolatable issues and an optional locally calculated preview."""
 
@@ -177,6 +195,7 @@ class DeferredScopeReview:
     preview: DeferredScopePreview | None
     decision: DeferredScopeDecision | None = None
     bulk_preview: bool = False
+    finding_options: tuple[DeferredFindingOption, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,6 +220,44 @@ class DeferredIssueCandidate:
     @property
     def selectable(self) -> bool:
         return bool(self.issue.row_id)
+
+
+def _select_deferred_findings(
+    report: ReadinessReport,
+    candidates: tuple[DeferredIssueCandidate, ...],
+    source_labels: Mapping[tuple[str, str], str],
+    selection: DeferredFindingSelection,
+) -> tuple[tuple[str, ...], tuple[DeferredFindingOption, ...]]:
+    """Expand cards using the same dataset, code and field labels as the report."""
+
+    groups: dict[tuple[str, str, str], list[DeferredIssue]] = {}
+    for candidate in candidates:
+        issue = candidate.issue
+        if candidate.selectable:
+            field = source_labels.get((candidate.dataset, issue.field), issue.field)
+            groups.setdefault((candidate.dataset, issue.code, field), []).append(issue)
+
+    requested = set(selection.indexes)
+    selected_ids: set[str] = set()
+    options = []
+    for position, finding in enumerate(report.issue_counts):
+        if finding.status != "blocked":
+            continue
+        index = str(position)
+        issues = groups.get((finding.dataset, finding.technical_code, finding.field))
+        if not issues or len({item.row_id for item in issues}) != finding.affected_record_count:
+            continue
+        selected = index in requested
+        if selected:
+            selected_ids.update(item.issue_id for item in issues)
+        options.append(DeferredFindingOption(index, finding, selected))
+
+    if not selected_ids or not requested.issubset(option.index for option in options):
+        raise DeferredScopeEvidenceError(
+            "The selected finding no longer identifies a complete group. "
+            "Return to Final review to review the current problems."
+        )
+    return tuple(sorted(selected_ids)), tuple(options)
 
 
 def _report_progress(progress: PreflightProgress | None, phase: str) -> None:
@@ -748,9 +805,9 @@ class PreflightService:
         self,
         workspace_id: str,
         *,
-        selected_issue_ids: Iterable[str] | None = (),
+        selected_issue_ids: Iterable[str] | DeferredFindingSelection | None = (),
     ) -> DeferredScopeReview | None:
-        """Preview selected issues, or every row issue when the selection is None."""
+        """Preview selected issues, summary findings, or every row issue."""
 
         report = self.current_report(workspace_id)
         if report is None or (
@@ -758,6 +815,13 @@ class PreflightService:
             is SourceMode.ODOO
         ):
             return None
+        if (
+            isinstance(selected_issue_ids, DeferredFindingSelection)
+            and selected_issue_ids.comparison_id != report.run_id
+        ):
+            raise DeferredScopeEvidenceError(
+                "The comparison changed. Return to Final review and preview the current finding."
+            )
         full_snapshot = self._full_execution_snapshot(workspace_id, report.run_id)
         manifest, _content = self._verified_manifest(report)
         acceptance = self._deferred_scope_acceptance(
@@ -781,14 +845,23 @@ class PreflightService:
                 preview=acceptance.preview,
                 decision=acceptance.decision,
             )
-        selected = (
-            tuple(candidate.issue.issue_id for candidate in candidates if candidate.selectable)
-            if selected_issue_ids is None
-            else tuple(sorted(set(selected_issue_ids)))
-        )
+        finding_options = ()
+        frozen = None
+        if isinstance(selected_issue_ids, DeferredFindingSelection):
+            frozen = self._load_frozen_input(workspace_id)
+            selected, finding_options = _select_deferred_findings(
+                report, candidates, frozen.source_field_labels, selected_issue_ids,
+            )
+        elif selected_issue_ids is None:
+            selected = tuple(
+                candidate.issue.issue_id for candidate in candidates if candidate.selectable
+            )
+        else:
+            selected = tuple(sorted(set(selected_issue_ids)))
         preview = None
         if selected:
-            frozen = self._load_frozen_input(workspace_id)
+            if frozen is None:
+                frozen = self._load_frozen_input(workspace_id)
             dependencies = prepared_dependency_facts(
                 full_snapshot.rows,
                 tuple(frozen.prepared.records),
@@ -813,13 +886,14 @@ class PreflightService:
             candidates=candidates,
             preview=preview,
             bulk_preview=selected_issue_ids is None and preview is not None,
+            finding_options=finding_options,
         )
 
     def accept_deferred_scope(
         self,
         workspace_id: str,
         *,
-        selected_issue_ids: Iterable[str] | None,
+        selected_issue_ids: Iterable[str] | DeferredFindingSelection | None,
         actor: Actor,
         expected_comparison_id: str | None = None,
         expected_preview_hash: str | None = None,
