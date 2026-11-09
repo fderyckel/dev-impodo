@@ -13,6 +13,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     controls.dataset.relationshipOriginInitialized = "true";
 
+    const zeroRoot = controls.querySelector("[data-identity-zero-root]");
+    const parentTable = controls.querySelector('select[name^="identity_dataset_"]');
+    const parentSource = controls.querySelector('select[name^="identity_source_"]');
     const syncOriginControls = () => {
       const allowsIncoming = origin.value !== "target_catalog";
       const allowsExistingOdoo = origin.value !== "dataset";
@@ -32,9 +35,21 @@ document.addEventListener("DOMContentLoaded", () => {
       )) {
         control.hidden = !usesCombinedLookup;
       }
+      if (zeroRoot) {
+        const hasOneSource = Array.from(parentSource.selectedOptions)
+          .filter((option) => option.value).length === 1;
+        const available = !allowsExistingOdoo && hasOneSource &&
+          parentTable.value === zeroRoot.dataset.identityZeroRoot;
+        zeroRoot.querySelector("input").disabled = !available;
+        zeroRoot.querySelector("[data-zero-root-requirements]").hidden = available;
+      }
     };
 
     origin.addEventListener("change", syncOriginControls);
+    if (zeroRoot) {
+      parentTable.addEventListener("change", syncOriginControls);
+      parentSource.addEventListener("change", syncOriginControls);
+    }
     syncOriginControls();
   };
 

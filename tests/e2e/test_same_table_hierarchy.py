@@ -71,8 +71,16 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
             page.locator("#required-values-summary > summary").click()
             expect(parent_warning).to_be_visible()
         page.goto(mapping + "?step=tables&task=identity", wait_until="networkidle")
-        if zero_root:
-            page.get_by_label("A parent value of 0 means no parent", exact=False).check()
+
+        def save_progress():
+            with page.expect_response(
+                lambda response: (
+                    "/mapping/save" in response.url and response.request.method == "POST"
+                )
+            ) as saved:
+                page.get_by_role("button", name="Save progress", exact=True).click()
+            self.assertEqual(saved.value.status, 200, saved.value.text())
+
         columns = {column.source_name: column.stable_key for column in source.columns}
         expect(page.locator('[name="source_identity_0"]')).to_have_values(
             [columns["RecId"]]
@@ -80,9 +88,8 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
         expect(page.locator('[name="identity_source_0_0"]')).to_have_value(
             columns["Name"]
         )
-        expect(page.locator('[name="identity_source_0_1"]')).to_have_values(
-            [columns["ParentCategory"]]
-        )
+        parent_source = page.locator('[name="identity_source_0_1"]')
+        expect(parent_source).to_have_values([columns["ParentCategory"]])
         parent_table = page.locator('[name="identity_dataset_0_1"]')
         expect(
             parent_table.get_by_role(
@@ -91,13 +98,31 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
         ).to_have_count(1)
         parent_table.select_option("")
         parent_table.select_option(source.dataset_id)
-        with page.expect_response(
-            lambda response: (
-                "/mapping/save" in response.url and response.request.method == "POST"
-            )
-        ) as saved:
-            page.get_by_role("button", name="Save progress", exact=True).click()
-        self.assertEqual(saved.value.status, 200, saved.value.text())
+
+        zero_checkbox = page.get_by_label(
+            "A parent value of 0 means no parent", exact=False
+        )
+        if zero_root:
+            origin = page.locator('[name="identity_origin_0_1"]')
+            origin.select_option("target_then_dataset")
+            expect(zero_checkbox).to_be_disabled()
+            parent_source.select_option([])
+            save_progress()
+            page.reload(wait_until="networkidle")
+            expect(parent_source).to_be_visible()
+            expect(
+                parent_source.locator("option", has_text="ParentCategory")
+            ).to_have_count(1)
+            expect(zero_checkbox).to_be_disabled()
+            origin.select_option("dataset")
+            expect(zero_checkbox).to_be_disabled()
+            parent_source.select_option(columns["ParentCategory"])
+            parent_table.select_option("")
+            expect(zero_checkbox).to_be_disabled()
+            parent_table.select_option(source.dataset_id)
+            zero_checkbox.check()
+
+        save_progress()
         page.reload(wait_until="networkidle")
         expect(page.locator('[name="identity_dataset_0_1"]')).to_have_value(
             source.dataset_id
@@ -106,11 +131,14 @@ class SameTableHierarchyBrowserTests(unittest.TestCase):
             page.get_by_text("For a parent in this table", exact=False)
         ).to_be_visible()
         if zero_root:
-            expect(page.locator('[name="identity_zero_root_0_1"]')).to_be_checked()
+            expect(zero_checkbox).to_be_checked()
             page.get_by_role("link", name="Check and resolve", exact=False).click()
             page.locator('[data-check-mapping]').click()
             page.wait_for_load_state("networkidle")
             expect(parent_warning).to_have_count(0)
+            page.goto(mapping + "?step=tables&task=identity", wait_until="networkidle")
+            expect(parent_source).to_have_values([columns["ParentCategory"]])
+            expect(zero_checkbox).to_be_checked()
         self.assertEqual(errors, [])
         output = os.environ.get("IMPODO_SAME_TABLE_HIERARCHY_SCREENSHOT")
         if output and major == 20:

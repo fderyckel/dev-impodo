@@ -165,11 +165,10 @@
                       </div>
                       <label>
                         Source column{% if row.relational %}(s){% endif %}
-                        <select name="identity_source_{{ dataset_index }}_{{ loop.index0 }}" data-lazy-source-column {% if row.relational %}multiple size="{{ [view.source.columns|length, 5]|min }}"{% endif %}>
+                        <select name="identity_source_{{ dataset_index }}_{{ loop.index0 }}" {% if row.relational %}multiple size="{{ [view.source.columns|length, 5]|min }}"{% else %}data-lazy-source-column{% endif %}>
                           <option value="">Choose source column</option>
-                          {% for selected_source in row.selected_sources %}
-                            {% set column = view.source_by_key.get(selected_source) %}
-                            {% if column %}<option value="{{ column.stable_key }}" selected>{{ column.source_name }}</option>{% endif %}
+                          {% for column in view.source.columns if row.relational or column.stable_key in row.selected_sources %}
+                            <option value="{{ column.stable_key }}" {% if column.stable_key in row.selected_sources %}selected{% endif %}>{{ column.source_name }}</option>
                           {% endfor %}
                         </select>
                       </label>
@@ -203,13 +202,15 @@
                             {% endfor %}
                           </select>
                           <small>Choose a table mapped to {{ row.metadata.relation }} when incoming records are allowed.</small>
-                          {% if row.self_parent and not view.generated_hierarchy %}<small>For a parent in this table, select this table. Parent values must match its unique row identifier. {% if not row.metadata.required %}With an incoming-table lookup, a blank parent means a top-level record.{% endif %}</small>{% endif %}
+                          {% if row.self_parent and not view.generated_hierarchy %}<small>For a parent in this table, select this table. Parent values must match its unique row identifier. {% if not row.metadata.required %}With this table as the only lookup, a blank parent means a top-level record.{% endif %}</small>{% endif %}
                         </label>
                         {% if row.self_parent and not row.metadata.required %}
-                          <label data-relationship-incoming-control {% if row.selected_origin == 'target_catalog' %}hidden{% endif %}>
-                            <input type="checkbox" name="identity_zero_root_{{ dataset_index }}_{{ loop.index0 }}" value="1" {% if row.zero_root %}checked{% endif %}>
+                          {% set zero_root_available = row.selected_origin == 'dataset' and row.selected_dataset_id == view.source.dataset_id and row.selected_sources|length == 1 %}
+                          <label data-relationship-incoming-control data-identity-zero-root="{{ view.source.dataset_id }}" {% if row.selected_origin == 'target_catalog' %}hidden{% endif %}>
+                            <input type="checkbox" name="identity_zero_root_{{ dataset_index }}_{{ loop.index0 }}" value="1" {% if row.zero_root %}checked{% endif %} {% if not zero_root_available %}disabled{% endif %}>
                             A parent value of 0 means no parent
-                            <small>Use this only when 0 marks a top-level record in your source. Other parent IDs still have to match a row in the selected table.</small>
+                            <small data-zero-root-requirements {% if zero_root_available %}hidden{% endif %}>Choose one parent source column and use this table as the only lookup to enable this option.</small>
+                            <small>Use this only when 0 marks a top-level record in your source. Other parent IDs still have to match a row in this table.</small>
                           </label>
                         {% endif %}
                         <label data-relationship-odoo-control {% if row.selected_origin == 'dataset' %}hidden{% endif %}>
