@@ -6,6 +6,9 @@
 {% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/execution.js') }}" defer></script>
+  {% if review_workbook_comparison_id %}
+    <script src="{{ url_for('static', path='/review-workbook.js') }}" defer></script>
+  {% endif %}
 {% endblock %}
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
@@ -481,6 +484,16 @@
           <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
         </div>
       </section>
+
+      {% if review_workbook_comparison_id %}
+        <section class="form-card" id="review-workbook" aria-labelledby="review-workbook-title">
+          <h2 id="review-workbook-title">Review workbook</h2>
+          <p>Save a copy of the comparison used for this load.</p>
+          <div class="button-row">
+            {% include "_review_workbook_actions.html" %}
+          </div>
+        </section>
+      {% endif %}
 
       {% if reconciliation.fallout_count %}
         {% if fallout_groups %}

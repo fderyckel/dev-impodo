@@ -200,10 +200,10 @@ class PreflightPublicationTests(unittest.TestCase):
             artifacts=artifacts,
             authorization=CapabilityAuthorizationPolicy(),
         )
-        service.deferred_scope_review = MagicMock(return_value=review)
-        service._full_execution_snapshot = MagicMock(
-            return_value=SimpleNamespace(semantic_hash=full_hash)
-        )
+        full = SimpleNamespace(semantic_hash=full_hash)
+        service._read_deferred_scope = MagicMock(return_value=SimpleNamespace(
+            review=review, full_snapshot=full, acceptance=None,
+        ))
         service.current_report = MagicMock(
             return_value=SimpleNamespace(run_id=run_id)
         )
@@ -293,7 +293,7 @@ class PreflightPublicationTests(unittest.TestCase):
             )
 
         self.assertEqual(acceptance.snapshot, reduced)
-        reducer.assert_called_once()
+        reducer.assert_called_once_with(full, preview)
         self.assertEqual(
             {call.args[2] for call in artifacts.write_report.call_args_list},
             {

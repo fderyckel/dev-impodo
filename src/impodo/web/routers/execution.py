@@ -20,6 +20,8 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
+from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
+from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
@@ -39,7 +41,7 @@ from impodo.domain.execution.odoo_readback import OdooReadbackError
 from impodo.domain.execution.write_diagnostics import WriteFailureCode
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.project.foundation import MigrationConflictError
-from impodo.domain.reconciliation import ReconciliationRun
+from impodo.domain.reconciliation import ReconciliationRun, ReconciliationRunStatus
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.run.production import ProductionRunError
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
@@ -51,6 +53,7 @@ from impodo.domain.shared.models import (
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
+    SourceMode,
     WorkspaceState,
     WorkspaceStateError,
 )
@@ -516,6 +519,24 @@ def build_execution_router(
         )
         reconciliation = context.reconciliation.current(workspace_id)
         current_run = preview.current_run
+        review_workbook_comparison_id = ""
+        review_workbook_ready = False
+        if (
+            step == "outcome"
+            and workspace_state.source_mode is SourceMode.FILE
+            and current_run is not None
+            and getattr(current_run, "status", None) is ExecutionRunStatus.COMPLETED
+            and reconciliation is not None
+            and reconciliation.status is ReconciliationRunStatus.VERIFIED
+            and reconciliation.execution_run_id == current_run.run_id
+        ):
+            review_workbook_comparison_id = current_run.preflight_run_id
+            try:
+                review_workbook_ready = context.artifacts.report_exists(
+                    workspace_id, review_workbook_comparison_id, WORKBOOK_NAME
+                )
+            except ArtifactStoreError:
+                review_workbook_ready = False
         interrupted_load = (
             current_run is not None
             and getattr(current_run, "status", None) is ExecutionRunStatus.RUNNING
@@ -656,6 +677,8 @@ def build_execution_router(
             ),
             blocker_summary=getattr(preview, "blocker_summary", None),
             reconciliation=reconciliation,
+            review_workbook_comparison_id=review_workbook_comparison_id,
+            review_workbook_ready=review_workbook_ready,
             fallout_detail_available=fallout_detail_available,
             fallout_groups=fallout_groups,
             fallout_detail_page=fallout_detail_page,

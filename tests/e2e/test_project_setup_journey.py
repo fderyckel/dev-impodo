@@ -1837,6 +1837,46 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         self.assertNotIn("load-secret", outcome_page.text)
 
+        workbook_url = f"/workspaces/{workspace_id}/summary/workbook"
+        package_url = f"/workspaces/{workspace_id}/summary/package"
+        workbook_form = {
+            "csrf_token": self.csrf,
+            "comparison_id": repeated_report.run_id,
+        }
+        self.assertIn('id="review-workbook"', outcome_page.text)
+        self.assertIn("Create review workbook", outcome_page.text)
+        self.assertIn(f"{workbook_url}?comparison_id={repeated_report.run_id}", outcome_page.text)
+        self.assertIn("/review-workbook.js", outcome_page.text)
+        stale_package = self.client.post(
+            package_url,
+            data={**workbook_form, "comparison_id": report.run_id},
+            headers={**POST_HEADERS, "Accept": "application/json"},
+        )
+        self.assertEqual(stale_package.status_code, 409, stale_package.text)
+        stale_workbook = self.client.get(
+            workbook_url,
+            params={"comparison_id": report.run_id},
+        )
+        self.assertEqual(stale_workbook.status_code, 404, stale_workbook.text)
+        created_workbook = self.client.post(
+            package_url,
+            data=workbook_form,
+            headers={**POST_HEADERS, "Accept": "application/json"},
+            follow_redirects=False,
+        )
+        self.assertEqual(created_workbook.status_code, 200, created_workbook.text)
+        self.assertEqual(created_workbook.json()["message"], "Review workbook created.")
+        downloaded_workbook = self.client.get(
+            workbook_url,
+            params={"comparison_id": repeated_report.run_id},
+        )
+        self.assertEqual(downloaded_workbook.status_code, 200)
+        self.assertIn("spreadsheetml.sheet", downloaded_workbook.headers["content-type"])
+        self.assertIn(
+            "Recreate review workbook",
+            self.client.get(finished_load["redirect_url"]).text,
+        )
+
         report = repeated_report
         sample_row = self.app.state.context.preflight.readiness_rows(
             workspace_id,

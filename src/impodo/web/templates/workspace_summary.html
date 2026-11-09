@@ -3,6 +3,7 @@
 {% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/review.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/review-workbook.js') }}" defer></script>
 {% endblock %}
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
@@ -321,17 +322,8 @@
           <a class="button primary" href="#readiness-rows">Review checked records</a>
         {% elif load_preview and (load_preview.can_load or load_preview.current_run) %}
           <a class="button primary" href="/workspaces/{{ workspace_id }}/load">{% if load_preview.current_run %}View load outcome{% else %}Preview Odoo load{% endif %}</a>
-          {% if review_workbook_ready %}
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
-            <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Recreate review workbook</button>
-            </form>
-          {% elif load_preview.can_load %}
-            <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Create review workbook</button>
-            </form>
+          {% if review_workbook_ready or load_preview.can_load %}
+            {% include "_review_workbook_actions.html" %}
           {% endif %}
         {% elif load_preview and load_preview.scope_error %}
           {% if load_preview.credential_refresh_required %}
@@ -342,17 +334,8 @@
           {% if review_workbook_ready %}
             <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
           {% endif %}
-        {% elif review_workbook_ready %}
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
-          <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Recreate review workbook</button>
-          </form>
         {% else %}
-          <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Create review workbook</button>
-          </form>
+          {% include "_review_workbook_actions.html" %}
         {% endif %}
         {% if odoo_source and readiness.blocked_count %}
         {% elif local_odoo_recovery_needed %}
@@ -670,18 +653,7 @@
         <div class="next-action-buttons">
           <a class="button primary" href="/workspaces/{{ workspace_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
           {% if deferred_scope and deferred_scope.decision %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Review set-aside decision</a>{% endif %}
-          {% if review_workbook_ready %}
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/workbook">Download review workbook</a>
-            <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Recreate review workbook</button>
-            </form>
-          {% else %}
-            <form method="post" action="/workspaces/{{ workspace_id }}/summary/package">
-              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Create review workbook</button>
-            </form>
-          {% endif %}
+          {% include "_review_workbook_actions.html" %}
           {% if local_odoo_recovery_needed %}
             {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
           {% elif comparison_recovery_needed %}

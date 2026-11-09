@@ -83,6 +83,8 @@ class BulkDeferredWorkflowTests(HierarchyWorkflowFixture):
             })
         self.assertEqual(preview.status_code, 200, preview.text)
         self.assertIn("Set aside all problem groups", preview.text)
+        self.assertIn("data-single-submit", preview.text)
+        self.assertIn('data-submitting-label="Saving set-aside decision…"', preview.text)
         self.assertNotIn('name="issue_id"', preview.text)
         # Access, verification and rendering share one bounded read scope.
         self.assertLessEqual(timings.connection_count, 6)
@@ -93,13 +95,22 @@ class BulkDeferredWorkflowTests(HierarchyWorkflowFixture):
         controls.feed(preview.text)
         values = dict(controls.entries)
 
-        with collect_duckdb_request_timings() as timings:
-            accepted = self._post(url + "/deferred-groups/accept", {
-                "csrf_token": self.csrf, "select_all": "1",
-                "comparison_id": values["comparison_id"],
-                "preview_hash": values["preview_hash"],
-            })
+        confirmation = {
+            "csrf_token": self.csrf, "select_all": "1",
+            "comparison_id": values["comparison_id"],
+            "preview_hash": values["preview_hash"],
+        }
+        accept_url = url + "/deferred-groups/accept"
+        with (
+            collect_duckdb_request_timings() as timings,
+            patch.object(
+                self.context.preflight, "_full_execution_snapshot",
+                wraps=self.context.preflight._full_execution_snapshot,
+            ) as full_snapshot,
+        ):
+            accepted = self._post(accept_url, confirmation)
         self.assertEqual(accepted.status_code, 303, accepted.text)
+        full_snapshot.assert_called_once_with(workspace_id, report.run_id)
         # Verification and publication retain the foundation, workspace,
         # data-version and prepared-evidence owners in one local operation.
         self.assertLessEqual(timings.connection_count, 6)
@@ -109,6 +120,22 @@ class BulkDeferredWorkflowTests(HierarchyWorkflowFixture):
         self.assertTrue(review.preview.ready_with_records_set_aside)
         self.assertIsNotNone(review.decision)
         self.assertGreater(review.preview.remaining_write_count, 0)
+
+        with (
+            collect_duckdb_request_timings() as timings,
+            patch.object(self.context.preflight.preflight, "save_deferred_scope_projection") as publish,
+        ):
+            replay = self._post(accept_url, confirmation)
+        self.assertEqual(replay.status_code, 303, replay.text)
+        self.assertEqual(replay.headers["location"], url)
+        publish.assert_not_called()
+        self.assertLessEqual(timings.connection_count, 6)
+        self.assertLessEqual(timings.schema_check_count, 4)
+        self.assertEqual(timings.lock_retry_count, 0)
+        self.assertEqual(
+            self.context.preflight.deferred_scope_review(workspace_id).decision,
+            review.decision,
+        )
 
         def evidence():
             return run_local_operation_sync(

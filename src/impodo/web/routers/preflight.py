@@ -12,6 +12,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+from asyncio import Lock
 from collections.abc import Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -182,6 +183,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     """Build compare, manifest, and workbook routes for final-review evidence."""
 
     router = APIRouter()
+    workbook_write_lock = Lock()
 
     @router.post("/workspaces/{workspace_id}/summary/compare")
     async def compare_workspace_data(request: Request, workspace_id: str):
@@ -838,91 +840,61 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     @router.post("/workspaces/{workspace_id}/summary/package")
     async def generate_readiness_package(request: Request, workspace_id: str):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token"})
-        actor = request_identity(request, context.identity_resolver).actor
-        access_context = context.workspace_access.resolve(
-            workspace_id,
-            actor=actor,
-            capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+        _secure_form(request, form, {"csrf_token", "comparison_id"})
+        comparison_id = _text(form, "comparison_id")
+        wants_json = request.headers.get("accept") == "application/json"
+        return_url = (
+            f"/workspaces/{workspace_id}/load/outcome#review-workbook"
+            if comparison_id
+            else f"/workspaces/{workspace_id}/summary"
         )
-        report = context.preflight.current_report(workspace_id)
-        if report is None:
-            raise HTTPException(status_code=404, detail="Readiness report not found")
-        staging = context.preflight.current_staging(workspace_id)
-        if staging is None or not staging.control_totals_passed:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error=(
-                    "Resolve the named totals that need attention before "
-                    "creating the package."
-                ),
-                status_code=422,
-            )
-        quality = context.quality.current_summary(workspace_id)
-        if quality is None or quality.run_id != report.quality_run_id:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error="Check all rows again before creating the package.",
-                status_code=422,
-            )
-        if not quality.ready_for_package:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error=(
-                    "Resolve the data checks that need review or setup before "
-                    "creating the package. Records already set aside may remain "
-                    "outside the package."
-                ),
-                status_code=422,
-            )
-        try:
-            deferred_review = await run_in_threadpool(
-                context.preflight.deferred_scope_review,
-                workspace_id,
-            )
-        except (
-            ArtifactStoreError,
-            DeferredScopeEvidenceError,
-            OSError,
-            ReadinessError,
-            WorkspaceError,
-        ) as error:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
-        accepted_deferred_review = (
-            deferred_review
-            if deferred_review is not None
-            and deferred_review.decision is not None
-            and deferred_review.preview is not None
-            and deferred_review.preview.ready_with_records_set_aside
-            else None
-        )
-        if report.status != "READY" and accepted_deferred_review is None:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error="Resolve the rows that need attention before creating the package.",
-                status_code=422,
-            )
 
         def write_package() -> None:
+            actor = request_identity(request, context.identity_resolver).actor
+            access_context = context.workspace_access.resolve(
+                workspace_id,
+                actor=actor,
+                capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+            )
+            report = context.preflight.current_report(workspace_id)
+            if report is None:
+                raise HTTPException(status_code=404, detail="Readiness report not found")
+            if comparison_id and comparison_id != report.run_id:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Refresh the page to see the current review workbook.",
+                )
+            staging = context.preflight.current_staging(workspace_id)
+            if staging is None or not staging.control_totals_passed:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Resolve the named totals that need attention before creating the workbook.",
+                )
+            quality = context.quality.current_summary(workspace_id)
+            if quality is None or quality.run_id != report.quality_run_id:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Check all rows again before creating the workbook.",
+                )
+            if not quality.ready_for_package:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Resolve the remaining data checks before creating the workbook.",
+                )
+            deferred_review = context.preflight.deferred_scope_review(workspace_id)
+            accepted_deferred_review = (
+                deferred_review
+                if deferred_review is not None
+                and deferred_review.decision is not None
+                and deferred_review.preview is not None
+                and deferred_review.preview.ready_with_records_set_aside
+                else None
+            )
+            if report.status != "READY" and accepted_deferred_review is None:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Review the rows that need attention before creating the workbook.",
+                )
             with bind_workspace_access_context(access_context):
                 review_evidence = context.preflight.review_workbook_evidence(
                     workspace_id,
@@ -952,32 +924,51 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         ),
                     )
 
+        async def package_error(message: str, status_code: int = 422):
+            if wants_json:
+                return JSONResponse({"detail": message}, status_code=status_code)
+            if comparison_id:
+                _flash(request, message)
+                return RedirectResponse(return_url, status_code=303)
+            return await run_page_read(
+                _render_summary,
+                request,
+                context,
+                workspace_id,
+                error=message,
+                status_code=status_code,
+            )
+
         try:
-            await run_in_threadpool(write_package)
+            # Both review pages publish to the same artifact path.
+            async with workbook_write_lock:
+                await run_local_operation(write_package)
+        except HTTPException as error:
+            if error.status_code not in {409, 422}:
+                raise
+            return await package_error(str(error.detail), error.status_code)
         except (
             ArtifactStoreError,
+            DeferredScopeEvidenceError,
             OSError,
             ReadinessError,
             ReportGenerationError,
             WorkspaceError,
         ) as error:
-            return await run_in_threadpool(
-                _render_summary,
-                request,
-                context,
-                workspace_id,
-                error=str(error),
-                status_code=422,
-            )
-        _flash(request, "Review package created.")
-        return RedirectResponse(
-            f"/workspaces/{workspace_id}/summary",
-            status_code=303,
-        )
+            return await package_error(str(error))
+
+        message = "Review workbook created."
+        if wants_json:
+            return JSONResponse({"message": message})
+        _flash(request, message)
+        return RedirectResponse(return_url, status_code=303)
 
     @router.get("/workspaces/{workspace_id}/summary/workbook")
     async def download_readiness_workbook(request: Request, workspace_id: str):
         require_session(request)
+        return await run_page_read(read_readiness_workbook, request, workspace_id)
+
+    def read_readiness_workbook(request: Request, workspace_id: str):
         actor = request_identity(request, context.identity_resolver).actor
         context.workspace_access.resolve(
             workspace_id,
@@ -987,6 +978,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
         report = context.preflight.current_report(workspace_id)
         if report is None:
             raise HTTPException(status_code=404, detail="Readiness report not found")
+        comparison_id = request.query_params.get("comparison_id")
+        if comparison_id and comparison_id != report.run_id:
+            raise HTTPException(status_code=404, detail="Review workbook not found")
         try:
             exists = context.artifacts.report_exists(
                 workspace_id, report.run_id, WORKBOOK_NAME

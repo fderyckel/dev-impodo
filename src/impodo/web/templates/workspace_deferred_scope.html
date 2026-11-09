@@ -192,7 +192,7 @@
             {% endif %}
           </div>
           {% if preview.ready_with_records_set_aside %}
-            <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/accept">
+            <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/accept" data-single-submit>
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="comparison_id" value="{{ deferred_review.comparison_id }}">
               <input type="hidden" name="preview_hash" value="{{ preview.semantic_hash }}">
@@ -203,7 +203,7 @@
               {% else %}
                 {% for issue_id in preview.selected_issue_ids %}<input type="hidden" name="issue_id" value="{{ issue_id }}">{% endfor %}
               {% endif %}
-              <button class="button primary" type="submit">{% if deferred_review.bulk_preview %}Set aside all problem groups{% else %}Set aside affected groups for this load{% endif %}</button>
+              <button class="button primary" type="submit" data-submitting-label="Saving set-aside decision…">{% if deferred_review.bulk_preview %}Set aside all problem groups{% else %}Set aside affected groups for this load{% endif %}</button>
             </form>
           {% endif %}
         </section>

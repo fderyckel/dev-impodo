@@ -243,7 +243,9 @@ sequence above for an Odoo-to-Odoo workspace.
    always stops further uploads.
 6. Follow the current load group and relationship-completion totals. Do not
    resubmit an uncertain request.
-7. Open **Verify result** to read back the affected records.
+7. Open **Verify result** to read back the affected records. After a file-based
+   load is verified, use **Create review workbook** or **Download review
+   workbook** to save the comparison used for that load.
 8. Review reconciliation when any row cannot be verified. A read-back
    difference means Odoo accepted the record but stored at least one different
    value; it does not mean that Odoo rejected the row. Use **See the different

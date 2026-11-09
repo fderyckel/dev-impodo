@@ -74,14 +74,15 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
             )
 
     def test_review_workbook_actions_use_secondary_buttons(self) -> None:
-        template = (
-            ROOT
-            / "src"
-            / "impodo"
-            / "web"
-            / "templates"
-            / "workspace_summary.html"
-        ).read_text(encoding="utf-8")
+        templates = ROOT / "src" / "impodo" / "web" / "templates"
+        for page in ("workspace_summary.html", "workspace_load.html"):
+            self.assertIn(
+                "_review_workbook_actions.html",
+                (templates / page).read_text(encoding="utf-8"),
+            )
+        template = (templates / "_review_workbook_actions.html").read_text(
+            encoding="utf-8"
+        )
 
         for label in (
             "Download review workbook",
@@ -89,7 +90,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
             "Recreate review workbook",
         ):
             matches = re.findall(
-                rf'class="button ([^"]+)"[^>]*>{re.escape(label)}<',
+                rf'class="button ([^"]+)"[^>]*>[^<]*{re.escape(label)}',
                 template,
             )
             self.assertTrue(matches, label)

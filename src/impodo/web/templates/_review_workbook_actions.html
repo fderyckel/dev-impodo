@@ -1,0 +1,12 @@
+{% set workbook_url = '/workspaces/' ~ workspace_id ~ '/summary/workbook' %}
+<form method="post" action="/workspaces/{{ workspace_id }}/summary/package" data-review-workbook-form>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  {% if review_workbook_comparison_id %}
+    <input type="hidden" name="comparison_id" value="{{ review_workbook_comparison_id }}">
+  {% endif %}
+  <button class="button secondary" type="submit">{% if review_workbook_ready %}Recreate review workbook{% else %}Create review workbook{% endif %}</button>
+  <span role="status" data-review-workbook-status></span>
+</form>
+<span data-review-workbook-download {% if not review_workbook_ready %}hidden{% endif %}>
+  <a class="button secondary" href="{{ workbook_url }}{% if review_workbook_comparison_id %}?comparison_id={{ review_workbook_comparison_id | urlencode }}{% endif %}">Download review workbook</a>
+</span>

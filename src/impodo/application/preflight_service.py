@@ -208,6 +208,15 @@ class DeferredScopeAcceptance:
 
 
 @dataclass(frozen=True, slots=True)
+class _DeferredScopeReviewEvidence:
+    """Keep the verified full snapshot available within the current operation."""
+
+    review: DeferredScopeReview
+    full_snapshot: ExecutionSnapshot
+    acceptance: DeferredScopeAcceptance | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DeferredIssueCandidate:
     """Business-row context for one issue shown in the review page."""
 
@@ -809,6 +818,16 @@ class PreflightService:
     ) -> DeferredScopeReview | None:
         """Preview selected issues, summary findings, or every row issue."""
 
+        evidence = self._read_deferred_scope(workspace_id, selected_issue_ids)
+        return evidence.review if evidence is not None else None
+
+    def _read_deferred_scope(
+        self,
+        workspace_id: str,
+        selected_issue_ids: Iterable[str] | DeferredFindingSelection | None,
+        *,
+        include_saved_issues: bool = True,
+    ) -> _DeferredScopeReviewEvidence | None:
         report = self.current_report(workspace_id)
         if report is None or (
             getattr(self.workspaces.get(workspace_id), "source_mode", SourceMode.FILE)
@@ -830,20 +849,24 @@ class PreflightService:
             full_snapshot,
             comparison_hash=report.result_hash,
         )
-        issues = self._deferred_issues(
-            report.run_id,
-            full_snapshot,
-            manifest,
-        )
-        candidates = self._deferred_issue_candidates(issues, full_snapshot)
+        if acceptance is None or include_saved_issues:
+            issues = self._deferred_issues(report.run_id, full_snapshot, manifest)
+            candidates = self._deferred_issue_candidates(issues, full_snapshot)
+        else:
+            issues = ()
+            candidates = ()
         if acceptance is not None:
-            return DeferredScopeReview(
-                comparison_id=report.run_id,
-                comparison_hash=report.result_hash,
-                issues=issues,
-                candidates=candidates,
-                preview=acceptance.preview,
-                decision=acceptance.decision,
+            return _DeferredScopeReviewEvidence(
+                review=DeferredScopeReview(
+                    comparison_id=report.run_id,
+                    comparison_hash=report.result_hash,
+                    issues=issues,
+                    candidates=candidates,
+                    preview=acceptance.preview,
+                    decision=acceptance.decision,
+                ),
+                full_snapshot=full_snapshot,
+                acceptance=acceptance,
             )
         finding_options = ()
         frozen = None
@@ -879,14 +902,17 @@ class PreflightService:
                     frozen.quality.quarantined_count + frozen.quality.excluded_count
                 ),
             )
-        return DeferredScopeReview(
-            comparison_id=report.run_id,
-            comparison_hash=report.result_hash,
-            issues=issues,
-            candidates=candidates,
-            preview=preview,
-            bulk_preview=selected_issue_ids is None and preview is not None,
-            finding_options=finding_options,
+        return _DeferredScopeReviewEvidence(
+            review=DeferredScopeReview(
+                comparison_id=report.run_id,
+                comparison_hash=report.result_hash,
+                issues=issues,
+                candidates=candidates,
+                preview=preview,
+                bulk_preview=selected_issue_ids is None and preview is not None,
+                finding_options=finding_options,
+            ),
+            full_snapshot=full_snapshot,
         )
 
     def accept_deferred_scope(
@@ -898,43 +924,51 @@ class PreflightService:
         expected_comparison_id: str | None = None,
         expected_preview_hash: str | None = None,
     ) -> DeferredScopeAcceptance:
-        """Persist one reviewed safe remainder; this performs no target read."""
+        """Save a safe remainder or return the matching committed decision."""
 
         self.authorization.require(
             actor,
             Capability.PREFLIGHT_RUN,
             workspace_id=workspace_id,
         )
-        review = self.deferred_scope_review(
-            workspace_id,
-            selected_issue_ids=selected_issue_ids,
+        evidence = self._read_deferred_scope(
+            workspace_id, selected_issue_ids, include_saved_issues=False,
         )
-        if review is None or review.preview is None:
+        if evidence is None or evidence.review.preview is None:
             raise DeferredScopeEvidenceError(
                 "A current group preview is required before accepting set-aside rows"
             )
-        if review.decision is not None:
-            raise DeferredScopeEvidenceError(
-                "The current comparison already has a reviewed set-aside decision"
-            )
+        review = evidence.review
+        preview = evidence.review.preview
         if (
             expected_comparison_id is not None
             and expected_comparison_id != review.comparison_id
         ) or (
             expected_preview_hash is not None
-            and expected_preview_hash != review.preview.semantic_hash
+            and expected_preview_hash != preview.semantic_hash
         ):
             raise DeferredScopeEvidenceError(
                 "The group preview changed. Review it again before accepting."
             )
-        full_snapshot = self._full_execution_snapshot(
-            workspace_id,
-            review.comparison_id,
-        )
-        reduced = reduce_execution_snapshot(full_snapshot, review.preview)
+        if (saved := evidence.acceptance) is not None:
+            if expected_comparison_id is None or expected_preview_hash is None:
+                raise DeferredScopeEvidenceError(
+                    "The current comparison already has a reviewed set-aside decision"
+                )
+            observation = self.preflight.get_business_write_observation(
+                workspace_id, saved.snapshot.semantic_hash,
+            )
+            if observation.reduced_scope_hash != saved.decision.semantic_hash:
+                raise DeferredScopeEvidenceError(
+                    "Return to Final review to check the saved set-aside decision."
+                )
+            return saved
+
+        full_snapshot = evidence.full_snapshot
+        reduced = reduce_execution_snapshot(full_snapshot, preview)
         decision = DeferredScopeDecision.accept(
             workspace_id=workspace_id,
-            preview=review.preview,
+            preview=preview,
             reduced_execution_snapshot_hash=reduced.semantic_hash,
             accepted_by=actor.identity,
             accepted_at=datetime.now(UTC),
@@ -974,7 +1008,7 @@ class PreflightService:
         payloads = (
             (
                 DEFERRED_SCOPE_PREVIEW_NAME,
-                review.preview.to_json().encode("utf-8") + b"\n",
+                preview.to_json().encode("utf-8") + b"\n",
             ),
             (
                 REDUCED_EXECUTION_SNAPSHOT_NAME,
@@ -1017,7 +1051,7 @@ class PreflightService:
             raise
         return DeferredScopeAcceptance(
             decision=decision,
-            preview=review.preview,
+            preview=preview,
             snapshot=reduced,
         )
 
