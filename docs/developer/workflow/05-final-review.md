@@ -82,6 +82,27 @@ publication becomes interrupted and retryable; changed bindings become stale.
 The progress route reconstructs this bounded attempt projection without loading
 the manifest, execution snapshot, or target snapshots.
 
+The progress page and status response use the same outcome message and recovery
+presenter. A failed attempt hides the progress card and shows **Comparison
+stopped**. A success or a displayable report bound to this operation confirms
+that its result was saved. Without that report, storage failures, unexpected
+failures, and failures after publication started leave the result unconfirmed
+in the wording. Recovery
+links and the retry form exist in the initial page so polling can reveal the
+correct action without a reload. Retry remains a CSRF-protected POST with a
+fresh operation ID. Credential recovery returns to the protected Final review
+form. Support codes remain under **Support details**.
+
+Both progress GETs collect their local projection inside `run_page_read`.
+Failed attempts alone call `PreflightService.current_report` to determine
+whether Final review can still display an earlier report. A report from this
+same operation is never labelled as a previous review. An unavailable report
+lookup hides that secondary link and preserves the original recovery action.
+The [progress recovery tests](../../../tests/integration/web/test_comparison_progress_recovery.py)
+cover rendered recovery, local database bounds, and the status payload. The
+[polling tests](../../../tests/e2e/comparison-progress.test.cjs) cover the
+transition from running to failed, retry, credential recovery, and success.
+
 Receipt verification follows the source's artifact contract. A file-source
 receipt verifies the canonical manifest and complete execution snapshot. A
 pinned Odoo-source receipt verifies the redacted manifest, its report bindings,

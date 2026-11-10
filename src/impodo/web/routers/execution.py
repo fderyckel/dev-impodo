@@ -550,6 +550,7 @@ def build_execution_router(
         fallout_groups = ()
         fallout_detail_page = None
         reconciliation_summary = None
+        access_denied_attempt = None
         if paused_load and current_run is not None:
             load_rows = tuple(
                 row for row in current_run.rows
@@ -593,6 +594,24 @@ def build_execution_router(
                 reason_counts,
             )
             reconciliation_summary = _reconciliation_summary(reconciliation)
+            if reconciliation_summary.rejected_count:
+                load_rows = tuple(sorted(
+                    reconciliation.rows,
+                    key=lambda row: row.execution_status != ExecutionRowStatus.FAILED,
+                ))
+                if (
+                    current_run is not None
+                    and current_run.run_id == reconciliation.execution_run_id
+                ):
+                    access_denied_attempt = next(
+                        (
+                            row for row in current_run.rows
+                            if row.status is ExecutionRowStatus.FAILED
+                            and row.diagnostic is not None
+                            and row.diagnostic.code is WriteFailureCode.ACCESS_DENIED
+                        ),
+                        None,
+                    )
         elif preview.current_run is not None:
             load_rows = preview.current_run.rows
         else:
@@ -683,10 +702,12 @@ def build_execution_router(
             fallout_groups=fallout_groups,
             fallout_detail_page=fallout_detail_page,
             reconciliation_summary=reconciliation_summary,
+            access_denied_attempt=access_denied_attempt,
             interrupted_load=interrupted_load,
             load_step=step,
             max_batch_rows=MAX_CREATE_BATCH_ROWS,
             load_row_page=load_row_page,
+            load_row_first_url=_load_row_page_url(1, load_row_page.page_size),
             load_row_page_size_options=tuple(
                 {
                     "size": size,

@@ -426,7 +426,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                     OdooReadFailureCode.SCHEMA_EVIDENCE_STALE,
                     "raw schema mismatch",
                 ),
-                "Refresh the Odoo data structure",
+                "Refresh Odoo details",
                 f'href="/workspaces/{workspace_state.workspace_id}/schema"',
             ),
             (

@@ -294,21 +294,22 @@ publishing any returned lookup. Changed access or input evidence rejects the
 old result. The existing capture limits, returned-metadata verification, and
 protected lookup snapshots remain authoritative.
 
-On Odoo 19 and Odoo 20, `reference_keys.py` also allows the reviewed
-`res.company` name candidate through a captured `many2many` relationship, such
-as `account.account.company_ids`. This exception reads only `name` for
-`MATCH_CHOICES`; the bounded probe still denies other list models and wider
-projections. It
-does not classify company names as globally unique standard reference keys.
+On Odoo 19 and Odoo 20, `reference_keys.py` also allows exact reviewed
+candidates through captured `many2many` relationships. Companies and Account
+Tags use their reviewed `name` candidates, including
+`account.account.company_ids` and `account.account.tag_ids`. The bounded
+`MATCH_CHOICES` probe denies unreviewed list identities and wider projections.
+These candidates do not establish globally unique standard reference keys.
 Duplicate names stay ambiguous in the target-bound lookup. The shared policy
 checks returned candidate field types before accepting them as captured
-governed evidence.
+governed evidence. Account Tag names can repeat across applicability or country,
+so a repeated name remains blocking rather than selecting the first tag.
 
 Saving this review performs no Odoo read. The explicit check groups company
 relationships with the same identity into one read and retains the existing
 local operation boundaries before reading and before publishing. Recipe
 publication uses the verified lookup's field contracts; subsequent runs check
-their own company metadata and values. Reference policy version 5 changes the
+their own supporting metadata and values. Reference policy version 6 changes the
 current hashes for both majors. Historical hashes remain readable, while
 currentness checks require renewed review and lookup evidence.
 

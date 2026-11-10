@@ -8,21 +8,22 @@
   <div
     class="preparation-progress-page"
     data-preflight-job
+    data-status="{{ job.status.value }}"
     data-status-url="/workspaces/{{ job.workspace_id }}/preflight/{{ job.job_id }}/status"
     aria-busy="{{ 'true' if active else 'false' }}"
   >
     <section class="page-heading">
       <div>
         <p class="eyebrow">Stage 5 of 6 · Final review</p>
-        <h1>Comparing {{ job.migration_project_name }} with Odoo</h1>
-        <p>You can leave this page and return while the read-only comparison continues.</p>
+        <h1 data-preflight-heading>{% if job.status.value == 'FAILED' %}Comparison stopped{% elif job.status.value == 'SUCCEEDED' %}Comparison saved{% else %}Comparing {{ job.migration_project_name }} with Odoo{% endif %}</h1>
+        <p data-preflight-intro aria-live="polite">{{ comparison_outcome_message }}</p>
       </div>
       <span class="status {% if job.status.value == 'FAILED' %}blocked{% elif active %}review{% else %}ready{% endif %}" data-preflight-state>
         {% if job.status.value == 'SUCCEEDED' %}Ready{% elif job.status.value == 'FAILED' %}Needs attention{% else %}In progress{% endif %}
       </span>
     </section>
 
-    <section class="form-card preparation-progress-card" aria-labelledby="preflight-progress-title">
+    <section class="form-card preparation-progress-card" data-preflight-progress-card aria-labelledby="preflight-progress-title" {% if job.status.value == 'FAILED' %}hidden{% endif %}>
       <div class="preparation-progress-heading">
         <div>
           <p class="eyebrow">Current step</p>
@@ -33,33 +34,26 @@
       <progress max="100" value="{{ job.progress_percent }}" data-preflight-progress>{{ job.progress_percent }}%</progress>
       <div class="preparation-progress-numbers">
         <strong data-preflight-percent>{{ job.progress_percent }}%</strong>
-        <span data-preflight-heartbeat>Progress updated just now.</span>
+        <span data-preflight-heartbeat>{% if job.status.value == 'SUCCEEDED' %}The comparison result is saved.{% elif active %}Progress updated just now.{% endif %}</span>
       </div>
       <p class="muted">This step only reads Odoo and saves a new local comparison. It does not create or update Odoo records.</p>
     </section>
 
     <section class="next-action-card blocked" data-preflight-failed {% if job.status.value != 'FAILED' %}hidden{% endif %}>
       <div>
-        <p class="eyebrow">Comparison needs attention</p>
+        <p class="eyebrow">Next action</p>
         <h2 data-preflight-failure-title>{{ recovery.title if recovery else 'Impodo could not complete the comparison' }}</h2>
         <p data-preflight-failure>{{ recovery.message if recovery else 'Your previously saved comparison is unchanged.' }}</p>
-        <p data-preflight-failure-code {% if not recovery or not recovery.support_code %}hidden{% endif %}>Support code: <code>{{ recovery.support_code if recovery else '' }}</code></p>
+        <p class="muted">This comparison did not change Odoo records.</p>
       </div>
       <div class="next-action-buttons">
-        {% if recovery and recovery.action_kind == 'credential' %}
-          <a class="button primary" href="/workspaces/{{ job.workspace_id }}/summary">Return to final review</a>
-        {% elif recovery and recovery.action_kind == 'retry' %}
-          <form method="post" action="/workspaces/{{ job.workspace_id }}/summary/compare">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-            <button class="button primary" type="submit">{{ recovery.action_label }}</button>
-          </form>
-        {% elif recovery and recovery.action_href %}
-          <a class="button primary" data-preflight-failure-action href="{{ recovery.action_href }}">{{ recovery.action_label }}</a>
-        {% else %}
-          <a class="button primary" href="/workspaces/{{ job.workspace_id }}/summary">Return to final review</a>
-        {% endif %}
-        <a class="button secondary" href="/workspaces/{{ job.workspace_id }}/summary">View saved review</a>
+        <a class="button primary" data-preflight-failure-action href="{{ recovery.action_href if recovery and recovery.action_kind == 'link' and recovery.action_href else ('/workspaces/' ~ job.workspace_id ~ '/summary') }}" {% if recovery and recovery.action_kind == 'retry' %}hidden{% endif %}>{{ recovery.action_label if recovery and recovery.action_kind == 'link' else 'Return to final review' }}</a>
+        <form method="post" data-preflight-retry action="/workspaces/{{ job.workspace_id }}/summary/compare" {% if not recovery or recovery.action_kind != 'retry' %}hidden{% endif %}>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
+          <button class="button primary" data-preflight-retry-label type="submit">{{ recovery.action_label if recovery and recovery.action_kind == 'retry' else 'Try comparison again' }}</button>
+        </form>
+        <a class="button secondary" data-preflight-previous-review href="/workspaces/{{ job.workspace_id }}/summary" {% if not previous_review_available %}hidden{% endif %}>View previous review</a>
       </div>
     </section>
 
@@ -79,6 +73,7 @@
     <details class="technical-details form-card">
       <summary>Support details</summary>
       <p>Attempt {{ job.attempt }} · Job <code>{{ job.job_id }}</code></p>
+      <p data-preflight-failure-code {% if not recovery or not recovery.support_code %}hidden{% endif %}>Support code: <code>{{ recovery.support_code if recovery else '' }}</code></p>
     </details>
   </div>
 {% endblock %}

@@ -11,7 +11,7 @@ from typing import Protocol
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import FieldMetadata
 
-REFERENCE_POLICY_VERSION = 5
+REFERENCE_POLICY_VERSION = 6
 _SELECTED_MATCH_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
 SELECTED_MATCH_FIELD_PREFIX = "odoo-field:"
 
@@ -282,6 +282,23 @@ COMPANY_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
         "exactly one accessible company. Repeated names remain ambiguous."
     ),
 )
+ACCOUNT_TAG_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
+    model="account.account.tag",
+    odoo_major_version=19,
+    key_fields=("name",),
+    scope_fields=(),
+    display_field="name",
+    field_contracts=(
+        StandardReferenceFieldContract("name", "char", True, False),
+    ),
+    description="Account tag name",
+    reason="Tag names provide portable references to existing account tags.",
+    warning=(
+        "Odoo permits the same name for different tag applicability or countries. "
+        "The connected destination must prove that each incoming tag name "
+        "identifies exactly one accessible tag."
+    ),
+)
 
 
 def _candidate_for_major(
@@ -298,6 +315,7 @@ _SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR = {
             BOM_REFERENCE_CANDIDATE,
             PRODUCT_VARIANT_REFERENCE_CANDIDATE,
             COMPANY_REFERENCE_CANDIDATE,
+            ACCOUNT_TAG_REFERENCE_CANDIDATE,
         )
     }
     for major in (19, 20)
@@ -336,12 +354,9 @@ def _reference_policy_hash(
         "bounded_match_probe": {
             "purpose": ReferenceReadPurpose.MATCH_CHOICES,
             "relationship_type": "many2one",
-            "company_list_probe": {
+            "reviewed_list_probe": {
                 "relationship_type": "many2many",
-                "related_model": "res.company",
-                "key_fields": ("name",),
-                "scope_fields": (),
-                "requested_fields": ("name",),
+                "identity": "exact_reviewed_candidate",
             },
             "identities": (
                 {
@@ -460,7 +475,7 @@ def authorize_supporting_match_probe(
     This is deliberately narrower than normal reference authorization.  It
     lets Match data inspect either the generic ``name`` fallback or an exact
     reviewed supporting candidate on the related model named by a captured
-    parent field. Company-name probes also support a captured Companies list.
+    parent field. Exact reviewed candidates also support captured list fields.
     The returned field types must be verified before any choices become evidence.
     """
 
@@ -492,7 +507,6 @@ def authorize_supporting_match_probe(
             request.relationship_type == "many2one"
             or (
                 request.relationship_type == "many2many"
-                and request.related_model == "res.company"
                 and candidate_identity
             )
         )

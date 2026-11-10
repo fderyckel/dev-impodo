@@ -67,6 +67,7 @@ from ...application.preflight_service import (
 )
 from ...domain.errors import ReadinessError
 from ...domain.preflight.deferred_scope import DeferredScopeEvidenceError
+from ...domain.preflight.reports import ReadinessReport
 from ...domain.run.models import MigrationRunPurpose
 from ...domain.workspace.contracts import OdooSchemaCatalog
 from ..composition.page_reads import (
@@ -609,41 +610,52 @@ def build_preflight_router(context: WebContext) -> APIRouter:
     )
     async def preflight_progress(request: Request, workspace_id: str, job_id: str):
         require_session(request)
-        try:
-            job = _get_preflight_job(context, workspace_id, job_id)
-        except HTTPException as error:
-            if error.status_code != 404:
-                raise
-            _flash(
-                request,
-                "That comparison attempt ended with the previous Impodo session. "
-                "The last complete review is unchanged; it is safe to compare again.",
-            )
-            return RedirectResponse(
-                f"/workspaces/{workspace_id}/summary",
-                status_code=303,
-            )
-        return _render_preflight_progress(request, job)
+
+        def read_progress():
+            try:
+                job = _get_preflight_job(context, workspace_id, job_id)
+            except HTTPException as error:
+                if error.status_code != 404:
+                    raise
+                _flash(
+                    request,
+                    "That comparison attempt ended with the previous Impodo session. "
+                    "The last complete review is unchanged; it is safe to compare again.",
+                )
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/summary",
+                    status_code=303,
+                )
+            return _render_preflight_progress(request, context, job)
+
+        return await run_page_read(read_progress)
 
     @router.get("/workspaces/{workspace_id}/preflight/{job_id}/status")
     async def preflight_status(request: Request, workspace_id: str, job_id: str):
         require_session(request)
-        try:
-            job = _get_preflight_job(context, workspace_id, job_id)
-        except HTTPException as error:
-            if error.status_code != 404:
-                raise
+
+        def read_status():
+            try:
+                job = _get_preflight_job(context, workspace_id, job_id)
+            except HTTPException as error:
+                if error.status_code != 404:
+                    raise
+                return JSONResponse(
+                    {
+                        "status": "INTERRUPTED",
+                        "message": "The previous Impodo session ended.",
+                        "redirect_url": f"/workspaces/{workspace_id}/summary",
+                    },
+                    status_code=410,
+                )
             return JSONResponse(
-                {
-                    "status": "INTERRUPTED",
-                    "message": "The previous Impodo session ended.",
-                    "redirect_url": f"/workspaces/{workspace_id}/summary",
-                },
-                status_code=410,
+                _preflight_job_payload(
+                    job,
+                    saved_review=_saved_review_for_recovery(context, job),
+                )
             )
-        return JSONResponse(
-            _preflight_job_payload(job)
-        )
+
+        return await run_page_read(read_status)
 
     @router.get(
         "/workspaces/{workspace_id}/summary/deferred-groups",
@@ -1081,11 +1093,51 @@ def _preflight_progress_url(workspace_id: str, job_id: str) -> str:
     return f"/workspaces/{workspace_id}/preflight/{job_id}"
 
 
-def _render_preflight_progress(request: Request, job: PreflightJob):
+def _saved_review_for_recovery(
+    context: WebContext, job: PreflightJob,
+) -> ReadinessReport | None:
+    """Read a displayable report without hiding the original recovery action."""
+
+    if job.status.value != "FAILED":
+        return None
+    try:
+        return context.preflight.current_report(job.workspace_id)
+    except (ArtifactStoreError, ReadinessError, WorkspaceError, OSError, ValueError):
+        # A failed local read must not hide the original recovery action.
+        return None
+
+
+def _preflight_outcome_message(
+    job: PreflightJob, *, new_comparison_saved: bool = False,
+) -> str:
+    """Avoid claiming an unpublished result after an uncertain local failure."""
+
+    if job.status.value == "FAILED":
+        if new_comparison_saved:
+            return "A new comparison was saved, but a later step needs attention."
+        if job.publication_started or (
+            job.failure is not None and job.failure.code in {
+                OdooReadFailureCode.COMPARISON_STORAGE_FAILED,
+                OdooReadFailureCode.UNEXPECTED_COMPARISON_FAILURE,
+            }
+        ):
+            return "Impodo could not confirm the comparison result."
+        return "No new comparison was saved."
+    if job.status.value == "SUCCEEDED":
+        return "Your new comparison is ready."
+    return "You can leave this page and return while the read-only comparison continues."
+
+
+def _render_preflight_progress(
+    request: Request, context: WebContext, job: PreflightJob,
+):
     recovery = (
         comparison_recovery_view(job.workspace_id, job.failure)
         if job.failure is not None
         else None
+    )
+    presentation = _preflight_job_payload(
+        job, saved_review=_saved_review_for_recovery(context, job),
     )
     return _render(
         request,
@@ -1099,21 +1151,36 @@ def _render_preflight_progress(request: Request, job: PreflightJob):
         migration_context={"project_id": job.access_context.project_id},
         job=job,
         recovery=recovery,
+        comparison_outcome_message=presentation["outcome_message"],
+        previous_review_available=presentation["previous_review_available"],
         comparison_operation_id=str(uuid4()),
     )
 
 
-def _preflight_job_payload(job: PreflightJob) -> dict[str, object]:
+def _preflight_job_payload(
+    job: PreflightJob, *, saved_review: ReadinessReport | None = None,
+) -> dict[str, object]:
     recovery = (
         comparison_recovery_view(job.workspace_id, job.failure)
         if job.failure is not None
         else None
     )
+    action_href = f"/workspaces/{job.workspace_id}/summary"
+    action_label = "Return to final review"
+    if recovery is not None and recovery.action_href and not recovery.asks_for_credential:
+        action_href = recovery.action_href
+        action_label = recovery.action_label
     return {
         "job_id": job.job_id,
         "status": job.status.value,
         "phase": job.phase.value,
         "message": job.message,
+        "outcome_message": _preflight_outcome_message(
+            job,
+            new_comparison_saved=(
+                saved_review is not None and saved_review.operation_id == job.job_id
+            ),
+        ),
         "progress_percent": job.progress_percent,
         "updated_at": job.updated_at.isoformat(),
         "preflight_run_id": job.preflight_run_id,
@@ -1122,6 +1189,15 @@ def _preflight_job_payload(job: PreflightJob) -> dict[str, object]:
         "failure_code": recovery.support_code if recovery is not None else "",
         "failure_title": recovery.title if recovery is not None else "",
         "failure_message": recovery.message if recovery is not None else "",
-        "failure_action_href": recovery.action_href if recovery is not None else "",
-        "failure_action_label": recovery.action_label if recovery is not None else "",
+        "failure_action_kind": recovery.action_kind if recovery is not None else "link",
+        "failure_action_href": action_href,
+        "failure_action_label": action_label,
+        "comparison_operation_id": (
+            str(uuid4())
+            if recovery is not None and recovery.action_kind == "retry"
+            else ""
+        ),
+        "previous_review_available": (
+            saved_review is not None and saved_review.operation_id != job.job_id
+        ),
     }

@@ -1825,6 +1825,20 @@ class ExecutionServiceTests(unittest.TestCase):
 
     def test_known_rejection_stops_independent_later_components(self):
         snapshot = _snapshot()
+        second_category = _row(
+            dataset="categories",
+            model="product.category",
+            source_row=5,
+            source_identity=("CAT2",),
+            business_identity=("Category 2",),
+            disposition="CREATE",
+            fields=(FieldIntent("name", "SET_VALUE", "Category 2"),),
+        )
+        snapshot = replace(
+            snapshot,
+            rows=(*snapshot.rows, second_category),
+            counts={**snapshot.counts, "CREATE": 3},
+        )
         service, _journal = self._service(snapshot)
         executor = _RejectFirstCreate(execution_api_scope(snapshot).semantic_hash)
 
@@ -1833,13 +1847,19 @@ class ExecutionServiceTests(unittest.TestCase):
             expected_snapshot_hash=snapshot.semantic_hash,
             executor=executor,
             actor=LOCAL_ACTOR,
+            batch_rows=1,
         )
 
         self.assertEqual(run.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
         self.assertEqual(len(executor.create_attempts), 1)
         self.assertEqual(executor.updates, [])
         self.assertEqual(run.failed_count, 1)
-        self.assertEqual(run.blocked_count, 2)
+        self.assertEqual(run.blocked_count, 3)
+        skipped = next(
+            row for row in run.rows
+            if row.dataset == "categories" and row.status is ExecutionRowStatus.BLOCKED
+        )
+        self.assertEqual(skipped.safe_error, "The load ended before this record was sent to Odoo")
         failed = next(row for row in run.rows if row.status is ExecutionRowStatus.FAILED)
         self.assertIsNotNone(failed.diagnostic)
         self.assertEqual(failed.diagnostic.model, failed.target_model)

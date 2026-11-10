@@ -2189,7 +2189,7 @@ class ExecutionService:
                 run.run_id,
                 remaining,
                 recorded,
-                "Not attempted because an earlier dependency did not complete",
+                "The load ended before this record was sent to Odoo",
             )
             publish_progress(changed_rows=len(remaining), force=True)
         statuses = {item.status for item in recorded.values()}

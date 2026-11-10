@@ -63,6 +63,7 @@ class MappingSupportingSource:
     row_inclusion: RowInclusionPolicy
     value_mappings: tuple[ValueMapping, ...] = ()
     blank_source_values: tuple[str, ...] = ()
+    list_separator: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +112,7 @@ def plan_mapping_supporting_values(
         constant_values: tuple[str, ...] | None = None,
         blank_source_values: tuple[str, ...] = (),
         allows_selected_field: bool = False,
+        list_separator: str | None = None,
     ) -> None:
         if (
             resolver is None
@@ -149,6 +151,7 @@ def plan_mapping_supporting_values(
                         row_inclusion=dataset.row_inclusion,
                         value_mappings=resolver.value_mappings,
                         blank_source_values=blank_source_values,
+                        list_separator=list_separator,
                     )
                 )
         if constant_values is not None:
@@ -217,6 +220,9 @@ def plan_mapping_supporting_values(
                 ),
                 constant_values=constant_values,
                 blank_source_values=relationship.blank_source_values,
+                list_separator=(
+                    relationship.separator if relationship.kind == "many2many" else None
+                ),
                 allows_selected_field=(
                     relationship.selected_matching_field
                     and metadata.type == "many2one"
@@ -244,7 +250,9 @@ def plan_mapping_supporting_values(
             sources=tuple(
                 sorted(
                     sources.get(identity, ()),
-                    key=lambda item: (item.dataset_id, item.source_column_keys),
+                    key=lambda item: (
+                        item.dataset_id, item.source_column_keys, item.list_separator or "",
+                    ),
                 )
             ),
             constant_values=tuple(sorted(constants.get(identity, ()))),

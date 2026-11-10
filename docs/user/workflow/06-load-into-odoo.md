@@ -311,12 +311,14 @@ attempted**. For example, if Odoo accepts one related record and rejects the
 first customer, later customers may remain unattempted. Those later records
 were not individually rejected. Keep the records that were written.
 
-Read the failed row's message. It includes the affected field and position
-within the group when Odoo identifies them. One failed request can mark
-several records as rejected. If the message gives no specific cause, ask
-your Odoo administrator to check the destination error at the time of the
-load. The support bundle includes technical details about the failed
-operation and excludes source values and raw Odoo error messages.
+Select **Review rejected records** to see the rejected rows first. One failed
+request can mark several records as rejected. The row message includes the
+affected field and position within the group when Odoo identifies them.
+If Odoo denies access, the outcome names the affected model. Ask your Odoo
+administrator to check the loading user's permissions and company access.
+If the message gives no specific cause, ask them to check the destination error
+at the time of the load. The support bundle includes technical details about
+the failed operation and excludes source values and raw Odoo error messages.
 
 If the load stops unexpectedly, use **Create diagnostic bundle** beside its
 **Support reference**. Share the ZIP with your support engineer or AI agent.

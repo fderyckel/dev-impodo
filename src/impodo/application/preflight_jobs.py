@@ -119,6 +119,12 @@ class PreflightJob:
     def terminal(self) -> bool:
         return not self.active
 
+    @property
+    def publication_started(self) -> bool:
+        """Whether this attempt reached the phase that can save a comparison."""
+
+        return self.progress_percent >= _PHASE_PERCENT[PreflightPhase.PUBLISHING]
+
 
 PreflightProgress = Callable[[PreflightPhase], None]
 PreflightWork = Callable[[PreflightProgress], PreflightJobResult]

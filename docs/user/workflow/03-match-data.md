@@ -953,6 +953,15 @@ refers to an existing Odoo record or a record from another incoming table:
   update it merely because it won the relationship match. When it finds none,
   Impodo resolves the value through the selected incoming table.
 
+For account tags that already exist in Odoo, choose **A value from the source**,
+select your tag column, and choose **Only existing Odoo records**. Under
+**How should Impodo identify the existing Odoo record?**, select **Account tag
+name**, then select **Check matches**. For a cell such as
+`Operations;Salaries`, keep `;` under **Separator used in the source**. Impodo
+checks each tag name separately. Account Tags stays outside the records you
+will create or update. Final review blocks a missing tag or a name that matches
+several tags. You do not need to add a Tags source table to reuse existing tags.
+
 An incoming-table link can use a compound key. Select every source column that
 identifies the related row. When those columns have the same names in both
 tables, Impodo stores them in the related table's **Unique row identifier**

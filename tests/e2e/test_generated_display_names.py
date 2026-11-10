@@ -84,6 +84,7 @@ class GeneratedDisplayNameBrowserTests(unittest.TestCase):
         )
         report = SimpleNamespace(
             status=SimpleNamespace(value="FALLOUT"),
+            execution_run_id=run.run_id,
             rows=rows,
             verified_count=1,
             fallout_count=2,

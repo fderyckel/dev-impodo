@@ -874,6 +874,8 @@ stages:
       - tests/integration/web/test_missing_source_match_review.py
       - tests/integration/duckdb/test_quality_review_details.py
       - tests/integration/web/test_final_review_performance.py
+      - tests/integration/web/test_comparison_progress_recovery.py
+      - tests/e2e/comparison-progress.test.cjs
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py

@@ -5,6 +5,9 @@ from __future__ import annotations
 import asyncio
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.execution.models import ExecutionRowAttempt
+from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.domain.reconciliation import ReconciliationRow, ReconciliationRowStatus
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     Capability,
@@ -127,6 +130,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         reconciliation = SimpleNamespace(
             status=SimpleNamespace(value="OUTCOME_UNKNOWN"),
+            execution_run_id=current_run.run_id,
             rows=(
                 row("VERIFIED", "COMMITTED", 1, 41),
                 row("NOT_WRITTEN", "BLOCKED", 2),
@@ -167,7 +171,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(failed_page.status_code, 200, failed_page.text)
         self.assertIn("1 written in Odoo · 1 rejected · 1 not attempted", failed_page.text)
-        self.assertIn("Odoo did not reject them individually", failed_page.text)
+        self.assertIn("Impodo did not send the records marked", failed_page.text)
         self.assertLessEqual(timings.connection_count, 6)
         self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(page.status_code, 200, page.text)
@@ -177,6 +181,87 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("1 not written", page.text)
         self.assertNotIn("re-matched uncertain writes", page.text)
         self.assertIn("could not verify every saved outcome", page.text)
+
+    def test_access_denied_shows_rejected_products_before_unattempted_rows(self) -> None:
+        context = self.app.state.context
+        workspace = self.workspaces.create(name="Stopped product load", source_system="Other")
+        diagnostic = OdooWriteDiagnostic(
+            WriteFailureCode.ACCESS_DENIED, "product.template", "load", batch_size=4
+        )
+        attempts = tuple(
+            ExecutionRowAttempt(
+                row_id=str(index),
+                dataset="products",
+                source_row=index,
+                target_model="product.template",
+                operation="CREATE",
+                field_names=("name",),
+                proposed_external_id=f"fixture.product_{index}",
+                status=ExecutionRowStatus.BLOCKED if index < 27 else ExecutionRowStatus.FAILED,
+                safe_error=(
+                    "The load ended before this record was sent to Odoo"
+                    if index < 27 else diagnostic.summary
+                ),
+                diagnostic=diagnostic if index >= 27 else None,
+            )
+            for index in range(2, 31)
+        )
+        run = SimpleNamespace(
+            run_id="11111111-1111-4111-8111-111111111111",
+            status=ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+            rows=attempts,
+        )
+        reconciliation = SimpleNamespace(
+            status=SimpleNamespace(value="FALLOUT"),
+            execution_run_id=run.run_id,
+            rows=tuple(
+                ReconciliationRow(
+                    row_id=attempt.row_id,
+                    dataset=attempt.dataset,
+                    source_row=attempt.source_row,
+                    target_model=attempt.target_model,
+                    operation=attempt.operation,
+                    execution_status=attempt.status.value,
+                    status=ReconciliationRowStatus.NOT_WRITTEN,
+                    message=attempt.safe_error,
+                )
+                for attempt in attempts
+            ),
+            fallout_count=len(attempts),
+            retry_safe_count=0,
+        )
+        preview = SimpleNamespace(
+            snapshot=SimpleNamespace(
+                counts={"CREATE": len(attempts), "UPDATE": 0, "UNCHANGED": 0},
+                target_database="odoo-test",
+                target_odoo_version="19.0",
+                semantic_hash="sha256:" + "a" * 64,
+                target_hash="sha256:" + "b" * 64,
+            ),
+            datasets=(),
+            current_run=run,
+            can_load=False,
+        )
+        with (
+            patch.object(type(context.execution), "current_preview", return_value=preview),
+            patch.object(type(context.reconciliation), "current", return_value=reconciliation),
+            patch.object(type(context.reconciliation), "current_detail_available", return_value=False),
+        ):
+            for major in (19, 20):
+                with self.subTest(major=major):
+                    preview.snapshot.target_odoo_version = f"{major}.0"
+                    page = self.client.get(f"/workspaces/{workspace.workspace_id}/load/outcome")
+                    self.assertEqual(page.status_code, 200, page.text)
+                    self.assertIn(">Load stopped<", page.text)
+                    self.assertIn("0 written in Odoo · 4 rejected · 25 not attempted", page.text)
+                    self.assertIn("Odoo denied access while creating records in <code>product.template</code>", page.text)
+                    self.assertIn("Review rejected records</a>", page.text)
+                    self.assertIn("run a fresh <strong>Check changes</strong>", page.text)
+                    self.assertNotIn("could not verify every other planned write", page.text)
+                    self.assertNotIn("29 not written", page.text)
+                    self.assertLess(page.text.index("Products &middot; row 27"), page.text.index("Products &middot; row 2</td>"))
+                    self.assertIn(diagnostic.summary, page.text)
+                    self.assertEqual(page.text.count("data-reconciliation-row"), 20)
 
     def test_fallout_values_show_bom_sequence_and_can_be_filtered(self) -> None:
         context = self.app.state.context

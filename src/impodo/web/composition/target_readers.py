@@ -1633,6 +1633,14 @@ def _capture_mapping_supporting_values(
                     normalized = tuple(str(value).strip() for value in row)
                     if len(normalized) == 1 and normalized[0] in source.blank_source_values:
                         continue
+                    if source.list_separator is not None:
+                        if len(normalized) == 1:
+                            values.update(
+                                (translations.get(value, value),)
+                                for token in normalized[0].split(source.list_separator)
+                                if (value := token.strip())
+                            )
+                        continue
                     if normalized:
                         normalized = (
                             translations.get(normalized[0], normalized[0]),

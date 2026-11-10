@@ -6,6 +6,10 @@ from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import _read_databases
+from impodo.application.recipe.odoo_requirements import (
+    OdooCheckRelationshipRequirement,
+    OdooCheckSupportingRequirement,
+)
 from impodo.domain.odoo.company import OdooCompanyAccess, OdooCompanySelection
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
@@ -16,11 +20,13 @@ from impodo.domain.shared.models import (
     TargetRecord,
     target_identity_hash,
 )
+from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from impodo.domain.workspace.supporting_review import (
     SupportingChoice,
     SupportingChoiceAction,
 )
 from impodo.domain.workspace.workbench import OdooConnectionMode
+from impodo.web.composition.target_readers import _capture_recipe_supporting_values
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     local_read_credential_binding_hash,
@@ -116,9 +122,9 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
             with self.subTest(parent=parent):
                 self.exercise_selector(major, mode, parent, edge, related, key, label)
 
-    def configure_link(self, major, mode, parent, edge, related, key, label):
+    def configure_link(self, major, mode, parent, edge, related, key, label, *, kind="many2one", source_value="ITEM-42"):
         workspace_id = self.freeze_files(
-            {"records": b"Reference,ItemID\nR-1,ITEM-42\n"}
+            {"records": f"Reference,ItemID\nR-1,{source_value}\n".encode()}
         )
         state = self.context.queries.get(workspace_id)
         state = self.context.workspace_states.update_target(
@@ -169,7 +175,7 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
                         ),
                         edge: FieldMetadata(
                             edge,
-                            "many2one",
+                            kind,
                             "Linked record",
                             required=True,
                             relation=related,
@@ -445,3 +451,154 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
             json={"entries": [*form.entries, ["action", action]]},
             headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
         )
+
+    def test_reviewed_account_tags_match_each_list_value_without_expanding_scope(self):
+        for major in (19, 20):
+            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                with self.subTest(major=major, mode=mode):
+                    self.exercise_reviewed_list(major, mode, "account.account.tag", "tag_ids")
+
+    def test_reviewed_company_list_keeps_the_same_lookup_path(self):
+        self.exercise_reviewed_list(20, OdooConnectionMode.REMOTE, "res.company", "company_ids")
+
+    def exercise_reviewed_list(self, major, mode, related, edge):
+        workspace_id, columns = self.configure_link(
+            major, mode, "account.account", edge, related, "name", "Tag Name",
+            kind="many2many", source_value="  Operations ; Salaries  ",
+        )
+        self.target_rows = {related: (
+            TargetRecord(related, 42, {"name": "Operations"}),
+            TargetRecord(related, 43, {"name": "Salaries"}),
+            TargetRecord(related, 44, {"name": "Unrelated"}),
+        )}
+        base = f"/workspaces/{workspace_id}"
+        url = f"{base}/mapping?step=tables&task=links&relation_query={edge}"
+        page = self.client.get(url)
+        self.assertNotIn("No matching rule available", page.text)
+        form = self.select_field(page, columns, "name")
+        for entry in form.entries:
+            if entry[0] == "relation_key_0_0":
+                entry[1] = f"odoo-supporting:{related}:name"
+            elif entry[0] == "relation_operation_0_0":
+                entry[1] = "add"
+        saved = self.send_mapping(form, "save_progress")
+        self.assertEqual(saved.status_code, 200, saved.text)
+        reopened = MappingForm(self.client.get(url).text)
+        self.assertIn(["relation_key_0_0", f"odoo-supporting:{related}:name"], reopened.entries)
+        with collect_duckdb_request_timings() as timings:
+            checked = self.send_mapping(reopened, "draft")
+        self.assertEqual(checked.status_code, 200, checked.text)
+        latest = self.context.queries.get_mapping_revision(workspace_id)
+        self.assertIsNotNone(latest)
+        self.assertNotIn("MAPPING_TARGET_MODEL_UNKNOWN", self.client.get(f"{base}/mapping?step=validate").text)
+        requests, reads = self.lookup_calls[-1]
+        self.assertEqual(requests[0].fields, ("name",))
+        self.assertFalse(requests[0].all_fields)
+        self.assertEqual(reads[0].domain, (("name", "in", ("Operations", "Salaries")),))
+        self.assertEqual(reads[0].fields, ("name",))
+        self.assertEqual(reads[0].limit, 501)
+        self.assertEqual(timings.lock_retry_count, 0)
+        confirmed = self.send_mapping(MappingForm(self.client.get(url).text), "submit")
+        self.assertEqual(confirmed.status_code, 200, confirmed.text)
+        staging, quality = self.prepare(workspace_id)
+        self.assertEqual(quality.ready_count, 1, staging.rows[0].issues)
+        self.assertEqual(
+            [(reference.target_fields, reference.key) for reference in staging.rows[0].references[edge]],
+            [(("name",), ("Operations",)), (("name",), ("Salaries",))],
+        )
+        self.approve(workspace_id)
+        self.expect_business_writes(workspace_id)
+        owner = self.context.migration_workspaces.get(workspace_id, actor=self.actor)
+        draft = self.context.recipe_publication.draft(
+            project_id=owner.project_id, data_version_id=owner.data_version_id,
+            workspace_id=workspace_id, actor=self.actor,
+        )
+        self.assertTrue(draft.can_publish, draft.issues)
+        relation = draft.compiled.recipe["mapping"]["datasets"][0]["relationships"][0]
+        self.assertEqual(relation["target_key_fields"], ["name"])
+        rebound = self.context.run_planning.compiler._relationship(
+            relation, {column: "fresh-tags" for column in relation["source_column_ids"]},
+        )
+        self.assertEqual(rebound.kind, "many2many")
+        self.assertEqual(rebound.separator, ";")
+        schema = self.context.queries.get_odoo_schema_catalog(workspace_id)
+        fresh = replace(schema, models=(*schema.models, SchemaModel(
+            related, "Linked records", (SchemaField("name", "Name", "char", False, False, None, None, ()),),
+        )))
+        _assessment, issues, _defaults = self.context.run_planning.compiler._target_assessment(
+            draft.compiled.recipe, fresh,
+        )
+        self.assertFalse([issue for issue in issues if issue.blocks], issues)
+        captured = _capture_recipe_supporting_values(
+            self.context, self.context.queries.get(workspace_id), fresh,
+            (OdooCheckSupportingRequirement(
+                related, ("name",), (),
+                (OdooCheckRelationshipRequirement("account.account", edge, "many2many"),),
+                ("Accounts",),
+            ),), actor=self.actor,
+        )
+        self.assertEqual(tuple(choice.value for choice in captured[0].choices), ("Operations", "Salaries", "Unrelated"))
+        self.assertEqual(self.lookup_calls[-1][0][0].fields, ("name",))
+        compared = self._post(f"{base}/summary/compare", {"csrf_token": self.csrf})
+        self.assertEqual(compared.status_code, 303, getattr(compared, "context", {}))
+        if "/preflight/" in compared.headers["location"]:
+            completed = _wait_for_preparation(self.client, compared.headers["location"])
+            self.assertEqual(completed["status"], "SUCCEEDED", completed)
+        report = self.context.preflight.current_report(workspace_id)
+        self.assertEqual(report.blocked_count, 0, report)
+        self.assertEqual(self.context.queries.get(workspace_id).intended_models, ("account.account",))
+        self.assertEqual(
+            tuple(model.name for model in self.context.queries.get_odoo_schema_catalog(workspace_id).models),
+            ("account.account",),
+        )
+
+    def test_account_tag_lookups_retain_missing_ambiguous_and_metadata_failures(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                related = "account.account.tag"
+                workspace_id, columns = self.configure_link(
+                    major, OdooConnectionMode.REMOTE, "account.account", "tag_ids",
+                    related, "name", "Tag Name", kind="many2many", source_value="Operations;Missing",
+                )
+                self.target_rows = {related: (
+                    TargetRecord(related, 42, {"name": "Operations"}),
+                    TargetRecord(related, 43, {"name": "Operations"}),
+                )}
+                base = f"/workspaces/{workspace_id}"
+                url = f"{base}/mapping?step=tables&task=links&relation_query=tag_ids"
+                form = self.select_field(self.client.get(url), columns, "name")
+                for entry in form.entries:
+                    if entry[0] == "relation_key_0_0":
+                        entry[1] = f"odoo-supporting:{related}:name"
+                checked = self.send_mapping(form, "draft")
+                self.assertEqual(checked.status_code, 200, checked.text)
+                latest = self.context.queries.get_mapping_revision(workspace_id)
+                schema = self.context.queries.get_odoo_schema_catalog(workspace_id)
+                supporting = self.context.mapping_workspace._current_supporting_references(
+                    workspace_id, latest.definition, schema,
+                )
+                self.assertEqual(supporting[0].ambiguous_values, ("Operations",))
+                self.assertEqual(supporting[0].choices, ())
+                self.assertNotIn("MAPPING_TARGET_MODEL_UNKNOWN", self.client.get(f"{base}/mapping?step=check").text)
+                confirmed = self.send_mapping(MappingForm(self.client.get(url).text), "submit")
+                self.assertEqual(confirmed.status_code, 200, confirmed.text)
+                staging, quality = self.prepare(workspace_id)
+                self.assertEqual(quality.ready_count, 1)
+                self.assertTrue(staging.rows[0].references)
+                self.approve(workspace_id)
+                self.expect_business_writes(workspace_id)
+                compared = self._post(f"{base}/summary/compare", {"csrf_token": self.csrf})
+                self.assertEqual(compared.status_code, 303, getattr(compared, "context", {}))
+                if "/preflight/" in compared.headers["location"]:
+                    completed = _wait_for_preparation(self.client, compared.headers["location"])
+                    self.assertEqual(completed["status"], "SUCCEEDED", completed)
+                report = self.context.preflight.current_report(workspace_id)
+                self.assertGreater(report.blocked_count, 0, report)
+                model = self.metadata.models[related]
+                self.metadata = replace(self.metadata, models={
+                    **self.metadata.models,
+                    related: replace(model, fields={"name": replace(model.fields["name"], type="integer")}),
+                })
+                rejected = self.send_mapping(MappingForm(self.client.get(url).text), "draft")
+                self.assertEqual(rejected.status_code, 422, rejected.text)
+                self.assertIn("incompatible supporting fields", rejected.json()["detail"])

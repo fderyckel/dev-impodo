@@ -1,4 +1,4 @@
-"""Publish and rebind company-list evidence without permitting Company writes."""
+"""Publish and rebind reviewed lists without permitting supporting writes."""
 
 import unittest
 from itertools import product
@@ -52,12 +52,14 @@ HASH = "sha256:" + "1" * 64
 
 class AccountCompanyRecipeTests(unittest.TestCase):
     def test_company_reuse_survives_publication_and_new_target_assessment(self):
-        for major, constant, authoring_mode, target_mode in product(
-            (19, 20), (False, True), ("LOCAL", "REMOTE"), ("LOCAL", "REMOTE")
+        for major, constant, authoring_mode, target_mode, related in product(
+            (19, 20), (False, True), ("LOCAL", "REMOTE"), ("LOCAL", "REMOTE"),
+            ("res.company", "account.account.tag"),
         ):
+            field = "company_ids" if related == "res.company" else "tag_ids"
             with self.subTest(
                 major=major, constant=constant,
-                authoring_mode=authoring_mode, target_mode=target_mode,
+                authoring_mode=authoring_mode, target_mode=target_mode, related=related,
             ):
                 now = datetime.now(UTC)
                 dataset = _dataset(
@@ -84,9 +86,9 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                             (
                                 _field("code", required=True),
                                 _field(
-                                    "company_ids",
+                                    field,
                                     "many2many",
-                                    relation="res.company",
+                                    relation=related,
                                     required=True,
                                 ),
                             ),
@@ -111,12 +113,12 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                     "Manager",
                 )
                 relationship = RelationshipMapping(
-                    "company_ids",
+                    field,
                     "many2many",
                     (_column(dataset, "company"),),
                     RelationshipResolver(
                         ResolverOrigin.TARGET_CATALOG,
-                        model="res.company",
+                        model=related,
                         key_mappings=(
                             ReferenceKeyMapping(_column(dataset, "company"), "name"),
                         ),
@@ -128,7 +130,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                         relationship,
                         source_column_keys=(),
                         resolver=RelationshipResolver(
-                            ResolverOrigin.TARGET_CATALOG, model="res.company"
+                            ResolverOrigin.TARGET_CATALOG, model=related
                         ),
                         value_source=RelationshipValueSource.CONSTANT_EXISTING,
                         constant_reference=ConstantBusinessReference(
@@ -173,7 +175,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                 )
                 lookup = SupportingLookupSnapshot.capture(
                     workspace_id=workspace_id,
-                    relation_model="res.company",
+                    relation_model=related,
                     key_fields=("name",),
                     scope_fields=(),
                     display_field="name",
@@ -202,7 +204,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                 )
                 choice = SupportingChoice(
                     "account.account",
-                    "company_ids",
+                    field,
                     "REUSE",
                     key_fields=("name",),
                     display_field="name",
@@ -231,7 +233,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                     set(contract["approved_write_fields"]), {"account.account"}
                 )
                 company = next(
-                    m for m in contract["models"] if m["model"] == "res.company"
+                    m for m in contract["models"] if m["model"] == related
                 )
                 self.assertEqual(
                     company["reference_evidence_kind"], "CAPTURED_GOVERNED"
@@ -248,7 +250,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                     else {portable["source_column_ids"][0]: "next-company"},
                 )
                 self.assertEqual(rebound.kind, "many2many")
-                self.assertEqual(rebound.resolver.model, "res.company")
+                self.assertEqual(rebound.resolver.model, related)
                 self.assertEqual(
                     rebound.source_column_keys, () if constant else ("next-company",)
                 )
@@ -265,7 +267,7 @@ class AccountCompanyRecipeTests(unittest.TestCase):
                     models=(
                         *schema.models,
                         SchemaModel(
-                            "res.company", "Company", (_field("name", required=True),)
+                            related, "Linked record", (_field("name", required=True),)
                         ),
                     ),
                 )

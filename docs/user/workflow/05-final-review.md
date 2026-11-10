@@ -260,12 +260,21 @@ Choose the matching setup, then select **Continue comparison** when ready.
 
 ### If Impodo cannot compare
 
+The progress page shows **Comparison stopped** and hides the progress bar.
+If the Odoo checks stopped before saving, it states **No new comparison was
+saved**. If a later step fails after a comparison was saved, the page confirms
+that saved result. When Impodo cannot determine whether saving finished, it
+says it could not confirm the result. Follow the recovery action
+shown below the message. **View previous review** appears only when an earlier
+review can still be displayed in Final
+review. The support code and job identifier are under **Support details**.
+
 Final review shows the action that owns the problem:
 
 - **Enter the Odoo read key** or **Replace the Odoo read key** appears only
   when the read credential is missing, rejected, or lacks the required read
   access. Enter the key in the protected form and retry immediately.
-- **Review Odoo connection**, **Capture Odoo data**, or **Refresh Odoo data**
+- **Review Odoo connection**, **Capture Odoo data**, or **Review Odoo details**
   returns you to the Odoo stage when the target details or captured evidence
   needs attention.
 - **Review field matches** and **Prepare data again** return you to the stage

@@ -71,9 +71,12 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
         "Impodo needs current Odoo field evidence before it can compare records.",
     ),
     OdooReadFailureCode.SCHEMA_EVIDENCE_STALE: (
-        "Odoo data changed",
-        "Refresh the Odoo data structure",
-        "The saved Odoo field or access evidence no longer matches this comparison.",
+        "Odoo details need checking",
+        "Refresh Odoo details",
+        (
+            "Impodo could not verify the saved Odoo fields or read access. "
+            "Refresh the Odoo details before comparing again."
+        ),
     ),
     OdooReadFailureCode.REFERENCE_POLICY_MISMATCH: (
         "Field matching needs attention",
@@ -172,7 +175,7 @@ def comparison_recovery_view(
         action_label = (
             "Capture Odoo data"
             if recovery is OdooReadRecoveryKind.CAPTURE_ODOO_DATA
-            else "Refresh Odoo data"
+            else "Review Odoo details"
         )
     elif recovery is OdooReadRecoveryKind.REVIEW_FIELD_MATCH:
         action_href = f"/workspaces/{workspace_id}/mapping"

@@ -28,6 +28,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const preflightJob = document.querySelector("[data-preflight-job]");
   if (preflightJob) {
     const statusUrl = preflightJob.dataset.statusUrl;
+    const heading = preflightJob.querySelector("[data-preflight-heading]");
+    const intro = preflightJob.querySelector("[data-preflight-intro]");
+    const progressCard = preflightJob.querySelector("[data-preflight-progress-card]");
     const state = preflightJob.querySelector("[data-preflight-state]");
     const message = preflightJob.querySelector("[data-preflight-message]");
     const progress = preflightJob.querySelector("[data-preflight-progress]");
@@ -40,13 +43,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const failureTitle = preflightJob.querySelector("[data-preflight-failure-title]");
     const failureCode = preflightJob.querySelector("[data-preflight-failure-code]");
     const failureAction = preflightJob.querySelector("[data-preflight-failure-action]");
+    const retry = preflightJob.querySelector("[data-preflight-retry]");
+    const retryLabel = preflightJob.querySelector("[data-preflight-retry-label]");
+    const previousReview = preflightJob.querySelector("[data-preflight-previous-review]");
     const complete = preflightJob.querySelector("[data-preflight-complete]");
     const completeMessage = preflightJob.querySelector("[data-preflight-complete-message]");
     const continueLink = preflightJob.querySelector("[data-preflight-continue]");
     let pollTimer;
     let heartbeatTimer;
     let lastUpdatedAt = new Date();
-    let active = true;
+    let status = preflightJob.dataset.status;
+    let active = status === "QUEUED" || status === "RUNNING";
     let updatesPaused = false;
 
     const updateHeartbeat = () => {
@@ -59,11 +66,16 @@ document.addEventListener("DOMContentLoaded", () => {
         ? "Progress updates paused — reconnecting…"
         : active
           ? `This step has been active for ${seconds.toLocaleString()} seconds.`
-          : "The comparison result is saved.";
+          : status === "SUCCEEDED"
+            ? "The comparison result is saved."
+            : intro?.textContent || "Comparison stopped.";
     };
 
     const showPreflightStatus = (job) => {
+      status = job.status;
       active = job.status === "QUEUED" || job.status === "RUNNING";
+      preflightJob.dataset.status = status;
+      if (intro) intro.textContent = job.outcome_message;
       lastUpdatedAt = new Date(job.updated_at);
       if (Number.isNaN(lastUpdatedAt.getTime())) lastUpdatedAt = new Date();
       if (message) message.textContent = job.message;
@@ -71,6 +83,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (percent) percent.textContent = `${job.progress_percent}%`;
       if (spinner) spinner.hidden = !active;
       if (activeActions) activeActions.hidden = !active;
+      if (progressCard) progressCard.hidden = status === "FAILED";
+      if (failed) failed.hidden = status !== "FAILED";
+      if (complete) complete.hidden = status !== "SUCCEEDED";
       preflightJob.setAttribute("aria-busy", active ? "true" : "false");
       if (state) {
         state.classList.remove("ready", "review", "blocked");
@@ -84,7 +99,7 @@ document.addEventListener("DOMContentLoaded", () => {
         );
       }
       if (job.status === "FAILED") {
-        if (failed) failed.hidden = false;
+        if (heading) heading.textContent = "Comparison stopped";
         if (failureTitle) failureTitle.textContent = job.failure_title;
         if (failure) failure.textContent = job.failure_message;
         if (failureCode) {
@@ -92,12 +107,26 @@ document.addEventListener("DOMContentLoaded", () => {
           const code = failureCode.querySelector("code");
           if (code) code.textContent = job.failure_code;
         }
-        if (failureAction && job.failure_action_href) {
-          failureAction.href = job.failure_action_href;
-          failureAction.textContent = job.failure_action_label;
+        const canRetry = job.failure_action_kind === "retry";
+        if (failureAction) {
+          failureAction.hidden = canRetry;
+          if (!canRetry && job.failure_action_href) {
+            failureAction.href = job.failure_action_href;
+            failureAction.textContent = job.failure_action_label;
+          }
         }
+        if (retry) {
+          retry.hidden = !canRetry;
+          if (canRetry) {
+            retry.action = job.failure_action_href;
+            const operation = retry.querySelector('[name="operation_id"]');
+            if (operation) operation.value = job.comparison_operation_id;
+            if (retryLabel) retryLabel.textContent = job.failure_action_label;
+          }
+        }
+        if (previousReview) previousReview.hidden = !job.previous_review_available;
       } else if (job.status === "SUCCEEDED") {
-        if (complete) complete.hidden = false;
+        if (heading) heading.textContent = "Comparison saved";
         if (completeMessage) completeMessage.textContent = job.completion_message;
         if (continueLink && job.redirect_url) continueLink.href = job.redirect_url;
         if (job.redirect_url) {

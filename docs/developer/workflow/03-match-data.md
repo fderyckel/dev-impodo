@@ -225,6 +225,17 @@ latency claim.
 
 Changed fields or access keep the existing pending-schema review path.
 
+Reviewed list references use the same supporting capture path. The mapping
+planner retains each `many2many` source separator, and the reader splits the
+included source cells before translating and collecting distinct target keys.
+For Account Tags, the reviewed name candidate makes existing tags available
+without adding `account.account.tag` to the primary schema or write scope.
+The [linked-field regressions](../../../tests/integration/web/test_linked_matching_fields.py)
+cover saving, reopening, checking, preparation, Recipe evidence and final
+comparison for both Odoo majors and local and remote access. Missing and
+ambiguous tags remain blocking in Final review; incompatible returned metadata
+cannot become supporting evidence.
+
 Related-data recovery stays inside Match data.
 [`SupportingReviewRequiredError`](../../../src/impodo/domain/workspace/supporting_review.py)
 classifies missing, stale, changed, and conflicting decisions without parsing

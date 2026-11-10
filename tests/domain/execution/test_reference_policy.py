@@ -379,6 +379,40 @@ class GovernedReferencePolicyTests(unittest.TestCase):
         self.assertTrue(accepted.accepted)
         self.assertFalse(wrong_type.accepted)
 
+    def test_reviewed_list_candidates_require_exact_target_bound_evidence(self):
+        for major in (19, 20):
+            for model in ("account.account.tag", "res.company"):
+                with self.subTest(major=major, model=model):
+                    request = GovernedReferenceRequest(
+                        parent_model="account.account",
+                        relationship_field="tag_ids" if model == "account.account.tag" else "company_ids",
+                        relationship_type="many2many",
+                        relationship_model=model,
+                        related_model=model,
+                        key_fields=("name",),
+                        scope_fields=(),
+                        requested_fields=("name",),
+                        purpose=ReferenceReadPurpose.MATCH_CHOICES,
+                        odoo_major_version=major,
+                        governed_key=True,
+                    )
+                    fields = (StandardReferenceFieldContract("name", "char", True, False),)
+                    self.assertTrue(authorize_supporting_match_probe(request).accepted)
+                    self.assertTrue(authorize_supporting_match_probe(request, captured_fields=fields).accepted)
+                    self.assertFalse(authorize_governed_reference(request, captured_fields=None).accepted)
+                    self.assertTrue(authorize_governed_reference(request, captured_fields=fields).accepted)
+                    for changed in (
+                        replace(request, related_model="x.unreviewed", relationship_model="x.unreviewed"),
+                        replace(request, relationship_model="x.other"),
+                        replace(request, requested_fields=("name", "color")),
+                        replace(request, purpose=ReferenceReadPurpose.PREFLIGHT),
+                        replace(request, write_use=True),
+                    ):
+                        self.assertFalse(authorize_supporting_match_probe(changed).accepted)
+                    self.assertFalse(authorize_supporting_match_probe(
+                        request, captured_fields=(replace(fields[0], field_type="integer"),),
+                    ).accepted)
+
 
 if __name__ == "__main__":
     unittest.main()
