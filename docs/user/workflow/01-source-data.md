@@ -121,6 +121,12 @@ version.
 
 ### Odoo source
 
+Impodo includes stored business values and editable calculated values that
+Odoo makes searchable and exportable, such as an account code. These values
+belong to the captured source company context. A capture does not establish
+every company's value for a shared record. Changing the eligible field policy
+requires a fresh capture; existing accepted data does not acquire new fields.
+
 1. Open **Download and freeze** after eligible fields have been captured.
 2. Review **Linked data needed for this migration**. You do not have to
    confirm every related record type. Impodo prepares one bounded plan:

@@ -45,6 +45,10 @@
       <span class="credential-pill {% if destination_credential_status.available %}ready{% else %}blocked{% endif %}">{{ app_icon("key") }} Destination key {{ destination_credential_status.label|lower }}</span>
     </div>
 
+    {% if matching_choices_retained %}
+      <p class="notice warning">Your choices are kept on this page. Select <strong>Check destination matches</strong> again before continuing.</p>
+    {% endif %}
+
     <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching" data-matching-builder data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">

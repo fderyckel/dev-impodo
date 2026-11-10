@@ -43,6 +43,12 @@ for checking and loading** when the same Odoo account is approved to write.
 Impodo keeps the checking and loading access separately even when they use the
 same secret. Production continues to require a separate limited write key.
 
+Stage 2 and **Download and freeze** show whether the **Source key** or
+**Checking key** is saved for the session or on this computer. Password boxes
+stay empty when you return. Leave a replacement box empty to keep the saved
+key. An Odoo-to-Odoo transfer uses a separate destination key, which you enter
+when connecting the destination.
+
 ## Steps in Impodo
 
 ### Continue to company-specific matching
@@ -58,13 +64,12 @@ user's default company does not silently choose those values for you.
    **Odoo source data**.
 2. Select **Show available Odoo data**.
 3. Choose the top-level business record types included in the approved scope.
-4. Load the selected Odoo details.
-5. Review **Supporting data Impodo found**. For ordinary linked values, Impodo
-   previews **Keep linked value**: reuse a destination match or create only the
-   minimum related record when no match exists. Destination-owned setup such as
-   Company is shown separately as **Use existing destination records only**.
-   For accepted file data, also complete **Review supporting-data choices**
-   before confirming the matching rules.
+4. Select **Save record types**. For a file source, Impodo opens the related
+   value choices when they are available.
+5. Under **Choose where related values come from**, choose a source for each
+   required relationship, then select **Save choices** below the list. Expand
+   **Supporting data Impodo found** to preview how Impodo handles direct
+   relationships.
 6. Review fields, types, required values, selections, and relationships.
 7. For a file-source migration, review the matching rule that Impodo prepared
    for each supported writable record type. Change a rule when the proposed

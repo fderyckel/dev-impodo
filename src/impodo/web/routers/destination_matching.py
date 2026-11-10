@@ -228,11 +228,15 @@ def _matching_rows(
     selection,
     schema,
     relationship_scope: OdooRelationshipScope | None = None,
+    submitted_choices: tuple[DestinationMatchKeyChoice, ...] = (),
 ):
     candidates = destination_match_key_candidates(selection, schema)
     governed_by_dataset = destination_governed_key_choices(selection, schema)
     model_labels = {item.name: item.label for item in schema.models}
-    plan = workspace_state.destination_match_plan
+    # An unsuccessful check has no result for the submitted choices. Keep any
+    # saved evidence unchanged, but do not present it as the failed check's result.
+    plan = None if submitted_choices else workspace_state.destination_match_plan
+    submitted_by_dataset = {item.dataset_id: item for item in submitted_choices}
     selected_by_dataset = (
         {item.dataset_id: item.source_column_keys for item in plan.model_matches}
         if plan is not None
@@ -295,6 +299,18 @@ def _matching_rows(
         )
         governed_identity = governed_by_dataset.get(dataset.dataset_id)
         selected_keys = selected_by_dataset.get(dataset.dataset_id, ())
+        submitted = submitted_by_dataset.get(dataset.dataset_id)
+        if submitted is not None:
+            submitted_keys = submitted.source_column_keys
+            if (
+                1 <= len(submitted_keys) <= 3
+                and submitted_keys[0]
+                in {item["stable_key"] for item in primary_candidates}
+                and set(submitted_keys).issubset(
+                    item["stable_key"] for item in available
+                )
+            ):
+                selected_keys = submitted_keys
         governed_keys = (
             governed_identity.source_column_keys
             if governed_identity is not None
@@ -316,6 +332,13 @@ def _matching_rows(
         optional_start = len(governed_keys) if governed_keys else 1
         optional_slots = (
             0 if governed_identity is not None else max(0, 3 - optional_start)
+        )
+        row_inclusion = (
+            submitted.row_inclusion
+            if submitted is not None
+            else result_by_dataset[dataset.dataset_id].row_inclusion
+            if dataset.dataset_id in result_by_dataset
+            else RowInclusionPolicy()
         )
         rows.append(
             {
@@ -349,14 +372,10 @@ def _matching_rows(
                     "source": dataset,
                     "active": True,
                     "mapping": None,
-                    "row_inclusion_policy": (
-                        result_by_dataset[dataset.dataset_id].row_inclusion
-                        if dataset.dataset_id in result_by_dataset else RowInclusionPolicy()
-                    ),
+                    "row_inclusion_policy": row_inclusion,
                     "row_inclusion_slots": _row_inclusion_slots(
                         dataset.dataset_id,
-                        result_by_dataset[dataset.dataset_id].row_inclusion
-                        if dataset.dataset_id in result_by_dataset else RowInclusionPolicy(),
+                        row_inclusion,
                     ),
                 },
                 "identity_issue_rows": (),
@@ -378,6 +397,8 @@ def _matching_rows(
                     if model in reference_models
                     else "reuse_or_create"
                     if model in create_if_missing_models
+                    else submitted.destination_handling
+                    if submitted is not None
                     else result_by_dataset[dataset.dataset_id].destination_handling
                     if dataset.dataset_id in result_by_dataset
                     and (
@@ -407,12 +428,13 @@ def _render_matching(
     error: str | None = None,
     status_code: int = 200,
     company_access=None,
+    submitted_choices: tuple[DestinationMatchKeyChoice, ...] = (),
 ):
-    current = workspace_state.destination_match_current(
+    current = not submitted_choices and workspace_state.destination_match_current(
         source_selection_hash=selection.content_hash,
         source_schema_hash=schema.content_hash,
     )
-    ready = workspace_state.destination_match_ready(
+    ready = not submitted_choices and workspace_state.destination_match_ready(
         source_selection_hash=selection.content_hash,
         source_schema_hash=schema.content_hash,
     )
@@ -423,6 +445,7 @@ def _render_matching(
         context.queries.get_current_odoo_relationship_scope(
             workspace_state.workspace_id
         ),
+        submitted_choices=submitted_choices,
     )
     for row in rows:
         result = row["result"]
@@ -457,7 +480,7 @@ def _render_matching(
             row["identity_issue_error"] = str(identity_error)
     create_field_rows: dict[str, list[dict[str, object]]] = {}
     create_field_evidence_error = None
-    plan = workspace_state.destination_match_plan
+    plan = None if submitted_choices else workspace_state.destination_match_plan
     if plan is not None and plan.create_field_evidence_id is not None:
         try:
             access = context.workspace_access.resolve(
@@ -517,14 +540,15 @@ def _render_matching(
             or (not row["governed_identity_required"] and row["primary_candidates"])
             for row in rows
         ),
-        match_plan=workspace_state.destination_match_plan,
+        match_plan=plan,
+        matching_choices_retained=bool(submitted_choices),
         match_plan_current=current,
         match_plan_ready=ready,
         match_plan_create_defaults_pending=bool(
             plan is not None and not plan.create_field_defaults_complete
         ),
         match_plan_stale=(
-            workspace_state.destination_match_plan is not None and not current
+            plan is not None and not current
         ),
         destination_credential_status=get_target_credential_status(
             context.secret_store,
@@ -647,6 +671,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 f"/workspaces/{workspace_id}/transfer-destination",
                 status_code=303,
             )
+        choices: tuple[DestinationMatchKeyChoice, ...] = ()
         try:
             expected_revision = _revision(form)
             if expected_revision != workspace_state.revision:
@@ -762,16 +787,24 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             WorkspaceStateError,
             ValueError,
         ) as error:
-            return _render_matching(
-                request,
-                context,
-                context.queries.get(workspace_id),
-                selection,
-                schema,
-                actor=actor,
-                error=str(error),
-                status_code=422,
-            )
+            error_message = str(error)
+
+            def render_check_error():
+                """Keep retained choices and failure rendering in one local read."""
+
+                return _render_matching(
+                    request,
+                    context,
+                    context.queries.get(workspace_id),
+                    selection,
+                    schema,
+                    actor=actor,
+                    error=error_message,
+                    status_code=422,
+                    submitted_choices=choices,
+                )
+
+            return await run_page_read(render_check_error)
         _flash(
             request,
             (

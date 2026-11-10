@@ -13,10 +13,18 @@ import duckdb
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.domain.preparation.quality import QualityCauseCount
 from impodo.domain.preparation.staging_contracts import CanonicalRow
+from impodo.domain.shared.models import (
+    LogicalReference,
+    canonical_json_text,
+    portable_value,
+)
 from impodo.domain.structural import ExactJoinRule, JoinKind, structural_dataset_id
 from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 
-from .quality_review_projection import read_projected_review_rows
+from .quality_review_projection import (
+    read_category_parent_paths,
+    read_projected_review_rows,
+)
 
 
 def read_prepared_review_rows(
@@ -56,6 +64,46 @@ def read_prepared_review_rows(
             )
         )
     return result
+
+
+def read_prepared_category_paths(
+    connection: duckdb.DuckDBPyConnection,
+    staging_run_id: str,
+    rows: dict[str, CanonicalRow],
+    identity_values: dict[str, tuple[tuple[str, Any], ...]],
+    *,
+    workspace_id: str,
+    artifacts: WorkspaceArtifactStore,
+) -> dict[str, tuple[str, ...]]:
+    """Show the prepared names on each uniquely resolvable incoming category path."""
+    paths: dict[str, tuple[str, ...]] = {}
+    incoming: dict[str, list[tuple[str, str, str]]] = {}
+    for row_id, row in rows.items():
+        identity = identity_values.get(row_id, ())
+        if row.target_model != "product.category" or tuple(
+            field for field, _ in identity
+        ) != ("name", "parent_id"):
+            continue
+        (_, name), (_, parent) = identity
+        if not isinstance(name, str) or not name:
+            continue
+        if parent is None:
+            paths[row_id] = (name,)
+        elif (
+            isinstance(parent, LogicalReference)
+            and parent.origin == "incoming"
+            and parent.dataset == row.dataset
+        ):
+            key = canonical_json_text(portable_value(parent.key))
+            incoming.setdefault(row.dataset, []).append((row_id, name, key))
+    for dataset, members in incoming.items():
+        parents = read_category_parent_paths(
+            connection, staging_run_id, dataset, sorted({key for _, _, key in members}),
+            workspace_id=workspace_id, artifacts=artifacts,
+        )
+        for row_id, name, key in members:
+            paths[row_id] = (*parents[key], name) if key in parents else ()
+    return paths
 
 
 def explain_source_match_causes(

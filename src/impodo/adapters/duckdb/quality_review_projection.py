@@ -22,7 +22,10 @@ from impodo.domain.staging.preparation_session import PreparedCanonicalProjectio
 from impodo.domain.workspace.errors import WorkspaceError
 
 from .constants import PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT
-from .native_prepared_projection import projected_encoded_rows_sql
+from .native_prepared_projection import (
+    projected_encoded_rows_sql,
+    projected_review_identity_sql,
+)
 
 
 def read_projected_review_rows(
@@ -70,15 +73,7 @@ def read_projected_review_rows(
             json.loads(str(projection_json))
         )
         snapshot = PreparedSnapshot.from_json(str(snapshot_json))
-        if (
-            snapshot.workspace_id != workspace_id
-            or snapshot.dataset_id != projection.dataset_id
-            or snapshot.row_count != projection.row_count
-            or snapshot.transformation_program_hash != projection.program.content_hash
-            or snapshot.mapping_hash != projection.program.mapping_content_hash
-            or snapshot.schema_hash != projection.program.schema_hash
-        ):
-            raise WorkspaceError("Prepared review projection bindings changed")
+        _require_review_projection_binding(workspace_id, projection, snapshot)
         coordinates = {int(member["ordinal"]): member for member in members}
         local_ordinals = tuple(ordinal - projection.ordinal_start for ordinal in coordinates)
         # Verify the file before creating a temporary SQL owner, which never
@@ -108,22 +103,129 @@ def read_projected_review_rows(
     return result
 
 
+def read_category_parent_paths(
+    connection: duckdb.DuckDBPyConnection,
+    run_id: str,
+    dataset: str,
+    keys: Sequence[str],
+    *,
+    workspace_id: str,
+    artifacts: WorkspaceArtifactStore,
+) -> dict[str, tuple[str, ...]]:
+    """Resolve category ancestors within the same published staging dataset."""
+    bindings = connection.execute(
+        """
+        SELECT projection.projection_json, manifest.manifest_json
+          FROM canonical_prepared_projection AS projection
+          JOIN prepared_snapshot_manifest AS manifest
+            ON manifest.content_hash = projection.prepared_snapshot_hash
+           AND manifest.dataset_id = projection.dataset_id
+         WHERE projection.run_id = ? AND projection.dataset = ?
+        """,
+        [run_id, dataset],
+    ).fetchall()
+    if not bindings:
+        identity_sql = """
+            SELECT json_extract(row_json, '$.source_identity') AS source_identity,
+                   json_extract(row_json, '$.target_identity') AS target_identity,
+                   json_extract(row_json, '$.target_scope') AS target_scope
+              FROM canonical_staging_row
+             WHERE run_id = ? AND dataset = ? AND target_model = 'product.category'
+               AND row_json <> ''
+        """
+        return _category_parent_paths(connection, identity_sql, [run_id, dataset], dataset, keys)
+    if len(bindings) != 1:
+        return {}
+    projection_json, snapshot_json = bindings[0]
+    projection = PreparedCanonicalProjection.from_portable_dict(json.loads(str(projection_json)))
+    snapshot = PreparedSnapshot.from_json(str(snapshot_json))
+    _require_review_projection_binding(workspace_id, projection, snapshot)
+    with (
+        artifacts.materialize_prepared_snapshot(
+            workspace_id, snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        ) as path,
+        _review_projector() as projector,
+    ):
+        return _category_parent_paths(
+            projector, projected_review_identity_sql(projection), [str(path)], dataset, keys,
+        )
+
+
+def _category_parent_paths(
+    connection: duckdb.DuckDBPyConnection,
+    identity_sql: str,
+    parameters: list[str],
+    dataset: str,
+    keys: Sequence[str],
+) -> dict[str, tuple[str, ...]]:
+    rows = connection.execute(
+        f"""
+        WITH RECURSIVE identities AS ({identity_sql}),
+        members AS (
+            SELECT CAST(source_identity AS VARCHAR) AS source_key,
+                   json_extract_string(target_identity, '$[0]') AS name,
+                   json_type(target_scope, '$[0]') = 'NULL' AS is_root,
+                   CASE WHEN json_extract_string(target_scope, '$[0].origin') = 'incoming'
+                         AND json_extract_string(target_scope, '$[0].dataset') = ?
+                        THEN CAST(json_extract(target_scope, '$[0].key') AS VARCHAR)
+                   END AS parent_key
+              FROM identities
+           QUALIFY COUNT(*) OVER (PARTITION BY CAST(source_identity AS VARCHAR)) = 1
+        ), ancestors(start_key, is_root, parent_key, visited, path) AS (
+            SELECT source_key, is_root, parent_key, [source_key], [name]
+              FROM members
+             WHERE source_key = ANY(?) AND NULLIF(name, '') IS NOT NULL
+            UNION ALL
+            SELECT child.start_key, parent.is_root, parent.parent_key,
+                   list_append(child.visited, parent.source_key),
+                   list_prepend(parent.name, child.path)
+              FROM ancestors AS child
+              JOIN members AS parent ON parent.source_key = child.parent_key
+             WHERE NOT list_contains(child.visited, parent.source_key)
+               AND NULLIF(parent.name, '') IS NOT NULL
+        )
+        SELECT start_key, path FROM ancestors WHERE is_root
+        """,
+        [*parameters, dataset, list(keys)],
+    ).fetchall()
+    return {str(key): tuple(str(part) for part in path) for key, path in rows}
+
+
+def _require_review_projection_binding(
+    workspace_id: str, projection: PreparedCanonicalProjection, snapshot: PreparedSnapshot,
+) -> None:
+    if (
+        snapshot.workspace_id != workspace_id
+        or snapshot.dataset_id != projection.dataset_id
+        or snapshot.row_count != projection.row_count
+        or snapshot.transformation_program_hash != projection.program.content_hash
+        or snapshot.mapping_hash != projection.program.mapping_content_hash
+        or snapshot.schema_hash != projection.program.schema_hash
+    ):
+        raise WorkspaceError("Prepared review projection bindings changed")
+
+
+def _review_projector() -> duckdb.DuckDBPyConnection:
+    return duckdb.connect(
+        ":memory:", config={
+            "allow_community_extensions": "false",
+            "autoinstall_known_extensions": "false",
+            "autoload_known_extensions": "false",
+            "enable_external_access": "true",
+            "lock_configuration": "true",
+            "memory_limit": PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT,
+            "threads": "1",
+        },
+    )
+
+
 def _project_review_rows(
     path: Path, projection: PreparedCanonicalProjection,
     snapshot: PreparedSnapshot, local_ordinals: tuple[int, ...],
 ) -> tuple[tuple[int, CanonicalRow], ...]:
     if projection.set_based_projection:
-        with duckdb.connect(
-            ":memory:", config={
-                "allow_community_extensions": "false",
-                "autoinstall_known_extensions": "false",
-                "autoload_known_extensions": "false",
-                "enable_external_access": "true",
-                "lock_configuration": "true",
-                "memory_limit": PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT,
-                "threads": "1",
-            },
-        ) as projector:
+        with _review_projector() as projector:
             query = projected_encoded_rows_sql(projection, prepared_ordinals=local_ordinals)
             return tuple(
                 (int(ordinal), CanonicalRow.from_dict(json.loads(str(payload))))

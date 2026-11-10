@@ -30,6 +30,8 @@
     {% endif %}
   </div>
 
+  {% include "_saved_read_credential.html" %}
+
   {% if not is_recipe_run_setup and read_credential_prompt and not read_credential_prompt.available %}
     <section class="next-action-card attention" id="odoo-read-key">
       <div>
@@ -333,7 +335,7 @@
           Changing these choices clears later matching work that no longer applies.
         </small>
         <div class="actions">
-          <button class="button primary" type="submit" data-model-submit>Save choices and continue</button>
+          <button class="button primary" type="submit" data-model-submit>Save record types</button>
           <span class="muted" role="status" aria-live="polite" data-model-submit-status></span>
         </div>
       </form>
@@ -350,20 +352,8 @@
     {% endif %}
 
     {% if supporting_model_plan.groups %}
-      <section id="supporting-odoo-data" aria-labelledby="supporting-odoo-data-title">
-        <div class="page-heading compact">
-          <div>
-            <p class="eyebrow">Supporting data Impodo found</p>
-            <h2 id="supporting-odoo-data-title">Impodo checked the direct relationships</h2>
-            <p>
-              You do not need to know the related Odoo record types in advance.
-              Impodo derived these relationships from the selected business records
-              and the captured Odoo fields. This is a preview of the safe default;
-              the detailed relationship review happens later in Match data.
-            </p>
-          </div>
-          <span class="status registered">{{ supporting_model_plan.dependency_count }} found</span>
-        </div>
+      <details class="technical-evidence" id="supporting-odoo-data">
+        <summary>Supporting data Impodo found <small>{{ supporting_model_plan.dependency_count }} direct relationship{{ 's' if supporting_model_plan.dependency_count != 1 else '' }}</small></summary>
         <div class="overview-stage-list">
           {% for group in supporting_model_plan.groups %}
             <section class="overview-stage-card complete">
@@ -401,16 +391,17 @@
           This preview does not add a related record type to the top-level transfer.
           Moving a related record type as migration data remains a separate, explicit decision.
         </p>
-      </section>
+      </details>
     {% endif %}
 
-    {% include "_supporting_data_review.html" %}
-    {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
-    {% if not supporting_review_is_only_issue %}
-      {% include "_workflow_issue_summary.html" %}
-    {% endif %}
-
-    <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
+    <section id="review-odoo-choices" tabindex="-1" data-focus-on-hash aria-label="Review Odoo choices">
+      {% include "_supporting_data_review.html" %}
+      {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
+      {% if not supporting_review_is_only_issue %}
+        {% include "_workflow_issue_summary.html" %}
+      {% endif %}
+      <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
+    </section>
     {% if schema_load_failed %}
       <div
         class="notice error"

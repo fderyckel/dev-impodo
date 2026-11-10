@@ -14,6 +14,7 @@ from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from uuid import UUID
 
+from impodo.domain.odoo.field_capabilities import is_editable_scalar_projection
 from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SchemaField
 
@@ -819,14 +820,16 @@ def is_odoo_capture_value_field(field: SchemaField | None) -> bool:
     so missing compute evidence must not be treated as a read prohibition.
     A stored, user-editable related scalar is valid read evidence (for example
     ``res.company.name``). Read-only related values remain outside this Tier-1
-    surface. Write eligibility is deliberately governed elsewhere.
+    surface. Searchable editable projections use Odoo's declared import surface
+    in the same bound read context; known non-invertible projections stay out.
+    Write eligibility is deliberately governed elsewhere.
     """
 
     return bool(
         field is not None
         and field.type in ODOO_CAPTURE_FIELD_TYPES
         and field.relation is None
-        and field.stored is True
+        and (field.stored is True or is_editable_scalar_projection(field))
         and (field.related is not True or not field.readonly)
         and field.company_dependent is False
         and field.exportable is True

@@ -11,7 +11,7 @@
       {% endfor %}
     </details>
   {% endif %}
-  <small class="row-field"><strong>Record identifier:</strong> {% if item.prepared_row and not item.prepared_row.source_identity|reject('none')|reject('equalto', '')|list %}Missing{% else %}{{ row.record_label }}{% endif %}</small>
+  <small class="row-field"><strong>Record identifier:</strong> {% if item.prepared_category_path is not none %}{{ item.prepared_category_path|join(' / ') if item.prepared_category_path else 'Unresolved category path' }}{% elif item.prepared_row and not item.prepared_row.source_identity|reject('none')|reject('equalto', '')|list %}Missing{% else %}{{ row.record_label }}{% endif %}</small>
 {% else %}
   {{ row.record_label }}
 {% endif %}

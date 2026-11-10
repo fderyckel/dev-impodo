@@ -43,6 +43,22 @@ refreshes the model list and returns to the requesting form. A missing key on
 an already configured Remote target uses the inline read-key dialog and
 resumes the same Stage 1 model refresh.
 
+The schema and Odoo capture pages render the existing role-bound credential
+status through `_saved_read_credential.html`. The status names the source or
+checking role and reports its actual session or vault retention without
+rendering the secret. Empty replacement fields preserve the existing key.
+Destination transfer credentials retain their separate target and role
+binding. Retention controls reflect the saved storage class on return.
+The [credential visibility tests](../../../tests/integration/web/test_credential_retention_visibility.py)
+exercise save, return, and blank replacement for both supported majors.
+
+JSON-2 read failures record only the bounded model, allowlisted method, HTTP
+status, category, and actual attempt count. Authentication failures retain
+their classification; a permanent 404 is not retried. URLs, credentials,
+request values, and server response bodies remain excluded. A 404 identifies
+an unavailable operation without proving which server-side condition caused
+it.
+
 ## Implementation flow
 
 ### Company selection and protected ownership

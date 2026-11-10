@@ -14,6 +14,23 @@ from impodo.web.presenters.comparison_recovery import comparison_recovery_view
 
 
 class ComparisonRecoveryPresenterTests(unittest.TestCase):
+    def test_http_404_keeps_support_classification_without_network_advice(self) -> None:
+        view = comparison_recovery_view(
+            "project-1",
+            OdooReadFailure(
+                code=OdooReadFailureCode.TARGET_UNREACHABLE,
+                owner=RecoveryOwner.FINAL_REVIEW,
+                recovery=OdooReadRecoveryKind.RETRY_COMPARISON,
+                support_code="ODOO_API_HTTP_404",
+            ),
+        )
+        self.assertEqual(view.title, "Review the Odoo operation")
+        self.assertIn("requested Odoo operation was not available", view.message)
+        self.assertNotIn("network", view.message)
+        self.assertEqual(view.code, OdooReadFailureCode.TARGET_UNREACHABLE.value)
+        self.assertEqual(view.support_code, "ODOO_API_HTTP_404")
+        self.assertFalse(view.asks_for_credential)
+
     def test_only_credential_recoveries_ask_for_a_key(self) -> None:
         credential_codes = {
             OdooReadFailureCode.READ_KEY_MISSING,

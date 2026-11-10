@@ -1257,6 +1257,7 @@ class QualityReviewItem:
     prepared_row: CanonicalRow | None = None
     prepared_field_labels: tuple[tuple[str, str], ...] = ()
     prepared_identity_values: tuple[tuple[str, Any], ...] = ()
+    prepared_category_path: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

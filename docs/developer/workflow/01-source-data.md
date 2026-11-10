@@ -357,7 +357,22 @@ relationship preservation may add linked-only support up to a separate
 values, which the source snapshot records as numeric values and presents as
 decimal candidates. The Odoo-source policy hash changes when this capture
 surface changes, so an earlier saved selection cannot silently acquire the
-new field type. This read-only capture change does not enable float updates to
+new field type. Source policy version 5 also permits editable, searchable,
+exportable non-stored scalar projections through
+[`is_editable_scalar_projection`](../../../src/impodo/domain/odoo/field_capabilities.py).
+An explicit inverse qualifies; native remote descriptions that omit both
+compute and inverse evidence use their declared editable surface. Known absent
+inverses, read-only calculations, related projections, and company-dependent
+storage remain excluded. This is not proof of a custom inverse's durability.
+The capture retains its verified context and later loading requires exact
+destination read-back. Version-4 policy hashes remain readable as historical
+evidence but cannot authorize a new capture under the expanded policy.
+The [capability tests](../../../tests/domain/odoo/test_field_capabilities.py)
+cover native metadata distinctions. The
+[scalar transfer tests](../../../tests/integration/odoo/test_editable_scalar_transfer.py)
+exercise source capture, company binding, exact review, and compiled load
+values for both supported majors.
+This read-only capture change does not enable float updates to
 the captured source instance. The browser also accepts one exact-match root
 predicate on an eligible direct scalar field. `SourceWorkspaceService` validates
 the field and value against the live schema before storing the value through

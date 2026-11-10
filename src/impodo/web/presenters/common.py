@@ -101,6 +101,12 @@ def _render(
             ),
             "return_to": f"{request.url.path}{query}",
             "status_label": credential_status.label,
+            "guidance": credential_status.guidance,
+            "storage": (
+                "session"
+                if credential_status.availability.value == "SESSION"
+                else "vault"
+            ),
         }
     workspace_view = None
     timings: dict[str, float] = {}
@@ -263,6 +269,11 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
         item in lowered for item in ("revision", "version", "stale", "changed since")
     ):
         plain = "This page is out of date. Reload it, review the latest information, and try again."
+    elif "odoo" in lowered and re.search(r"\bhttp\s+404\b", lowered):
+        plain = (
+            "The requested Odoo operation was not available. Review Support details "
+            "for the record type and operation before checking again."
+        )
     elif any(item in lowered for item in ("odoo", "connection", "database", "postgres")):
         plain = "Impodo could not check Odoo. Confirm that Odoo is available and review the connection details before trying again."
     elif any(item in lowered for item in ("mapping", "field", "business key")):

@@ -848,9 +848,14 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     if schema is not None else None
                 )
             location = await run_page_read(capture_location)
-            if location is not None:
-                return RedirectResponse(location, status_code=303)
-        return RedirectResponse(f"/workspaces/{workspace_id}/schema#odoo-details", status_code=303)
+            return RedirectResponse(
+                location or f"/workspaces/{workspace_id}/schema#odoo-details",
+                status_code=303,
+            )
+        return RedirectResponse(
+            f"/workspaces/{workspace_id}/schema#review-odoo-choices",
+            status_code=303,
+        )
 
     def prepare_schema_scope(request: Request, workspace_id: str, form):
         """Validate and save model choices before the separate Odoo read."""

@@ -90,6 +90,7 @@
         <label>
           {% if destination_credential_status.available %}Replace the destination transfer API key{% else %}Destination transfer API key{% endif %}
           <input type="password" name="read_api_key" autocomplete="off" {% if not destination_credential_status.available %}required{% endif %}>
+          {% if destination_credential_status.available %}<small>Leave this field empty to keep the saved destination key. Enter a new key to replace it.</small>{% endif %}
           <small>This is the second of two keys: it is bound only to the destination, used read-only for matching and preflight, then used for writes only after load authorization. It is never reused as the source-fetch key.</small>
         </label>
       </div>
@@ -98,11 +99,11 @@
         <legend>How long should Impodo keep a newly entered destination key?</legend>
         <div class="mode-grid compact">
           <label class="mode-card">
-            <input type="radio" name="read_api_key_storage" value="vault" checked>
+            <input type="radio" name="read_api_key_storage" value="vault" {% if destination_credential_status.availability.value != 'SESSION' %}checked{% endif %}>
             <span><strong>Keep it on this computer</strong><small>Save securely on this computer.</small></span>
           </label>
           <label class="mode-card">
-            <input type="radio" name="read_api_key_storage" value="session">
+            <input type="radio" name="read_api_key_storage" value="session" {% if destination_credential_status.availability.value == 'SESSION' %}checked{% endif %}>
             <span><strong>Until Impodo closes</strong><small>Forget the key when this Impodo process ends.</small></span>
           </label>
         </div>

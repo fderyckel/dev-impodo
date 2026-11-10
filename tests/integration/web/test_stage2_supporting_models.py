@@ -11,6 +11,7 @@ from impodo.domain.odoo.contracts import MetadataSnapshot
 from impodo.domain.shared.models import FieldMetadata, ModelMetadata, TargetRecord
 from impodo.domain.workspace.contracts import SourceSelection
 from tests.support.browser_scenarios import (
+    POST_HEADERS,
     OdooConnectionMode,
     ProjectSetupBrowserTestCase,
     _browser_model_catalog,
@@ -145,10 +146,29 @@ class StageTwoSupportingModelBrowserTests(ProjectSetupBrowserTestCase):
         self.assertLessEqual(timings.schema_check_count, 4)
         self.assertEqual(timings.lock_retry_count, 0)
 
-        page = self.client.get(f"/workspaces/{workspace.workspace_id}/schema")
+        schema_url = f"/workspaces/{workspace.workspace_id}/schema"
+        scoped = self.client.post(
+            schema_url,
+            data={
+                "csrf_token": self.csrf,
+                "revision": str(context.queries.get(workspace.workspace_id).revision),
+                "permitted_models": "product.template",
+            },
+            headers=POST_HEADERS,
+            follow_redirects=False,
+        )
+        self.assertEqual(scoped.status_code, 303)
+        self.assertEqual(scoped.headers["location"], f"{schema_url}#review-odoo-choices")
+        page = self.client.get(scoped.headers["location"])
 
         self.assertEqual(page.status_code, 200)
+        self.assertIn('<details class="technical-evidence" id="supporting-odoo-data">', page.text)
         self.assertIn("Supporting data Impodo found", page.text)
+        self.assertRegex(
+            page.text,
+            r'<section id="review-odoo-choices"[^>]*>\s*'
+            r'<section class="supporting-review" id="supporting-data-review"',
+        )
         self.assertIn("Product Category", page.text)
         self.assertIn("Unit of Measure", page.text)
         self.assertIn("Keep linked value", page.text)

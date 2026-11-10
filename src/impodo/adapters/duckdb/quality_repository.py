@@ -58,6 +58,7 @@ from .constants import (
 from .database import DuckDbWorkspaceDatabase
 from .quality_review_details import (
     explain_source_match_causes,
+    read_prepared_category_paths,
     read_prepared_field_labels,
     read_prepared_identity_values,
     read_prepared_review_rows,
@@ -1645,6 +1646,10 @@ class QualityRepository(DuckDbRepository):
             )
             prepared_labels = read_prepared_field_labels(connection, prepared_rows)
             identity_values = read_prepared_identity_values(connection, str(current[0]), prepared_rows)
+            category_paths = read_prepared_category_paths(
+                connection, str(current[0]), prepared_rows, identity_values,
+                workspace_id=workspace_id, artifacts=self._artifacts,
+            )
             run_cause_counts = explain_source_match_causes(
                 connection, canonical_run_id, str(current[0]), run_cause_counts,
             )
@@ -1676,6 +1681,7 @@ class QualityRepository(DuckDbRepository):
                     correction_route=route_by_row.get(item.row_id, ""),
                     prepared_row=prepared_rows.get(item.row_id),
                     prepared_identity_values=identity_values.get(item.row_id, ()),
+                    prepared_category_path=category_paths.get(item.row_id),
                     prepared_field_labels=prepared_labels.get(
                         prepared_rows[item.row_id].target_model, (),
                     ) if item.row_id in prepared_rows else (),
@@ -1868,6 +1874,10 @@ class QualityRepository(DuckDbRepository):
             )
             prepared_labels = read_prepared_field_labels(connection, prepared_rows)
             identity_values = read_prepared_identity_values(connection, str(current[0]), prepared_rows)
+            category_paths = read_prepared_category_paths(
+                connection, str(current[0]), prepared_rows, identity_values,
+                workspace_id=workspace_id, artifacts=self._artifacts,
+            )
             results = tuple(
                 (
                     QualityRowResult.from_dict(json.loads(str(item[7])))
@@ -1897,6 +1907,7 @@ class QualityRepository(DuckDbRepository):
                     cause_impact=QualityCauseImpact(str(row[8])),
                     prepared_row=prepared_rows.get(result.row_id),
                     prepared_identity_values=identity_values.get(result.row_id, ()),
+                    prepared_category_path=category_paths.get(result.row_id),
                     prepared_field_labels=prepared_labels.get(
                         prepared_rows[result.row_id].target_model, (),
                     ) if result.row_id in prepared_rows else (),

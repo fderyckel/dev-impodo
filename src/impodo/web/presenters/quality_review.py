@@ -55,6 +55,12 @@ def quality_record_details(
                 if hasattr(reference, "key")
             }
         )
+        category_path = item.prepared_category_path
+        if category_path is not None:
+            if not category_path:
+                values["parent_id"] = "Unresolved"
+            elif len(category_path) > 1:
+                values["parent_id"] = category_path[-2]
         result[item.row.row_id] = tuple(
             (
                 fields.get(field, field.replace("_", " ").removesuffix(" id").title()),

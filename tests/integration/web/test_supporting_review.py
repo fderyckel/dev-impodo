@@ -134,6 +134,29 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         page, _form = self.page_and_form()
         self.assertTrue(page.context["supporting_review"]["current"])
 
+    def test_optional_relationships_can_be_left_unsaved(self):
+        model = self.schema.models[0]
+        schema = replace(
+            self.schema,
+            content_hash="sha256:" + "8" * 64,
+            models=(
+                replace(
+                    model,
+                    fields=tuple(
+                        replace(field, required=False)
+                        if field.relation == "res.country" else field
+                        for field in model.fields
+                    ),
+                ),
+            ),
+        )
+        self.context.schema_workspace.schemas.save_odoo_schema_catalog(
+            self.workspace_id, schema, actor=self.actor
+        )
+        page, _form = self.page_and_form()
+        self.assertRegex(page.text, r'<span class="status">\s*Optional\s*</span>')
+        self.assertNotIn("matching-rules-blocked-reason", page.text)
+
     def test_committed_summary_rebuild_and_unchanged_decision_keep_evidence(self):
         _page, form = self.page_and_form()
         self.assertEqual(self.save(form).status_code, 303)

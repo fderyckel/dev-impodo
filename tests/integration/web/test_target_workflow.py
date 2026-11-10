@@ -572,7 +572,7 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             (
                 missing_api,
-                "The JSON-2 API was not available at this address.",
+                "The requested JSON-2 operation was not available.",
                 "ODOO_API_HTTP_404",
             ),
             (
@@ -779,7 +779,7 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertIn("Update available choices", verified_page.text)
         self.assertIn("Has Odoo changed?", verified_page.text)
-        self.assertIn("Save choices and continue", verified_page.text)
+        self.assertIn("Save record types", verified_page.text)
         self.assertNotIn("Save Odoo choices", verified_page.text)
         self.assertIn("data-show-selected-models", verified_page.text)
         self.assertIn("Show selected only", verified_page.text)
@@ -810,7 +810,7 @@ class TargetWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(scoped.status_code, 303)
         self.assertEqual(
             scoped.headers["location"],
-            f"/workspaces/{registered.workspace_id}/schema#odoo-details",
+            f"/workspaces/{registered.workspace_id}/schema#review-odoo-choices",
         )
         self.local_odoo_reader.get_model_catalog.assert_called_once()
         self.local_odoo_reader.get_model_metadata.assert_called_once()

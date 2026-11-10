@@ -58,6 +58,9 @@ downloaded.
    same record in both databases. Add another field only when the first field
    can repeat.
 4. Select **Check destination matches**.
+   If the check fails, Impodo keeps the identifiers, handling choices, and row
+   rules you submitted so you can correct them and check again. The failed
+   check does not replace saved matching evidence or change Odoo records.
 5. Review **Rows checked**, **Included**, **Excluded by rule**, and **Could not
    be checked**, followed by the **Reuse**, **Create**, and **Identity issues**
    totals.

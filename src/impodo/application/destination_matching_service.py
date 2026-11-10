@@ -34,6 +34,10 @@ from impodo.domain.odoo.contracts import (
     metadata_snapshot_payload,
     record_snapshot_payload,
 )
+from impodo.domain.odoo.field_capabilities import (
+    is_editable_scalar_field,
+    is_editable_scalar_projection,
+)
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
@@ -281,8 +285,17 @@ def _is_transferable_scalar_field(
         and field.type not in {"many2one", "many2many", "one2many"}
         and not field.readonly
         and field.related is not True
-        and not (field.computed is True and field.has_inverse is not True)
-        and field.stored is not False
+        and (
+            (
+                field.stored is not False
+                and (
+                    field.stored is True
+                    or field.computed is not True
+                    or field.has_inverse is True
+                )
+            )
+            or is_editable_scalar_projection(field)
+        )
     )
 
 
@@ -687,6 +700,21 @@ class DestinationMatchingService:
             transfer_destination_workspace(workspace),
             intended_models=model_names,
         )
+        if any(
+            is_editable_scalar_projection(field)
+            for item in prepared
+            for field in item.source_fields
+        ):
+            if destination.odoo_company is None:
+                raise WorkspaceError(
+                    "Choose the destination Odoo company before checking editable "
+                    "calculated fields"
+                )
+            if read_identity.context_hash != destination.odoo_company.context_hash:
+                raise WorkspaceError(
+                    "The destination company context changed; verify the destination "
+                    "connection again"
+                )
         expected_target_hash = transfer_destination_identity_hash(workspace)
         if (
             credential_binding_hash
@@ -980,6 +1008,10 @@ class DestinationMatchingService:
                 destination_field.type != source_field.type
                 or destination_field.relation != source_field.relation
                 or destination_field.readonly
+                or (
+                    is_editable_scalar_projection(source_field)
+                    and not is_editable_scalar_field(destination_field)
+                )
                 or (destination_field.required and not source_field.required)
             ):
                 incompatible.append(source_field.name)

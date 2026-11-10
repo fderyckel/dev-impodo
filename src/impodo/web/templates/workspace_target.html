@@ -117,6 +117,7 @@
           {% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "LOCAL" and workspace_state.source_mode.value != "ODOO" %}hidden{% endif %}>
           {% if read_credential_status.available %}Replace the Odoo checking API key{% else %}Odoo API key from your administrator{% endif %}
           <input type="password" name="read_api_key" autocomplete="off">
+          {% if read_credential_status.available %}<small>Leave this field empty to keep the saved key. Enter a new key to replace it.</small>{% endif %}
           <small>{% if is_odoo_source %}Impodo uses this key to read and freeze the selected Odoo source records.{% else %}Impodo uses this key for destination checks, metadata, and Final review.{% endif %} It is not placed in the project data.</small>
         </label>
       </div>

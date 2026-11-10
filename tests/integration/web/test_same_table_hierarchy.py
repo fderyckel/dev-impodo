@@ -191,6 +191,20 @@ class SameTableHierarchyTests(HierarchyWorkflowFixture):
                     self.assertEqual(
                         (quality.ready_count, quality.quarantined_count), (4, 0)
                     )
+                    page = self.client.get(
+                        f"/workspaces/{workspace_id}/summary?quality_page_size=10"
+                    )
+                    self.assertEqual(page.status_code, 200, page.text)
+                    self.assertIn("parent_id:</strong> Materials", page.text)
+                    self.assertIn("Record identifier:</strong> Materials / Additive", page.text)
+                    self.assertIn("Record identifier:</strong> Materials / Bag / Additive", page.text)
+                    self.assertNotIn("5637144576", page.text)
+                    review = self.context.queries.get_quality_review_page(
+                        workspace_id, quality.run_id, status="", dataset="", page=1, page_size=1
+                    )
+                    self.assertEqual(
+                        review.items[0].prepared_category_path, ("Materials", "Additive")
+                    )
                     self.approve(workspace_id)
                     self.expect_business_writes(workspace_id)
                     target = HierarchyOdoo(

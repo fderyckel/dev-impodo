@@ -6,6 +6,16 @@ from impodo.web.presenters.common import _plain_ui_error
 
 
 class CommonPresenterTests(unittest.TestCase):
+    def test_odoo_http_404_does_not_assert_the_server_is_unreachable(self) -> None:
+        raw = (
+            "Odoo JSON-2 fields_get read for x.missing.model "
+            "was unavailable with HTTP 404 after 1 attempt"
+        )
+        plain, support = _plain_ui_error(raw)
+        self.assertIn("requested Odoo operation was not available", plain)
+        self.assertNotIn("Confirm that Odoo is available", plain)
+        self.assertEqual(support, raw)
+
     def test_stored_quality_failure_has_a_safe_recovery_message(self) -> None:
         raw = "Stored quality evidence is invalid"
 

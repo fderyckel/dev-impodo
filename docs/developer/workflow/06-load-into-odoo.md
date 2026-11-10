@@ -260,6 +260,31 @@ Stage 4 readiness additionally requires every reviewed create-only default to
 be confirmed and every create policy's write-field blockers to be resolved.
 An identity-only match result cannot unlock Stage 5 while those decisions are
 still pending.
+
+Scalar transfer uses the shared native field capability contract. Stored,
+editable calculations may carry explicit values. Editable non-stored scalar
+projections require the source and destination capability checks, an explicitly
+selected destination company, and a matching observed context hash. Capture,
+matching, review, preflight, and read-back remain distinct evidence boundaries.
+Public remote metadata declares editability without proving inverse behavior;
+the verified destination result remains required. This does not permit direct
+company-dependent storage dictionaries or introduce model-specific field
+exceptions. Uncoded or repeated identities remain review blockers rather than
+being replaced by names or database identifiers.
+The [editable value transport tests](../../../tests/integration/odoo/test_editable_scalar_load_readback.py)
+exercise the native writer and exact read-back adapters with simulated
+transports for both majors. They do not qualify live ORM inverse behavior or
+account-specific side effects.
+
+If a destination check fails, the page retains the submitted identifiers,
+handling choices, and row rules while leaving saved matching evidence
+unchanged. It does not present an earlier saved result as the outcome of the
+failed check. The operator can correct the submitted choices and check again.
+The [matching recovery tests](../../../tests/integration/web/test_destination_matching_recovery.py)
+verify retained form choices and unchanged saved evidence. The
+[HTTP read tests](../../../tests/integration/odoo/test_json2_read_failures.py)
+and [diagnostic export tests](../../../tests/integration/web/test_json2_http_diagnostics.py)
+verify status classification, bounded retries, and redacted support evidence.
 Source capture can retain a non-stored, related, computed, or read-only
 relationship as provenance. Destination matching excludes that relationship
 from the generic write plan unless destination metadata proves it is a stored,

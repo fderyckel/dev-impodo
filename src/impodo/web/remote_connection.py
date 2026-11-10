@@ -337,7 +337,7 @@ class RemoteConnectionStatusService:
                 )
             else:
                 database_message = (
-                    "The JSON-2 API was not available at this address."
+                    "The requested JSON-2 operation was not available."
                     if status_code == 404
                     else (
                         "Odoo could not complete the read-only database check "

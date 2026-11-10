@@ -758,7 +758,7 @@ class Json2ConnectorTests(unittest.TestCase):
                 side_effect=AssertionError("response was reserialized"),
             ),
         ):
-            status, payload = connector._request_url(
+            status, payload, attempt_count = connector._request_url(
                 "https://odoo.example.test/web/version",
                 method="GET",
                 body=None,
@@ -766,6 +766,7 @@ class Json2ConnectorTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         self.assertEqual(payload, {"rows": [1, 2, 3]})
+        self.assertEqual(attempt_count, 1)
 
     def test_connector_has_no_public_write_or_generic_rpc_surface(self) -> None:
         public = {

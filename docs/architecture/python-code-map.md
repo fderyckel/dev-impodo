@@ -156,7 +156,9 @@ describe which changes invalidate these bindings.
   Application ports expose atomic operations instead of passing connections
   across layers.
 - **Odoo.** `domain/odoo/compatibility.py` defines the shared policy for Odoo 19
-  and Odoo 20. `web/composition/target_readers.py` and `target_writers.py`
+  and Odoo 20. `domain/odoo/field_capabilities.py` classifies editable scalar
+  values for source capture and destination transfer from native metadata.
+  `web/composition/target_readers.py` and `target_writers.py`
   select scoped adapters. The adapters batch reads by model and use separate
   write authority. `application/workspace/execution/identity_lookups.py` resolves
   nested parent keys in groups and keeps numeric IDs within the target

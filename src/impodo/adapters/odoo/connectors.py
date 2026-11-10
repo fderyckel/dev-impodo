@@ -74,7 +74,7 @@ _JSON2_READ_METHODS = frozenset(
         "search_read",
     }
 )
-_JSON2_FAILURE_CATEGORIES = frozenset({"timeout", "unreachable"})
+_JSON2_FAILURE_CATEGORIES = frozenset({"timeout", "unreachable", "http"})
 
 
 from impodo.domain.odoo.contracts import (
@@ -93,12 +93,13 @@ from impodo.domain.odoo.contracts import (
 
 @dataclass(frozen=True, slots=True)
 class Json2ReadFailureDiagnostic:
-    """Bounded, non-secret evidence for one exhausted JSON-2 read."""
+    """Bounded, non-secret evidence for one failed JSON-2 read."""
 
     model: str
     method: str
     category: str
     attempt_count: int
+    http_status: int | None = None
 
     def __post_init__(self) -> None:
         if _TECHNICAL_MODEL.fullmatch(self.model) is None:
@@ -109,16 +110,28 @@ class Json2ReadFailureDiagnostic:
             raise ValueError("JSON-2 failure category is invalid")
         if not 1 <= self.attempt_count <= 100:
             raise ValueError("JSON-2 failure attempt count is invalid")
+        if self.category == "http":
+            if (
+                type(self.http_status) is not int
+                or not 100 <= self.http_status <= 599
+                or self.http_status == 200
+            ):
+                raise ValueError("JSON-2 HTTP failure status is invalid")
+        elif self.http_status is not None:
+            raise ValueError("JSON-2 transport failure cannot have an HTTP status")
 
     @property
     def user_message(self) -> str:
         """Return a safe, actionable message without transport details."""
 
-        outcome = (
-            "timed out"
-            if self.category == "timeout"
-            else "was unreachable"
-        )
+        if self.category == "http":
+            outcome = (
+                "was unavailable with HTTP 404"
+                if self.http_status == 404
+                else f"failed with HTTP {self.http_status}"
+            )
+        else:
+            outcome = "timed out" if self.category == "timeout" else "was unreachable"
         attempt_label = "attempt" if self.attempt_count == 1 else "attempts"
         return (
             f"Odoo JSON-2 {self.method} read for {self.model} {outcome} "
@@ -143,6 +156,20 @@ def observe_json2_read_failures(
         yield
     finally:
         _JSON2_READ_FAILURE_OBSERVER.reset(token)
+
+
+def _observe_json2_read_failure(failure: Json2ReadFailureDiagnostic) -> None:
+    """Publish safe failure evidence without changing the failed operation."""
+
+    observer = _JSON2_READ_FAILURE_OBSERVER.get()
+    if observer is not None:
+        try:
+            observer(failure)
+        except Exception:
+            # Diagnostics must never replace the connector failure.
+            logging.getLogger(__name__).exception(
+                "JSON-2 read failure observer raised an exception"
+            )
 
 
 class _Json2TransportFailure(ConnectorTransportError):
@@ -494,7 +521,7 @@ class Json2ReadConnector:
         version = "unknown"
         limitations: list[str] = []
         try:
-            status, payload = self._request_url(
+            status, payload, _attempt_count = self._request_url(
                 f"{self._config.base_url}/web/version",
                 method="GET",
                 body=None,
@@ -1130,7 +1157,7 @@ class Json2ReadConnector:
         encoded_model = quote(model, safe=".")
         url = f"{self._config.base_url}/json/2/{encoded_model}/{quote(method, safe='')}"
         try:
-            status, response = self._request_url(
+            status, response, attempt_count = self._request_url(
                 url,
                 method="POST",
                 body=canonical_json_bytes(dict(payload)),
@@ -1142,22 +1169,22 @@ class Json2ReadConnector:
                 category=error.category,
                 attempt_count=error.attempt_count,
             )
-            observer = _JSON2_READ_FAILURE_OBSERVER.get()
-            if observer is not None:
-                try:
-                    observer(failure)
-                except Exception:
-                    # Diagnostics must never replace the connector failure.
-                    logging.getLogger(__name__).exception(
-                        "JSON-2 read failure observer raised an exception"
-                    )
+            _observe_json2_read_failure(failure)
             raise ConnectorTransportError(failure.user_message) from error
         if status != 200:
+            failure = Json2ReadFailureDiagnostic(
+                model=model,
+                method=method,
+                category="http",
+                attempt_count=attempt_count,
+                http_status=status,
+            )
+            _observe_json2_read_failure(failure)
             if status in {401, 403}:
                 raise ConnectorAuthenticationError(
                     f"Odoo JSON-2 authorization failed with HTTP {status}"
                 )
-            raise ConnectorTransportError(f"Odoo JSON-2 read failed with HTTP {status}")
+            raise ConnectorTransportError(failure.user_message)
         return response
 
     def _request_url(
@@ -1166,12 +1193,13 @@ class Json2ReadConnector:
         *,
         method: str,
         body: bytes | None,
-    ) -> tuple[int, Any]:
+    ) -> tuple[int, Any, int]:
         """Send one authenticated request with bounded transient retries.
 
         Authentication/database headers are created only at this boundary.
         Network failures and selected transient HTTP statuses use a short
-        exponential backoff; permanent responses return immediately.
+        exponential backoff; permanent responses return immediately. Return
+        the actual attempt count alongside the response for safe diagnostics.
         """
 
         headers = {
@@ -1216,7 +1244,7 @@ class Json2ReadConnector:
             if status in transient_statuses and attempt < self._config.retries:
                 time.sleep(0.05 * (2**attempt))
                 continue
-            return status, payload
+            return status, payload, attempt + 1
         raise ConnectorTransportError("Odoo JSON-2 read failed")
 
 

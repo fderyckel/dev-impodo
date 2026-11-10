@@ -123,6 +123,16 @@ def comparison_recovery_view(
     """Map a classified failure to its route and safe operator wording."""
 
     eyebrow, title, message = _COPY[failure.code]
+    if (
+        failure.code is OdooReadFailureCode.TARGET_UNREACHABLE
+        and failure.support_code == "ODOO_API_HTTP_404"
+    ):
+        eyebrow = "Odoo operation unavailable"
+        title = "Review the Odoo operation"
+        message = (
+            "The requested Odoo operation was not available. Review support details "
+            "for the affected record type and operation before checking again."
+        )
     recovery = failure.recovery
     action_kind = "link"
     action_href = ""

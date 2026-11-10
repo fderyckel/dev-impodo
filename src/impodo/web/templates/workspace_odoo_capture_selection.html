@@ -19,6 +19,8 @@
     {% if current_selections %}<span class="status registered">{{ root_capture_selections|length }} main · {{ linked_capture_selections|length }} linked support</span>{% endif %}
   </div>
 
+  {% include "_saved_read_credential.html" %}
+
   <div class="notice warning">
     <strong>Reading the source is safe and read-only.</strong>
     Impodo verifies that it is still connected to the same Odoo source before

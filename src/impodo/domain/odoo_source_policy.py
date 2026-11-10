@@ -13,7 +13,7 @@ from enum import StrEnum
 
 from .serialization import content_hash
 
-ODOO_SOURCE_POLICY_CONTRACT_VERSION = 4
+ODOO_SOURCE_POLICY_CONTRACT_VERSION = 5
 
 
 class TargetInstanceAssurance(StrEnum):
@@ -195,5 +195,12 @@ PREVIOUS_ODOO_SOURCE_POLICY_HASH = (
     "sha256:403be4a671a9e2a25ddee994ff0c337e0b271438a7ae47a60d68f5be3572ac01"
 )
 READABLE_ODOO_SOURCE_POLICY_HASHES = frozenset(
-    {*ODOO_SOURCE_POLICY_HASHES.values(), PREVIOUS_ODOO_SOURCE_POLICY_HASH}
+    {
+        *ODOO_SOURCE_POLICY_HASHES.values(),
+        PREVIOUS_ODOO_SOURCE_POLICY_HASH,
+        # Earlier stored-only captures remain readable, but cannot be reused
+        # as current evidence for the expanded editable scalar surface.
+        *(content_hash(replace(policy, contract_version=4).to_dict())
+          for policy in ODOO_SOURCE_POLICIES.values()),
+    }
 )

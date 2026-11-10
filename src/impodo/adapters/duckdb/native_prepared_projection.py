@@ -438,6 +438,19 @@ def projected_numeric_values_sql(
     """
 
 
+def projected_review_identity_sql(projection: PreparedCanonicalProjection) -> str:
+    """Read just prepared identity columns for an incoming category path lookup."""
+    layout = _layout(projection.program)
+    return f"""
+        SELECT {_identity_json(layout.source_identity)} AS source_identity,
+               {_identity_json(layout.target_identity, contract_version=projection.contract_version)}
+                   AS target_identity,
+               {_identity_json(layout.target_scope, contract_version=projection.contract_version)}
+                   AS target_scope
+          FROM read_parquet(?)
+    """
+
+
 def projected_encoded_rows_sql(
     projection: PreparedCanonicalProjection,
     *,

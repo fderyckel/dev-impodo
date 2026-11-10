@@ -4,13 +4,9 @@
     <div>
       <p class="eyebrow">Related Odoo values</p>
       <h2 id="supporting-review-title">Choose where related values come from</h2>
-      <p>
-        These relationships connect your selected records to related Odoo values.
-        Choose one source for each required relationship.
-      </p>
     </div>
-    <span class="status {% if supporting_review.current and not supporting_review.save_error %}complete{% else %}attention{% endif %}">
-      {% if supporting_review.save_error %}Unsaved choices{% elif supporting_review.current %}Choices saved{% else %}Action required{% endif %}
+    <span class="status{% if supporting_review.save_error or supporting_review.error %} attention{% elif supporting_review.current %} complete{% endif %}">
+      {% if supporting_review.save_error %}Unsaved choices{% elif supporting_review.error %}Action required{% elif supporting_review.current %}Choices saved{% else %}Optional{% endif %}
     </span>
   </div>
   {% if supporting_review.save_error %}
