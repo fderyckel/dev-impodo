@@ -917,6 +917,7 @@ class RecipeCompiler:
     def _identity(self, item, dataset_id, columns, dataset_ids):
         resolver = item.resolver
         return {
+            **({"selected_matching_field": True} if item.selected_matching_field else {}),
             "source_column_ids": [
                 self._column(dataset_id, key, columns)
                 for key in item.source_column_keys

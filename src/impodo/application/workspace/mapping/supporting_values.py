@@ -186,6 +186,13 @@ def plan_mapping_supporting_values(
                     item.source_column_key
                     for item in (*resolver.key_mappings, *resolver.scope_mappings)
                 ),
+                allows_selected_field=(
+                    component.selected_matching_field
+                    and metadata.type == "many2one"
+                    and not metadata.readonly
+                    and metadata.exportable is not False
+                    and metadata.company_dependent is not True
+                ),
             )
         for relationship in dataset.relationships:
             metadata = fields.get(relationship.target_field)

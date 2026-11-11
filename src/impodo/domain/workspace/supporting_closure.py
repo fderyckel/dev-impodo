@@ -175,7 +175,7 @@ def supporting_mapping_conflict_details(
                     item.resolver,
                     tuple(part.target_field for part in item.resolver.key_mappings),
                     tuple(part.target_field for part in item.resolver.scope_mappings),
-                    False,
+                    item.selected_matching_field,
                 )
                 for item in (*dataset.target_identity, *dataset.target_scope)
                 if item.target_fields == (choice.field_name,)

@@ -59,19 +59,19 @@ document.addEventListener("DOMContentLoaded", () => {
     const key = row.querySelector("[data-linked-matching-key]");
     const origin = row.querySelector("[data-relationship-origin]");
     const policy = row.querySelector("[data-relation-source-policy]");
-    const policyChoice = policy.querySelector("[data-categorical-policy]");
-    const policyLabel = policy.querySelector("[data-linked-matching-policy]");
-    const exactNote = policy.querySelector("[data-exact-linked-field-note]");
-    const valueMatch = policy.querySelector("[data-linked-value-match-entry]");
-    const blankChoice = policy.querySelector("[data-blank-create-storage]");
+    const policyChoice = policy?.querySelector("[data-categorical-policy]");
+    const policyLabel = policy?.querySelector("[data-linked-matching-policy]");
+    const exactNote = policy?.querySelector("[data-exact-linked-field-note]");
+    const valueMatch = policy?.querySelector("[data-linked-value-match-entry]");
+    const blankChoice = policy?.querySelector("[data-blank-create-storage]");
     const status = row.querySelector("[data-linked-matching-field-status]");
 
     const sync = () => {
       const exactOnly = Boolean(key.selectedOptions[0]?.dataset.selectedMatchingField);
-      policyLabel.hidden = exactOnly;
-      exactNote.hidden = !exactOnly;
-      valueMatch.hidden = exactOnly;
-      if (exactOnly) policyChoice.value = "EXACT_BUSINESS_KEY";
+      if (policyLabel) policyLabel.hidden = exactOnly;
+      if (exactNote) exactNote.hidden = !exactOnly;
+      if (valueMatch) valueMatch.hidden = exactOnly;
+      if (exactOnly && policyChoice) policyChoice.value = "EXACT_BUSINESS_KEY";
     };
     key.addEventListener("change", () => {
       if (blankChoice) blankChoice.value = "";
@@ -406,6 +406,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   for (const row of document.querySelectorAll("[data-relation-mapping-row]")) {
     initializeRelationRow(row);
+  }
+  for (const row of document.querySelectorAll("[data-identity-matching-field]")) {
+    initializeLinkedMatchingFields(row);
   }
   for (const controls of document.querySelectorAll(
     "[data-relationship-origin-controls]"

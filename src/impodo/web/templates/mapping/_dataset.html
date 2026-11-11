@@ -158,7 +158,7 @@
                 </label>
                 <div class="identity-match-list">
                   {% for row in view.identity_rows %}
-                    <div class="identity-match-row" {% if row.relational %}data-relationship-origin-controls{% endif %}>
+                    <div class="identity-match-row" {% if row.relational %}data-relationship-origin-controls data-identity-matching-field data-target-field="{{ row.target_field }}"{% endif %}>
                       <div class="identity-field-name">
                         <span class="identity-role">
                           {% if not row.scope %}Record identifier{% elif row.metadata and row.metadata.relation == "res.company" %}Company or site{% elif row.relational %}Within{% else %}Matching scope{% endif %}
@@ -217,15 +217,25 @@
                         {% endif %}
                         <label data-relationship-odoo-control {% if row.selected_origin == 'dataset' %}hidden{% endif %}>
                           How should Impodo identify the existing Odoo record?
-                          <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}" {% if not row.related_keys %}disabled{% endif %}>
-                            <option value="">{% if row.related_keys %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
+                          <select name="identity_resolver_key_{{ dataset_index }}_{{ loop.index0 }}" data-linked-matching-key {% if not row.related_keys and not row.can_choose_matching_field %}disabled{% endif %}>
+                            <option value="">{% if row.related_keys or row.can_choose_matching_field %}Choose a matching rule{% else %}No matching rule available{% endif %}</option>
                             {% for key in row.related_keys %}
-                              <option value="{{ key.key_id }}" {% if row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
+                              <option value="{{ key.key_id }}" {% if key.key_fields|length == 1 and not key.scope_fields %}data-matching-field="{{ key.key_fields[0] }}"{% endif %} {% if not row.chosen_matching_field and row.selected_related_key and key.key_id == row.selected_related_key.key_id %}selected{% endif %}>
                                 {{ row.related_key_labels[key.key_id] }}{% if key.key_id == row.recommended_related_key_id %} — recommended{% elif key.status.value == 'CANDIDATE' %} — confirm{% endif %}
                               </option>
                             {% endfor %}
+                            {% if row.chosen_matching_field %}
+                              <option value="odoo-field:{{ row.chosen_matching_field }}" data-selected-matching-field="{{ row.chosen_matching_field }}" selected>{{ row.chosen_matching_field }}</option>
+                            {% endif %}
                           </select>
-                          {% if not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model before using Odoo lookup.</small>{% endif %}
+                          {% if row.can_choose_matching_field %}
+                            <div data-relationship-field-picker {% if row.selected_origin != 'target_catalog' %}hidden{% endif %}>
+                              <button type="button" class="button secondary compact" data-load-linked-matching-fields
+                                data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
+                                data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
+                              <small role="status" data-linked-matching-field-status></small>
+                            </div>
+                          {% elif not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model before using Odoo lookup.</small>{% endif %}
                         </label>
                       {% endif %}
                     </div>

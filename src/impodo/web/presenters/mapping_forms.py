@@ -466,6 +466,7 @@ def _mapping_datasets_from_form(
                 selected_key and target_field in selected_key.scope_fields
             )
             resolver = None
+            selected_matching_field = False
             if metadata is not None and metadata.type == "many2one":
                 origin = ResolverOrigin(
                     _text(
@@ -484,15 +485,18 @@ def _mapping_datasets_from_form(
                         dataset_id=resolver_dataset_id,
                     )
                 else:
-                    related_key = keys.get(
-                        _text(
-                            form,
-                            (
-                                f"identity_resolver_key_{dataset_index}_"
-                                f"{identity_index}"
-                            ),
-                        )
+                    related_key_id = _text(
+                        form, f"identity_resolver_key_{dataset_index}_{identity_index}"
                     )
+                    related_key = keys.get(related_key_id)
+                    if related_key_id.startswith(SELECTED_MATCH_FIELD_PREFIX):
+                        if origin is not ResolverOrigin.TARGET_CATALOG:
+                            raise WorkspaceError("A selected identity matching field must use only existing Odoo records")
+                        selected_matching_field = True
+                        related_key = _selected_matching_field_key(
+                            related_key_id, metadata, selected_sources, models,
+                            pinned_update=pinned_update,
+                        )
                     resolver = replace(
                         _target_catalog_resolver(
                             metadata.relation,
@@ -537,6 +541,7 @@ def _mapping_datasets_from_form(
                 ),
                 resolver=resolver,
                 null_policy=null_policy,
+                selected_matching_field=selected_matching_field,
             )
             target = (
                 scope_components
@@ -1003,18 +1008,8 @@ def _mapping_datasets_from_form(
                 key = keys.get(key_id)
                 if key_id.startswith(SELECTED_MATCH_FIELD_PREFIX):
                     selected_matching_field = True
-                    matching_field = key_id.removeprefix(SELECTED_MATCH_FIELD_PREFIX)
                     if (
-                        pinned_update
-                        or metadata.type != "many2one"
-                        or not metadata.relation
-                        or metadata.relation in models
-                        or metadata.readonly
-                        or metadata.exportable is False
-                        or metadata.company_dependent is True
-                        or not selectable_matching_field_name(matching_field)
-                        or len(selected_sources) != 1
-                        or value_mappings
+                        value_mappings
                         or blank_source_values
                         or _text(form, f"relation_categorical_policy_{dataset_index}_{relation_index}")
                         != CategoricalCoveragePolicy.EXACT_BUSINESS_KEY.value
@@ -1022,9 +1017,9 @@ def _mapping_datasets_from_form(
                         raise WorkspaceError(
                             "Choose one source column with exact values for the selected Odoo field"
                         )
-                    key = BusinessKeyDefinition(
-                        key_id, metadata.relation, (matching_field,),
-                        status=BusinessKeyStatus.CANDIDATE,
+                    key = _selected_matching_field_key(
+                        key_id, metadata, selected_sources, models,
+                        pinned_update=pinned_update,
                     )
                 resolver = replace(
                     _target_catalog_resolver(
@@ -1777,6 +1772,27 @@ def _available_mapping_business_keys(
         ):
             keys.setdefault(key.key_id, key)
     return keys
+
+
+def _selected_matching_field_key(key_id, metadata, selected_sources, models, *, pinned_update=False):
+    """Apply one exact-field eligibility rule to linked values and identity parts."""
+
+    matching_field = key_id.removeprefix(SELECTED_MATCH_FIELD_PREFIX)
+    if (
+        pinned_update
+        or metadata.type != "many2one"
+        or not metadata.relation
+        or metadata.relation in models
+        or metadata.readonly
+        or metadata.exportable is False
+        or metadata.company_dependent is True
+        or not selectable_matching_field_name(matching_field)
+        or len(selected_sources) != 1
+    ):
+        raise WorkspaceError("Choose one source column with exact values for the selected Odoo field")
+    return BusinessKeyDefinition(
+        key_id, metadata.relation, (matching_field,), status=BusinessKeyStatus.CANDIDATE,
+    )
 
 
 def _target_catalog_resolver(

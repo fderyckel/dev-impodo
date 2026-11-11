@@ -1684,6 +1684,7 @@ class RecipeApplicationCompiler:
             value_type=str(item.get("value_type", "string")),
             resolver=(self._resolver(resolver, bindings) if resolver else None),
             null_policy=IdentityNullPolicy(str(item.get("null_policy", "reject"))),
+            selected_matching_field=item.get("selected_matching_field", False),
         )
 
     def _relationship(self, item, bindings):

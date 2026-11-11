@@ -2428,6 +2428,18 @@ def _mapping_dataset_views(
                             )
                         ),
                         "related_keys": related_keys,
+                        "can_choose_matching_field": bool(
+                            source_dataset.origin is not SourceOriginKind.ODOO
+                            and metadata is not None and metadata.type == "many2one"
+                            and metadata.relation and metadata.relation not in models
+                            and not metadata.readonly and metadata.exportable is not False
+                            and metadata.company_dependent is not True
+                        ),
+                        "chosen_matching_field": (
+                            component.resolver.key_mappings[0].target_field
+                            if component is not None and component.selected_matching_field
+                            and component.resolver is not None else ""
+                        ),
                         "related_key_labels": _matching_rule_labels(
                             related_keys,
                             models,

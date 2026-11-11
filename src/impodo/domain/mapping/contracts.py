@@ -483,11 +483,25 @@ class IdentityComponentMapping:
     value_type: str = "string"
     resolver: RelationshipResolver | None = None
     null_policy: IdentityNullPolicy = IdentityNullPolicy.REJECT
+    selected_matching_field: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
         object.__setattr__(self, "target_fields", tuple(self.target_fields))
         object.__setattr__(self, "null_policy", IdentityNullPolicy(self.null_policy))
+        if type(self.selected_matching_field) is not bool or (
+            self.selected_matching_field and (
+                len(self.source_column_keys) != 1
+                or len(self.target_fields) != 1
+                or self.resolver is None
+                or self.resolver.origin is not ResolverOrigin.TARGET_CATALOG
+                or len(self.resolver.key_mappings) != 1
+                or self.resolver.scope_mappings
+                or self.resolver.value_mappings
+                or self.null_policy is not IdentityNullPolicy.REJECT
+            )
+        ):
+            raise ValueError("A selected identity matching field needs one exact source column and an existing Odoo record")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1378,6 +1392,10 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    for group in ("target_identity", "target_scope"):
+        for component in payload.get(group, ()):
+            if not component["selected_matching_field"]:
+                component.pop("selected_matching_field")
     for relationship in payload.get("relationships", ()):
         if not relationship["selected_matching_field"]:
             relationship.pop("selected_matching_field")
@@ -1736,6 +1754,8 @@ def _identity_component_from_dict(
     contract_version: int,
 ) -> IdentityComponentMapping:
     expected_fields = _contract_fields(IdentityComponentMapping)
+    if "selected_matching_field" not in payload:
+        expected_fields.remove("selected_matching_field")
     if contract_version < 17:
         expected_fields.remove("null_policy")
     _require_contract_fields(
@@ -1758,6 +1778,7 @@ def _identity_component_from_dict(
         null_policy=IdentityNullPolicy(
             payload.get("null_policy", IdentityNullPolicy.REJECT.value)
         ),
+        selected_matching_field=payload.get("selected_matching_field", False),
     )
 
 
