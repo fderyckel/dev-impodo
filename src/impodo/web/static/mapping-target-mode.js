@@ -7,9 +7,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const createPolicy = dataset.querySelector("[data-mapping-create-policy]");
     const updateSummary = dataset.querySelector("[data-mapping-update-summary]");
+    const updateOnlySummary = dataset.querySelector("[data-mapping-update-only-summary]");
     const showMode = () => {
       if (createPolicy) createPolicy.hidden = mode.value !== "create";
-      if (updateSummary) updateSummary.hidden = mode.value !== "upsert";
+      if (updateSummary) updateSummary.hidden = !["upsert", "update"].includes(mode.value);
+      if (updateOnlySummary) updateOnlySummary.hidden = mode.value !== "update";
     };
     mode.addEventListener("change", showMode);
     showMode();

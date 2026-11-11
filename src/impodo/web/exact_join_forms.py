@@ -501,7 +501,10 @@ def default_exact_join_form(
         left_dataset_use=SourceDatasetUse.PREPARATION_ONLY.value,
         right_dataset_use=SourceDatasetUse.PREPARATION_ONLY.value,
         projection_indexes=(),
-        projection_names=tuple(column.source_name for _dataset, column in candidates),
+        projection_names=_default_exact_join_output_names(
+            candidates,
+            datasets[0].dataset_id if datasets else "",
+        ),
     )
 
 
@@ -527,21 +530,6 @@ def default_exact_join_group_form(
     primary_dataset_id = (
         selection.datasets[0].dataset_id if selection.datasets else ""
     )
-    name_counts: dict[str, int] = {}
-    for _dataset, column in candidates:
-        label = column.source_name.casefold()
-        name_counts[label] = name_counts.get(label, 0) + 1
-    projection_names = tuple(
-        (
-            qualified_exact_join_output_name(dataset, column)
-            if (
-                dataset.dataset_id != primary_dataset_id
-                and name_counts[column.source_name.casefold()] > 1
-            )
-            else column.source_name
-        )
-        for dataset, column in candidates
-    )
     return ExactJoinGroupFormSubmission(
         expected_parent_version=plan.version if plan else None,
         group_id=str(uuid4()),
@@ -556,7 +544,26 @@ def default_exact_join_group_form(
             and column.candidate_type in STRUCTURAL_OUTPUT_VALUE_TYPES
             and column.candidate_type != "empty"
         ),
-        projection_names=projection_names,
+        projection_names=_default_exact_join_output_names(candidates, primary_dataset_id),
+    )
+
+
+def _default_exact_join_output_names(
+    candidates: tuple[tuple[SourceDataset, SourceDatasetColumn], ...],
+    primary_dataset_id: str,
+) -> tuple[str, ...]:
+    """Keep primary labels and qualify repeated added-table labels in both editors."""
+
+    name_counts: dict[str, int] = {}
+    for _dataset, column in candidates:
+        label = column.source_name.casefold()
+        name_counts[label] = name_counts.get(label, 0) + 1
+    return tuple(
+        qualified_exact_join_output_name(dataset, column)
+        if dataset.dataset_id != primary_dataset_id
+        and name_counts[column.source_name.casefold()] > 1
+        else column.source_name
+        for dataset, column in candidates
     )
 
 

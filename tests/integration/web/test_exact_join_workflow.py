@@ -425,6 +425,60 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(self.model_catalog_calls, [])
         self.assertEqual(self.read_identity_calls, [])
 
+    def test_pairwise_duplicate_names_are_reported_and_selections_are_retained(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace()
+        form = self._join_form(selection, by_name)
+        selected = [int(index) for index in form["projection"]]
+        for index in selected:
+            form["projection_name"][index] = "Repeated output"
+        preview = self.client.post(
+            f"/workspaces/{workspace_id}/derived-entities/join/preview",
+            data=form,
+            headers=POST_HEADERS,
+        )
+        self.assertEqual(preview.status_code, 422, preview.text)
+        self.assertIn("Output column names are duplicated", preview.text)
+        self.assertIn("Repeated output", preview.text)
+        self.assertIn("different name", preview.text)
+        retained = preview.context["join_form"]
+        self.assertEqual(retained.projection_indexes, tuple(selected))
+        self.assertEqual(retained.projection_names, tuple(form["projection_name"]))
+        self.assertIsNone(self.app.state.context.queries.get_derived_entity_plan(workspace_id))
+
+    def test_pairwise_default_names_save_and_reopen_with_repeated_base_keys(self) -> None:
+        workspace_id, selection, by_name = self._frozen_customer_workspace(source_files=[
+            ("cust02.csv", b"Partition,Party,AccountNum,Company\npart-1,100,C001,Factory\npart-1,100,C002,Factory\n"),
+            ("cust01.csv", b"Partition,RecId,Name,Email\npart-1,100,Factory,info@example.test\n"),
+        ])
+        base = f"/workspaces/{workspace_id}/derived-entities"
+        page = self.client.get(base)
+        form = self._join_form(selection, by_name)
+        form["projection_name"] = list(page.context["join_form"].projection_names)
+        candidates = exact_join_projection_candidates(selection)
+        for index, (_dataset, column) in enumerate(candidates):
+            if column.source_name == "Partition":
+                form["projection"].append(str(index))
+        preview = self.client.post(base + "/join/preview", data=form, headers=POST_HEADERS)
+        self.assertEqual(preview.status_code, 200, preview.text)
+        review = preview.context["pending_join"]["review"]
+        self.assertTrue(review.can_save)
+        self.assertEqual(review.duplicate_left_key_groups, 1)
+        self.assertEqual(review.actual_output_rows, 2)
+        form["rule_id"] = self._hidden_value(preview.text, base + "/join/save", "rule_id")
+        saved = self.client.post(base + "/join/save", data=form, headers=POST_HEADERS, follow_redirects=False)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        context = self.app.state.context
+        plan = context.queries.get_derived_entity_plan(workspace_id)
+        rule = plan.rules[0]
+        names = [column.source_name for column in rule.output_columns]
+        self.assertEqual(len(names), len(set(names)))
+        self.assertIn("Partition", names)
+        self.assertTrue(any(name.endswith(".Partition") for name in names))
+        reopened = self.client.get(base + f"?edit_join={rule.rule_id}")
+        self.assertEqual(reopened.status_code, 200, reopened.text)
+        self.assertEqual(reopened.context["join_form"].projection_names, tuple(form["projection_name"]))
+        self.assertEqual(context.queries.get_mapping_source_selection(workspace_id).datasets[0].row_count, 2)
+
     def test_four_customer_tables_are_reviewed_and_saved_once(self) -> None:
         workspace_id, selection, by_name = self._frozen_customer_workspace(
             several_tables=True

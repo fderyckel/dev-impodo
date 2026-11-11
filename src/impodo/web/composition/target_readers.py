@@ -1580,9 +1580,33 @@ def _capture_recipe_supporting_values(
     )
 
 
+def _supporting_read_policy(
+    schema: OdooSchemaCatalog,
+    *,
+    operation: OdooOperation,
+    workflow_label: str,
+) -> tuple[int, str]:
+    """Validate supporting-read eligibility without opening local databases."""
+
+    if schema.origin is not SchemaOrigin.LIVE_API:
+        raise WorkspaceError(
+            "Capture the live Odoo details before checking supporting values"
+        )
+    version_decision = assess_odoo_operation(schema.odoo_version, operation)
+    if not version_decision.allowed or version_decision.version.major is None:
+        raise WorkspaceError(
+            f"This {workflow_label} requires a supported Odoo version"
+        )
+    major = version_decision.version.major
+    policy_hash = reference_policy_hash(major)
+    if policy_hash is None:
+        raise WorkspaceError(f"This {workflow_label} has no qualified reference policy")
+    return major, policy_hash
+
+
 def _capture_mapping_supporting_values(
     context: WebContext,
-    workspace_state: WorkspaceState,
+    workspace_state: WorkspaceState | str,
     schema: OdooSchemaCatalog,
     datasets: Iterable[DatasetMapping],
     *,
@@ -1597,15 +1621,27 @@ def _capture_mapping_supporting_values(
 
     mappings = tuple(datasets)
     requirements = plan_mapping_supporting_values(mappings, schema)
+    if not requirements:
+        _supporting_read_policy(
+            schema, operation=OdooOperation.COMPARE, workflow_label="mapping",
+        )
+        return ()
+    workspace_id = (
+        workspace_state if isinstance(workspace_state, str) else workspace_state.workspace_id
+    )
 
     def collect_targeted_values():
+        state = (
+            context.queries.get(workspace_id)
+            if isinstance(workspace_state, str) else workspace_state
+        )
         needs_parent_rows = any(
             source.row_inclusion.included_parent_field
             for requirement in requirements for source in requirement.sources
         )
         parents = (
             context.categorical_coverage.included_parent_rows(
-                workspace_state.workspace_id, mappings
+                workspace_id, mappings
             ) if needs_parent_rows else {}
         )
         targeted: dict[
@@ -1617,7 +1653,7 @@ def _capture_mapping_supporting_values(
             field_count = len((*requirement.key_fields, *requirement.scope_fields))
             for source in requirement.sources:
                 rows = context.categorical_coverage.source_included_key_tuples(
-                    workspace_state.workspace_id,
+                    workspace_id,
                     source.dataset_id,
                     source.source_column_keys,
                     source.row_inclusion,
@@ -1660,12 +1696,12 @@ def _capture_mapping_supporting_values(
                     requirement.scope_fields,
                 )
             ] = tuple(sorted(values))
-        return targeted
+        return state, targeted
 
-    targeted = run_local_operation_sync(collect_targeted_values)
+    current_state, targeted = run_local_operation_sync(collect_targeted_values)
     return _capture_supporting_values(
         context,
-        workspace_state,
+        current_state,
         schema,
         requirements,
         purpose=ReferenceReadPurpose.MATCH_CHOICES,
@@ -1699,21 +1735,9 @@ def _capture_supporting_values(
 ) -> tuple[SupportingLookupSnapshot, ...]:
     """Authorize, batch, verify, and persist supporting destination values."""
 
-    if schema.origin is not SchemaOrigin.LIVE_API:
-        raise WorkspaceError(
-            "Capture the live Odoo details before checking supporting values"
-        )
-    version_decision = assess_odoo_operation(schema.odoo_version, operation)
-    if not version_decision.allowed or version_decision.version.major is None:
-        raise WorkspaceError(
-            f"This {workflow_label} requires a supported Odoo version"
-        )
-    odoo_major_version = version_decision.version.major
-    current_reference_policy_hash = reference_policy_hash(odoo_major_version)
-    if current_reference_policy_hash is None:
-        raise WorkspaceError(
-            f"This {workflow_label} has no qualified reference policy"
-        )
+    odoo_major_version, current_reference_policy_hash = _supporting_read_policy(
+        schema, operation=operation, workflow_label=workflow_label,
+    )
 
     models = {item.name: item for item in schema.models}
     prepared: list[_PreparedSupportingLookup] = []

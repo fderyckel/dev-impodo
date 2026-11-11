@@ -227,6 +227,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                     },
                     "mapping": {"datasets": ({
                         "target_model": "product.template",
+                        "mode": "UPSERT",
                         "identity": ({"target_fields": ("name",)},),
                     },)},
                 }
@@ -298,12 +299,14 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 "datasets": (
                     {
                         "target_model": "sale.order",
+                        "mode": "UPSERT",
                         "fields": (),
                         "relationships": (),
                         "target_field_dispositions": (),
                     },
                     {
                         "target_model": "stock.picking",
+                        "mode": "UPSERT",
                         "fields": (),
                         "relationships": (),
                         "target_field_dispositions": (),
@@ -461,6 +464,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 "datasets": (
                     {
                         "target_model": "maintenance.equipment",
+                        "mode": "UPSERT",
                         "fields": (),
                         "relationships": (),
                         "identity": ({"target_fields": ("name",)},),

@@ -301,7 +301,7 @@ class RecipeCompiler:
                 self._issue(
                     "PINNED_UPDATE_NOT_PORTABLE",
                     "Pinned Odoo updates cannot become reusable Recipe meaning.",
-                    "Use UPSERT, CREATE, or REFERENCE matching behavior.",
+                    "Use UPSERT, UPDATE, CREATE, or REFERENCE matching behavior.",
                     RecipeDraftRecoveryStep.MATCH_DATA,
                 ),
             )

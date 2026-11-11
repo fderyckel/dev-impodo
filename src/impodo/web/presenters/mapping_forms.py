@@ -1150,6 +1150,11 @@ def _mapping_datasets_from_form(
         mode = MappingTargetMode(
             _text(form, f"mode_{dataset_index}") or "upsert"
         )
+        if mode is MappingTargetMode.UPDATE:
+            scalar_mappings = [
+                item for item in scalar_mappings
+                if item.value_source is not ScalarValueSource.ODOO_DEFAULT
+            ]
         if pinned_update and mode is not MappingTargetMode.ODOO_PINNED_UPDATE:
             raise WorkspaceError(
                 "Captured Odoo records can only use protected update mode"
@@ -1159,7 +1164,7 @@ def _mapping_datasets_from_form(
         for raw_disposition in _texts(
             form,
             f"target_field_disposition_{dataset_index}",
-        ):
+        ) if mode.creates_records else ():
             target_field, separator, handling = raw_disposition.partition(":")
             if (
                 separator != ":"
@@ -1522,6 +1527,10 @@ def _merge_partial_mapping_datasets(
                     item
                     for target, item in sorted(field_by_target.items())
                     if target not in identity_targets
+                    and (
+                        parsed.mode is not MappingTargetMode.UPDATE
+                        or item.value_source is not ScalarValueSource.ODOO_DEFAULT
+                    )
                 ),
                 relationships=tuple(
                     item

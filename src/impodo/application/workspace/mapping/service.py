@@ -31,7 +31,6 @@ from impodo.domain.mapping.canonicalization import canonicalize_mapping_definiti
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     MappingDefinition,
-    MappingTargetMode,
     RowInclusionMode,
     TargetFieldDisposition,
     TargetFieldHandling,
@@ -793,10 +792,7 @@ class MappingWorkspaceService:
         updated: list[DatasetMapping] = []
         confirmed_count = 0
         for dataset in existing.definition.datasets:
-            if dataset.mode in {
-                MappingTargetMode.REFERENCE,
-                MappingTargetMode.ODOO_PINNED_UPDATE,
-            }:
+            if not dataset.mode.creates_records:
                 updated.append(dataset)
                 continue
             supplied = {

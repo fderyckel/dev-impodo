@@ -198,7 +198,10 @@ def compile_browser_mapping(
             for relation in mapping.relationships
             if not relation.validate_only
         )
-        hook_inputs = required_create_hook_inputs(mapping.target_model, provided_fields)
+        hook_inputs = (
+            required_create_hook_inputs(mapping.target_model, provided_fields)
+            if mapping.mode.creates_records else ()
+        )
         scalar_fields = {}
         for index, field in enumerate(mapping.fields):
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:

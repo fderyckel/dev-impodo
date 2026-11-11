@@ -125,9 +125,10 @@ Every import candidate receives exactly one result in this precedence:
 | ---: | --- | --- |
 | 1 | Blocking source, metadata, identity, relation, or comparison issue | `BLOCKED` |
 | 2 | Multiple complete scoped target matches | `AMBIGUOUS` |
-| 3 | No match and create requirements satisfied | `CREATE` |
-| 4 | One match with material differences | `UPDATE` |
-| 5 | One match without material differences | `UNCHANGED` |
+| 3 | No match in update-only mode | `BLOCKED` with `UPDATE_TARGET_NOT_FOUND` |
+| 4 | No match in a create-capable mode and create requirements satisfied | `CREATE` |
+| 5 | One match with material differences | `UPDATE` |
+| 6 | One match without material differences | `UNCHANGED` |
 
 Comparison uses the same declared type, normalization, precision, and null
 policy for source and target values. Relationships compare through business

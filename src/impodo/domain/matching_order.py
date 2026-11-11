@@ -966,7 +966,7 @@ def classify_indexed_matching_identity(
                 blocked += 1
             else:
                 expected_existing += 1
-        elif normalized_mode is MappingTargetMode.REFERENCE:
+        elif not normalized_mode.creates_records:
             blocked += 1
         else:
             expected_new += 1

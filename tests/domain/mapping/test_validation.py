@@ -315,11 +315,15 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:e815c1a76775ded16a89e23211e7a499a5834e987c1eff83d34239904bedc6c4",
+            "sha256:faf1a889f09cb6ec1d747ffcc9ced68697fadb290ab6cfa6aa4246a463e93969",
         )
         self.assertEqual(
             first.validation_hash,
-            "sha256:fdf577d87e41e3b734fce236a87d1a195a36bf3cf3143891c876b7ad60ff4460",
+            "sha256:c1dd15b660deafee316129ea615d26de80d266f307eacc9797bd73e512b4a6c4",
+        )
+        self.assertEqual(
+            replace(definition, contract_version=23).content_hash,
+            "sha256:e815c1a76775ded16a89e23211e7a499a5834e987c1eff83d34239904bedc6c4",
         )
         previous = replace(definition, contract_version=22)
         self.assertEqual(
@@ -328,14 +332,14 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(
             self.validator.validate(previous, self.selection, self.schema, self.governance).validation_hash,
-            "sha256:fa2766b51e21c56ab091bb4d53b124ed13146aef95959003959b77a962a72995",
+            "sha256:03d11f8c8214a14943916dba5cc2e672087fc44738fa8e32c4834c3e26d51149",
         )
         previous = replace(definition, contract_version=21)
         self.assertEqual(previous.content_hash,
             "sha256:0a66a696251a2d624f53d7ddc39f7c9498b788d1c07ef1634e0c7490fa2e6d50")
         self.assertEqual(
             self.validator.validate(previous, self.selection, self.schema, self.governance).validation_hash,
-            "sha256:4fdb1532e8a266202b0699d36e3f8eb09c88bfd822ab335e8fbcc8efc5b7a378",
+            "sha256:77f8956a5bc1e95483e989614e12f57f13fdd3206722ded49ad9e16820755cd9",
         )
         self.assertEqual(replace(definition, contract_version=20).content_hash,
             "sha256:cc54e87aff4bf8b2a0ce1b91e2305775681999f45c78c683656d32b9b62757a6")

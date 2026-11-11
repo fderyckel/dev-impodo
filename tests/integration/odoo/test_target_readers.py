@@ -798,6 +798,28 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
 
 
 class RecipeSupportingValueBatchTests(unittest.TestCase):
+    def test_empty_mapping_support_preserves_schema_guards_without_database_reads(self):
+        context = SimpleNamespace()
+        for major in (19, 20, 21):
+            schema = SimpleNamespace(
+                origin=SchemaOrigin.LIVE_API, odoo_version=f"{major}.0", models=(),
+            )
+            with patch("impodo.web.composition.target_readers.run_local_operation_sync") as operation:
+                if major == 21:
+                    with self.assertRaisesRegex(WorkspaceError, "supported Odoo version"):
+                        _capture_mapping_supporting_values(context, "workspace", schema, (), actor=LOCAL_ACTOR)
+                else:
+                    self.assertEqual(_capture_mapping_supporting_values(
+                        context, "workspace", schema, (), actor=LOCAL_ACTOR,
+                    ), ())
+                operation.assert_not_called()
+        with self.assertRaisesRegex(WorkspaceError, "live Odoo details"):
+            _capture_mapping_supporting_values(
+                context, "workspace",
+                SimpleNamespace(origin=None, odoo_version="20.0", models=()),
+                (), actor=LOCAL_ACTOR,
+            )
+
     def test_targeted_support_rejects_a_truncated_duplicate_chunk(self) -> None:
         prepared = _PreparedSupportingLookup(
             relation_model="product.product",

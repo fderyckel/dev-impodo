@@ -196,10 +196,7 @@ def project_required_values(
         mapping = mappings.get(source.dataset_id)
         model = models.get(mapping.target_model) if mapping else None
         fields = {item.name: item for item in model.fields} if model else {}
-        creates = mapping is None or mapping.mode not in {
-            MappingTargetMode.REFERENCE,
-            MappingTargetMode.ODOO_PINNED_UPDATE,
-        }
+        creates = mapping is None or mapping.mode.creates_records
         identity_targets = (
             {
                 field: component

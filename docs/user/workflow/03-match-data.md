@@ -59,6 +59,18 @@ matched fields whose values differ from Odoo. Other fields stay unchanged.
 **When a record already exists** appears only for **Create new records only**.
 Choose whether an existing match stops for review or stays unchanged.
 
+Choose **Update existing records only** when your file supplies changes to
+records already in Odoo. Each row must identify one existing record through
+your confirmed matching rule. You can leave creation-only fields unmapped.
+For example, to archive accounts, match their current account codes in the
+chosen company and map only **Active** to `False`. Account Name and Type keep
+their existing values. Select **Save progress**, then **Check matches** and
+continue through preparation to Final review. The comparison must show zero
+new records. Missing or ambiguous matches block loading.
+
+**Use existing Odoo records only** makes a table available for references. It
+does not apply changes to those records.
+
 Review **Blank source values** beside each field's value choices in **Match
 fields** and **Connect linked values**. For a field that holds one value,
 **Ignore blank source values** keeps the existing Odoo value when the prepared

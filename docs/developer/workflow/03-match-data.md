@@ -225,6 +225,42 @@ latency claim.
 
 Changed fields or access keep the existing pending-schema review path.
 
+File tables can select **Update existing records only**. The shared
+`MappingTargetMode.UPDATE` preserves normal governed business-key matching,
+scalar rules, relationships and company context. Creation-required coverage
+and create defaults do not apply. Switching from a create-capable draft removes
+create-default providers and field dispositions, including hidden scalar
+providers retained by the partial form merge. Explicit field assignments remain
+part of the update rule. `classify_matching_identity` blocks missing identities;
+Final review emits `UPDATE_TARGET_NOT_FOUND` for a missing target and retains
+the existing ambiguous-match result. Execution snapshot construction rejects a
+create decision for a dataset that cannot create.
+The [contract regressions](../../../tests/domain/mapping/test_update_only.py)
+cover missing and ambiguous matches and rejection of forged create decisions.
+The [mode-control tests](../../../tests/e2e/mapping-target-mode.test.cjs)
+check first entry and switching modes while retaining unsaved choices.
+
+Mapping contract v24 and compiled plan v3/compiler v4 carry this mode. Earlier
+contracts remain readable with their historical serialized meaning and reject
+update-only datasets. Recipe publication and application preserve `UPDATE`;
+target assessment checks creation-only requirements only for models used by
+create-capable tables. Business expectations expose update authority without
+creation authority. The [update-only journey regression](../../../tests/integration/web/test_update_only_import.py)
+covers accounts and an unrelated custom model, saving and reopening, preparation,
+Recipe assessment, exact Active-field intentions, both Odoo majors and local
+and remote access.
+
+Supporting capture now plans its work before loading workspace state. A mapping
+with no external resolvers returns without opening a supporting-data operation.
+When supporting values are needed, workspace state and source keys share one
+bounded local operation, which closes before Odoo I/O. In an isolated two-row
+update fixture, Check matches fell from 18 to 14 physical opens, 14 to 11 schema
+checks, and 196 to 166 SQL statements. Catalogue queries fell from 28 to 22;
+both measurements had zero lock retries. Repeated checks used 180 versus 150
+statements. The 685-row regression enforces the same connection and SQL limits.
+These measurements use fictional data and mocked Odoo reads; live timing remains
+unverified until an approved restart.
+
 Reviewed list references use the same supporting capture path. The mapping
 planner retains each `many2many` source separator, and the reader splits the
 included source cells before translating and collecting distinct target keys.

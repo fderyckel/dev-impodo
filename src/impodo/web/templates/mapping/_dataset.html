@@ -84,16 +84,18 @@
               <select name="mode_{{ dataset_index }}" data-mapping-target-mode>
                 {% set selected_mode = view.mapping.mode.value if view.mapping else 'upsert' %}
                 <option value="upsert" {% if selected_mode == 'upsert' %}selected{% endif %}>Create new records or update matches</option>
+                <option value="update" {% if selected_mode == 'update' %}selected{% endif %}>Update existing records only</option>
                 <option value="create" {% if selected_mode == 'create' %}selected{% endif %}>Create new records only</option>
                 <option value="reference" {% if selected_mode == 'reference' %}selected{% endif %}>Use existing Odoo records only</option>
               </select>
             </label>
           </div>
-          <details class="technical-details" data-mapping-update-summary {% if selected_mode != 'upsert' %}hidden{% endif %}>
+          <details class="technical-details" data-mapping-update-summary {% if selected_mode not in ('upsert', 'update') %}hidden{% endif %}>
             <summary>How updates work</summary>
             <p>Updates use matched fields whose values differ.</p>
             <p>Set <strong>Blank source values</strong> per field in <strong>Match fields</strong> and <strong>Connect linked values</strong>.</p>
           </details>
+          <p class="muted" data-mapping-update-only-summary {% if selected_mode != 'update' %}hidden{% endif %}>Each row must match one existing Odoo record. Only matched fields can change.</p>
           <details class="technical-evidence advanced-matching-options" data-mapping-create-policy {% if selected_mode != 'create' %}hidden{% endif %}>
             <summary>When a record already exists</summary>
             <label>

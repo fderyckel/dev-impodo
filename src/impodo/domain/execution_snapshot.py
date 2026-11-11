@@ -546,6 +546,11 @@ def build_execution_snapshot(
         ):
             raise ValueError("Preflight decision row is missing from frozen input")
         dataset = frozen.plan.dataset(decision.dataset)
+        if (
+            decision.classification is Classification.CREATE
+            and not dataset.target.creates_records
+        ):
+            raise ValueError("A dataset that cannot create has a create decision")
         execution_record = (
             _resolved_create_record(record, dataset, target_resolutions)
             if decision.classification is Classification.CREATE
@@ -1445,7 +1450,7 @@ def _relation_shape(
 
 
 def _existing_policy(dataset: DatasetSpec) -> str:
-    if dataset.target.mode == "upsert":
+    if dataset.target.mode in {"upsert", "update"}:
         return "update"
     if dataset.target.mode == "create":
         return "skip" if dataset.target.on_existing == "unchanged" else "error"

@@ -423,6 +423,7 @@ def _render_derived_entities(
                         "projection_index": candidate_index,
                         "selected": candidate_index in selected_projection_indexes,
                         "output_name": output_name,
+                        "qualified_output_name": qualified_exact_join_output_name(dataset, column),
                     }
                 )
                 candidate_index += 1

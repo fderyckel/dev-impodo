@@ -161,14 +161,8 @@ def derive_business_intent_scope(
     source_names = {item.dataset_id: item.name for item in selection.datasets}
     for mapping in definition.datasets:
         dataset = compiled[source_names[mapping.dataset_id]]
-        create = qualified and mapping.mode in {
-            MappingTargetMode.CREATE,
-            MappingTargetMode.UPSERT,
-        }
-        update = qualified and mapping.mode in {
-            MappingTargetMode.UPSERT,
-            MappingTargetMode.ODOO_PINNED_UPDATE,
-        }
+        create = qualified and mapping.mode.creates_records
+        update = qualified and mapping.mode.updates_records
         allowed = modes.setdefault(mapping.target_model, [False, False])
         allowed[0] |= create
         allowed[1] |= update

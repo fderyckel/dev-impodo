@@ -11,7 +11,7 @@ from typing import Protocol
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import FieldMetadata
 
-REFERENCE_POLICY_VERSION = 6
+REFERENCE_POLICY_VERSION = 7
 _SELECTED_MATCH_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
 SELECTED_MATCH_FIELD_PREFIX = "odoo-field:"
 
@@ -357,6 +357,8 @@ def _reference_policy_hash(
             "reviewed_list_probe": {
                 "relationship_type": "many2many",
                 "identity": "exact_reviewed_candidate",
+                "key_fields": ("name",),
+                "scope_fields": (),
             },
             "identities": (
                 {
@@ -508,6 +510,8 @@ def authorize_supporting_match_probe(
             or (
                 request.relationship_type == "many2many"
                 and candidate_identity
+                and request.key_fields == ("name",)
+                and not request.scope_fields
             )
         )
         and request.relationship_model == request.related_model

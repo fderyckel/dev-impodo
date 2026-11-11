@@ -1371,6 +1371,7 @@ def _readiness_issue_origin(code: str) -> WorkflowIssueOrigin:
         return WorkflowIssueOrigin.ODOO_SCHEMA
     if code.startswith("TARGET_") or code in {
         "CREATE_IDENTITY_EXISTS",
+        "UPDATE_TARGET_NOT_FOUND",
         "RECORD_REMOVED_OR_INACCESSIBLE",
         "CONCURRENT_FIELD_CHANGE",
         "BASELINE_NOT_CAPTURED",

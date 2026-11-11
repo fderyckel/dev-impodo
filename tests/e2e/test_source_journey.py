@@ -357,10 +357,14 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         self.assertGreaterEqual(bounds["x"], 0)
         self.assertLessEqual(bounds["x"] + bounds["width"], 390)
         self.assertLessEqual(bounds["y"] + bounds["height"], 845)
+        self.page.evaluate("window.scrollTo(0, document.documentElement.scrollHeight)")
+        expect(check).to_be_in_viewport()
+        expect(self.page.locator(".site-footer")).to_be_in_viewport()
         self.page.wait_for_function("""() => {
           const root = document.querySelector('[data-source-journey]');
           const bar = root.querySelector('[data-source-action-bar]');
-          return parseFloat(getComputedStyle(root).paddingBottom) >= bar.getBoundingClientRect().height + 16;
+          const footer = document.querySelector('.site-footer');
+          return bar.getBoundingClientRect().bottom <= footer.getBoundingClientRect().top;
         }""")
         self.assertLessEqual(
             self.page.evaluate("document.documentElement.scrollWidth - innerWidth"), 1

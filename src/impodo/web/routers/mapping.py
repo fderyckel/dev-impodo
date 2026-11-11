@@ -2229,14 +2229,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             "Odoo fields or access changed and need review in Odoo data. "
                             "Your matching edits are kept on this page; save progress before reviewing the changes."
                         )
-                workspace_state = await run_page_read(
-                    context.queries.get,
-                    workspace_id,
-                )
                 await run_in_threadpool(
                     _capture_mapping_supporting_values,
                     context,
-                    workspace_state,
+                    workspace_id,
                     schema,
                     datasets,
                     actor=actor,

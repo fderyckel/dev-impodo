@@ -295,7 +295,7 @@ old result. The existing capture limits, returned-metadata verification, and
 protected lookup snapshots remain authoritative.
 
 On Odoo 19 and Odoo 20, `reference_keys.py` also allows exact reviewed
-candidates through captured `many2many` relationships. Companies and Account
+candidates with one unscoped `name` key through captured `many2many` relationships. Companies and Account
 Tags use their reviewed `name` candidates, including
 `account.account.company_ids` and `account.account.tag_ids`. The bounded
 `MATCH_CHOICES` probe denies unreviewed list identities and wider projections.
@@ -309,7 +309,7 @@ Saving this review performs no Odoo read. The explicit check groups company
 relationships with the same identity into one read and retains the existing
 local operation boundaries before reading and before publishing. Recipe
 publication uses the verified lookup's field contracts; subsequent runs check
-their own supporting metadata and values. Reference policy version 6 changes the
+their own supporting metadata and values. Reference policy version 7 changes the
 current hashes for both majors. Historical hashes remain readable, while
 currentness checks require renewed review and lookup evidence.
 

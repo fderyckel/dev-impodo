@@ -447,11 +447,6 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   root.classList.add("source-journey-ready");
-  if (typeof ResizeObserver === "function") {
-    new ResizeObserver(() => document.documentElement.style.setProperty(
-      "--source-action-height", `${bar.getBoundingClientRect().height + 24}px`
-    )).observe(bar);
-  }
   let savedIntent = "";
   try { savedIntent = sessionStorage.getItem(storageKey) || ""; sessionStorage.removeItem(storageKey); } catch { /* Optional position hint. */ }
   let hash = "";

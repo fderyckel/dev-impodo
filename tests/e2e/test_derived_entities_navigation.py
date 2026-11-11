@@ -169,8 +169,16 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
               </label>
               <select data-exact-key-side="left"><option value=""></option><option value="account" data-dataset-id="accounts">Account</option><option value="party" data-dataset-id="parties">Party</option></select>
               <select data-exact-key-side="right"><option value=""></option><option value="account" data-dataset-id="accounts">Account</option><option value="party" data-dataset-id="parties">Party</option></select>
-              <fieldset data-exact-projection-dataset="accounts"><legend>Customer accounts</legend><input type="checkbox" name="projection" value="0"></fieldset>
-              <fieldset data-exact-projection-dataset="parties"><legend>Party details</legend><input type="checkbox" name="projection" value="1"></fieldset>
+              <p data-exact-name-error role="alert" hidden></p>
+              <button type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
+              <fieldset data-exact-projection-dataset="accounts"><legend>Customer accounts</legend><table><tr>
+                <td><input type="checkbox" name="projection" value="0" checked></td>
+                <td><input data-exact-output-name data-default-name="RecId" data-qualified-name="Customer accounts.RecId" value="RecId"></td>
+              </tr></table></fieldset>
+              <fieldset data-exact-projection-dataset="parties"><legend>Party details</legend><table><tr>
+                <td><input type="checkbox" name="projection" value="1" checked></td>
+                <td><input data-exact-output-name data-default-name="RecId" data-qualified-name="Party details.RecId" value="RecId"></td>
+              </tr></table></fieldset>
               <label data-exact-use-side="left">Base use<select><option>Preparation only</option></select></label>
               <label data-exact-use-side="right">Added use<select><option>Preparation only</option></select></label>
               <div class="join-summary-flow"><div>Base</div><div class="relationship-connector">combine</div><div>Added</div><div class="relationship-connector">creates</div><div>Output</div></div>
@@ -404,6 +412,49 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
 
         primary.select_option("accounts")
         self.assertEqual(primary_key.input_value(), "")
+        self.assertEqual(self.errors, [])
+
+    def test_pairwise_names_follow_the_base_and_preserve_custom_names(self):
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
+        form = self.page.locator("[data-exact-join-form]")
+        base_name = form.locator('[data-exact-projection-dataset="accounts"] [data-exact-output-name]')
+        added_name = form.locator('[data-exact-projection-dataset="parties"] [data-exact-output-name]')
+        self.assertEqual(base_name.input_value(), "RecId")
+        self.assertEqual(added_name.input_value(), "Party details.RecId")
+        added_name.fill("AX detail ID")
+        form.locator('[data-exact-join-input="left"]').select_option("parties")
+        form.locator('[data-exact-join-input="right"]').select_option("accounts")
+        self.assertEqual(base_name.input_value(), "Customer accounts.RecId")
+        self.assertEqual(added_name.input_value(), "AX detail ID")
+        self.assertEqual(self.errors, [])
+
+    def test_pairwise_custom_duplicates_are_named_and_can_be_fixed_together(self):
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
+        form = self.page.locator("[data-exact-join-form]")
+        names = form.locator("[data-exact-output-name]")
+        names.nth(0).fill("Shared ID")
+        names.nth(1).fill("Shared ID")
+        message = form.locator("[data-exact-name-error]")
+        self.assertTrue(message.is_visible())
+        self.assertIn('"Shared ID"', message.inner_text())
+        self.assertIn("Customer accounts.RecId", message.inner_text())
+        self.assertIn("Party details.RecId", message.inner_text())
+        self.assertTrue(names.nth(1).evaluate("el => el.validity.customError"))
+        form.locator("[data-exact-fix-names]").click()
+        self.assertEqual(names.nth(0).input_value(), "Customer accounts.RecId")
+        self.assertEqual(names.nth(1).input_value(), "Party details.RecId")
+        self.assertTrue(message.is_hidden())
+        self.assertFalse(names.nth(1).evaluate("el => el.validity.customError"))
+        self.assertEqual(self.errors, [])
+
+    def test_pairwise_saved_custom_name_survives_initialization(self):
+        self.html = self.html.replace(
+            'data-qualified-name="Party details.RecId" value="RecId"',
+            'data-qualified-name="Party details.RecId" value="Saved AX ID"',
+        )
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
+        output = self.page.locator('[data-exact-projection-dataset="parties"] [data-exact-output-name]')
+        self.assertEqual(output.input_value(), "Saved AX ID")
         self.assertEqual(self.errors, [])
 
     def test_exact_join_summary_stacks_at_narrow_width(self):

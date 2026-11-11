@@ -1,11 +1,3 @@
-.source-journey {
-  padding-bottom: var(--source-action-height, 5.5rem);
-}
-
-body:has([data-source-journey]) .site-footer {
-  margin-bottom: var(--source-action-height, 5.5rem);
-}
-
 .source-journey [hidden] {
   display: none !important;
 }
@@ -135,11 +127,9 @@ body:has([data-source-journey]) .site-footer {
 }
 
 .source-journey-actions {
-  position: fixed;
+  position: sticky;
   z-index: 45;
   bottom: 0;
-  right: 0;
-  left: var(--sidebar-width);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -149,10 +139,6 @@ body:has([data-source-journey]) .site-footer {
   background: var(--surface);
   padding: .75rem 1.25rem;
   box-shadow: 0 -.25rem 1rem rgb(0 0 0 / 5%);
-}
-
-body.sidebar-collapsed .source-journey-actions {
-  left: var(--sidebar-collapsed-width);
 }
 
 .source-journey-actions [data-source-notice] {
@@ -210,15 +196,6 @@ body.sidebar-collapsed .source-journey-actions {
 }
 
 @media (max-width: 860px) {
-  .source-journey {
-    padding-bottom: max(8rem, var(--source-action-height, 8rem));
-  }
-
-  .source-journey-actions,
-  body.sidebar-collapsed .source-journey-actions {
-    left: 0;
-  }
-
   .source-journey-actions .actions {
     gap: .5rem;
   }
@@ -229,10 +206,6 @@ body.sidebar-collapsed .source-journey-actions {
 }
 
 @media (max-width: 480px) {
-  .source-journey {
-    padding-bottom: max(11rem, var(--source-action-height, 11rem));
-  }
-
   .source-journey-actions .actions {
     display: grid;
     grid-template-columns: 1fr 1fr;

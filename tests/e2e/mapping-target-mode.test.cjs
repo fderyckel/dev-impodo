@@ -14,12 +14,14 @@ function table(value, policy = "block") {
   const existing = { value: policy, disabled: false };
   const create = { hidden: false, open: true };
   const update = { hidden: false };
+  const updateOnly = { hidden: false };
   return {
-    mode, existing, create, update,
+    mode, existing, create, update, updateOnly,
     querySelector: (selector) => ({
       "[data-mapping-target-mode]": mode,
       "[data-mapping-create-policy]": create,
       "[data-mapping-update-summary]": update,
+      "[data-mapping-update-only-summary]": updateOnly,
     })[selector],
     choose(value) { mode.value = value; listeners.get("change")(); },
   };
@@ -36,11 +38,12 @@ function initialize(...tables) {
 }
 
 test("updates and reference-only tables hide the create-only decision on entry", () => {
-  for (const mode of ["upsert", "reference"]) {
+  for (const mode of ["upsert", "update", "reference"]) {
     const current = table(mode);
     initialize(current);
     assert.equal(current.create.hidden, true);
-    assert.equal(current.update.hidden, mode !== "upsert");
+    assert.equal(current.update.hidden, !["upsert", "update"].includes(mode));
+    assert.equal(current.updateOnly.hidden, mode !== "update");
   }
 });
 
@@ -55,6 +58,10 @@ test("switching modes retains the operator's unsaved create-only choice", () => 
   current.choose("reference");
   assert.equal(current.create.hidden, true);
   assert.equal(current.update.hidden, true);
+  current.choose("update");
+  assert.equal(current.create.hidden, true);
+  assert.equal(current.update.hidden, false);
+  assert.equal(current.updateOnly.hidden, false);
   current.choose("create");
   assert.equal(current.create.hidden, false);
   assert.equal(current.create.open, true);

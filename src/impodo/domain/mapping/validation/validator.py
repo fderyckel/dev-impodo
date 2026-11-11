@@ -535,12 +535,12 @@ class MappingSemanticValidator:
                         )
                     )
                     continue
-                if dataset.mode is MappingTargetMode.REFERENCE:
+                if not dataset.mode.creates_records:
                     issues.append(
                         _issue(
                             "MAPPING_TARGET_FIELD_DISPOSITION_INVALID",
                             path,
-                            "Reference-only tables do not create Odoo records.",
+                            "This table does not create Odoo records.",
                             "Remove this create-time field decision.",
                             dataset=dataset,
                             target_field=disposition.target_field,
@@ -628,8 +628,7 @@ class MappingSemanticValidator:
                     )
 
             if (
-                dataset.mode is not MappingTargetMode.REFERENCE
-                and not is_odoo_source
+                dataset.mode.creates_records
             ):
                 hook_payload_fields = {
                     field_name

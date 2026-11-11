@@ -124,7 +124,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(first.plan_id, profile.profile.id)
         self.assertEqual(first.origin, "profile_document")
         self.assertEqual(first.datasets, profile.datasets)
-        self.assertEqual((first.contract_version, first.compiler_version), (2, 3))
+        self.assertEqual((first.contract_version, first.compiler_version), (3, 4))
         self.assertEqual(first.semantic_hash, second.semantic_hash)
         self.assertEqual(
             CompiledMigrationPlan.from_json(first.to_json()),

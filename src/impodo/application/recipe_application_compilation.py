@@ -406,6 +406,11 @@ class RecipeApplicationCompiler:
                 )
             )
         actual_models = {item.name: item for item in schema.models}
+        creating_models = {
+            str(dataset["target_model"])
+            for dataset in dict(definition["mapping"]).get("datasets", ())
+            if MappingTargetMode(str(dataset["mode"]).lower()).creates_records
+        }
         dependency_projection = []
         if actual_major is None or contract.get(
             "reference_policy_hash"
@@ -458,7 +463,7 @@ class RecipeApplicationCompiler:
             }
             hook_inputs = (
                 required_create_hook_inputs(model_name, provided_for_model)
-                if model_name in contract.get("approved_write_fields", {})
+                if model_name in creating_models
                 else ()
             )
             for input_field in sorted(hook_inputs):
@@ -689,7 +694,7 @@ class RecipeApplicationCompiler:
                     )
             for field in model.fields if model is not None else ():
                 if (
-                    model_name in contract.get("approved_write_fields", {})
+                    model_name in creating_models
                     and field.required
                     and not field.readonly
                     and (model_name, field.name) not in provider_fields

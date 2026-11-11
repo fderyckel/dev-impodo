@@ -945,6 +945,22 @@ def _classify_record(
             issues=(issue,),
         )
     if len(matches) == 0:
+        if dataset.target.mode == "update":
+            return Decision(
+                dataset=record.dataset,
+                source_row=record.source_row,
+                source_trace_id=record.source_trace_id,
+                business_identity=business_identity,
+                business_scope=business_scope,
+                classification=Classification.BLOCKED,
+                target_match_count=0,
+                issues=(Issue(
+                    code="UPDATE_TARGET_NOT_FOUND",
+                    message="Update-only row has no matching existing Odoo record.",
+                    dataset=record.dataset,
+                    row=record.source_row,
+                ),),
+            )
         record_issues.extend(_required_on_create_issues(
             plan, dataset, record, catalog, metadata, expected_defaults,
             resolution_evidence,

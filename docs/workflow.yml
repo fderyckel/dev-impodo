@@ -626,6 +626,9 @@ stages:
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_linked_matching_fields.py
+      - tests/integration/web/test_update_only_import.py
+      - tests/domain/mapping/test_update_only.py
+      - tests/e2e/mapping-target-mode.test.cjs
       - tests/integration/web/test_mapping_journey.py
       - tests/integration/web/test_mapping_journey_mutations.py
       - tests/e2e/test_mapping_journey.py

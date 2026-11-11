@@ -143,7 +143,7 @@ def field_set_aside_evidence(
         source_keys=source_keys,
         null_omissions=null_omissions,
         upsert_datasets=frozenset(
-            dataset.name for dataset in plan.datasets if dataset.target.mode == "upsert"
+            dataset.name for dataset in plan.datasets if dataset.target.mode in {"upsert", "update"}
         ),
         target_models={dataset.name: dataset.target.model for dataset in plan.datasets},
     )

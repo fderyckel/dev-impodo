@@ -25,7 +25,6 @@ from openpyxl.utils import get_column_letter
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
-    MappingTargetMode,
     RelationshipMapping,
     RelationshipValueSource,
     ScalarFieldMapping,
@@ -453,7 +452,7 @@ def _dataset_field_reviews(
         for item in schema_fields
         if item.required
         and not item.readonly
-        and dataset.mode is not MappingTargetMode.REFERENCE
+        and dataset.mode.creates_records
     )
     relevant.update(
         target_field

@@ -32,9 +32,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 23
+MAPPING_CONTRACT_VERSION = 24
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -68,12 +68,25 @@ class UnsupportedMappingContractError(ValueError):
 
 
 class MappingTargetMode(StrEnum):
-    """Choose whether a dataset upserts, creates only, or resolves references."""
+    """Choose whether a dataset creates, updates, or resolves references."""
 
     UPSERT = "upsert"
+    UPDATE = "update"
     CREATE = "create"
     REFERENCE = "reference"
     ODOO_PINNED_UPDATE = "odoo_pinned_update"
+
+    @property
+    def creates_records(self) -> bool:
+        """Declare whether missing destination records may be created."""
+
+        return self in {self.UPSERT, self.CREATE}
+
+    @property
+    def updates_records(self) -> bool:
+        """Declare whether matched destination records may be changed."""
+
+        return self in {self.UPSERT, self.UPDATE, self.ODOO_PINNED_UPDATE}
 
 
 class ResolverOrigin(StrEnum):
@@ -1056,6 +1069,10 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 24 and any(
+            dataset.mode is MappingTargetMode.UPDATE for dataset in self.datasets
+        ):
+            raise ValueError("Update-only datasets require mapping contract v24")
         if self.contract_version < 23 and any(
             relation.blank_create_values is not None
             for dataset in self.datasets for relation in dataset.relationships

@@ -107,7 +107,9 @@
       <span class="step-number">5</span>
       <div>
         <h3>Select and name the output fields</h3>
-        <p class="muted">Choose only the fields needed later. Give colliding fields different output names.</p>
+        <p class="muted">Choose only the fields needed later. Repeated field names from the added table automatically include its table name. You can edit the output names.</p>
+        <p class="notice warning" data-exact-name-error role="alert" hidden></p>
+        <button class="button secondary compact" type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
         {% for view in join_dataset_views %}
           <fieldset class="join-projection-group" data-exact-projection-dataset="{{ view.dataset.dataset_id }}">
             <legend>{{ view.dataset.name }}</legend>
@@ -119,7 +121,7 @@
                     <tr>
                       <td><input type="checkbox" name="projection" value="{{ column_view.projection_index }}" aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"{% if column_view.selected %} checked{% endif %}></td>
                       <td>{{ column_view.column.source_name }}</td>
-                      <td><input name="projection_name" value="{{ column_view.output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                      <td><input name="projection_name" value="{{ column_view.output_name }}" data-exact-output-name data-default-name="{{ column_view.column.source_name }}" data-qualified-name="{{ column_view.qualified_output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
                       <td>{{ column_view.column.candidate_type }}</td>
                     </tr>
                   {% endfor %}

@@ -43,6 +43,57 @@ document.addEventListener("DOMContentLoaded", () => {
       right: form.querySelector('[data-exact-join-input="right"]'),
     };
     const grain = form.querySelector("#exact-join-grain");
+    const outputs = Array.from(form.querySelectorAll("[data-exact-output-name]"));
+    const manuallyNamed = new WeakSet();
+    const nameError = form.querySelector("[data-exact-name-error]");
+    const fixNames = form.querySelector("[data-exact-fix-names]");
+    for (const output of outputs) {
+      if (output.value !== output.dataset.defaultName && output.value !== output.dataset.qualifiedName) {
+        manuallyNamed.add(output);
+      }
+    }
+
+    const selectedOutputs = () => outputs.filter((output) => {
+      const group = output.closest("[data-exact-projection-dataset]");
+      return !group.hidden && output.closest("tr").querySelector('[name="projection"]').checked;
+    });
+
+    const repeatedNames = (selected) => {
+      const names = new Map();
+      for (const output of selected) {
+        const name = output.value.trim();
+        if (name) names.set(name, [...(names.get(name) || []), output]);
+      }
+      return new Map(Array.from(names).filter(([, fields]) => fields.length > 1));
+    };
+
+    const syncOutputNames = () => {
+      const active = outputs.filter((output) => !output.closest("[data-exact-projection-dataset]").hidden);
+      const counts = new Map();
+      for (const output of active) {
+        const name = output.dataset.defaultName.toLocaleLowerCase();
+        counts.set(name, (counts.get(name) || 0) + 1);
+      }
+      for (const output of active) {
+        const isBase = output.closest("[data-exact-projection-dataset]").dataset.exactProjectionDataset === inputs.left?.value;
+        if (!manuallyNamed.has(output)) {
+          output.value = !isBase && counts.get(output.dataset.defaultName.toLocaleLowerCase()) > 1
+            ? output.dataset.qualifiedName : output.dataset.defaultName;
+        }
+      }
+      const selected = new Set(selectedOutputs());
+      const duplicates = repeatedNames(selected);
+      for (const output of outputs) {
+        output.setCustomValidity(selected.has(output) && duplicates.has(output.value.trim())
+          ? `Output name "${output.value.trim()}" is repeated. Give each selected output column a different name.` : "");
+      }
+      if (nameError) {
+        nameError.hidden = duplicates.size === 0;
+        nameError.textContent = duplicates.size ? `Duplicate output names: ${Array.from(duplicates, ([name, fields]) =>
+          `"${name}" (${fields.map((field) => field.dataset.qualifiedName).join(", ")})`).join("; ")}. Rename these output fields or choose Use table names for duplicates.` : "";
+      }
+      if (fixNames) fixNames.hidden = duplicates.size === 0;
+    };
 
     const syncExactJoin = () => {
       const selectedIds = new Set([inputs.left?.value, inputs.right?.value].filter(Boolean));
@@ -90,6 +141,7 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       }
+      syncOutputNames();
 
       if (grain && inputs.left?.selectedOptions[0]?.value) {
         grain.textContent = `One output row will represent one ${inputs.left.selectedOptions[0].textContent.trim()} row.`;
@@ -98,6 +150,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
     inputs.left?.addEventListener("change", syncExactJoin);
     inputs.right?.addEventListener("change", syncExactJoin);
+    for (const checkbox of form.querySelectorAll('[name="projection"]')) {
+      checkbox.addEventListener("change", syncOutputNames);
+    }
+    for (const output of outputs) {
+      output.addEventListener("input", () => {
+        manuallyNamed.add(output);
+        syncOutputNames();
+      });
+    }
+    fixNames?.addEventListener("click", () => {
+      const selected = selectedOutputs();
+      const duplicates = repeatedNames(selected);
+      const used = new Set(selected.filter((output) => !duplicates.has(output.value.trim())).map((output) => output.value.trim()));
+      for (const fields of duplicates.values()) {
+        for (const output of fields) {
+          const qualified = output.dataset.qualifiedName;
+          let name = qualified;
+          for (let index = 2; used.has(name); index += 1) {
+            const suffix = `_${index}`;
+            name = qualified.slice(0, 200 - suffix.length) + suffix;
+          }
+          output.value = name;
+          used.add(name);
+          manuallyNamed.add(output);
+        }
+      }
+      syncOutputNames();
+      form.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     syncExactJoin();
   }
 

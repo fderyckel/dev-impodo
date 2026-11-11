@@ -89,16 +89,23 @@ class SourceSpec(StrictModel):
 
 
 class TargetSpec(StrictModel):
-    """Target Odoo model and create/upsert/reference behavior."""
+    """Target Odoo model and permitted creation, update, or reference behavior."""
 
     model: str = Field(min_length=3)
     mode: Literal[
         "upsert",
+        "update",
         "create",
         "reference",
         "odoo_pinned_update",
     ] = "upsert"
     on_existing: Literal["block", "unchanged"] | None = None
+
+    @property
+    def creates_records(self) -> bool:
+        """Declare whether this dataset can create missing Odoo records."""
+
+        return self.mode in {"upsert", "create"}
 
     @model_validator(mode="after")
     def validate_create_policy(self) -> TargetSpec:

@@ -1111,8 +1111,13 @@ def _validate_output(columns, projections):
     if len(set(projection_keys)) != len(projection_keys):
         raise ValueError("Structural output projections must be unique")
     names = [item.source_name for item in columns]
-    if len(set(names)) != len(names):
-        raise ValueError("Structural output column names must be unique")
+    duplicate_names = [name for name, count in Counter(names).items() if count > 1]
+    if duplicate_names:
+        raise ValueError(
+            "Output column names are duplicated: "
+            + ", ".join(repr(name) for name in duplicate_names)
+            + ". Give each selected output column a different name."
+        )
 
 
 def _column_key(value):

@@ -1,22 +1,26 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from starlette.datastructures import FormData
 
 from impodo.domain.source_binding import FileSourceBinding
+from impodo.domain.structural import ExactJoinRule
 from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
 )
 from impodo.web.exact_join_forms import (
+    default_exact_join_form,
     default_exact_join_group_form,
     exact_join_group_projection_candidates,
     parse_exact_join_group_form,
     retain_exact_join_group_form,
+    resolve_exact_join_request,
 )
 
 
@@ -84,6 +88,37 @@ class ExactJoinGroupFormTests(unittest.TestCase):
         self.assertEqual(names[("customers", "RecId")], "RecId")
         self.assertEqual(names[("CustTable", "RecId")], "CustTable.RecId")
         self.assertEqual(names[("CustTable", "Account")], "CustTable.Account")
+
+    def test_pairwise_default_names_qualify_added_table_collisions(self) -> None:
+        form = default_exact_join_form(self.selection, None)
+        self.assertEqual(
+            form.projection_names,
+            ("Account", "RecId", "Unused", "CustTable.Account", "CustTable.RecId", "City", "CustTable.Unused"),
+        )
+
+    def test_pairwise_duplicate_error_names_every_conflicting_output(self) -> None:
+        form = replace(
+            default_exact_join_form(self.selection, None),
+            output_dataset_name="combined_customers",
+            key_rows=(("account", "detail_account", "string"),),
+            projection_indexes=(0, 1, 3, 4),
+            projection_names=("Shared account", "Shared ID", "Unused", "Shared account", "Shared ID", "City", "Unused"),
+        )
+        with self.assertRaisesRegex(ValueError, "Output column names are duplicated") as caught:
+            request, _selection = resolve_exact_join_request(form, self.selection, None)
+            # The application validates structural columns before any source read.
+            ExactJoinRule(
+                rule_id=request.rule_id,
+                output_dataset_name=request.output_dataset_name,
+                left_dataset_id=request.left_dataset_id,
+                right_dataset_id=request.right_dataset_id,
+                keys=request.keys,
+                output_columns=request.output_columns,
+                projections=request.projections,
+            )
+        self.assertIn("'Shared account'", str(caught.exception))
+        self.assertIn("'Shared ID'", str(caught.exception))
+        self.assertIn("different name", str(caught.exception))
 
     def test_more_than_two_hundred_selected_fields_is_rejected_early(self) -> None:
         form = FormData(
