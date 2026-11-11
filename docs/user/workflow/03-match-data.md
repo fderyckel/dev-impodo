@@ -18,6 +18,12 @@ Confirm your source data and Odoo choices before starting Stage 3. For file
 imports, decide how to identify records and supply required values and links.
 Captured Odoo records keep their protected record identity automatically.
 
+You can use a saved combination of two source tables for field values and
+linked records, including one created with **Advanced options** → **Combine
+two tables**. Select **Check matches** to check its saved values and choices.
+If Impodo reports an outdated combination review, review that combination in
+**Source data** before checking matches again.
+
 ## Steps in Impodo
 
 Stage 3 has four sidebar steps. Saving progress, checking matches, and confirming

@@ -74,7 +74,7 @@ from impodo.domain.workspace.derived_entities import (
     derived_consumer_links,
     related_dataset_links,
 )
-from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.errors import SourcePreparationReadError, WorkspaceError
 from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
 from impodo.domain.workspace.supporting_review import SupportingReviewRequiredError
@@ -2968,6 +2968,8 @@ async def _reject_mapping_mutation(
 
 
 def _mapping_mutation_failure_code(error: Exception) -> str:
+    if isinstance(error, SourcePreparationReadError):
+        return error.failure_code
     if isinstance(error, (SupportingPlanIncompleteError, SupportingReviewRequiredError)):
         return error.failure_code
     if isinstance(error, (ConnectorError, SecretStoreError)):

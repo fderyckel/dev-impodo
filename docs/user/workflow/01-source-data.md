@@ -78,6 +78,16 @@ been checked through Final review with 65,299 and 100,000 physical rows. Large
 counts produce a notice rather than a cutoff on that route; other derived-table
 shapes keep their separate preparation limits.
 
+The advanced two-table editor uses the same field recommendations. It selects
+populated base fields and added fields with unambiguous names. Fields containing
+only blanks or spaces, added join keys, and repeated added-table names start
+unticked. Populated columns remain eligible when their values repeat. You can
+change any selection; reviewing or reopening a saved combination keeps your
+choices. **Use recommended output** reapplies the defaults and suggested names.
+If you select repeated names, the added field receives its table name as a
+prefix. A remaining name conflict lists the affected names and source fields;
+select **Use table names for duplicates** to give those fields distinct names.
+
 For a BoM delivery, combine partial header tables only at the header grain and
 partial line tables only at the complete line grain. Keep repeating operations
 as their own dataset. In **Match data**, link the line and operation datasets

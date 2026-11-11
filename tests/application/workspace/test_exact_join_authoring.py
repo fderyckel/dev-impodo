@@ -243,7 +243,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
             require_all_right_rows=False,
         )
 
-        with self.assertRaisesRegex(ValueError, "column names must be unique"):
+        with self.assertRaisesRegex(ValueError, "Output column names are duplicated: 'Name'"):
             self._preview(colliding)
         self.sources.get_current_source_snapshots.assert_not_called()
 

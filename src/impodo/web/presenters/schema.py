@@ -328,6 +328,7 @@ def _render_derived_entities(
     join_rule_views: tuple[dict[str, object], ...] = ()
     editing_join_group = False
     editing_join_pair = False
+    join_form_retained = False
     if selection is not None:
         edit_rule_id = request.query_params.get("edit_join")
         if (
@@ -400,6 +401,7 @@ def _render_derived_entities(
         )
 
         available_join_selection = available_exact_join_selection(selection, plan)
+        join_form_retained = join_form is not None
         active_join_form = join_form or default_exact_join_form(selection, plan)
         selected_projection_indexes = set(active_join_form.projection_indexes)
         projection_candidates = exact_join_projection_candidates(
@@ -481,6 +483,7 @@ def _render_derived_entities(
         join_group_form=join_group_form,
         join_group_dataset_views=join_group_dataset_views,
         join_form=join_form,
+        join_form_retained=join_form_retained,
         join_dataset_views=join_dataset_views,
         join_rule_views=join_rule_views,
         editing_join_group=editing_join_group,

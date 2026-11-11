@@ -96,6 +96,24 @@ class ExactJoinGroupFormTests(unittest.TestCase):
             ("Account", "RecId", "Unused", "CustTable.Account", "CustTable.RecId", "City", "CustTable.Unused"),
         )
 
+    def test_pairwise_defaults_select_populated_base_and_unambiguous_added_fields(self) -> None:
+        form = default_exact_join_form(self.selection, None)
+        candidates = exact_join_group_projection_candidates(self.selection)
+        self.assertEqual(
+            {(candidates[index][0].name, candidates[index][1].source_name) for index in form.projection_indexes},
+            {("customers", "Account"), ("customers", "RecId"), ("CustTable", "City")},
+        )
+
+    def test_pairwise_defaults_ignore_non_participating_tables(self) -> None:
+        third = replace(self.selection.datasets[1], dataset_id="dataset:third", name="Other")
+        selection = replace(self.selection, datasets=(*self.selection.datasets, third))
+        form = default_exact_join_form(selection, None)
+        candidates = exact_join_group_projection_candidates(selection)
+        self.assertEqual(
+            {(candidates[index][0].name, candidates[index][1].source_name) for index in form.projection_indexes},
+            {("customers", "Account"), ("customers", "RecId"), ("CustTable", "City")},
+        )
+
     def test_pairwise_duplicate_error_names_every_conflicting_output(self) -> None:
         form = replace(
             default_exact_join_form(self.selection, None),

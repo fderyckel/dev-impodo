@@ -48,6 +48,8 @@ class JoinedRecipePreparationTests(TestCase):
         self.addCleanup(self.fixture.tearDown)
         self.context = self.fixture.app.state.context
         self.actor = resolve_local_actor(self.context)
+        self.odoo_major = 19
+        self.participant_count = 4
 
     def _schema(self, workspace_id):
         context, actor = self.context, self.actor
@@ -58,7 +60,7 @@ class JoinedRecipePreparationTests(TestCase):
             expected_revision=state.revision,
             odoo_connection_mode="LOCAL",
             odoo_base_url="http://127.0.0.1:8069",
-            odoo_database="odoo19_local",
+            odoo_database=f"odoo{self.odoo_major}_local",
             intended_applications=(),
             intended_models=("x_record",),
         )
@@ -72,8 +74,8 @@ class JoinedRecipePreparationTests(TestCase):
             captured_at=datetime.now(UTC),
             captured_by="Fixture",
             connection_mode="LOCAL",
-            database="odoo19_local",
-            odoo_version="19.0",
+            database=f"odoo{self.odoo_major}_local",
+            odoo_version=f"{self.odoo_major}.0",
             content_hash=content_hash((workspace_id, "schema")),
             models=(
                 SchemaModel(
@@ -118,7 +120,7 @@ class JoinedRecipePreparationTests(TestCase):
             self.context.preparation.prepare(workspace_id, actor=self.actor)
         batch_reader.assert_called_once()
         self.assertEqual(
-            len(batch_reader.call_args.kwargs["group"].participant_dataset_ids), 4
+            len(batch_reader.call_args.kwargs["group"].participant_dataset_ids), self.participant_count
         )
         summary = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
@@ -127,7 +129,7 @@ class JoinedRecipePreparationTests(TestCase):
             workspace_id, summary.run_id, expected_content_hash=summary.content_hash
         )
         self.assertEqual(run.reconciliation.blocked_rows, 0, run.issues)
-        self.assertTrue(all(len(row.lineage.physical_sources) == 4 for row in run.rows))
+        self.assertTrue(all(len(row.lineage.physical_sources) == self.participant_count for row in run.rows))
         references = {
             row.target_identity: row.references["x_list_id"].key
             if row.references["x_list_id"] is not None
@@ -160,12 +162,19 @@ class JoinedRecipePreparationTests(TestCase):
     ):
         self._exercise_recipe_reuse(uncovered_choice=False, company_binding=True)
 
+    def test_standalone_join_recipe_prepares_fresh_files_for_both_majors(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                self.odoo_major = major
+                self._exercise_recipe_reuse(uncovered_choice=False, standalone=True)
+
     def _exercise_recipe_reuse(
-        self, *, uncovered_choice, blank_choice=False, company_binding=False
+        self, *, uncovered_choice, blank_choice=False, company_binding=False, standalone=False
     ):
         context, actor, fixture = self.context, self.actor, self.fixture
+        self.participant_count = 2 if standalone else 4
         workspace_id, physical, by_name = fixture._frozen_customer_workspace(
-            several_tables=True
+            several_tables=not standalone
         )
         authoring_schema = self._schema(workspace_id)
         if company_binding:
@@ -189,22 +198,31 @@ class JoinedRecipePreparationTests(TestCase):
                 expected_company_context_hash=company.context_hash,
                 actor=actor,
             )
-        form = fixture._join_group_form(physical, by_name)
+        form = fixture._join_form(physical, by_name) if standalone else fixture._join_group_form(physical, by_name)
         items = [
             (name, item)
             for name, value in form.items()
             for item in (value if isinstance(value, list) else [value])
         ]
-        request = resolve_exact_join_group_request(
-            parse_exact_join_group_form(FormData(items)), physical
-        )
-        run_local_operation_sync(
-            context.derived_entities.save_join_group,
-            workspace_id,
-            request,
-            expected_parent_version=None,
-            actor=actor,
-        )
+        request = None
+        if standalone:
+            saved = fixture.client.post(
+                f"/workspaces/{workspace_id}/derived-entities/join/save",
+                data=form, headers=POST_HEADERS, follow_redirects=False,
+            )
+            self.assertEqual(saved.status_code, 303, saved.text)
+            self.assertIsNone(context.queries.get_derived_entity_plan(workspace_id).rules[0].group_id)
+        else:
+            request = resolve_exact_join_group_request(
+                parse_exact_join_group_form(FormData(items)), physical
+            )
+            run_local_operation_sync(
+                context.derived_entities.save_join_group,
+                workspace_id,
+                request,
+                expected_parent_version=None,
+                actor=actor,
+            )
         effective = context.queries.get_mapping_source_selection(workspace_id)
         dataset = effective.datasets[0]
         columns = {column.source_name: column.stable_key for column in dataset.columns}
@@ -305,7 +323,8 @@ class JoinedRecipePreparationTests(TestCase):
             ],
         )
         self.assertNotIn(dataset.dataset_id, str(definition))
-        self.assertNotIn(request.group_id, str(definition))
+        if request is not None:
+            self.assertNotIn(request.group_id, str(definition))
 
         export_as_of = datetime.now(UTC).date().isoformat()
         setup = context.test_runs.start_setup(
@@ -345,6 +364,8 @@ class JoinedRecipePreparationTests(TestCase):
                 ),
             )
         ]
+        if standalone:
+            files = files[:2]
         if uncovered_choice:
             files = [
                 (
@@ -442,7 +463,7 @@ class JoinedRecipePreparationTests(TestCase):
             self.assertEqual(timings.connection_count, 1)
             self.assertEqual(timings.schema_check_count, 0)
             self.assertEqual(timings.lock_retry_count, 0)
-            self.assertEqual(preview.physical_snapshot_scans, 4)
+            self.assertEqual(preview.physical_snapshot_scans, self.participant_count)
             self.assertTrue(preview.bounded_execution_plan_verified)
             return preview
 
@@ -460,7 +481,8 @@ class JoinedRecipePreparationTests(TestCase):
                 operation_id=str(uuid4()),
                 actor=actor,
             )
-        join_review.assert_called_once()
+        if not standalone:
+            join_review.assert_called_once()
         application = activated.applications[0]
         if company_binding:
             applied_state = context.queries.get(application.workspace_id)
@@ -505,7 +527,10 @@ class JoinedRecipePreparationTests(TestCase):
         fresh_physical = context.derived_entities.sources.get_source_selection(
             application.workspace_id
         )
-        self.assertNotEqual(fresh_plan.rules[0].group_id, request.group_id)
+        if request is not None:
+            self.assertNotEqual(fresh_plan.rules[0].group_id, request.group_id)
+        else:
+            self.assertIsNone(fresh_plan.rules[0].group_id)
         self.assertTrue(fresh_plan.join_reviews)
         self.assertTrue(
             all(

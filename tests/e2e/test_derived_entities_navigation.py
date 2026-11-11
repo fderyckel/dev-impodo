@@ -170,14 +170,21 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
               <select data-exact-key-side="left"><option value=""></option><option value="account" data-dataset-id="accounts">Account</option><option value="party" data-dataset-id="parties">Party</option></select>
               <select data-exact-key-side="right"><option value=""></option><option value="account" data-dataset-id="accounts">Account</option><option value="party" data-dataset-id="parties">Party</option></select>
               <p data-exact-name-error role="alert" hidden></p>
+              <button type="button" data-exact-use-recommended>Use recommended output</button>
               <button type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
-              <fieldset data-exact-projection-dataset="accounts"><legend>Customer accounts</legend><table><tr>
+              <fieldset data-exact-projection-dataset="accounts"><legend>Customer accounts</legend><table><tr data-column-key="account_recid" data-candidate-type="integer">
                 <td><input type="checkbox" name="projection" value="0" checked></td>
                 <td><input data-exact-output-name data-default-name="RecId" data-qualified-name="Customer accounts.RecId" value="RecId"></td>
               </tr></table></fieldset>
-              <fieldset data-exact-projection-dataset="parties"><legend>Party details</legend><table><tr>
+              <fieldset data-exact-projection-dataset="parties"><legend>Party details</legend><table><tr data-column-key="party_recid" data-candidate-type="integer">
                 <td><input type="checkbox" name="projection" value="1" checked></td>
                 <td><input data-exact-output-name data-default-name="RecId" data-qualified-name="Party details.RecId" value="RecId"></td>
+              </tr><tr data-column-key="email" data-candidate-type="string">
+                <td><input type="checkbox" name="projection" value="2"></td>
+                <td><input data-exact-output-name data-default-name="Email" data-qualified-name="Party details.Email" value="Email"></td>
+              </tr><tr data-column-key="unused" data-candidate-type="empty">
+                <td><input type="checkbox" name="projection" value="3"></td>
+                <td><input data-exact-output-name data-default-name="Unused" data-qualified-name="Party details.Unused" value="Unused"></td>
               </tr></table></fieldset>
               <label data-exact-use-side="left">Base use<select><option>Preparation only</option></select></label>
               <label data-exact-use-side="right">Added use<select><option>Preparation only</option></select></label>
@@ -418,7 +425,7 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
         self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
         form = self.page.locator("[data-exact-join-form]")
         base_name = form.locator('[data-exact-projection-dataset="accounts"] [data-exact-output-name]')
-        added_name = form.locator('[data-exact-projection-dataset="parties"] [data-exact-output-name]')
+        added_name = form.locator('[data-exact-projection-dataset="parties"] tr[data-column-key="party_recid"] [data-exact-output-name]')
         self.assertEqual(base_name.input_value(), "RecId")
         self.assertEqual(added_name.input_value(), "Party details.RecId")
         added_name.fill("AX detail ID")
@@ -431,6 +438,7 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
     def test_pairwise_custom_duplicates_are_named_and_can_be_fixed_together(self):
         self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
         form = self.page.locator("[data-exact-join-form]")
+        form.locator('[data-exact-projection-dataset="parties"] [name="projection"][value="1"]').check()
         names = form.locator("[data-exact-output-name]")
         names.nth(0).fill("Shared ID")
         names.nth(1).fill("Shared ID")
@@ -453,8 +461,39 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
             'data-qualified-name="Party details.RecId" value="Saved AX ID"',
         )
         self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
-        output = self.page.locator('[data-exact-projection-dataset="parties"] [data-exact-output-name]')
+        output = self.page.locator('[data-exact-projection-dataset="parties"] tr[data-column-key="party_recid"] [data-exact-output-name]')
         self.assertEqual(output.input_value(), "Saved AX ID")
+        self.assertEqual(self.errors, [])
+
+    def test_pairwise_defaults_match_standard_and_manual_choices_survive_key_changes(self):
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
+        form = self.page.locator("[data-exact-join-form]")
+        base = form.locator('[name="projection"][value="0"]')
+        collision = form.locator('[name="projection"][value="1"]')
+        populated = form.locator('[name="projection"][value="2"]')
+        empty = form.locator('[name="projection"][value="3"]')
+        self.assertTrue(base.is_checked())
+        self.assertFalse(collision.is_checked())
+        self.assertTrue(populated.is_checked())
+        self.assertFalse(empty.is_checked())
+        collision.check()
+        populated.uncheck()
+        form.locator('[data-exact-key-side="right"]').select_option("party")
+        self.assertTrue(collision.is_checked())
+        self.assertFalse(populated.is_checked())
+        form.locator("[data-exact-use-recommended]").click()
+        self.assertFalse(collision.is_checked())
+        self.assertTrue(populated.is_checked())
+        self.assertFalse(empty.is_checked())
+        self.assertEqual(self.errors, [])
+
+    def test_pairwise_retained_selection_including_empty_fields_is_preserved(self):
+        self.html = self.html.replace('<form data-exact-join-form>', '<form data-exact-join-form data-exact-retained>')
+        self.html = self.html.replace('name="projection" value="3">', 'name="projection" value="3" checked>')
+        self.page.goto("http://127.0.0.1:12345/derived-entities#combine-two-tables")
+        form = self.page.locator("[data-exact-join-form]")
+        self.assertFalse(form.locator('[name="projection"][value="2"]').is_checked())
+        self.assertTrue(form.locator('[name="projection"][value="3"]').is_checked())
         self.assertEqual(self.errors, [])
 
     def test_exact_join_summary_stacks_at_narrow_width(self):

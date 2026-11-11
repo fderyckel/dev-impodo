@@ -500,7 +500,11 @@ def default_exact_join_form(
         require_all_right_rows=False,
         left_dataset_use=SourceDatasetUse.PREPARATION_ONLY.value,
         right_dataset_use=SourceDatasetUse.PREPARATION_ONLY.value,
-        projection_indexes=(),
+        projection_indexes=_recommended_exact_join_projections(
+            candidates,
+            datasets[0].dataset_id if datasets else "",
+            frozenset(dataset.dataset_id for dataset in datasets[:2]),
+        ),
         projection_names=_default_exact_join_output_names(
             candidates,
             datasets[0].dataset_id if datasets else "",
@@ -537,14 +541,35 @@ def default_exact_join_group_form(
         primary_dataset_id=primary_dataset_id,
         primary_key_rows=tuple(("", "string") for _index in range(5)),
         additions=(),
-        projection_indexes=tuple(
-            index
-            for index, (dataset, column) in enumerate(candidates)
-            if dataset.dataset_id == primary_dataset_id
-            and column.candidate_type in STRUCTURAL_OUTPUT_VALUE_TYPES
-            and column.candidate_type != "empty"
+        projection_indexes=_recommended_exact_join_projections(
+            candidates, primary_dataset_id, frozenset({primary_dataset_id})
         ),
         projection_names=_default_exact_join_output_names(candidates, primary_dataset_id),
+    )
+
+
+def _recommended_exact_join_projections(
+    candidates: tuple[tuple[SourceDataset, SourceDatasetColumn], ...],
+    primary_dataset_id: str,
+    participant_ids: frozenset[str],
+) -> tuple[int, ...]:
+    """Recommend populated primary fields and unambiguous added fields in both editors."""
+
+    counts: dict[str, int] = {}
+    for dataset, column in candidates:
+        if dataset.dataset_id in participant_ids:
+            label = column.source_name.strip().casefold()
+            counts[label] = counts.get(label, 0) + 1
+    return tuple(
+        index
+        for index, (dataset, column) in enumerate(candidates)
+        if dataset.dataset_id in participant_ids
+        and column.candidate_type in STRUCTURAL_OUTPUT_VALUE_TYPES
+        and column.candidate_type != "empty"
+        and (
+            dataset.dataset_id == primary_dataset_id
+            or counts[column.source_name.strip().casefold()] == 1
+        )
     )
 
 

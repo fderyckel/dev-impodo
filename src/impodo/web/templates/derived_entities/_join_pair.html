@@ -3,7 +3,7 @@
     <span><strong>Advanced: combine two tables</strong><small>Keep the existing pairwise editor for structural workflows that need an explicit chain.</small></span>
   </summary>
   {% if editing_join_pair %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
-  <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/preview" data-source-editor data-exact-join-form>
+  <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join/preview" data-source-editor data-exact-join-form{% if join_form_retained %} data-exact-retained{% endif %}>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="expected_parent_version" value="{{ join_form.expected_parent_version if join_form.expected_parent_version is not none else '' }}">
     <input type="hidden" name="rule_id" value="{{ join_form.rule_id }}">
@@ -108,6 +108,7 @@
       <div>
         <h3>Select and name the output fields</h3>
         <p class="muted">Choose only the fields needed later. Repeated field names from the added table automatically include its table name. You can edit the output names.</p>
+        <button class="button secondary compact" type="button" data-exact-use-recommended>Use recommended output</button>
         <p class="notice warning" data-exact-name-error role="alert" hidden></p>
         <button class="button secondary compact" type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
         {% for view in join_dataset_views %}
@@ -118,10 +119,10 @@
                 <thead><tr><th>Include</th><th>Source field</th><th>Output name</th><th>Type</th></tr></thead>
                 <tbody>
                   {% for column_view in view.columns %}
-                    <tr>
+                    <tr data-exact-field-row data-column-key="{{ column_view.column.stable_key }}" data-candidate-type="{{ column_view.column.candidate_type }}">
                       <td><input type="checkbox" name="projection" value="{{ column_view.projection_index }}" aria-label="Include {{ view.dataset.name }} {{ column_view.column.source_name }}"{% if column_view.selected %} checked{% endif %}></td>
                       <td>{{ column_view.column.source_name }}</td>
-                      <td><input name="projection_name" value="{{ column_view.output_name }}" data-exact-output-name data-default-name="{{ column_view.column.source_name }}" data-qualified-name="{{ column_view.qualified_output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"></td>
+                      <td><input name="projection_name" value="{{ column_view.output_name }}" data-exact-output-name data-default-name="{{ column_view.column.source_name }}" data-qualified-name="{{ column_view.qualified_output_name }}" maxlength="200" aria-label="Output name for {{ view.dataset.name }} {{ column_view.column.source_name }}"><small data-exact-field-reason></small></td>
                       <td>{{ column_view.column.candidate_type }}</td>
                     </tr>
                   {% endfor %}

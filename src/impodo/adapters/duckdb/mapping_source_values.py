@@ -22,7 +22,7 @@ from impodo.application.workspace.mapping.logical_source_values import (
     LogicalSourceValues,
 )
 from impodo.application.workspace.preparation.grouped_exact_join_preparation import (
-    bounded_exact_join_group,
+    reviewed_exact_join_output,
 )
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.serialization import content_hash
@@ -36,7 +36,7 @@ from impodo.domain.workspace.derived_entities import (
     _rule_payload,
     derived_dataset_links,
 )
-from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.errors import SourcePreparationReadError, WorkspaceError
 
 from .grouped_exact_join_source import DuckDbGroupedExactJoinSource
 
@@ -74,12 +74,17 @@ class JoinedMappingSourceValues(LogicalSourceValues):
 
         physical = self.sources.get_source_selection(workspace_id)
         plan = self.derivations.get_derived_entity_plan(workspace_id)
-        return (
-            physical is not None
-            and (self._lookup(plan, dataset_id) is not None or bounded_exact_join_group(
-                physical, selection, plan, dataset_id=dataset_id
-            ) is not None)
-        )
+        if physical is None:
+            return False
+        if self._lookup(plan, dataset_id) is not None:
+            return True
+        try:
+            reviewed_exact_join_output(physical, selection, plan, dataset_id=dataset_id)
+        except SourcePreparationReadError as error:
+            # A supported provider must still run its read-time evidence
+            # checks, so stale reviews are reported as stale, not unsupported.
+            return error.failure_code == "SOURCE_PREPARATION_REVIEW_STALE"
+        return True
 
     def project(
         self,
@@ -128,15 +133,15 @@ class JoinedMappingSourceValues(LogicalSourceValues):
                 workspace_id, selection, dataset_id, column_keys, maximum_values,
                 physical, plan, lookup,
             )
-        group = (
-            bounded_exact_join_group(physical, selection, plan, dataset_id=dataset_id)
-            if physical else None
-        )
-        if physical is None or plan is None or group is None:
-            raise WorkspaceError(
-                "Impodo cannot read choices for this table's current preparation rules. "
-                "Review the combined table in Source data."
+        if physical is None or plan is None:
+            raise SourcePreparationReadError(
+                "The combined table's saved source evidence is incomplete. "
+                "Review its source tables in Source data.",
+                failure_code="SOURCE_PREPARATION_EVIDENCE_INCOMPLETE",
             )
+        group = reviewed_exact_join_output(
+            physical, selection, plan, dataset_id=dataset_id,
+        )
         if (
             plan.workspace_id != workspace_id
             or physical.data_version_id != selection.data_version_id
@@ -158,7 +163,11 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         if len(by_id) != len(snapshots) or set(by_id) != {
             item.dataset_id for item in physical.datasets
         }:
-            raise WorkspaceError("Joined source snapshots are incomplete")
+            raise SourcePreparationReadError(
+                "The combined table's frozen source snapshots are incomplete. "
+                "Review its source tables in Source data.",
+                failure_code="SOURCE_PREPARATION_EVIDENCE_INCOMPLETE",
+            )
         rules = {rule.rule_id: rule for rule in group.rules}
         if any(
             review.rule_hash != content_hash(rules[review.rule_id].to_dict())
@@ -171,8 +180,9 @@ class JoinedMappingSourceValues(LogicalSourceValues):
             for review in plan.join_reviews
             if review.rule_id in rules
         ):
-            raise WorkspaceError(
-                "The accepted grouped join review is stale; review the combined table again"
+            raise SourcePreparationReadError(
+                "The saved combination review is stale; review the combined table again",
+                failure_code="SOURCE_PREPARATION_REVIEW_STALE",
             )
         for item in physical.datasets:
             validate_snapshot_for_dataset(physical, item, by_id[item.dataset_id])

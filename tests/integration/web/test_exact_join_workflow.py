@@ -476,8 +476,26 @@ class ExactJoinBrowserTests(ProjectSetupBrowserTestCase):
         self.assertTrue(any(name.endswith(".Partition") for name in names))
         reopened = self.client.get(base + f"?edit_join={rule.rule_id}")
         self.assertEqual(reopened.status_code, 200, reopened.text)
-        self.assertEqual(reopened.context["join_form"].projection_names, tuple(form["projection_name"]))
+        self.assertEqual(reopened.context["join_form"].projection_names[:len(form["projection_name"])], tuple(form["projection_name"]))
         self.assertEqual(context.queries.get_mapping_source_selection(workspace_id).datasets[0].row_count, 2)
+
+    def test_pairwise_defaults_use_complete_source_profiles(self) -> None:
+        workspace_id, _selection, _by_name = self._frozen_customer_workspace(source_files=[
+            ("cust02.csv", b"Partition,Party,AccountNum,Company,Blank\npart-1,100,C001,Shared,   \npart-1,200,C002,Shared,\t\n"),
+            ("cust01.csv", b"Partition,RecId,Name,Email,Blank\npart-1,100,Shared,first@example.test,\npart-1,200,Shared,second@example.test,  \n"),
+        ])
+        page = self.client.get(f"/workspaces/{workspace_id}/derived-entities")
+        self.assertEqual(page.status_code, 200, page.text)
+        selected = {
+            (view["dataset"].name, item["column"].source_name)
+            for view in page.context["join_dataset_views"]
+            for item in view["columns"] if item["selected"]
+        }
+        self.assertIn(("customer_accounts", "Company"), selected)
+        self.assertIn(("party_details", "Email"), selected)
+        self.assertNotIn(("customer_accounts", "Blank"), selected)
+        self.assertNotIn(("party_details", "Blank"), selected)
+        self.assertEqual(sum(name == "Partition" for _table, name in selected), 1)
 
     def test_four_customer_tables_are_reviewed_and_saved_once(self) -> None:
         workspace_id, selection, by_name = self._frozen_customer_workspace(

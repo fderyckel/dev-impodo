@@ -26,3 +26,11 @@ class WorkspaceDatabaseBusyError(WorkspaceError):
 
     failure_code = "WORKSPACE_DATABASE_BUSY"
 
+
+class SourcePreparationReadError(WorkspaceError):
+    """Distinguish an unavailable reader from stale or missing source evidence."""
+
+    def __init__(self, message: str, *, failure_code: str) -> None:
+        super().__init__(message)
+        self.failure_code = failure_code
+

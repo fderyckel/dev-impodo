@@ -84,6 +84,7 @@ from impodo.domain.workspace.derived_entities import (
     derived_dataset_links,
     hierarchy_consumer_bindings,
 )
+from impodo.domain.workspace.errors import SourcePreparationReadError
 from impodo.domain.workspace.workbench import WorkspaceState
 
 from .bounded_preparation import open_bounded_source
@@ -97,7 +98,7 @@ _SESSION_BATCH_ROWS = 5_000
 
 @dataclass(frozen=True, slots=True)
 class BoundedExactJoinGroup:
-    """Validated left-deep exact-join group admitted to bounded preparation."""
+    """Reviewed standalone join or left-deep group with original rule identities."""
 
     rules: tuple[ExactJoinRule, ...]
     primary_dataset_id: str
@@ -189,34 +190,72 @@ def bounded_exact_join_group(
     *,
     dataset_id: str | None = None,
 ) -> BoundedExactJoinGroup | None:
-    """Qualify a reviewed group, optionally scoped to one value-read output.
+    """Qualify reviewed joins, optionally scoped to one value-read output.
 
     The default qualifies an exclusive group. Preparation and value reads can
     qualify each selected output beside other independently mapped datasets.
     """
 
+    try:
+        return reviewed_exact_join_output(
+            physical_selection, effective_selection, plan, dataset_id=dataset_id,
+        )
+    except SourcePreparationReadError:
+        return None
+
+
+def reviewed_exact_join_output(
+    physical_selection: SourceSelection,
+    effective_selection: SourceSelection,
+    plan: DerivedEntityPlan | None,
+    *,
+    dataset_id: str | None = None,
+) -> BoundedExactJoinGroup:
+    """Resolve an output without rewriting saved rules or their review bindings.
+
+    Standalone physical-input joins use a one-step execution plan. Grouped
+    joins retain their existing left-deep qualification. Callers that display
+    failures receive the actual evidence or capability reason.
+    """
+
+    unsupported = SourcePreparationReadError(
+        "Impodo cannot read this type of combined table. "
+        "Contact support with the support reference.",
+        failure_code="SOURCE_PREPARATION_UNSUPPORTED",
+    )
+    stale = SourcePreparationReadError(
+        "The saved combination review is stale or incomplete. "
+        "Review the combined table in Source data again.",
+        failure_code="SOURCE_PREPARATION_REVIEW_STALE",
+    )
     if plan is None or not plan.rules:
-        return None
-    if plan.source_selection_hash != physical_selection.content_hash:
-        return None
+        raise unsupported
+    if (
+        plan.source_selection_hash != physical_selection.content_hash
+        or physical_selection.data_version_id != effective_selection.data_version_id
+    ):
+        raise stale
+    exclusive = dataset_id is None
     if dataset_id is None:
         if len(effective_selection.datasets) != 1 or any(
             not isinstance(rule, ExactJoinRule) for rule in plan.rules
         ):
-            return None
-        selected_rules = plan.rules
+            raise unsupported
+        dataset_id = effective_selection.datasets[0].dataset_id
+    final = next(
+        (
+            rule for rule in plan.rules
+            if isinstance(rule, ExactJoinRule)
+            and rule.map_output
+            and structural_dataset_id(rule) == dataset_id
+        ),
+        None,
+    )
+    if final is None:
+        raise unsupported
+    if final.group_id is None:
+        selected_rules = (final,)
     else:
-        final = next(
-            (
-                rule for rule in plan.rules
-                if isinstance(rule, ExactJoinRule)
-                and rule.map_output
-                and structural_dataset_id(rule) == dataset_id
-            ),
-            None,
-        )
-        if final is None or final.group_id is None:
-            return None
         selected_rules = tuple(
             rule for rule in plan.rules
             if isinstance(rule, ExactJoinRule) and rule.group_id == final.group_id
@@ -227,15 +266,13 @@ def bounded_exact_join_group(
             key=lambda rule: rule.group_step or 0,
         )
     )
-    group_ids = {rule.group_id for rule in rules}
-    if None in group_ids or len(group_ids) != 1:
-        return None
-    if tuple(rule.group_step for rule in rules) != tuple(range(1, len(rules) + 1)):
-        return None
-    if any(rule.kind is not JoinKind.LEFT for rule in rules):
-        return None
+    if final.group_id is not None:
+        if tuple(rule.group_step for rule in rules) != tuple(range(1, len(rules) + 1)):
+            raise unsupported
+        if any(rule.kind is not JoinKind.LEFT for rule in rules):
+            raise unsupported
     if any(rule.map_output != (index == len(rules)) for index, rule in enumerate(rules, 1)):
-        return None
+        raise unsupported
 
     physical_ids = {dataset.dataset_id for dataset in physical_selection.datasets}
     primary_id = rules[0].left_dataset_id
@@ -244,27 +281,27 @@ def bounded_exact_join_group(
         primary_id not in physical_ids
         or len(set(participant_ids)) != len(participant_ids)
         or not set(participant_ids).issubset(physical_ids)
-        or (dataset_id is None and set(participant_ids) != physical_ids)
+        or (exclusive and set(participant_ids) != physical_ids)
     ):
-        return None
+        raise unsupported
     for previous, rule in itertools.pairwise(rules):
         if rule.left_dataset_id != structural_dataset_id(previous):
-            return None
+            raise unsupported
     final_id = structural_dataset_id(rules[-1])
     effective = next(
         (item for item in effective_selection.datasets if item.dataset_id == final_id),
         None,
     )
-    if effective is None or (dataset_id is not None and dataset_id != final_id):
-        return None
+    if effective is None or dataset_id != final_id:
+        raise unsupported
     rule_ids = {rule.rule_id for rule in rules}
     selected_reviews = tuple(
         review for review in plan.join_reviews
-        if dataset_id is None or review.rule_id in rule_ids
+        if review.rule_id in rule_ids
     )
     reviews = {review.rule_id: review for review in selected_reviews}
     if len(reviews) != len(selected_reviews) or set(reviews) != rule_ids:
-        return None
+        raise stale
     if any(
         not reviews[rule.rule_id].review.can_save
         or reviews[rule.rule_id].rule_hash != content_hash(rule.to_dict())
@@ -272,7 +309,7 @@ def bounded_exact_join_group(
         or reviews[rule.rule_id].review.actual_output_rows != effective.row_count
         for rule in rules
     ):
-        return None
+        raise stale
     return BoundedExactJoinGroup(
         rules=rules,
         primary_dataset_id=primary_id,

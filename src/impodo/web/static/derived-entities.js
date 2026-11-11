@@ -37,6 +37,9 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  const recommendOutput = ({ participates, isEmpty, isPrimary, isAddedKey, collision }) =>
+    participates && !isEmpty && (isPrimary || (!isAddedKey && !collision));
+
   for (const form of document.querySelectorAll("[data-exact-join-form]")) {
     const inputs = {
       left: form.querySelector('[data-exact-join-input="left"]'),
@@ -45,11 +48,17 @@ document.addEventListener("DOMContentLoaded", () => {
     const grain = form.querySelector("#exact-join-grain");
     const outputs = Array.from(form.querySelectorAll("[data-exact-output-name]"));
     const manuallyNamed = new WeakSet();
+    const manualSelections = new WeakMap();
     const nameError = form.querySelector("[data-exact-name-error]");
     const fixNames = form.querySelector("[data-exact-fix-names]");
     for (const output of outputs) {
       if (output.value !== output.dataset.defaultName && output.value !== output.dataset.qualifiedName) {
         manuallyNamed.add(output);
+      }
+    }
+    if (form.hasAttribute("data-exact-retained")) {
+      for (const checkbox of form.querySelectorAll('[name="projection"]')) {
+        manualSelections.set(checkbox, checkbox.checked);
       }
     }
 
@@ -95,7 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (fixNames) fixNames.hidden = duplicates.size === 0;
     };
 
-    const syncExactJoin = () => {
+    const syncExactJoin = ({ resetRecommendations = false } = {}) => {
       const selectedIds = new Set([inputs.left?.value, inputs.right?.value].filter(Boolean));
       const duplicate = Boolean(
         inputs.left?.value && inputs.left.value === inputs.right?.value
@@ -141,6 +150,39 @@ document.addEventListener("DOMContentLoaded", () => {
           }
         }
       }
+      const addedKeys = new Set(Array.from(form.querySelectorAll('[data-exact-key-side="right"]'))
+        .map((select) => select.value.slice(select.value.indexOf("|") + 1)).filter(Boolean));
+      const counts = new Map();
+      for (const output of outputs) {
+        if (!output.closest("[data-exact-projection-dataset]").hidden) {
+          const name = output.dataset.defaultName.trim().toLocaleLowerCase();
+          counts.set(name, (counts.get(name) || 0) + 1);
+        }
+      }
+      for (const output of outputs) {
+        const row = output.closest("tr");
+        const group = output.closest("[data-exact-projection-dataset]");
+        const checkbox = row.querySelector('[name="projection"]');
+        const participates = !group.hidden;
+        const isPrimary = group.dataset.exactProjectionDataset === inputs.left?.value;
+        const isEmpty = row.dataset.candidateType === "empty";
+        const collision = counts.get(output.dataset.defaultName.trim().toLocaleLowerCase()) > 1;
+        const isAddedKey = !isPrimary && addedKeys.has(row.dataset.columnKey);
+        const recommended = recommendOutput({ participates, isEmpty, isPrimary, isAddedKey, collision });
+        if (resetRecommendations) {
+          manualSelections.delete(checkbox);
+          manuallyNamed.delete(output);
+        }
+        checkbox.checked = participates && (manualSelections.has(checkbox)
+          ? manualSelections.get(checkbox) : recommended);
+        const reason = row.querySelector("[data-exact-field-reason]");
+        if (reason) {
+          reason.textContent = isEmpty ? "Empty in the accepted source; excluded by default."
+            : !isPrimary && collision ? "Same label in another table; choose explicitly."
+            : isAddedKey ? "Added-table join key; the base version is kept."
+            : recommended ? "Recommended output field." : "Not part of the current combination.";
+        }
+      }
       syncOutputNames();
 
       if (grain && inputs.left?.selectedOptions[0]?.value) {
@@ -150,9 +192,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     inputs.left?.addEventListener("change", syncExactJoin);
     inputs.right?.addEventListener("change", syncExactJoin);
-    for (const checkbox of form.querySelectorAll('[name="projection"]')) {
-      checkbox.addEventListener("change", syncOutputNames);
+    for (const key of form.querySelectorAll("[data-exact-key-side]")) {
+      key.addEventListener("change", syncExactJoin);
     }
+    for (const checkbox of form.querySelectorAll('[name="projection"]')) {
+      checkbox.addEventListener("change", () => {
+        manualSelections.set(checkbox, checkbox.checked);
+        syncOutputNames();
+      });
+    }
+    form.querySelector("[data-exact-use-recommended]")?.addEventListener("click", () => {
+      syncExactJoin({ resetRecommendations: true });
+      form.dispatchEvent(new Event("input", { bubbles: true }));
+    });
     for (const output of outputs) {
       output.addEventListener("input", () => {
         manuallyNamed.add(output);
@@ -299,9 +351,7 @@ document.addEventListener("DOMContentLoaded", () => {
           (row.dataset.sourceName || "").trim().toLocaleLowerCase(),
         ) || 0) > 1;
         const isAddedKey = !isPrimary && addedKeyTokens.has(fieldToken);
-        const recommended = participates && !isEmpty && (
-          isPrimary || (!isAddedKey && !collision)
-        );
+        const recommended = recommendOutput({ participates, isEmpty, isPrimary, isAddedKey, collision });
 
         row.dataset.participates = String(participates);
         if (isEmpty) {

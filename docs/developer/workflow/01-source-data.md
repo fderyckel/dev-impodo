@@ -223,6 +223,17 @@ combination task, then select **Combine two tables**. The
 cover the initial recommendation, qualified collision names, and early
 200-field rejection.
 
+Both editors share the initial populated-field recommendation in
+`exact_join_forms.py` and the browser recommendation predicate in
+`derived-entities.js`. The pairwise editor recalculates selections when its
+inputs or keys change, while retaining saved and manual selections. Whitespace
+classification comes from complete source inspection rather than preview rows.
+Repeated populated values do not make a column empty. The advanced editor also
+qualifies repeated added-table labels, identifies custom name conflicts, and
+offers **Use table names for duplicates** to resolve them. These recommendations
+do not change frozen source data, join cardinality, or persisted selections until
+the operator reviews and saves the resulting combination.
+
 `POST /workspaces/{workspace_id}/derived-entities/join/preview` performs the
 complete review and renders the counts and protected examples. `POST
 /workspaces/{workspace_id}/derived-entities/join/save` repeats the review and

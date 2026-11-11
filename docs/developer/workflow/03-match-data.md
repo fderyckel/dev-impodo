@@ -1477,15 +1477,20 @@ checks that reopening and saving retains requiredness without an extra control.
 checks optional blanks, required blanks, create-only requiredness, and populated
 missing references for all three resolver origins.
 
-`CategoricalCoverageService` uses `LogicalSourceValues` for reviewed grouped
-exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,
+`CategoricalCoverageService` uses `LogicalSourceValues` for reviewed standalone
+and grouped exact-join outputs. `JoinedMappingSourceValues` verifies the saved review,
 rule hashes, and every participating immutable snapshot before reading. The
 same projection supports source choices, categorical validation, and identity
 key reads. Categorical scan contract v5 binds joined results to the effective
 selection and all participating physical snapshot hashes. Uncovered explicit
 matches remain blocking findings, and stale join evidence requires review.
 
-Value-read qualification selects the requested dataset's complete join group.
+`reviewed_exact_join_output` resolves a standalone join between frozen physical
+tables into a one-step execution plan, or selects the requested dataset's
+complete join group. It retains the original rules, dataset identities, and
+review hashes. Source choices, relationship coverage, Rows to use, and
+preparation share this resolution. Standalone joins retain their saved `LEFT`
+or `INNER` semantics; grouped joins retain their existing left-deep contract.
 Other mapped physical tables, independent join groups, and unrelated preparation
 rules do not disable that reader. Categorical coverage qualifies each scanned
 dataset separately and binds all physical snapshot identities whenever a join
@@ -1504,6 +1509,24 @@ snapshot columns keep their existing Polars reader. Unsupported derivation
 shapes still report their capability limitation rather than claiming coverage.
 Related model names and field names come from captured metadata and governed
 business keys; this source reader has no model-specific branches.
+
+Source-read failures distinguish `SOURCE_PREPARATION_REVIEW_STALE`,
+`SOURCE_PREPARATION_EVIDENCE_INCOMPLETE`, and
+`SOURCE_PREPARATION_UNSUPPORTED`. A stale review directs the operator to review
+the combination again. An unavailable reader directs the operator to support.
+The Match data mutation receipt preserves that failure code and retains the
+saved working draft for recovery. Regression coverage is in
+[`test_standalone_join_values.py`](../../../tests/integration/artifacts/test_standalone_join_values.py)
+and [`test_standalone_join_mapping.py`](../../../tests/integration/web/test_standalone_join_mapping.py).
+
+When a Recipe recreates a standalone join between physical tables,
+`DerivedEntityWorkspaceService` reviews the fresh snapshots before publishing
+the preparation plan. That review uses the existing 25,000-row pairwise
+review limit and records fresh output and lineage hashes. Recipe reuse then
+uses the same source reader and bounded preparation path as authoring; the
+original workspace's review is never copied. The Odoo 19 and Odoo 20 reuse
+journey is covered by
+[`test_joined_recipe_preparation.py`](../../../tests/integration/web/test_joined_recipe_preparation.py).
 
 Relational components inside `target_identity` and `target_scope` use the same
 three origins. The guided identity form stores `identity_origin_*`,

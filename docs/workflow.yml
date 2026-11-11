@@ -553,6 +553,7 @@ stages:
       - src/impodo/application/workspace/mapping/value_match_choices.py::combined_value_choices
       - src/impodo/application/workspace/mapping/logical_source_values.py::LogicalSourceValues
       - src/impodo/adapters/duckdb/mapping_source_values.py::JoinedMappingSourceValues
+      - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::reviewed_exact_join_output
       - src/impodo/adapters/duckdb/grouped_exact_join_source.py::DuckDbGroupedExactJoinSource.project_values
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_key_tuples
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_key_tuples
@@ -670,6 +671,7 @@ stages:
       - tests/e2e/test_odoo_company.py
       - tests/e2e/test_mapping_company_entry.py
       - tests/integration/web/test_joined_value_matching.py
+      - tests/integration/web/test_standalone_join_mapping.py
       - tests/integration/web/test_blank_create_relationships.py
       - tests/domain/preparation/test_blank_create_relationships.py
       - tests/integration/web/test_joined_recipe_preparation.py
@@ -681,6 +683,7 @@ stages:
       - tests/e2e/test_many2one_blank_match.py
       - tests/e2e/test_value_match_visibility.py
       - tests/integration/artifacts/test_joined_mapping_values.py
+      - tests/integration/artifacts/test_standalone_join_values.py
       - tests/domain/workspace/test_combined_hierarchy.py
       - tests/integration/web/test_combined_hierarchy.py
       - tests/integration/web/test_identity_health_presenter.py

@@ -313,15 +313,19 @@ class DerivedEntityWorkspaceService:
         workspace_id: str,
         plan: DerivedEntityPlan,
     ) -> DerivedEntityPlan:
-        """Review every independent Recipe group before publishing any plan."""
+        """Review independent Recipe joins and groups before publishing a plan."""
 
         if plan.join_reviews:
             return plan
         groups: dict[str, list[ExactJoinRule]] = {}
+        standalone: list[ExactJoinRule] = []
         for rule in plan.rules:
-            if isinstance(rule, ExactJoinRule) and rule.group_id is not None:
-                groups.setdefault(rule.group_id, []).append(rule)
-        if not groups:
+            if isinstance(rule, ExactJoinRule):
+                if rule.group_id is None:
+                    standalone.append(rule)
+                else:
+                    groups.setdefault(rule.group_id, []).append(rule)
+        if not groups and not standalone:
             return plan
         reviews: list[SavedExactJoinReview] = []
         for group_id in sorted(groups):
@@ -329,6 +333,32 @@ class DerivedEntityWorkspaceService:
                 workspace_id, replace(plan, rules=tuple(groups[group_id])),
             )
             reviews.extend(reviewed.join_reviews)
+        if standalone:
+            selection, _current = self._join_context(workspace_id)
+            if plan.source_selection_hash != selection.content_hash:
+                raise WorkspaceError(
+                    "The source-preparation plan is stale; rebuild it from the frozen datasets"
+                )
+            physical_ids = {item.dataset_id for item in selection.datasets}
+            physical_joins = tuple(rule for rule in standalone if {
+                rule.left_dataset_id, rule.right_dataset_id,
+            }.issubset(physical_ids))
+            if physical_joins:
+                tables, snapshots = self._load_join_tables(workspace_id, selection)
+                evidence = tuple(ExactJoinInputSnapshotEvidence(
+                    item.dataset_id, item.logical_hash, item.parquet_sha256,
+                ) for item in snapshots)
+                for rule in sorted(physical_joins, key=lambda item: item.rule_id):
+                    review = self._review_join(rule, selection, None, tables)
+                    if not review.can_save:
+                        raise WorkspaceError(
+                            "The Recipe's combination cannot be applied: "
+                            + "; ".join(review.findings)
+                        )
+                    reviews.append(SavedExactJoinReview(
+                        rule.rule_id, content_hash(rule.to_dict()),
+                        selection.content_hash, evidence, review,
+                    ))
         return replace(plan, join_reviews=tuple(reviews))
 
     def _review_recipe_single_join_group(

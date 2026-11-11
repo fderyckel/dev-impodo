@@ -1,4 +1,4 @@
-"""Stream a qualified grouped exact join from immutable Parquet snapshots.
+"""Stream reviewed standalone and grouped joins from immutable snapshots.
 
 Every participating snapshot is projected once into a narrow temporary table.
 The final left-deep join reads only those narrow tables and is fetched in
@@ -28,7 +28,7 @@ from impodo.domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotContractError,
 )
-from impodo.domain.structural import structural_dataset_id
+from impodo.domain.structural import JoinKind, structural_dataset_id
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
@@ -74,11 +74,12 @@ class _ExecutionShape:
     keys_by_dataset: Mapping[str, tuple[str, ...]]
     key_value_types: tuple[str, ...]
     projections: tuple[_JoinProjection, ...]
+    join_kinds: tuple[JoinKind, ...]
     hierarchies: tuple[HierarchyConsumerBinding, ...] = ()
 
 
 class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
-    """Execute one bounded grouped join using one local DuckDB connection."""
+    """Execute a reviewed join plan using one local DuckDB connection."""
 
     def __init__(self, database: DuckDbWorkspaceDatabase) -> None:
         self._connection_factory = database.connection_factory
@@ -365,6 +366,7 @@ def _execution_shape(
         keys_by_dataset=keys_by_dataset,
         key_value_types=key_value_types,
         projections=projections,
+        join_kinds=tuple(rule.kind for rule in group.rules),
         hierarchies=hierarchies,
     )
 
@@ -464,14 +466,14 @@ def _joined_query(
     }
     primary_alias = aliases[shape.primary_dataset_id]
     joins = []
-    for dataset_id in shape.participant_ids[1:]:
+    for dataset_id, kind in zip(shape.participant_ids[1:], shape.join_kinds, strict=True):
         alias = aliases[dataset_id]
         condition = " AND ".join(
             f"{primary_alias}.join_key_{index} = {alias}.join_key_{index}"
             for index in range(1, len(shape.key_value_types) + 1)
         )
         joins.append(
-            f"LEFT JOIN {tables[dataset_id]} AS {alias} ON {condition}"
+            f"{kind.value} JOIN {tables[dataset_id]} AS {alias} ON {condition}"
         )
     source_rows = ", ".join(
         f"{aliases[dataset_id]}.source_row"
