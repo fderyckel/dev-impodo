@@ -146,7 +146,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 lambda c: ensure_migration_registry_schema(c, Path("registry.duckdb")),
                 MIGRATION_REGISTRY_GENERATION,
                 MIGRATION_REGISTRY_VERSION,
-                "e546d0a428ea0eb285bfbcb830f1dc02a44fa2ac15989b56fdd4e37c754d2bac",
+                "a9ce36f4b0b1e1814c95b046ef6dce636a2ac9ca0faa2bb7540757b6d78db89a",
             ),
             (
                 lambda c: initialize_data_version_store(c, data_version),
@@ -171,7 +171,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema,
                 SCHEMA_GENERATION,
                 SCHEMA_VERSION,
-                "bb78df7188d96958f5b497c56fdebb6fdab6204a34a9ddb96ab3e8b50fc05854",
+                "5540a3948027377729266860df2b8f104b04571537fa6b4124fa2d1e026f2f02",
             ),
         )
         for initialize, ensure, generation, version, fingerprint in stores:

@@ -28,10 +28,10 @@
     <section class="next-action-card {% if not correction.completed %}current{% endif %}">
       <div>
         <p class="eyebrow">Completed Odoo load</p>
-        <h2>{% if correction.completed %}Correction verified{% elif correction.successor_workspace_id %}Continue correcting the completed load{% else %}A verified load can be corrected safely{% endif %}</h2>
-        <p>The original load remains historical evidence. Impodo uses exact prior targets and applies only reviewed scalar field changes.</p>
+        <h2>{% if correction.completed %}Continued load verified{% elif correction.successor_workspace_id %}A working revision is available{% else %}Continue after this successful load{% endif %}</h2>
+        <p>Inspect the saved stages, continue editing with the same files, or save these rules as a Recipe.</p>
       </div>
-      <a class="button {% if correction.completed %}secondary{% else %}primary{% endif %}" href="/workspaces/{{ correction.completed_workspace_id }}/correction">{% if correction.completed %}View correction outcome{% elif correction.successor_workspace_id %}Continue correction{% else %}Correct this Odoo load{% endif %}</a>
+      <a class="button {% if correction.completed %}secondary{% else %}primary{% endif %}" href="/workspaces/{{ correction.completed_workspace_id }}/history/6">View saved load and continue</a>
     </section>
   {% endfor %}
 
@@ -136,6 +136,18 @@
         <p>A Recipe saves reusable preparation, matching, relationship, and checking rules. The data project continues to keep its data versions and workspaces; saving a Recipe does not copy or move them.</p>
       </div>
     </div>
+    {% if recipe_sources %}
+      <form method="get" action="/projects/{{ project.project_id }}#project-recipes-title">
+        <label>Rules to save
+          <select name="recipe_workspace">
+            {% for source in recipe_sources %}
+              <option value="{{ source.workspace_id }}" {% if recipe_source and source.workspace_id == recipe_source.workspace_id %}selected{% endif %}>{{ 'Rules from completed load' if source.state.value == 'CLOSED' else 'Current working rules' }} · {{ source.display_name }} · {{ source.created_at.strftime('%d %b %Y %H:%M') }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <button class="button secondary" type="submit">Review selected rules</button>
+      </form>
+    {% endif %}
     {% if recipes %}
       {% set revision_review = request.session.get('recipe_revision_review') %}
       <ol class="overview-stages">
@@ -152,8 +164,8 @@
                 <form method="post" action="/projects/{{ project.project_id }}/recipes">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                   <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
-                  <input type="hidden" name="data_version_id" value="{{ authoring_data_version.data_version_id }}">
-                  <input type="hidden" name="workspace_id" value="{{ authoring_workspace.workspace_id }}">
+                  <input type="hidden" name="data_version_id" value="{{ recipe_source.data_version_id }}">
+                  <input type="hidden" name="workspace_id" value="{{ recipe_source.workspace_id }}">
                   <input type="hidden" name="recipe_id" value="{{ recipe.recipe_id }}">
                   <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
                   <input type="hidden" name="display_name" value="{{ recipe.display_name }}">
@@ -177,8 +189,8 @@
       <form method="post" action="/projects/{{ project.project_id }}/recipes">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
-        <input type="hidden" name="data_version_id" value="{{ authoring_data_version.data_version_id }}">
-        <input type="hidden" name="workspace_id" value="{{ authoring_workspace.workspace_id }}">
+        <input type="hidden" name="data_version_id" value="{{ recipe_source.data_version_id }}">
+        <input type="hidden" name="workspace_id" value="{{ recipe_source.workspace_id }}">
         <input type="hidden" name="recipe_id" value="">
         <input type="hidden" name="expected_recipe_revision" value="">
         <label>Recipe name<input name="display_name" required maxlength="200"></label>

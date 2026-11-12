@@ -84,6 +84,15 @@ using its synthetic selected-path key. Preview and full staging call the same
 path evaluator, so a fixed parent, promoted root, deepest populated level,
 blank reference, quarantine, or block has one model-neutral meaning.
 
+An existing-parent hierarchy may prepend a portable Odoo path and use one to
+five source fields beneath it. Its versioned source binding carries the
+reuse-only prefix and company assignment into compiled plan v4. Staging emits
+symbolic rows for the complete ancestry; comparison enforces their read-only
+use. Shared existing ancestors retain explicit blank company scopes, while
+new source levels receive the selected company. The generated parent and
+company columns must remain in the governed record identity. Path components
+use an unambiguous key encoding for this new shape; older keys stay unchanged.
+
 Portable staging recursively forbids numeric Odoo record IDs. Decimal, date,
 datetime, null, and symbolic-reference values use canonical serialization.
 

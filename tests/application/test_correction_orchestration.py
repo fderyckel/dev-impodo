@@ -402,6 +402,7 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
 
         projections = Projections()
         prior_target = SimpleNamespace(
+            revision=1,
             connection_mode="REMOTE",
             base_url="https://odoo.example.test",
             database="fixture",
@@ -423,6 +424,9 @@ class CorrectionSuccessorServiceTests(unittest.TestCase):
         class Seeder:
             def __init__(self):
                 self.calls = []
+
+            def validate_origin(self, completed_workspace_id, *, actor):
+                pass
 
             def seed(self, completed_workspace_id, successor_workspace_id, **values):
                 self.calls.append((completed_workspace_id, successor_workspace_id))

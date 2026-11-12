@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
 import unittest
+from datetime import UTC, datetime
 from unittest.mock import patch
 from urllib.error import URLError
 
@@ -49,7 +49,7 @@ class Json2ConnectorTests(unittest.TestCase):
                               ("19.5a1", [19, 5, 0, "alpha", 1, ""]),
                               ("20.0-20261015", [20, 0, 0, "final", 0, ""])):
             with self.subTest(version=version):
-                connector = Json2ReadConnector(self.config(), transport=lambda *_: (
+                connector = Json2ReadConnector(self.config(), transport=lambda *_, version=version, info=info: (
                     200, {"version": version, "version_info": info},
                 ))
                 fingerprint = connector.get_target_fingerprint()
@@ -66,7 +66,7 @@ class Json2ConnectorTests(unittest.TestCase):
             with self.subTest(payload=payload):
                 calls = []
 
-                def transport(url, *_):
+                def transport(url, *_, calls=calls, payload=payload):
                     calls.append(url)
                     return 200, payload
 
@@ -109,7 +109,7 @@ class Json2ConnectorTests(unittest.TestCase):
                 self.config(context={"active_test": True, "lang": "fr_FR"})
             ),
             transport=transport,
-            now=lambda: datetime(2026, 7, 28, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 7, 28, tzinfo=UTC),
         )
         snapshot = connector.get_records(
             [RecordRequest("x.model", ("code",), (["active", "=", True],))]
@@ -203,7 +203,7 @@ class Json2ConnectorTests(unittest.TestCase):
         connector = Json2ReadConnector(
             self.config(),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         )
 
         identity = connector.probe_read_identity(
@@ -212,28 +212,28 @@ class Json2ConnectorTests(unittest.TestCase):
         rotated_identity = Json2ReadConnector(
             self.config(api_key="rotated-secret-token"),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_read_identity(("product.template", "res.partner"))
         bangkok_identity = Json2ReadConnector(
             self.config(context={"lang": "en_US", "tz": "Asia/Bangkok"}),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_read_identity(("product.template", "res.partner"))
         brussels_identity = Json2ReadConnector(
             self.config(context={"lang": "fr_BE", "tz": "Europe/Brussels"}),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_read_identity(("product.template", "res.partner"))
         archived_identity = Json2ReadConnector(
             self.config(context={"active_test": False}),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_read_identity(("product.template", "res.partner"))
         company_rows[:] = [{"id": 9}, {"id": 3}]
         changed_company_identity = Json2ReadConnector(
             self.config(),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_read_identity(("product.template", "res.partner"))
 
         self.assertRegex(identity.principal_hash, r"^sha256:[0-9a-f]{64}$")
@@ -349,7 +349,7 @@ class Json2ConnectorTests(unittest.TestCase):
         identity = Json2WriteIdentityConnector(
             self.config(api_key="write-only-secret"),
             transport=transport,
-            now=lambda: datetime(2026, 8, 12, tzinfo=timezone.utc),
+            now=lambda: datetime(2026, 8, 12, tzinfo=UTC),
         ).probe_write_identity(
             ("res.partner", "product.category"),
             ("res.partner",),
@@ -791,6 +791,7 @@ class Json2ConnectorTests(unittest.TestCase):
                 "get_company_access",
                 "check_company_references",
                 "get_model_metadata",
+                "linked_lookup_domain",
                 "get_records",
                 "probe_read_identity",
             },

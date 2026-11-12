@@ -465,26 +465,42 @@ still-unknown rows remain actionable reconciliation evidence.
 
 ## Browser projection boundary
 
-Only a verified Authoring load with a published protected correction origin
-may show **Correct completed load**. Publishing that origin closes the completed
-workspace. Its ordinary authoring routes redirect to the focused correction
-page, while a successor workspace remains the sole owner of corrected rules
-and prepared evidence.
+A completed workspace exposes saved stage views through
+`/workspaces/{workspace_id}/history/{stage}`. Historical GETs perform local,
+authorized reads and cannot create a successor, refresh Odoo, or run authoring
+setup. The selected immutable comparison identifies its workbook explicitly.
 
-Correction review keeps at most one active review or apply job per completed
-workspace and retains its safe progress projection across page reloads. If the
-submitted mapping still matches the completed mapping, review stops before
-Parquet preparation and before an Odoo read. Otherwise the existing native
-Polars preparation path reduces previous and corrected Parquet snapshots to
-sparse candidates before the exact-ID target read.
+**Continue editing** is a CSRF-protected command. It reuses the correction
+successor service over the same frozen DataVersion. Deterministic operation
+identities resume provisioning and preserve an existing draft. The target and
+company context remain bound to the preceding load. A fresh schema capture
+replaces historical schema authority before ordinary authoring resumes.
 
-The correction page may expose only grouped field and record counts,
-already-correct counts, bounded blocker explanations, and verified or
-needs-attention outcomes. Numeric Odoo IDs, business values, source-row
-numbers, semantic hashes, credentials, and encrypted artifact references stay
-outside browser state. Apply requires an explicit confirmation for the current
-record count; a refreshed plan or changed rule invalidates an older
-confirmation.
+A continuation uses submitted Stage 3 rules, current native prepared evidence,
+and explicit Stage 4 approval. Its Stage 5 review audits exact earlier targets.
+Added fields have no previous intent; removed fields produce no writes.
+Unchanged intent preserves independent Odoo changes. Divergent intent and
+current values block the plan. Shared blank, scalar, and relationship policies
+remain authoritative. Unsupported population or identity changes fail closed.
+
+The protected plan can retain audited observations as well as writable fields.
+Optional observation and review-label fields are absent from legacy hashes
+when unused. Authorized review pages show paginated business values and source
+rows; exact numeric Odoo IDs and encrypted evidence references remain protected.
+Relationship proposals show portable business references rather than IDs.
+
+A fresh exact-target comparison with no writable fields may publish a verified
+zero-write journal without write credentials or a fabricated confirmation.
+A plan with writes requires a new explicit confirmation, fresh write identity,
+pre-write reread, journal, and read-back. Running or uncertain attempts block
+another comparison or apply. Recipe Test, Production, and transfer authority
+are unchanged.
+
+After verification, a new protected origin retains the complete preceding
+record index, including records unchanged in the latest cycle. Its mapping and
+prepared evidence belong to the newly completed workspace. A failed origin
+publication does not change a verified Odoo outcome; the next explicit
+continuation retries publication from durable evidence without repeating writes.
 
 The review UI derives its explanation from the current immutable execution
 snapshot. It may show at most five ordered load groups, at most three prepared

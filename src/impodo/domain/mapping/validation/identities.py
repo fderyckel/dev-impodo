@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from impodo.domain.data_version.metadata import TYPE_COMPATIBILITY
+from impodo.domain.source_binding import DerivedSourceBinding
 
 from ..contracts import (
     DatasetMapping,
@@ -156,7 +157,15 @@ def _validate_identity_component(
                 target_field=target_field,
             )
         )
-    if explicit_scope_null and (
+    source = context.source_datasets[dataset.dataset_id].source
+    hierarchy_company = (
+        isinstance(source, DerivedSourceBinding) and source.hierarchy_parent is not None
+        and source.hierarchy_parent.company_field == target_field
+        and metadata.type == "many2one" and metadata.relation == "res.company" and not metadata.required
+        and component.null_policy is IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+        and component.resolver.origin is ResolverOrigin.TARGET_CATALOG
+    )
+    if explicit_scope_null and not hierarchy_company and (
         metadata.type != "many2one"
         or metadata.required
         or metadata.relation != dataset.target_model

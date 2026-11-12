@@ -1,0 +1,29 @@
+    <section class="readiness-cards comparison-cards" aria-label="Odoo comparison overview">
+      {% if not odoo_source %}
+      <a class="readiness-card ready{% if status_filter == 'create' %} selected{% endif %}" href="?step=results&amp;view=changes&amp;status=create#readiness-rows" {% if status_filter == 'create' %}aria-current="true"{% endif %}>
+        <span>New in Odoo</span>
+        <strong>{{ readiness.create_count }}</strong>
+        <small>Ready to create later</small>
+      </a>
+      {% endif %}
+      <a class="readiness-card ready{% if status_filter == 'update' %} selected{% endif %}" href="?step=results&amp;view=changes&amp;status=update#readiness-rows" {% if status_filter == 'update' %}aria-current="true"{% endif %}>
+        <span>{% if odoo_source %}Ready to update{% else %}Different from Odoo{% endif %}</span>
+        <strong>{{ readiness.update_count }}</strong>
+        <small>{% if odoo_source %}Safe for a later load{% else %}Prepared values differ{% endif %}</small>
+      </a>
+      <a class="readiness-card ready{% if status_filter == 'unchanged' %} selected{% endif %}" href="?step=results&amp;view=changes&amp;status=unchanged#readiness-rows" {% if status_filter == 'unchanged' %}aria-current="true"{% endif %}>
+        <span>Already matches</span>
+        <strong>{{ readiness.unchanged_count }}</strong>
+        <small>No change is needed</small>
+      </a>
+      <a class="readiness-card review{% if status_filter == 'attention' %} selected{% endif %}" href="?step=results&amp;view=attention&amp;status=attention#readiness-rows" {% if status_filter == 'attention' %}aria-current="true"{% endif %}>
+        <span>{% if odoo_source %}Needs refresh{% elif scope_accepted %}Original findings{% else %}Needs attention{% endif %}</span>
+        <strong>{{ readiness.attention_count }}</strong>
+        <small>{% if odoo_source %}Odoo changed since capture{% elif scope_accepted %}Before the set-aside decision{% else %}A decision or correction is needed{% endif %}</small>
+      </a>
+      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?step=results&amp;view=outside#records-outside-load" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
+        <span>Set aside</span>
+        <strong>{{ (quality.quarantined_count + quality.excluded_count if quality else 0) + (deferred_scope.preview.newly_set_aside_count if deferred_scope and deferred_scope.decision else 0) }}</strong>
+        <small>{% if deferred_scope and deferred_scope.decision %}Preparation and reviewed load scope{% else %}Not sent to comparison{% endif %}</small>
+      </a>
+    </section>

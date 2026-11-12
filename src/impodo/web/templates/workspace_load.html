@@ -69,6 +69,7 @@
       <div>
         <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load &middot; Check changes{% else %}Stage 6 of 6 &middot; Check changes{% endif %}</p>
         <h1>Check what will change in Odoo</h1>
+        {% if not preview.current_run and (preview.can_load or preview.can_complete_without_load) %}<p data-final-review-arrival>Final review complete. Check the proposed changes before loading. <a href="/workspaces/{{ workspace_id }}/summary?step=results">View saved comparison</a></p>{% endif %}
         <p>This is the exact create-and-update set from the latest completed comparison. Nothing is written from this page.</p>
       </div>
       {% if preview.current_run %}
@@ -494,7 +495,20 @@
               <a class="button primary" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download highlighted source workbook (.xlsx)</a>
             {% endif %}
           {% endif %}
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to final review</a>
+          {% if migration_workspace.state.value == 'CLOSED' %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/history/5">View saved review</a>
+            {% if migration_run.purpose.value == 'AUTHORING' %}
+              {% if not completion_warning %}
+                <form method="post" action="/projects/{{ migration_project.project_id }}/completed-loads/{{ workspace_id }}/continue">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ preview.current_run.run_id }}">
+                  <button class="button secondary" type="submit">Continue editing</button>
+                </form>
+              {% endif %}
+              <a class="button secondary" href="/projects/{{ migration_project.project_id }}?recipe_workspace={{ workspace_id }}#project-recipes-title">Save these rules as a Recipe</a>
+            {% endif %}
+          {% else %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=results">Back to final review</a>
+          {% endif %}
         </div>
       </section>
 

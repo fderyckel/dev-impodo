@@ -100,6 +100,10 @@ class CorrectionReview:
     def can_apply(self) -> bool:
         return bool(self.ready_fields) and not self.blockers
 
+    @property
+    def preserved_field_count(self) -> int:
+        return sum(item.decision.outcome is CorrectionFieldOutcome.PRESERVED_IN_ODOO for item in self.fields)
+
 
 def build_completed_load_target_index(
     snapshot: ExecutionSnapshot,
@@ -405,7 +409,14 @@ class CorrectionReviewService:
                     )
 
         for candidate, target, previous_key, corrected_key in candidate_keys:
-            if previous_key is None or corrected_key is None:
+            previous_blank = not candidate.previous_present or candidate.previous is None or (
+                isinstance(candidate.previous, tuple) and all(value is None for value in candidate.previous)
+            )
+            corrected_blank = candidate.corrected is None or (
+                isinstance(candidate.corrected, tuple)
+                and all(value is None for value in candidate.corrected)
+            )
+            if (previous_key is None and not previous_blank) or (corrected_key is None and not corrected_blank):
                 blockers.append(
                     _blocker(
                         "RELATIONSHIP_NOT_QUALIFIED",
@@ -414,9 +425,9 @@ class CorrectionReviewService:
                     )
                 )
                 continue
-            previous_id = cache[previous_key]
-            corrected_id = cache[corrected_key]
-            if not isinstance(previous_id, int) or not isinstance(corrected_id, int):
+            previous_id = None if previous_blank else cache[previous_key] if previous_key is not None else None
+            corrected_id = None if corrected_blank else cache[corrected_key] if corrected_key is not None else None
+            if (previous_id is not None and not isinstance(previous_id, int)) or (corrected_id is not None and not isinstance(corrected_id, int)):
                 blockers.append(
                     _blocker(
                         (
@@ -442,6 +453,9 @@ class CorrectionReviewService:
                         relationship_model=candidate.relationship_model,
                         relationship_key_fields=candidate.relationship_key_fields,
                         relationship_scope_fields=candidate.relationship_scope_fields,
+                        previous_present=candidate.previous_present,
+                        audit_unchanged=candidate.audit_unchanged,
+                        review_value=" / ".join(str(value) for value in candidate.corrected) if isinstance(candidate.corrected, tuple) else str(candidate.corrected or "Empty"),
                     ),
                     target,
                 )
@@ -574,13 +588,14 @@ class CorrectionPlanService:
         read_identity: OdooReadIdentity,
         created_by: ActorIdentity,
         created_at: datetime,
+        audited: bool = False,
     ) -> CorrectionPlan:
         """Create one deterministic protected plan without rehashing its inputs."""
 
         unsafe_outcomes = {CorrectionFieldOutcome.CONFLICT}
         if (
             review.blockers
-            or not review.ready_fields
+            or (not review.ready_fields and not audited)
             or review.target_hash != read_identity.target_hash
             or any(
                 item.decision.outcome in unsafe_outcomes for item in review.fields
@@ -590,7 +605,8 @@ class CorrectionPlanService:
                 "Correction review is not eligible for plan publication"
             )
         fields: list[CorrectionPlanField] = []
-        for reviewed in review.ready_fields:
+        observations: list[CorrectionPlanField] = []
+        for reviewed in review.fields if audited else review.ready_fields:
             target = reviewed.target
             candidate = reviewed.decision.candidate
             if (
@@ -601,7 +617,8 @@ class CorrectionPlanService:
                 raise CorrectionPlanError(
                     "Correction review field does not match its exact target"
                 )
-            fields.append(
+            destination = fields if reviewed.decision.writable else observations
+            destination.append(
                 CorrectionPlanField(
                     dataset=target.dataset,
                     source_row=target.source_row,
@@ -615,6 +632,8 @@ class CorrectionPlanService:
                     previous=candidate.previous,
                     current=reviewed.decision.current,
                     corrected=candidate.corrected,
+                    review_value=candidate.review_value,
+                    outcome=reviewed.decision.outcome.value if audited else "",
                 )
             )
         return CorrectionPlan.create(
@@ -631,6 +650,8 @@ class CorrectionPlanService:
             fields=fields,
             created_by=created_by,
             created_at=created_at,
+            observations=observations,
+            audited=audited,
         )
 
     @staticmethod

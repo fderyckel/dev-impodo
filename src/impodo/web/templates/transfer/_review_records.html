@@ -1,0 +1,83 @@
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Record-type write scope</p>
+          <h2>Fields and actions by Odoo model</h2>
+        </div>
+      </div>
+      {% for row in transfer_review_dataset_rows %}
+        <article class="dataset-card">
+          <div class="page-heading compact">
+            <div>
+              <h3>{{ row.dataset.model_label }}</h3>
+              <p>
+                {{ row.dataset.model }} &middot; Wave {{ row.dataset.wave }}
+                &middot; match by {{ row.dataset.key_field_label }}
+                ({{ row.dataset.key_field }})
+              </p>
+            </div>
+          </div>
+          <dl class="definition-list capture-summary">
+            <div>
+              <dt>Existing matches</dt>
+              <dd>{{ "{:,}".format(row.dataset.destination_existing_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Policy</dt>
+              <dd>{{ row.dataset.model_policy | replace('_', ' ') }}</dd>
+            </div>
+            <div>
+              <dt>Create</dt>
+              <dd>{{ "{:,}".format(row.dataset.destination_create_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Scalar fields if written</dt>
+              <dd>
+                {{ row.dataset.scalar_write_fields|join(', ') if row.dataset.scalar_write_fields else 'None' }}
+              </dd>
+            </div>
+            <div>
+              <dt>Relationship fields if written</dt>
+              <dd>
+                {{ row.dataset.relationship_write_fields|join(', ') if row.dataset.relationship_write_fields else 'None' }}
+              </dd>
+            </div>
+            <div>
+              <dt>Source fields put aside</dt>
+              <dd>{{ row.dataset.excluded_source_fields|join(', ') if row.dataset.excluded_source_fields else 'None' }}</dd>
+            </div>
+            <div>
+              <dt>Source records outside transfer</dt>
+              <dd>{{ "{:,}".format(row.dataset.excluded_source_record_count) }}</dd>
+            </div>
+            <div>
+              <dt>Create-only field providers</dt>
+              <dd>
+                {% if row.dataset.create_field_providers %}
+                  {% for field_name, provider in row.dataset.create_field_providers %}
+                    {{ field_name }}: {{ provider | replace('_', ' ') }}{% if not loop.last %}; {% endif %}
+                  {% endfor %}
+                {% else %}
+                  None
+                {% endif %}
+              </dd>
+            </div>
+          </dl>
+          {% for relation in row.relationships %}
+            <div class="notice">
+              <strong>{{ relation.field_label }} ({{ relation.field_name }})</strong>
+              {{ relation.operation }} {{ "{:,}".format(relation.source_link_count) }}
+              link(s) to {{ relation.related_model_label }} by
+              {{ relation.related_key_field }} &middot;
+              {% if relation.phase == 'post_create' %}
+                post-create pass
+              {% else %}
+                create/update pass
+              {% endif %}.
+              {% if relation.inverse_field %}
+                Inverse one2many: {{ relation.related_model }}.{{ relation.inverse_field }}.
+              {% endif %}
+            </div>
+          {% endfor %}
+        </article>
+      {% endfor %}
+

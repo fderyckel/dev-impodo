@@ -73,6 +73,9 @@ def write_polars_correction_candidates(
     corrected_snapshot: PreparedSnapshot,
     corrected_program: ColumnarTransformationProgram,
     destination: str | Path,
+    *,
+    allow_field_changes: bool = False,
+    audit_unchanged: bool = False,
 ) -> CorrectionCandidateArtifact:
     """Write sparse A-to-C differences without materializing source rows."""
 
@@ -98,18 +101,22 @@ def write_polars_correction_candidates(
     corrected_by_field = {
         item.target_field: item for item in prepared_intent_columns(corrected_program)
     }
-    if set(previous_by_field) != set(corrected_by_field):
+    if not allow_field_changes and set(previous_by_field) != set(corrected_by_field):
         raise CorrectionComparisonError(
             "Correction must preserve the writable target-field scope"
         )
-    fields = tuple(previous_by_field[name] for name in sorted(previous_by_field))
-    if not fields:
+    fields = tuple(
+        previous_by_field.get(name, corrected_by_field[name])
+        for name in sorted(corrected_by_field)
+    )
+    added_fields = frozenset(corrected_by_field.keys() - previous_by_field.keys())
+    if not fields and not allow_field_changes:
         raise CorrectionComparisonError(
             "Correction has no writable prepared fields to compare"
         )
     for field in fields:
         corrected = corrected_by_field[field.target_field]
-        if (
+        if field.target_field not in added_fields and (
             field.value_kind is not corrected.value_kind
             or field.value_type != corrected.value_type
             or len(field.value_aliases) != len(corrected.value_aliases)
@@ -126,11 +133,22 @@ def write_polars_correction_candidates(
     if target.is_symlink() or target.exists() or not target.parent.is_dir():
         raise CorrectionComparisonError("Correction candidate destination is invalid")
     target = target.resolve()
+    if not fields:
+        pl.DataFrame(schema={
+            SOURCE_ROW_COLUMN: pl.UInt64, _FIELD_INDEX_COLUMN: pl.UInt32,
+            _PREVIOUS_INVALID_COLUMN: pl.Boolean, _CORRECTED_INVALID_COLUMN: pl.Boolean,
+            _PAYLOAD_COLUMN: pl.String,
+        }).write_parquet(target)
+        return CorrectionCandidateArtifact(
+            target, corrected_program.dataset_name, corrected_program.target_model,
+            (), 0, (),
+        )
     previous_lazy = _intent_projection(
         previous_artifact,
         fields,
         prefix="previous",
         issue_alias=_PREVIOUS_INVALID_COLUMN,
+        missing_fields=added_fields,
     )
     corrected_fields = tuple(corrected_by_field[field.target_field] for field in fields)
     corrected_lazy = _intent_projection(
@@ -155,15 +173,20 @@ def write_polars_correction_candidates(
         payload_aliases.append(alias)
         previous_aliases = _projected_aliases("previous", index, previous)
         corrected_aliases = _projected_aliases("corrected", index, corrected)
-        equal = pl.lit(True)
+        equal = pl.lit(previous.target_field not in added_fields)
         for previous_alias, corrected_alias in zip(
             previous_aliases,
             corrected_aliases,
             strict=True,
         ):
             equal = equal & pl.col(previous_alias).eq_missing(pl.col(corrected_alias))
+        include = pl.lit(True) if audit_unchanged else ~equal
+        if corrected.null_policy == "ignore_source_null":
+            include = include & pl.any_horizontal(
+                pl.col(alias).is_not_null() for alias in corrected_aliases
+            )
         payload_expressions.append(
-            pl.when(~equal)
+            pl.when(include)
             .then(
                 pl.struct(
                     _intent_json_expression(previous_aliases, previous).alias(
@@ -172,6 +195,8 @@ def write_polars_correction_candidates(
                     _intent_json_expression(corrected_aliases, corrected).alias(
                         "corrected"
                     ),
+                    pl.lit(previous.target_field not in added_fields).alias("previous_present"),
+                    pl.lit(audit_unchanged).alias("audit_unchanged"),
                 ).struct.json_encode()
             )
             .otherwise(pl.lit(None, dtype=pl.String))
@@ -225,7 +250,7 @@ def write_polars_correction_candidates(
         path=target,
         dataset_name=previous_program.dataset_name,
         target_model=previous_program.target_model,
-        fields=fields,
+        fields=corrected_fields,
         candidate_count=sum(counts_by_index.values()),
         candidate_counts_by_field=counts_by_field,
     )
@@ -287,8 +312,13 @@ def iter_polars_correction_candidate_batches(
                         target_model=artifact.target_model,
                         target_field=field.target_field,
                         value_kind=field.value_kind,
-                        previous=_restore_intent(payload["previous"], field),
+                        previous=(
+                            _restore_intent(payload["previous"], field)
+                            if payload.get("previous_present", True) else None
+                        ),
                         corrected=_restore_intent(payload["corrected"], field),
+                        previous_present=payload.get("previous_present", True) is True,
+                        audit_unchanged=payload.get("audit_unchanged", False) is True,
                         relationship_model=field.relationship_model,
                         relationship_key_fields=field.relationship_key_fields,
                         relationship_scope_fields=field.relationship_scope_fields,
@@ -337,6 +367,7 @@ def _intent_projection(
     *,
     prefix: str,
     issue_alias: str,
+    missing_fields: frozenset[str] = frozenset(),
 ) -> pl.LazyFrame:
     expressions: list[pl.Expr] = [pl.col(SOURCE_ROW_COLUMN)]
     for index, field in enumerate(fields):
@@ -347,8 +378,8 @@ def _intent_projection(
                 strict=True,
             )
         ):
-            value = pl.col(alias)
-            if component_index == 0 and field.value_mappings:
+            value = pl.lit(None) if field.target_field in missing_fields else pl.col(alias)
+            if component_index == 0 and field.value_mappings and field.target_field not in missing_fields:
                 value = value.replace_strict(
                     [item[0] for item in field.value_mappings],
                     [item[1] for item in field.value_mappings],
@@ -400,7 +431,13 @@ def _read_payload(value: str) -> Mapping[str, object]:
         raise CorrectionComparisonError(
             "Correction candidate payload is invalid"
         ) from error
-    if not isinstance(payload, dict) or set(payload) != {"previous", "corrected"}:
+    if (
+        not isinstance(payload, dict)
+        or not {"previous", "corrected"}.issubset(payload)
+        or set(payload) - {"previous", "corrected", "previous_present", "audit_unchanged"}
+        or type(payload.get("previous_present", True)) is not bool
+        or type(payload.get("audit_unchanged", False)) is not bool
+    ):
         raise CorrectionComparisonError("Correction candidate payload is invalid")
     return payload
 

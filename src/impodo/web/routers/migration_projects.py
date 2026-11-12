@@ -461,6 +461,26 @@ def _render_project_overview(
         project_id,
         actor=identity.actor,
     )
+    saved_workspace_ids = {item.completed_workspace_id for item in correction_journeys}
+    saved_workspace_ids.update(
+        item.successor_workspace_id for item in correction_journeys
+        if item.completed and item.successor_workspace_id is not None
+    )
+    recipe_sources = tuple(sorted(
+        (item for item in workspaces
+         if item.recipe_application_id is None
+         and data_version_by_id[item.data_version_id].purpose is DataVersionPurpose.AUTHORING
+         and (item.state is MigrationWorkspaceState.OPEN or item.workspace_id in saved_workspace_ids)),
+        key=lambda item: item.created_at, reverse=True,
+    ))
+    selected_recipe_workspace = request.query_params.get("recipe_workspace", "")
+    recipe_source = next(
+        (item for item in recipe_sources if item.workspace_id == selected_recipe_workspace),
+        None,
+    ) if selected_recipe_workspace else authoring_workspace or next(iter(recipe_sources), None)
+    if selected_recipe_workspace and recipe_source is None:
+        error = "Choose an eligible rules source in this data project."
+        status_code = 422
     authoring_data_version = (
         next(
             (
@@ -475,17 +495,17 @@ def _render_project_overview(
     )
     recipe_draft = None
     recipe_recovery = None
-    if authoring_workspace is not None and authoring_data_version is not None:
+    if recipe_source is not None:
         recipe_draft = context.recipe_publication.draft(
             project_id=project_id,
-            data_version_id=authoring_data_version.data_version_id,
-            workspace_id=authoring_workspace.workspace_id,
+            data_version_id=recipe_source.data_version_id,
+            workspace_id=recipe_source.workspace_id,
             actor=identity.actor,
         )
         if recipe_draft.issues:
             recipe_recovery = _recipe_recovery_view(
                 recipe_draft.issues[0],
-                authoring_workspace.workspace_id,
+                recipe_source.workspace_id,
             )
     return _render(
         request,
@@ -511,6 +531,8 @@ def _render_project_overview(
         authoring_workspace=authoring_workspace,
         authoring_data_version=authoring_data_version,
         recipe_draft=recipe_draft,
+        recipe_sources=recipe_sources,
+        recipe_source=recipe_source,
         recipe_recovery=recipe_recovery,
         correction_journeys=correction_journeys,
         publication_operation_id=str(uuid4()),

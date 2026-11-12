@@ -1,0 +1,32 @@
+    {% if load_preview and (load_preview.can_load or load_preview.can_complete_without_load or load_preview.current_run) %}
+      <section class="next-action-card ready" aria-labelledby="final-review-complete-title" data-final-review-transition>
+        <div>
+          <p class="eyebrow">Final review complete</p>
+          {% if load_preview.current_run %}
+            <h2 id="final-review-complete-title">The Odoo load outcome is saved</h2>
+            <p>Continue to the separate verification result. This reviewed load cannot be submitted again.</p>
+          {% else %}
+            <h2 id="final-review-complete-title">Continue to Load into Odoo</h2>
+            <p>
+              {{ load_preview.state.summary.create_count }} new &middot;
+              {{ load_preview.state.summary.update_count }} changed{% if deferred_scope and deferred_scope.decision %} &middot;
+              {{ deferred_scope.preview.newly_set_aside_count }} set aside{% else %} &middot;
+              {{ readiness.attention_count }} needing attention{% endif %}.
+              The next page is read-only; nothing will be written yet.
+            </p>
+          {% endif %}
+        </div>
+        <div class="next-action-buttons">
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/load">{% if load_preview.current_run %}View verification result{% else %}Continue to Load into Odoo{% endif %}</a>
+          {% if deferred_scope and deferred_scope.decision %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Review set-aside decision</a>{% endif %}
+          
+          {% if local_odoo_recovery_needed %}
+            {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
+          {% elif comparison_recovery_needed %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare#comparison-recovery">Resolve Odoo check</a>
+          {% else %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare">Compare with Odoo again</a>
+          {% endif %}
+        </div>
+      </section>
+    {% endif %}

@@ -6,7 +6,10 @@ from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import _read_databases
-from impodo.domain.mapping.contracts import MAPPING_CONTRACT_VERSION, RelationshipValueSource
+from impodo.domain.mapping.contracts import (
+    MAPPING_CONTRACT_VERSION,
+    RelationshipValueSource,
+)
 from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.models import OdooReadIdentity
@@ -64,16 +67,23 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
                     company_hash = selected.odoo_company.context_hash
                     self.assertNotEqual(schema.read_context_hash, company_hash)
                     events = []
+                    expected_company = SimpleNamespace(context_hash=company_hash)
 
-                    def read_schema(state, _credential_or_profile, *_models):
+                    def read_schema(
+                        state, _credential_or_profile, *_models,
+                        expected_company=expected_company, events=events, metadata=metadata,
+                    ):
                         self.assertFalse(getattr(_read_databases, "connections", None))
-                        self.assertEqual(state.odoo_company.context_hash, company_hash)
+                        self.assertEqual(state.odoo_company.context_hash, expected_company.context_hash)
                         events.append("fields")
                         return metadata
 
-                    def read_company(state, metadata_requests, record_requests):
+                    def read_company(
+                        state, metadata_requests, record_requests, *,
+                        expected_company=expected_company, events=events, schema=schema,
+                    ):
                         self.assertFalse(getattr(_read_databases, "connections", None))
-                        self.assertEqual(state.odoo_company.context_hash, company_hash)
+                        self.assertEqual(state.odoo_company.context_hash, expected_company.context_hash)
                         self.assertEqual(metadata_requests[0].model, "res.company")
                         self.assertEqual(record_requests[0].domain, (("name", "=", "Example"),))
                         events.append("choices")
@@ -114,6 +124,7 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
                                 selection=OdooCompanySelection(schema.connection_target_hash, 106, "Other"),
                             )
                             company_hash = next_company.odoo_company.context_hash
+                            expected_company.context_hash = company_hash
                             probe.return_value = replace(
                                 identity, context_hash=company_hash,
                                 permission_hash="sha256:" + "8" * 64,
@@ -263,7 +274,7 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
         self,
     ):
         context = self.app.state.context
-        workspace_id, dataset, _key, schema = (
+        workspace_id, _dataset, _key, schema = (
             fixtures.AccountCompanySupportingTests.account_workspace(
                 self, "20.0", OdooConnectionMode.LOCAL
             )

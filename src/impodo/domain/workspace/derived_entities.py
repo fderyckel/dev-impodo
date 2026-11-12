@@ -27,6 +27,7 @@ from hashlib import sha256
 from typing import Protocol, TypedDict
 from uuid import NAMESPACE_URL, UUID, uuid5
 
+from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.source_binding import DerivedSourceBinding, require_file_source
 from impodo.domain.structural import (
     ExactJoinReview,
@@ -44,8 +45,8 @@ from impodo.domain.workspace.contracts import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 
-DERIVED_ENTITY_CONTRACT_VERSION = 8
-_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5, 6, 7, 8})
+DERIVED_ENTITY_CONTRACT_VERSION = 9
+_SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS = frozenset({4, 5, 6, 7, 8, 9})
 _DATASET_NAME = re.compile(r"^[a-z][a-z0-9_]{0,62}$")
 _EXTERNAL_ID_NAMESPACE = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 _TECHNICAL_NAME = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -213,6 +214,7 @@ class HierarchicalLookupRule:
     all_blank: HierarchyValuePolicy = HierarchyValuePolicy(
         mode="emit_null_reference"
     )
+    existing_parent: HierarchyParentPolicy | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -235,8 +237,14 @@ class HierarchicalLookupRule:
             _validated_column_key(value, "Hierarchy level")
             for value in self.source_level_column_keys
         )
-        if not 2 <= len(source_keys) <= 5:
+        if not (1 if self.existing_parent and self.existing_parent.fixed_path else 2) <= len(source_keys) <= 5:
             raise ValueError("Choose between two and five hierarchy fields")
+        if self.existing_parent is not None and self.existing_parent.existing_source_levels > len(source_keys):
+            raise ValueError("The existing source levels exceed the selected hierarchy fields")
+        if self.existing_parent is not None and self.existing_parent.name_field != self.target_name_field:
+            raise ValueError("The checked Odoo hierarchy name field changed; find the existing parents again")
+        if self.existing_parent is not None and self.missing_parent.mode == "promote":
+            raise ValueError("Existing hierarchy levels cannot be promoted; correct or set aside incomplete paths")
         if len(set(source_keys)) != len(source_keys):
             raise ValueError("Each hierarchy level must use a different field")
         object.__setattr__(self, "source_level_column_keys", source_keys)
@@ -490,6 +498,11 @@ class DerivedEntityPlan:
     def __post_init__(self) -> None:
         if self.contract_version not in _SUPPORTED_DERIVED_ENTITY_CONTRACT_VERSIONS:
             raise ValueError("Source-preparation plan contract version is unsupported")
+        if self.contract_version < 9 and any(
+            isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None
+            for rule in self.rules
+        ):
+            raise ValueError("Existing hierarchy parents require source-preparation contract v9")
         if self.contract_version < 6 and self.dataset_uses:
             raise ValueError(
                 "Source dataset-use policies require source-preparation contract v6"
@@ -613,6 +626,8 @@ class DerivedEntityCandidate:
     aliases: tuple[str, ...]
     sampled_source_row_count: int
     requires_alias_review: bool
+    path_depth: int = 0
+    company_name: str | None = None
 
     @property
     def source_row_count(self) -> int:
@@ -796,6 +811,7 @@ class DerivedDatasetLink:
     target_model: str
     target_name_field: str
     source_level_column_keys: tuple[str, ...] = ()
+    company_column_key: str | None = None
 
     @property
     def hierarchical(self) -> bool:
@@ -971,7 +987,7 @@ def _preview_hierarchical_entities(
             DerivedEntityCandidate(
                 entity_id=entity_id,
                 odoo_external_id=external_id,
-                canonical_key=" / ".join(key_path),
+                canonical_key=hierarchy_path_key(rule, key_path),
                 name=str(entry["name"]),
                 parent_entity_id=(
                     _identifiers(rule, parent_path)[0] if parent_path else None
@@ -979,6 +995,8 @@ def _preview_hierarchical_entities(
                 aliases=aliases,
                 sampled_source_row_count=entry["count"],
                 requires_alias_review=len(aliases) > 1,
+                path_depth=len(key_path),
+                company_name=rule.existing_parent.company_for_depth(len(key_path)) if rule.existing_parent is not None else None,
             )
         )
 
@@ -1005,7 +1023,7 @@ def _preview_hierarchical_entities(
         candidates=tuple(
             sorted(
                 candidates,
-                key=lambda item: (item.canonical_key.count(" / "), item.canonical_key),
+                key=lambda item: (item.path_depth, item.canonical_key),
             )
         ),
         fixed_parent_sample_rows=outcome_counts.get("fixed_parent", 0),
@@ -1038,6 +1056,8 @@ def evaluate_hierarchy_path(
     if not any(normalized):
         if rule.all_blank.mode == "fixed":
             display = (_fixed_policy_value(rule.all_blank, "All-blank"),)
+            if rule.existing_parent is not None:
+                display = (*rule.existing_parent.fixed_path, *display)
             return HierarchyPathEvaluation(
                 display_parts=display,
                 canonical_parts=tuple(item.casefold() for item in display),
@@ -1091,6 +1111,8 @@ def evaluate_hierarchy_path(
             outcomes.append("promote")
 
     display_parts = tuple(str(value) for value in working if value is not None)
+    if rule.existing_parent is not None:
+        display_parts = (*rule.existing_parent.fixed_path, *display_parts)
     return HierarchyPathEvaluation(
         display_parts=display_parts,
         canonical_parts=tuple(item.casefold() for item in display_parts),
@@ -1384,6 +1406,11 @@ def mapping_source_selection(
                         candidate_type="string",
                     )
                 )
+            if link.company_column_key is not None:
+                columns.append(SourceDatasetColumn(
+                    ordinal=len(columns) + 1, source_name="Company for this hierarchy record",
+                    stable_key=link.company_column_key, candidate_type="string",
+                ))
             effective.append(
                 replace(
                     dataset,
@@ -1393,6 +1420,7 @@ def mapping_source_selection(
                         rule_hash=_content_hash(_rule_payload(lookup_rule)),
                         input_dataset_ids=(dataset.dataset_id,),
                         data_hash=dataset.source_evidence_hash,
+                        hierarchy_parent=lookup_rule.existing_parent if isinstance(lookup_rule, HierarchicalLookupRule) else None,
                     ),
                     row_count=max(
                         preview.full_distinct_count,
@@ -1653,7 +1681,7 @@ def hierarchy_consumer_values(
     )
     return {
         binding.link.source_column_key: (
-            " / ".join(evaluation.canonical_parts)
+            hierarchy_path_key(binding.rule, evaluation.canonical_parts)
             if evaluation is not None and evaluation.has_path else None
         ),
         binding.presence_key: source_values is not None,
@@ -1666,6 +1694,13 @@ def hierarchy_consumer_values(
             )
         },
     }
+
+
+def hierarchy_path_key(rule: LookupRule, path: tuple[str, ...]) -> str:
+    """Keep anchored path components unambiguous while preserving legacy keys."""
+    if isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None:
+        return _canonical_json(path)
+    return " / ".join(path)
 
 
 def derived_mapping_samples(
@@ -1682,6 +1717,8 @@ def derived_mapping_samples(
         link.canonical_key_column_key: tuple(item.canonical_key for item in candidates),
         link.name_column_key: tuple(item.name for item in candidates),
     }
+    if link.company_column_key is not None:
+        result[link.company_column_key] = tuple(item.company_name for item in candidates)
     if link.parent_key_column_key is not None:
         result[link.parent_key_column_key] = tuple(
             canonical_by_entity.get(item.parent_entity_id)
@@ -1896,13 +1933,17 @@ def _identifiers(
     rule: LookupRule,
     canonical_path: tuple[str, ...],
 ) -> tuple[str, str]:
-    identity_payload = _canonical_json(
-        {
-            "namespace": rule.external_id_namespace,
-            "model": rule.target_model,
-            "canonical_path": canonical_path,
-        }
-    )
+    identity_values: dict[str, object] = {
+        "namespace": rule.external_id_namespace,
+        "model": rule.target_model,
+        "canonical_path": canonical_path,
+    }
+    if isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None:
+        identity_values["hierarchy_parent_field"] = rule.existing_parent.parent_field
+        identity_values["hierarchy_name_field"] = rule.target_name_field
+        if rule.existing_parent.company_field is not None:
+            identity_values["path_companies"] = tuple(rule.existing_parent.company_for_depth(depth) for depth in range(1, len(canonical_path) + 1))
+    identity_payload = _canonical_json(identity_values)
     identity = uuid5(NAMESPACE_URL, f"urn:impodo:derived:{identity_payload}")
     model_token = re.sub(r"[^a-z0-9_]+", "_", rule.target_model.casefold()).strip("_")
     return (
@@ -1950,11 +1991,12 @@ def _derived_dataset_link(
         source_level_column_keys=(
             rule.source_level_column_keys if hierarchical else ()
         ),
+        company_column_key=(f"{prefix}:company" if hierarchical and rule.existing_parent is not None and rule.existing_parent.company_field is not None else None),
     )
 
 
 def _derived_dataset_identity(rule: LookupRule) -> UUID:
-    source_identity = (
+    source_identity: dict[str, object] = (
         {"source_level_column_keys": rule.source_level_column_keys}
         if isinstance(rule, HierarchicalLookupRule)
         else {
@@ -1962,6 +2004,8 @@ def _derived_dataset_identity(rule: LookupRule) -> UUID:
             "parent_separator": rule.parent_separator,
         }
     )
+    if isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None:
+        source_identity["existing_parent"] = rule.existing_parent.to_dict()
     payload = _canonical_json(
         {
             "output_dataset_name": rule.output_dataset_name,
@@ -2019,6 +2063,8 @@ def _rule_payload(
         kind = "lookup"
     elif isinstance(rule, HierarchicalLookupRule):
         kind = "hierarchical_lookup"
+        if rule.existing_parent is None:
+            payload.pop("existing_parent", None)
     elif isinstance(rule, RelatedDatasetRule):
         kind = "parent_child"
     elif isinstance(rule, ExactJoinRule):
@@ -2113,6 +2159,7 @@ def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
                 values,
                 "source_level_column_keys",
             ),
+            existing_parent=HierarchyParentPolicy.from_dict(values["existing_parent"]) if values.get("existing_parent") is not None else None,
             target_model=_required_string(values, "target_model"),
             target_name_field=_required_string(values, "target_name_field"),
             external_id_namespace=_required_string(

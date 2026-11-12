@@ -1,0 +1,26 @@
+{% if resolution and resolution.status == 'REVIEW_REQUIRED' %}
+  <section class="next-action-card review">
+    <div><p class="eyebrow">Next action · Stage 4</p><h2>Review possible duplicates</h2><p>Confirm whether similar records are the same before the prepared-data checks can continue.</p></div>
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/resolution">Review possible duplicates</a>
+  </section>
+{% elif normalization %}
+  <section class="next-action-card {{ 'ready' if normalization.frozen else 'review' }}">
+    <div>
+      <p class="eyebrow">Next action</p>
+      <h2>{{ 'Prepared data approved' if normalization.frozen else 'Review what Impodo prepared' }}</h2>
+      <p>{{ 'These exact prepared records are available for the Odoo comparison.' if normalization.frozen else 'Review and approve your prepared records in Stage 4 before comparing them with Odoo.' }}</p>
+    </div>
+    <div class="next-action-buttons">
+      {% if normalization.frozen %}<a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=compare">Continue to comparison</a>{% endif %}
+      <a class="button {{ 'secondary' if normalization.frozen else 'primary' }}" href="/workspaces/{{ workspace_id }}/normalization">{{ 'View approved data' if normalization.frozen else 'Review prepared data' }}</a>
+    </div>
+  </section>
+{% else %}
+  {% include "final_review/_unprepared.html" %}
+{% endif %}
+{% include "_workflow_issue_summary.html" %}
+{% if quality %}
+  {% include "final_review/_quality_cards.html" %}
+  {% include "final_review/_quality_rows.html" %}
+{% endif %}
+{% include "final_review/_prepared_evidence.html" %}

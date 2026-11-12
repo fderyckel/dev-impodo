@@ -7,9 +7,11 @@ to browser projections.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Protocol
 
+from impodo.application.continuation_publication import publish_continued_load
 from impodo.application.correction_execution import (
     CorrectionExecutionResult,
     CorrectionExecutionService,
@@ -42,12 +44,12 @@ from impodo.domain.correction import (
 from impodo.domain.correction_origin import (
     CorrectionOriginError,
 )
-from impodo.domain.execution.models import ExecutionRun
+from impodo.domain.execution.models import ExecutionRun, ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import OdooReadbackReader
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
 from impodo.domain.odoo.contracts import RecordSnapshot
 from impodo.domain.prepared_snapshot import PreparedSnapshot
-from impodo.domain.reconciliation import ReconciliationRun
+from impodo.domain.reconciliation import ReconciliationRun, ReconciliationRunStatus
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import OdooWriteIdentity
 
@@ -192,6 +194,15 @@ class CorrectionWorkflowService:
                 self._target_index(current),
             )
         workspace = self.workspaces.get(workspace_id, actor=actor)
+        parent = self.bindings.get_for_successor_workspace(workspace_id)
+        if parent is not None and parent.current_plan is not None:
+            plan = self.current_plan(parent.completed_workspace_id)
+            execution = self.executions.get_current_run(workspace_id)
+            reconciliation = self.reconciliations.get_current(workspace_id)
+            if plan is None or execution is None or reconciliation is None:
+                raise CorrectionOriginError("The saved continuation evidence is incomplete.")
+            self._publish_next_origin(plan, CorrectionExecutionResult(execution, reconciliation, parent), actor=actor)
+            return self.publish_completed_load(workspace_id, actor=actor)
         run = self.runs.get(workspace.migration_run_id, actor=actor)
         mapping = self.mappings.get_mapping_revision(workspace_id)
         prepared = self.preparations.current_prepared_snapshots(workspace_id)
@@ -264,6 +275,8 @@ class CorrectionWorkflowService:
         actor: Actor,
         request_id: str,
     ) -> CorrectionSuccessor:
+        if self.bindings.get_for_completed_workspace(completed_workspace_id) is None:
+            self.publish_completed_load(completed_workspace_id, actor=actor)
         return self.successors.start(
             completed_workspace_id,
             actor=actor,
@@ -276,14 +289,25 @@ class CorrectionWorkflowService:
         *,
         actor: Actor,
         review_request_id: str,
+        audit_unchanged: bool = False,
     ) -> tuple[CorrectionReview, CorrectionPlan | None, CorrectionBinding]:
         binding = self._binding(completed_workspace_id)
-        return self.reviewer.review(
+        self._require_settled(binding, actor=actor)
+        result = self.reviewer.review(
             self._origin(binding),
             self._target_index(binding),
             actor=actor,
             review_request_id=review_request_id,
+            audit_unchanged=audit_unchanged,
         )
+        if audit_unchanged and result[1] is not None and not result[1].fields:
+            completed = self.executor.complete_no_changes(
+                completed_workspace_id, result[1],
+                target_database=self.successors.workspace_states.repository.get(result[1].workspace_id).odoo_database,
+                actor=actor,
+            )
+            self._try_publish_next_origin(result[1], completed, actor=actor)
+        return result
 
     def current_plan(self, completed_workspace_id: str) -> CorrectionPlan | None:
         binding = self._binding(completed_workspace_id)
@@ -311,6 +335,7 @@ class CorrectionWorkflowService:
         write_identity: OdooWriteIdentity,
         actor: Actor,
     ) -> tuple[CorrectionConfirmation, CorrectionBinding]:
+        self._require_settled(self._binding(completed_workspace_id), actor=actor)
         plan = self.current_plan(completed_workspace_id)
         if plan is None:
             raise CorrectionOriginError("Review the correction before applying it")
@@ -334,11 +359,12 @@ class CorrectionWorkflowService:
         writer: OdooWriteExecutor,
         actor: Actor,
     ) -> CorrectionExecutionResult:
+        self._require_settled(self._binding(completed_workspace_id), actor=actor)
         plan = self.current_plan(completed_workspace_id)
         confirmation = self.current_confirmation(completed_workspace_id)
         if plan is None or confirmation is None:
             raise CorrectionOriginError("Correction confirmation is missing")
-        return self.executor.execute(
+        result = self.executor.execute(
             completed_workspace_id,
             plan,
             confirmation,
@@ -349,6 +375,34 @@ class CorrectionWorkflowService:
             writer=writer,
             actor=actor,
         )
+        if result.reconciliation.status is ReconciliationRunStatus.VERIFIED:
+            self._try_publish_next_origin(plan, result, actor=actor)
+        return result
+
+    def _publish_next_origin(self, plan: CorrectionPlan, result: CorrectionExecutionResult, *, actor: Actor) -> None:
+        if self.bindings.get_for_completed_workspace(plan.workspace_id) is not None:
+            return
+        mapping = self.mappings.get_mapping_revision(plan.workspace_id)
+        if mapping is None:
+            raise CorrectionOriginError("The completed continuation mapping is missing.")
+        publish_continued_load(
+                self.origin_publisher, result.binding,
+                self._origin(result.binding), self._target_index(result.binding),
+                run=self.runs.get(plan.successor_migration_run_id, actor=actor),
+                workspace=self.workspaces.get(plan.workspace_id, actor=actor),
+                mapping=mapping,
+                prepared=self.preparations.current_prepared_snapshots(plan.workspace_id),
+                execution=result.execution, reconciliation=result.reconciliation,
+                plan=plan, actor=actor,
+        )
+
+    def _try_publish_next_origin(self, plan: CorrectionPlan, result: CorrectionExecutionResult, *, actor: Actor) -> None:
+        try:
+            self._publish_next_origin(plan, result, actor=actor)
+        except (CorrectionOriginError, ValueError, OSError):
+            # Verification is durable already. A later explicit continuation
+            # retries publication from that evidence without repeating writes.
+            logging.getLogger(__name__).warning("Verified continuation origin could not be published", exc_info=True)
 
     def _view(
         self,
@@ -377,6 +431,16 @@ class CorrectionWorkflowService:
             completed=completed,
             plan_summary=plan.public_summary() if plan is not None else None,
         )
+
+    def _require_settled(self, binding: CorrectionBinding, *, actor: Actor) -> None:
+        if binding.successor_workspace_id is None:
+            return
+        workspace = self.workspaces.get(binding.successor_workspace_id, actor=actor)
+        if workspace.state.value == "CLOSED":
+            raise CorrectionOriginError("This completed revision is saved. Continue editing to create another working revision.")
+        execution = self.executions.get_current_run(binding.successor_workspace_id)
+        if execution is not None and execution.status in {ExecutionRunStatus.RUNNING, ExecutionRunStatus.OUTCOME_UNKNOWN}:
+            raise CorrectionOriginError("The earlier load is running or its outcome is uncertain. Resolve that saved load before comparing or loading again.")
 
     def _binding(self, completed_workspace_id: str) -> CorrectionBinding:
         binding = self.bindings.get_for_completed_workspace(completed_workspace_id)

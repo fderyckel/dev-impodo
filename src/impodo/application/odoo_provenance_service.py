@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import os
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -115,6 +115,7 @@ class OdooProvenanceService:
         authorization: WorkspaceAccessService,
         provenance_codec: OdooProvenanceCodec,
         comparison_codec: OdooComparisonCodec,
+        *, retained_data_version: Callable[[str], bool] | None = None,
     ) -> None:
         self._workspaces = workspaces
         self._selections = selections
@@ -123,6 +124,7 @@ class OdooProvenanceService:
         self._authorization = authorization
         self._provenance_codec = provenance_codec
         self._comparison_codec = comparison_codec
+        self.retained_data_version = retained_data_version
 
     def prepare_capture_origins(
         self,
@@ -298,7 +300,10 @@ class OdooProvenanceService:
         current_time = now or datetime.now(UTC)
         if current_time.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
-        if manifest.retention_until <= current_time:
+        if manifest.retention_until <= current_time and not (
+            self.retained_data_version is not None
+            and self.retained_data_version(context.data_version_id)
+        ):
             raise WorkspaceError("Protected Odoo provenance has expired")
         encrypted = self._provenance.read_encrypted(workspace_id, manifest)
         return self._provenance_codec.decode_capture(

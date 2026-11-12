@@ -26,13 +26,16 @@
     {% if pending_preview.candidates %}
       <div class="table-scroll">
         <table class="data-table">
-          <thead><tr><th>Related record</th><th>Complete path key</th><th>Parent record</th><th class="source-review-number">Sample rows</th></tr></thead>
+          <thead><tr><th>Related record</th><th>Complete path</th><th>Parent record</th>{% if pending_rule.existing_parent and pending_rule.existing_parent.company_field %}<th>Company</th>{% endif %}<th>Planned use</th><th class="source-review-number">Sample rows</th></tr></thead>
           <tbody>
             {% for candidate in pending_preview.candidates %}
               <tr>
                 <th>{{ candidate.name }}</th>
-                <td><code>{{ candidate.canonical_key }}</code></td>
-                <td><code>{{ candidate.parent_entity_id or "Top level" }}</code></td>
+                <td>{{ candidate.aliases[0] if candidate.aliases else candidate.canonical_key }}</td>
+                {% set parent_candidate = pending_preview.candidates|selectattr('entity_id', 'equalto', candidate.parent_entity_id)|first %}
+                <td>{{ parent_candidate.aliases[0] if parent_candidate and parent_candidate.aliases else "Top level" }}</td>
+                {% if pending_rule.existing_parent and pending_rule.existing_parent.company_field %}<td>{{ candidate.company_name or "Shared" }}</td>{% endif %}
+                <td>{% if pending_rule.existing_parent and candidate.path_depth <= pending_rule.existing_parent.reference_depth %}Use existing — no changes{% else %}Included for import{% endif %}</td>
                 <td class="source-review-number">{{ candidate.sampled_source_row_count }}</td>
               </tr>
             {% endfor %}
@@ -55,6 +58,12 @@
       <input type="hidden" name="missing_leaf" value="{{ pending_rule.missing_leaf }}">
       <input type="hidden" name="all_blank_mode" value="{{ pending_rule.all_blank.mode }}">
       <input type="hidden" name="all_blank_value" value="{{ pending_rule.all_blank.value or '' }}">
+      {% if pending_rule.existing_parent %}
+        <input type="hidden" name="existing_source_levels" value="{{ pending_rule.existing_parent.existing_source_levels }}">
+        <input type="hidden" name="hierarchy_parent_field" value="{{ pending_rule.existing_parent.parent_field }}">
+        <input type="hidden" name="hierarchy_company_id" value="{{ workspace_state.odoo_company.company_id if workspace_state.odoo_company else '' }}">
+        <input type="hidden" name="existing_parent_choice" value="{{ hierarchy_parent_outcome.choices[0].value if hierarchy_parent_outcome and hierarchy_parent_outcome.choices else '' }}">
+      {% endif %}
       <div class="actions source-review-actions">
         <button class="button source-review-change" type="button" data-derived-entity-target="hierarchy-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
         <button class="button secondary" type="submit">Use this table</button>

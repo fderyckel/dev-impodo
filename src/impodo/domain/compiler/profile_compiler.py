@@ -17,6 +17,8 @@ def compile_profile_document(profile: ProfileDocument) -> CompiledMigrationPlan:
 
     payload = profile.model_dump(mode="json", exclude_none=True)
     return CompiledMigrationPlan(
+        contract_version=4 if any(item.hierarchy_parent is not None for item in profile.datasets) else 3,
+        compiler_version=5 if any(item.hierarchy_parent is not None for item in profile.datasets) else 4,
         plan_id=profile.profile.id,
         origin="profile_document",
         origin_hash=compiled_profile_origin_hash(payload),

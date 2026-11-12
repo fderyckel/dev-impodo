@@ -22,6 +22,7 @@ from impodo.application.workspace.source_readiness import (
     assess_source_stage_readiness,
 )
 from impodo.application.workspace.views import WorkspaceOwnerView
+from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
@@ -190,11 +191,15 @@ _TEMPLATE_LOCATION = {
     ),
     "workspace_transfer_order.html": (
         "transfer-review",
-        "Validate transfer order",
+        "Transfer order",
     ),
     "workspace_transfer_review.html": (
         "transfer-review",
-        "Review transfer",
+        "Transfer contents",
+    ),
+    "workspace_transfer_row_review.html": (
+        "transfer-review",
+        "Transfer contents",
     ),
     "workspace_transfer_preflight.html": (
         "destination-load",
@@ -231,10 +236,12 @@ _TEMPLATE_LOCATION = {
     ),
     "workspace_resolution.html": ("prepare", "Review possible duplicates"),
     "workspace_normalization.html": ("prepare", "Approve prepared data"),
-    "workspace_summary.html": ("review", "Final review"),
-    "workspace_business_expectations.html": ("review", "Business expectations"),
-    "workspace_business_expectation_detail.html": ("review", "Expected versus found"),
-    "workspace_deferred_scope.html": ("review", "Review affected groups"),
+    "workspace_summary.html": ("review", "Prepared data"),
+    "workspace_preflight_progress.html": ("review", "Compare with Odoo"),
+    "workspace_quality_cause.html": ("review", "Prepared data"),
+    "workspace_business_expectations.html": ("review", "Review results"),
+    "workspace_business_expectation_detail.html": ("review", "Review results"),
+    "workspace_deferred_scope.html": ("review", "Review results"),
     "workspace_load.html": ("load", "Load into Odoo"),
     "workspace_load_progress.html": ("load", "Loading into Odoo"),
 }
@@ -251,6 +258,10 @@ def build_workspace_navigation(
     run_setup_complete: bool | None = None,
     fresh_data_complete: bool | None = None,
     mapping_step: str | None = None,
+    review_step: str | None = None,
+    transfer_review_step: str | None = None,
+    continuation: bool = False,
+    continuation_plan_ready: bool = False,
 ) -> WorkspaceNavigation:
     """Return the one user journey allowed by canonical workspace ownership."""
 
@@ -261,14 +272,36 @@ def build_workspace_navigation(
         current_path=current_path,
         migration_project_name=migration_project_name,
         mapping_step=mapping_step,
+        review_step=review_step,
+        transfer_review_step=transfer_review_step,
     )
     if workspace_view is None:
         return navigation
+    if workspace_view.migration_workspace.state is MigrationWorkspaceState.CLOSED:
+        return _saved_workspace_navigation(navigation, workspace_view, current_path)
     journey = classify_workspace_journey(
         workspace_view.migration_run.purpose,
         workspace_view.migration_workspace.recipe_application_id,
     )
     if journey is WorkspaceJourney.AUTHORING:
+        if continuation:
+            base = f"/workspaces/{workspace_state.workspace_id}/continuation"
+            stages = tuple(
+                replace(stage, href=f"{base}/compare", active="/continuation/" in current_path and current_path.rsplit("/", 1)[-1] in {"prepared", "compare", "results"}, pages=tuple(
+                    WorkflowPage(step, label, f"{base}/{step}", current=current_path.endswith(f"/continuation/{step}"))
+                    for step, label in (("prepared", "Prepared data"), ("compare", "Compare with Odoo"), ("results", "Review results"))
+                )) if stage.stage_id == "review" else
+                replace(stage, href=f"{base}/confirm" if continuation_plan_ready else None,
+                    active=current_path.endswith(("/continuation/confirm", "/continuation/outcome")),
+                    status="ready" if continuation_plan_ready else "locked", status_label="Ready" if continuation_plan_ready else "Compare first",
+                    pages=()) if stage.stage_id == "load" else stage
+                for stage in navigation.stages
+            )
+            viewed = "load" if current_path.endswith(("/continuation/confirm", "/continuation/outcome")) else "review" if "/continuation/" in current_path else navigation.viewed_stage_id
+            return replace(navigation, stages=stages, current_work_label="Working revision of a saved load",
+                viewed_stage_id=viewed, viewed_page_label=("Load reviewed changes" if viewed == "load" else "Review and compare") if "/continuation/" in current_path else navigation.viewed_page_label,
+                current_stage_id="load" if continuation_plan_ready else navigation.current_stage_id,
+                current_stage_label="Load reviewed changes" if continuation_plan_ready else navigation.current_stage_label)
         return navigation
     if journey is WorkspaceJourney.RECIPE_RUN_SETUP:
         return _recipe_run_setup_navigation(
@@ -287,6 +320,32 @@ def build_workspace_navigation(
     )
 
 
+def _saved_workspace_navigation(
+    navigation: WorkspaceNavigation, view: WorkspaceOwnerView, path: str,
+) -> WorkspaceNavigation:
+    """Keep sealed stages inspectable without enabling authoring mutations."""
+
+    base = f"/workspaces/{view.workspace_id}"
+    last = path.rsplit("/", 1)[-1]
+    selected = int(last) if "/history/" in path and last in {"1", "2", "3", "4", "5", "6"} else 6
+    stages = tuple(
+        replace(stage, href=f"{base}/history/{stage.number}",
+                status="complete", status_label="Saved", active=stage.number == selected)
+        for stage in _locked_stages(view.workspace_id)
+    )
+    return replace(
+        navigation, registered=True, setup_active=False,
+        setup_href=f"/projects/{view.project_id}", overview_href=f"{base}/history/6",
+        overview_label="Saved load", overview_active=False,
+        current_stage_id="load", current_stage_label="Saved load",
+        viewed_stage_id=stages[selected - 1].stage_id,
+        viewed_page_label=stages[selected - 1].label,
+        current_work_label="Saved load", stages=stages,
+        workflow_issue_href=None, workflow_issue_must_fix_count=0,
+        workflow_issue_review_count=0,
+    )
+
+
 def _build_authoring_workspace_navigation(
     facts: WorkspaceNavigationFacts,
     workspace_state: WorkspaceState,
@@ -295,6 +354,8 @@ def _build_authoring_workspace_navigation(
     current_path: str = "",
     migration_project_name: str | None = None,
     mapping_step: str | None = None,
+    review_step: str | None = None,
+    transfer_review_step: str | None = None,
 ) -> WorkspaceNavigation:
     """Build the source-mode-specific Authoring evidence projection."""
 
@@ -304,6 +365,22 @@ def _build_authoring_workspace_navigation(
         template_name,
         ("", "Project setup"),
     )
+    if viewed_stage_id == "review" and review_step in {
+        "prepared", "compare", "results",
+    }:
+        viewed_page_label = {
+            "prepared": "Prepared data",
+            "compare": "Compare with Odoo",
+            "results": "Review results",
+        }[review_step]
+    if viewed_stage_id == "transfer-review" and transfer_review_step in {
+        "order", "contents", "approve",
+    }:
+        viewed_page_label = {
+            "order": "Transfer order",
+            "contents": "Transfer contents",
+            "approve": "Approve transfer",
+        }[transfer_review_step]
     if template_name == "workspace_load.html":
         if current_path.endswith("/load/confirm"):
             viewed_page_label = "Confirm and load"
@@ -665,7 +742,7 @@ def _build_authoring_workspace_navigation(
                         _page(
                             workspace_id,
                             "transfer-order",
-                            "Validate transfer order",
+                            "Transfer order",
                             "/transfer-order",
                             complete=transfer_order_ready,
                             attention=(
@@ -679,18 +756,48 @@ def _build_authoring_workspace_navigation(
                             _page(
                                 workspace_id,
                                 "transfer-review",
-                                "Review transfer",
-                                "/transfer-review",
-                                complete=transfer_review_approved,
+                                "Transfer contents",
+                                "/transfer-review?step=contents",
+                                complete=transfer_review_current,
                                 attention=(
                                     current_workspace_state.transfer_review_package
                                     is not None
-                                    and not transfer_review_approved
+                                    and not transfer_review_current
+                                ),
+                            ),
+                            WorkflowPage(
+                                page_id="transfer-approve",
+                                label="Approve transfer",
+                                href=(
+                                    f"/workspaces/{workspace_id}/transfer-review"
+                                    "?step=approve"
+                                ),
+                                status=(
+                                    "complete" if transfer_review_approved
+                                    else "attention" if transfer_review_current
+                                    else "available"
+                                ),
+                                status_label=(
+                                    "Complete" if transfer_review_approved
+                                    else "Approval required" if transfer_review_current
+                                    else "Build review first"
                                 ),
                             ),
                         )
                         if transfer_order_ready
-                        else ()
+                        else tuple(
+                            WorkflowPage(
+                                page_id=page_id,
+                                label=label,
+                                href=None,
+                                status="locked",
+                                status_label="Validate transfer order first",
+                            )
+                            for page_id, label in (
+                                ("transfer-review", "Transfer contents"),
+                                ("transfer-approve", "Approve transfer"),
+                            )
+                        )
                     )
                     if destination_match_ready
                     else ()
@@ -1124,11 +1231,33 @@ def _build_authoring_workspace_navigation(
             pages=(
                 _page(
                     workspace_id,
-                    "summary",
-                    "Review and compare",
-                    "/summary",
-                    complete=review_complete,
-                    attention=review_attention,
+                    "review-prepared",
+                    "Prepared data",
+                    "/summary?step=prepared",
+                    complete=preparation_complete,
+                ),
+                _page(
+                    workspace_id,
+                    "review-compare",
+                    "Compare with Odoo",
+                    "/summary?step=compare",
+                    complete=bool(facts.preflight_status),
+                ),
+                replace(
+                    _page(
+                        workspace_id,
+                        "review-results",
+                        "Review results",
+                        "/summary?step=results",
+                        complete=review_complete,
+                        attention=review_attention,
+                    ),
+                    status_label=(
+                        "Not yet compared" if not facts.preflight_status
+                        else "Complete" if review_complete
+                        else "Needs attention" if review_attention
+                        else "Available"
+                    ),
                 ),
             ),
         )
@@ -1471,7 +1600,7 @@ def _recipe_application_navigation(
     run_purpose: str = "TEST",
     template_name: str = "",
 ) -> WorkspaceNavigation:
-    """Collapse an application workspace into the run's review-and-load step."""
+    """Keep workspace review locations inside the run's review-and-load step."""
 
     run_home = f"/projects/{project_id}/runs/{migration_run_id}"
     fresh_home = (
@@ -1497,6 +1626,7 @@ def _recipe_application_navigation(
     else:
         review_status = "current"
         review_label = "Current"
+    review_stage = _find_stage(navigation.stages, "review")
     stages = _activate_run_stages(
         (
             WorkflowStage(
@@ -1527,6 +1657,11 @@ def _recipe_application_navigation(
                     "Confirm target values first"
                     if target_value_review
                     else review_label
+                ),
+                pages=(
+                    review_stage.pages
+                    if review_stage is not None and not target_value_review
+                    else ()
                 ),
             ),
         ),
@@ -1807,7 +1942,7 @@ def build_preflight_workspace_navigation(job: PreflightJob) -> WorkspaceNavigati
     elif job.status.value == "FAILED":
         status, status_label = "attention", "Needs attention"
     else:
-        status, status_label = "complete", "Complete"
+        status, status_label = "current", "Review saved comparison"
     prior_stages = tuple(
         WorkflowStage(
             stage_id=stage_id,
@@ -1833,17 +1968,30 @@ def build_preflight_workspace_navigation(job: PreflightJob) -> WorkspaceNavigati
         status_label=status_label,
         pages=(
             WorkflowPage(
-                page_id="summary",
-                label="Review and compare",
-                href=summary_url,
+                page_id="review-prepared",
+                label="Prepared data",
+                href=f"{summary_url}?step=prepared",
+                status="complete",
+                status_label="Complete",
             ),
             WorkflowPage(
-                page_id="preflight-progress",
-                label="Comparison progress",
+                page_id="review-compare",
+                label="Compare with Odoo",
                 href=progress_url,
-                status=status,
-                status_label=status_label,
+                status=("complete" if job.status.value == "SUCCEEDED" else status),
+                status_label=(
+                    "Complete" if job.status.value == "SUCCEEDED" else status_label
+                ),
                 current=True,
+            ),
+            WorkflowPage(
+                page_id="review-results",
+                label="Review results",
+                href=f"{summary_url}?step=results",
+                status_label=(
+                    "Saved comparison" if job.preflight_run_id
+                    else "Not yet compared"
+                ),
             ),
         ),
         active=True,
@@ -1859,7 +2007,7 @@ def build_preflight_workspace_navigation(job: PreflightJob) -> WorkspaceNavigati
         current_stage_id="review",
         current_stage_label="Final review",
         viewed_stage_id="review",
-        viewed_page_label="Comparison progress",
+        viewed_page_label="Compare with Odoo",
         stages=(
             *prior_stages,
             review_stage,

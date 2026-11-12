@@ -1,9 +1,9 @@
 """Qualify Stage 1 save recovery and Odoo-access returns without a running server."""
 
-from html import escape
 import os
 import sys
 import unittest
+from html import escape
 from urllib.parse import parse_qs, urlsplit
 
 try:
@@ -22,16 +22,13 @@ class SourceSaveRecoveryBrowserTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.playwright = sync_playwright().start()
+        cls.addClassCleanup(cls.playwright.stop)
         cls.browser = cls.playwright.chromium.launch(
             headless=True,
             channel=os.environ.get("IMPODO_BROWSER_CHANNEL")
             or ("msedge" if sys.platform == "win32" else None),
         )
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
+        cls.addClassCleanup(cls.browser.close)
 
     def setUp(self):
         self.page = self.browser.new_page(viewport={"width": 1200, "height": 900})

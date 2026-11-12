@@ -59,7 +59,7 @@ from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.run.models import MigrationRun, MigrationRunPurpose
 from impodo.domain.run.setup import MigrationRunTargetSetupService
 from impodo.domain.serialization import content_hash
-from impodo.domain.shared.access import Actor
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.models import MigrationWorkspace
 from impodo.domain.workspace.workbench import (
@@ -219,6 +219,7 @@ class CorrectionBindingRepository(Protocol):
         reconciliation_hash: str,
         expected_revision: int,
         actor: Actor,
+        read_only_plan_hash: str = "",
     ) -> CorrectionBinding: ...
 
 
@@ -535,6 +536,8 @@ class CorrectionSuccessor:
 class CorrectionMappingSeeder(Protocol):
     """Seed prior business rules through existing workspace evidence owners."""
 
+    def validate_origin(self, completed_workspace_id: str, *, actor: Actor) -> None: ...
+
     def seed(
         self,
         completed_workspace_id: str,
@@ -547,9 +550,24 @@ class CorrectionMappingSeeder(Protocol):
 class CorrectionMappingSeedService:
     """Seed prior rules through the existing schema and mapping services."""
 
-    def __init__(self, *, schemas, mappings) -> None:
+    def __init__(self, *, schemas, mappings, quality) -> None:
         self.schemas = schemas
         self.mappings = mappings
+        self.quality = quality
+
+    def validate_origin(self, completed_workspace_id: str, *, actor: Actor) -> None:
+        """Reject rules that this continuation cannot faithfully carry forward."""
+
+        from impodo.domain.preparation.quality import QualityRuleSource
+
+        self.mappings.authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=completed_workspace_id)
+        revision = self.mappings.mappings.get_mapping_revision(completed_workspace_id)
+        source = self.mappings.sources.get_source_selection(completed_workspace_id)
+        if revision is None or source is None or not {item.dataset_id for item in revision.definition.datasets}.issubset({item.dataset_id for item in source.datasets}):
+            raise CorrectionOriginError("Continuing combined or generated source tables requires further qualification. You can inspect this load and save its rules as a Recipe.")
+        ruleset = self.quality.get_current_quality_ruleset(completed_workspace_id)
+        if ruleset is None or any(item.source in {QualityRuleSource.MANAGER_AUTHORED, QualityRuleSource.SCOPE_APPROVED} for item in ruleset.rules):
+            raise CorrectionOriginError("Continuing a load with additional business checks requires further qualification. Save its rules as a Recipe to retain those checks.")
 
     def seed(
         self,
@@ -567,10 +585,7 @@ class CorrectionMappingSeedService:
             successor_workspace_id
         )
         if existing is not None:
-            if existing.definition.datasets != previous.definition.datasets:
-                raise CorrectionOriginError(
-                    "Correction workspace already has another mapping seed"
-                )
+            # A resumed seed must preserve changes already made in its draft.
             return
         self.schemas.seed_historical_correction(
             completed_workspace_id,
@@ -630,6 +645,7 @@ class CorrectionMappingReviewStage(Protocol):
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_submitted: bool = False,
     ) -> MappingRevision: ...
 
 
@@ -641,6 +657,7 @@ class CorrectionPreparationReviewStage(Protocol):
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_prepared: bool = False,
     ) -> tuple[CorrectionDatasetReviewInput, ...]: ...
 
 
@@ -653,6 +670,7 @@ class CorrectionQualityReviewStage(Protocol):
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_approved: bool = False,
     ) -> None: ...
 
 
@@ -698,28 +716,35 @@ class CorrectionAuthoringStageCoordinator:
         successor_workspace_id: str,
         *,
         actor: Actor,
+        audit_unchanged: bool = False,
     ) -> CorrectionAuthoringReviewResult:
         mapping = self.mapping.validate_and_submit(
+            manifest, successor_workspace_id, actor=actor, require_submitted=True,
+        ) if audit_unchanged else self.mapping.validate_and_submit(
             manifest,
             successor_workspace_id,
             actor=actor,
         )
-        if mapping.definition.content_hash == manifest.mapping_content_hash:
+        if mapping.definition.content_hash == manifest.mapping_content_hash and not audit_unchanged:
             # Exit before Parquet materialization, quality work, or Odoo reads.
             raise CorrectionNoChangedIntent(mapping.definition.content_hash)
         datasets = self.preparation.prepare_native(
+            manifest, mapping, successor_workspace_id, actor=actor, require_prepared=True,
+        ) if audit_unchanged else self.preparation.prepare_native(
             manifest,
             mapping,
             successor_workspace_id,
             actor=actor,
         )
-        self.quality.require_current_quality(
-            manifest,
-            mapping,
-            datasets,
-            successor_workspace_id,
-            actor=actor,
-        )
+        if audit_unchanged:
+            self.quality.require_current_quality(
+                manifest, mapping, datasets, successor_workspace_id, actor=actor,
+                require_approved=True,
+            )
+        else:
+            self.quality.require_current_quality(
+                manifest, mapping, datasets, successor_workspace_id, actor=actor,
+            )
         target = self.target.refresh_read_capability(
             manifest,
             mapping,
@@ -779,6 +804,10 @@ class CorrectionSuccessorService:
             raise CorrectionOriginError(
                 "Completed load has no published correction origin"
             )
+        package = self.source_packages.get_source_package(binding.data_version_id)
+        if package is None or package.origin.value != "FILE":
+            raise CorrectionOriginError("Continue editing currently supports completed file-source Authoring loads. Use the transfer journey for Odoo-source data.")
+        self.mapping_seeder.validate_origin(completed_workspace_id, actor=actor)
         if binding.successor_migration_run_id is not None:
             successor_workspace_id = binding.successor_workspace_id
             if successor_workspace_id is None:
@@ -800,9 +829,9 @@ class CorrectionSuccessorService:
             expected_workspace_revision=project.optimistic_revision,
             data_version_id=binding.data_version_id,
             purpose=MigrationRunPurpose.AUTHORING,
-            label="Correction of completed Odoo load",
+            label="Continuation of completed Odoo load",
             operation_id=_child_id(
-                request_id,
+                binding.correction_binding_id,
                 f"correction-successor-run:{binding.correction_binding_id}",
             ),
         )
@@ -813,16 +842,13 @@ class CorrectionSuccessorService:
             expected_workspace_revision=project.optimistic_revision,
             data_version_id=binding.data_version_id,
             migration_run_id=run.migration_run_id,
-            display_name="Correct completed Odoo load",
+            display_name="Continue completed Odoo load",
             operation_id=_child_id(
-                request_id,
+                binding.correction_binding_id,
                 f"correction-successor-workspace:{binding.correction_binding_id}",
             ),
         )
         project_root = self.projects.get(binding.project_id, actor=actor)
-        package = self.source_packages.get_source_package(binding.data_version_id)
-        if package is None:
-            raise CorrectionOriginError("Correction DataVersion package is missing")
         try:
             self.workspace_states.repository.get(workspace.workspace_id)
         except WorkspaceStateNotFoundError:
@@ -841,6 +867,8 @@ class CorrectionSuccessorService:
         )
         if prior_target is None:
             raise CorrectionOriginError("Completed load target setup is missing")
+        prior_workspace_state = None
+        successor_state = None
         try:
             prior_workspace_state = self.workspace_states.repository.get(
                 binding.completed_workspace_id
@@ -887,20 +915,32 @@ class CorrectionSuccessorService:
                     "Correction workspace target no longer matches the completed load"
                 )
         workspace = self.workspaces.get(workspace.workspace_id, actor=actor)
+        if (
+            prior_workspace_state is not None
+            and successor_state is not None
+            and prior_workspace_state.odoo_company is not None
+            and successor_state.odoo_company is None
+        ):
+            self.workspace_states.select_odoo_company(
+                workspace.workspace_id, actor=actor,
+                expected_revision=successor_state.revision,
+                selection=prior_workspace_state.odoo_company,
+            )
         self.source_projections.materialize(
             workspace.workspace_id,
             actor=actor,
             dataset_ids=tuple(item.dataset_id for item in package.datasets),
             expected_workspace_revision=workspace.optimistic_revision,
             operation_id=_child_id(
-                request_id,
+                binding.correction_binding_id,
                 f"correction-source-projection:{binding.correction_binding_id}",
             ),
         )
+        current_target_setup = self.target_setups.get(run.migration_run_id, actor=actor)
         self.target_setups.replace(
             run.migration_run_id,
             actor=actor,
-            expected_revision=None,
+            expected_revision=current_target_setup.revision if current_target_setup is not None else None,
             connection_mode=prior_target.connection_mode,
             base_url=prior_target.base_url,
             database=prior_target.database,
@@ -957,6 +997,7 @@ class CorrectionReviewPipeline(Protocol):
         successor_workspace_id: str,
         *,
         actor: Actor,
+        audit_unchanged: bool = False,
     ) -> CorrectionReviewEvidence: ...
 
 
@@ -985,6 +1026,7 @@ class CorrectionReviewOrchestrator:
         *,
         actor: Actor,
         review_request_id: str,
+        audit_unchanged: bool = False,
     ) -> tuple[CorrectionReview, CorrectionPlan | None, CorrectionBinding]:
         require_uuid(review_request_id, "review_request_id")
         binding = self.bindings.get_for_completed_workspace(
@@ -1000,6 +1042,9 @@ class CorrectionReviewOrchestrator:
             raise CorrectionOriginError("Correction review origin is not current")
         try:
             evidence = self.pipeline.run(
+                manifest, binding.successor_workspace_id, actor=actor,
+                audit_unchanged=True,
+            ) if audit_unchanged else self.pipeline.run(
                 manifest,
                 binding.successor_workspace_id,
                 actor=actor,
@@ -1026,7 +1071,7 @@ class CorrectionReviewOrchestrator:
                 None,
                 unchanged,
             )
-        if evidence.mapping.definition.content_hash == manifest.mapping_content_hash:
+        if evidence.mapping.definition.content_hash == manifest.mapping_content_hash and not audit_unchanged:
             # Defensive fallback for pipeline implementations that do not use the
             # current stage coordinator.
             current = self.bindings.get_for_completed_workspace(
@@ -1057,7 +1102,7 @@ class CorrectionReviewOrchestrator:
             expected_target_hash=manifest.target_hash,
             expected_reader_scope_hash=evidence.reader_scope_hash,
         )
-        if review.blockers or not review.ready_fields:
+        if review.blockers or (not review.ready_fields and not audit_unchanged):
             current = self.bindings.get_for_completed_workspace(
                 manifest.completed_workspace_id
             )
@@ -1088,6 +1133,7 @@ class CorrectionReviewOrchestrator:
             read_identity=evidence.read_identity,
             created_by=actor.identity,
             created_at=evidence.reviewed_at,
+            audited=audit_unchanged,
         )
         stored = self.protected.put_plan(plan)
         reference = ProtectedCorrectionArtifactReference(

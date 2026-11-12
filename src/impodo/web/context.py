@@ -83,6 +83,8 @@ from ..application.odoo_source_capture_service import (
     OdooSourceCaptureService,
 )
 from ..application.odoo_source_restart_service import OdooSourceRestartService
+from impodo.application.odoo_saved_data_service import SavedOdooDataService
+from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
 from ..application.preflight_service import PreflightService
 from ..application.production_cutover_service import ProductionCutoverService
 from ..application.project.service import MigrationProjectService
@@ -230,6 +232,7 @@ class CorrectionRouteContext(Protocol):
     """Expose only the services and target seams used by correction routes."""
 
     identity_resolver: RequestIdentityResolver
+    project_queries: ScopedMigrationProjectQuery
     queries: BrowserQueryService
     workspace_states: WorkspaceStateService
     corrections: CorrectionWorkflowService
@@ -330,6 +333,8 @@ class WebContext:
     local_target: LocalTargetRuntime | None
     odoo_connection_tests: OdooConnectionTestService
     remote_connections: RemoteConnectionStatusService
+    saved_odoo_data: SavedOdooDataService | None = None
+    saved_odoo_jobs: SavedOdooDataJobManager | None = None
 
     @property
     def local_stack(self) -> LocalStackService:

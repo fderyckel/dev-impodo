@@ -1,0 +1,46 @@
+      {% if transfer_review_approved %}
+        <div class="notice">
+          <strong>Approved by {{ transfer_review_approval.approved_by.display_name }}.</strong>
+          Approved {{ transfer_review_approval.approved_at.strftime('%Y-%m-%d %H:%M UTC') }}
+          for this exact package.
+          {% if transfer_review_approval.reason %}
+            Note: {{ transfer_review_approval.reason }}
+          {% endif %}
+        </div>
+        <div class="notice">
+          <strong>Next: run the read-only destination preflight.</strong>
+          Stage 6 will re-read matching keys, fields, permissions, and relationship
+          resolution with the destination transfer key. It cannot write to Odoo.
+        </div>
+        <div class="actions">
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-preflight">Continue to destination preflight</a>
+        </div>
+      {% else %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/approve">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+          <label>
+            Approval note (optional)
+            <textarea
+              name="reason"
+              maxlength="2000"
+              rows="3"
+              placeholder="Why is this exact transfer scope approved?"
+            ></textarea>
+          </label>
+          <label class="checkbox-line">
+            <input type="checkbox" name="confirmation" value="approve" required>
+            <span>
+              I approve this exact record scope, matching policy, selected field
+              writes, relationship operations, creation order, and control totals.
+            </span>
+          </label>
+          <div class="actions">
+            <a
+              class="button secondary"
+              href="/workspaces/{{ workspace_id }}/transfer-review?step=contents#review-package"
+            >Back to transfer contents</a>
+            <button class="button primary" type="submit">Approve exact transfer package</button>
+          </div>
+        </form>
+      {% endif %}

@@ -364,7 +364,7 @@ DECISION_HELP_TARGETS = (
         "final-review",
         "Understand comparison blockers",
         "understand-comparison-blockers",
-        "workspace_summary.html",
+        "final_review/_result_actions.html",
     ),
     _decision_help(
         "affected-groups",
@@ -446,6 +446,8 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "workspace_derived_entities.html": "related-tables",
         "workspace_destination_matching.html": "load-into-odoo",
         "workspace_files.html": "getting-started",
+        "workspace_history.html": "load-into-odoo",
+        "workspace_continuation.html": "load-into-odoo",
         "workspace_load.html": "load-into-odoo",
         "workspace_load_progress.html": "load-into-odoo",
         "workspace_normalization.html": "prepare-data",

@@ -33,9 +33,9 @@ from impodo.web.target_credentials import (
     store_target_credential,
 )
 from tests.support.browser_scenarios import POST_HEADERS, _wait_for_preparation
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_correction import MappingForm
 from tests.support.mapping_journey import MappingJourneyFixture
-from tests.support.database_probe import count_duckdb_statements
 
 
 class LinkedMatchingFieldTests(MappingJourneyFixture):
@@ -363,7 +363,7 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
             ).binding_hash
             identity = self.read_identity(state, "fictional-read-key", (parent,))
             self.context.readiness_reader = self.snapshots
-        schema = self.context.schema_workspace.capture(
+        self.context.schema_workspace.capture(
             workspace_id,
             self.context.schema_reader(state, ""),
             read_credential_binding_hash=binding,

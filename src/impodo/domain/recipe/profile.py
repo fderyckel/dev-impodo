@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.mapping.generated_ordering import (
     GENERATED_ORDER_SOURCE,
     GeneratedOrdering,
@@ -391,6 +392,7 @@ class DatasetSpec(StrictModel):
     fields: dict[str, FieldSpec] = Field(default_factory=dict)
     relations: dict[str, RelationSpec] = Field(default_factory=dict)
     target_domain: tuple[Any, ...] = ()
+    hierarchy_parent: HierarchyParentPolicy | None = None
 
     @model_validator(mode="after")
     def validate_target_fields(self) -> DatasetSpec:
@@ -484,9 +486,15 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
         for component in dataset.target_identity.scope:
             if component.null_policy == "reject":
                 continue
+            hierarchy_company = (
+                dataset.hierarchy_parent is not None
+                and component.target_fields == (dataset.hierarchy_parent.company_field,)
+                and component.null_policy == "explicit_scope_null"
+                and component.resolve is not None and component.resolve.target_model == "res.company"
+                and component.resolve.dataset is None
+            )
             if (
-                component.resolve is None
-                or component.resolve.dataset != dataset.name
+                (component.resolve is None or component.resolve.dataset != dataset.name) and not hierarchy_company
                 or (component.null_policy == "zero_as_scope_null" and len(component.source_fields) != 1)
             ):
                 raise ValueError(

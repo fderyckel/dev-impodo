@@ -2,10 +2,10 @@
 
 from unittest import TestCase
 
+from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.integration.web import test_recipe_comparison_recovery as recipes
 from tests.integration.web.test_attention_export import workbook_rows
 from tests.support.identity import resolve_local_actor
-from impodo.web.composition.page_reads import run_local_operation_sync
 
 
 class AttentionRecipeExportTests(TestCase):

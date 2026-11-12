@@ -1,0 +1,55 @@
+<section class="form-card" id="saved-data-versions" aria-labelledby="saved-data-versions-title">
+  <div class="page-heading compact">
+    <div>
+      <p class="eyebrow">Level 2 · The preserved records</p>
+      <h2 id="saved-data-versions-title">Saved data</h2>
+      <p>Update all configured models and relationships together. Each successful update keeps a new dated version.</p>
+    </div>
+    {% if definition %}
+      <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/update" data-single-submit>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ definition.revision }}">
+        <input type="hidden" name="operation_id" value="{{ operation_id }}">
+        <button class="button primary" type="submit" data-submitting-label="Starting complete data update..." {% if job and active_job %}disabled{% endif %}>Update saved data</button>
+      </form>
+    {% endif %}
+  </div>
+
+  {% if versions %}
+    <div class="table-scroll">
+      <table class="data-table">
+        <thead><tr><th scope="col">Version</th><th scope="col">Captured</th><th scope="col">Configuration</th><th scope="col">Models and records</th><th scope="col">Package</th></tr></thead>
+        <tbody>
+          {% for version in versions %}
+            <tr>
+              <th scope="row">Version {{ version.version_number }}{% if definition and version.version_number == definition.latest_version %} <span class="status current">Latest</span>{% endif %}</th>
+              <td>{{ version.captured_at.strftime('%Y-%m-%d %H:%M') }}</td>
+              <td>Revision {{ version.configuration_revision }}</td>
+              <td>
+                <details>
+                  <summary>{{ version.row_counts|length }} models · {{ version.row_counts|sum(attribute=1) }} records</summary>
+                  <ul>{% for model, count in version.row_counts %}<li><code>{{ model }}</code>: {{ count }}</li>{% endfor %}</ul>
+                </details>
+              </td>
+              <td>
+                <details>
+                  <summary>Download protected package</summary>
+                  <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/versions/{{ version.version_number }}/download">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                    <label>Package password<input type="password" name="package_password" minlength="8" autocomplete="new-password" required><small>Use at least eight characters. You will need this password to import the package.</small></label>
+                    <div class="actions"><button class="button secondary" type="submit">Download version {{ version.version_number }}</button></div>
+                  </form>
+                </details>
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% include "saved_odoo_data/_restore.html" %}
+  {% elif definition %}
+    <p>No saved data version yet. Select <strong>Update saved data</strong> to download the complete configured scope.</p>
+  {% else %}
+    <p>Save a capture configuration first. Its records and dated versions will appear here.</p>
+  {% endif %}
+</section>

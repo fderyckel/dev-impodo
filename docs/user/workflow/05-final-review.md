@@ -70,8 +70,21 @@ again. Your older form cannot overwrite them silently.
 
 ## Steps in Impodo
 
-1. Open **Final review**.
-2. Select **Compare with Odoo**.
+Final review has three sidebar pages. Each page shows one part of the review.
+You can return to an earlier page without repeating a saved decision.
+
+| Page | What you do |
+| --- | --- |
+| **Prepared data** | Inspect included records and preparation findings. **View approved data** opens the existing Stage 4 review. |
+| **Compare with Odoo** | Check the destination, start the comparison, or return to its saved result. Comparison progress and recovery belong to this page. |
+| **Review results** | Inspect **Needs attention**, **Proposed changes**, or **Records outside this load**, then follow the available next action. |
+
+The current sidebar page identifies your location. Its status comes from the
+saved checks. Opening a page does not complete its checks. Preparation approval
+stays in Stage 4, and final load confirmation stays in Stage 6.
+
+1. Open **Final review**. Impodo opens the relevant page for the saved state.
+2. On **Compare with Odoo**, select **Compare with Odoo**.
 3. Follow the comparison progress page while Impodo verifies the setup, reads
    Odoo, compares records, builds the review, and saves it. You may leave and
    reopen the page while the current Impodo session remains open.
@@ -93,6 +106,30 @@ again. Your older form cannot overwrite them silently.
 8. Select **Download rows needing attention** to share the complete correction
    worklist in Excel. When the proposed load is ready, use the separate review
    workbook to inspect or retain the full proposed load.
+
+A clean comparison can open Stage 6 **Check changes** directly. The page
+identifies the completed Final review and links to its saved comparison.
+Recipe Test runs retain their existing automatic completion when no changes
+are needed.
+
+**Records outside this load** separates records omitted during preparation
+from records omitted by an accepted Final review decision. Open the relevant
+list to inspect its rows. The preparation list explains whether a row was
+excluded by filters or set aside for a data issue. These are different reasons
+for keeping a record out of the load.
+
+After a set-aside decision, **Current load after your set-aside decision**
+describes the remaining load. **Original comparison findings** retains the
+earlier findings; accepting omissions does not correct the underlying data.
+
+When a correction opens an earlier stage, **Return to Final review** returns
+to the originating review page and filter when browser storage is available.
+A changed preparation or comparison takes priority over the remembered scroll
+position. Follow the current preparation or comparison action before relying
+on the new result.
+
+**Downloads** and Recipe saving remain supporting actions. A workbook that has
+not been created does not itself make the migration incomplete.
 
 ### Download a correction worklist
 
@@ -294,8 +331,6 @@ changing the visible cell or its note does not change the migration.
 When the source is Odoo, protected business values remain inside Impodo and do
 not enter the portable workbook.
 
-![Current final comparison with saved rows and per-table Odoo outcomes in one data version.](../../images/user/16-final-comparison.png)
-
 For local Odoo, **Reconnect local Odoo** may appear after Impodo restarts.
 Choose the matching setup, then select **Continue comparison** when ready.
 
@@ -358,9 +393,11 @@ a hard stop until the identity or target evidence is corrected.
 
 The current report is **Ready** with no ambiguous or blocked rows, or **Ready
 with records set aside** after a reviewed complete-group decision. It remains
-bound to the exact prepared and target evidence. At least one safe write must
-remain before the load stage can become available for the current data
-version.
+bound to the exact prepared and target evidence. A reviewed set-aside scope
+requires safe writes to remain. When an ordinary comparison finds no changes,
+the existing Stage 6 **Complete without loading** path remains available if
+the saved expectations permit it. Recipe Test runs can complete their existing
+no-change verification automatically.
 
 ## What changes and what does not
 

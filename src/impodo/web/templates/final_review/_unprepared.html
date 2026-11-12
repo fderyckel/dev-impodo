@@ -1,0 +1,78 @@
+  {% if staging %}
+    <section class="next-action-card {% if quality and quality.blocked_count %}blocked{% else %}review{% endif %}" aria-labelledby="saved-next-action-title" data-staging-summary>
+      <div>
+        <p class="eyebrow">Next action</p>
+        {% if quality and quality.blocked_count %}
+          <h2 id="saved-next-action-title">Fix the data-check setup</h2>
+          <p>Impodo saved and reconciled the available evidence, then stopped before contacting Odoo.</p>
+        {% elif not quality %}
+          <h2 id="saved-next-action-title">Your prepared data is safe</h2>
+          <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }}. The Odoo comparison still needs to finish.</p>
+        {% else %}
+          <h2 id="saved-next-action-title">Try the Odoo comparison again</h2>
+          <p>Impodo saved {{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }} and kept unsafe records out of the comparison.</p>
+        {% endif %}
+      </div>
+      <div class="next-action-buttons">
+        {% if quality and quality.blocked_count %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Review data checks</a>
+        {% else %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Prepare data for review</button>
+          </form>
+        {% endif %}
+      </div>
+    </section>
+    <details class="technical-details form-card">
+      <summary>Support details</summary>
+      <p>Field-match version {{ staging.mapping_version }} · Run <code>{{ staging.run_id }}</code></p>
+      <p><code>{{ staging.content_hash }}</code></p>
+    </details>
+    <p class="muted">Prepared data is stored locally. Odoo remains unchanged.</p>
+
+  {% elif submission %}
+    <section class="form-card readiness-start">
+      <div class="empty-state">
+        {% if evaluation_scale and not evaluation_scale.supported %}
+          <h2>Reduce the source size before preparing</h2>
+          <p>This workspace selection has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. {{ preparation_limit_message }}</p>
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Review source tables</a>
+          <small>No data was changed.</small>
+        {% else %}
+          <h2>Prepare all source rows for review</h2>
+          {% for advisory in preparation_advisories %}
+          <p class="notice">{{ advisory }}</p>
+          {% endfor %}
+          <p>Impodo will apply your confirmed field rules and data checks to {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}source rows.</p>
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit">Prepare and review data</button>
+          </form>
+          <small>Uses Impodo’s stored local copy · nothing is sent to Odoo</small>
+        {% endif %}
+      </div>
+    </section>
+
+  {% elif revision %}
+    <section class="form-card">
+      <div class="empty-state">
+        <h2>Finish your field matches first</h2>
+        <p>Confirm the field matches you want Impodo to apply to every source row.</p>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
+      </div>
+    </section>
+
+  {% else %}
+    <section class="form-card">
+      <dl class="summary-grid">
+        <div><dt>Source system</dt><dd>{{ migration_project.source_system_identity }}</dd></div>
+        <div><dt>Odoo location</dt><dd>{% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' %}On this computer{% elif workspace_state.odoo_connection_mode %}Managed elsewhere{% else %}Not set{% endif %}</dd></div>
+        <div><dt>Files</dt><dd>{{ workspace_state.source_files|length }}</dd></div>
+      </dl>
+      <div class="actions">
+        <a class="button secondary" href="/projects">All projects</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Check source data</a>
+      </div>
+    </section>
+  {% endif %}

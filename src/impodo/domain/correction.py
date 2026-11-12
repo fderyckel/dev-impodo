@@ -48,6 +48,7 @@ class CorrectionFieldOutcome(StrEnum):
     READY = "READY"
     ALREADY_CORRECTED = "ALREADY_CORRECTED"
     CONFLICT = "CONFLICT"
+    PRESERVED_IN_ODOO = "PRESERVED_IN_ODOO"
 
 
 class CorrectionPlanError(ValueError):
@@ -71,6 +72,9 @@ class CorrectionCandidate:
     relationship_model: str | None = None
     relationship_key_fields: tuple[str, ...] = ()
     relationship_scope_fields: tuple[str, ...] = ()
+    previous_present: bool = True
+    audit_unchanged: bool = False
+    review_value: str = ""
 
     def __post_init__(self) -> None:
         for value, label in (
@@ -82,6 +86,8 @@ class CorrectionCandidate:
                 raise ValueError(f"Correction {label} is invalid")
         if self.source_row < 1:
             raise ValueError("Correction source row is invalid")
+        if type(self.previous_present) is not bool:
+            raise ValueError("Previous field presence must be explicit")
         object.__setattr__(self, "value_kind", CorrectionValueKind(self.value_kind))
         if self.value_kind is CorrectionValueKind.SCALAR:
             if (
@@ -132,8 +138,17 @@ def classify_correction_field(
     same = equal or _equal
     previous = candidate.previous
     corrected = candidate.corrected
-    if same(previous, corrected):
-        outcome = CorrectionFieldOutcome.UNCHANGED_INTENT
+    if not candidate.previous_present:
+        outcome = (
+            CorrectionFieldOutcome.ALREADY_CORRECTED
+            if same(current, corrected) else CorrectionFieldOutcome.READY
+        )
+    elif same(previous, corrected):
+        outcome = (
+            CorrectionFieldOutcome.PRESERVED_IN_ODOO
+            if candidate.audit_unchanged and not same(current, previous)
+            else CorrectionFieldOutcome.UNCHANGED_INTENT
+        )
     elif same(current, corrected):
         outcome = CorrectionFieldOutcome.ALREADY_CORRECTED
     elif same(current, previous):
@@ -169,6 +184,8 @@ class CorrectionPlanField:
     previous: Any
     current: Any
     corrected: Any
+    review_value: str = ""
+    outcome: str = ""
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -231,6 +248,8 @@ class CorrectionPlanField:
             "target_field": self.target_field,
             "target_model": self.target_model,
             "value_kind": self.value_kind.value,
+            **({"review_value": self.review_value} if self.review_value else {}),
+            **({"outcome": self.outcome} if self.outcome else {}),
         }
 
     @classmethod
@@ -252,6 +271,8 @@ class CorrectionPlanField:
             previous=restore_portable_value(payload.get("previous")),
             current=restore_portable_value(payload.get("current")),
             corrected=restore_portable_value(payload.get("corrected")),
+            review_value=str(payload.get("review_value", "")),
+            outcome=str(payload.get("outcome", "")),
         )
 
 
@@ -301,6 +322,8 @@ class CorrectionPlan:
     created_by: ActorIdentity
     created_at: datetime
     plan_hash: str
+    observations: tuple[CorrectionPlanField, ...] = ()
+    audited: bool = False
 
     def __post_init__(self) -> None:
         for value, name in (
@@ -331,7 +354,7 @@ class CorrectionPlan:
             self.created_at.astimezone(UTC),
         )
         fields = tuple(self.fields)
-        if not fields:
+        if not fields and not self.audited:
             raise CorrectionPlanError("Correction plan has no writable fields")
         if fields != tuple(sorted(fields, key=lambda item: item.key)):
             raise CorrectionPlanError("Correction plan fields are not deterministic")
@@ -350,6 +373,14 @@ class CorrectionPlan:
             raise CorrectionPlanError("Correction plan read scope is invalid")
         if not {item.target_model for item in fields}.issubset(readable_models):
             raise CorrectionPlanError("Correction plan read scope is incomplete")
+        observations = tuple(self.observations)
+        if observations != tuple(sorted(observations, key=lambda item: item.key)):
+            raise CorrectionPlanError("Correction observations are not deterministic")
+        all_fields = (*fields, *observations)
+        if len({item.key for item in all_fields}) != len(all_fields):
+            raise CorrectionPlanError("Correction observations duplicate a field")
+        if not {item.target_model for item in observations}.issubset(readable_models):
+            raise CorrectionPlanError("Correction observation scope is incomplete")
 
     @classmethod
     def create(
@@ -368,6 +399,8 @@ class CorrectionPlan:
         fields: Iterable[CorrectionPlanField],
         created_by: ActorIdentity,
         created_at: datetime,
+        observations: Iterable[CorrectionPlanField] = (),
+        audited: bool = False,
     ) -> CorrectionPlan:
         ordered = tuple(sorted(fields, key=lambda item: item.key))
         unhashed = cls(
@@ -390,6 +423,8 @@ class CorrectionPlan:
             created_by=created_by,
             created_at=created_at,
             plan_hash="sha256:" + "0" * 64,
+            observations=tuple(sorted(observations, key=lambda item: item.key)),
+            audited=audited,
         )
         return replace(
             unhashed,
@@ -458,6 +493,8 @@ class CorrectionPlan:
                 created_by=_actor_from_dict(raw["created_by"]),
                 created_at=_timestamp_from_text(str(raw["created_at"])),
                 plan_hash=str(raw["plan_hash"]),
+                observations=tuple(CorrectionPlanField.from_protected_dict(item) for item in raw.get("observations", ())),
+                audited=raw.get("audited", False),
             )
         except CorrectionPlanError:
             raise
@@ -494,6 +531,8 @@ class CorrectionPlan:
             "successor_migration_run_id": self.successor_migration_run_id,
             "target_hash": self.target_hash,
             "workspace_id": self.workspace_id,
+            **({"observations": [item.protected_dict() for item in self.observations]} if self.observations else {}),
+            **({"audited": True} if self.audited else {}),
         }
 
 

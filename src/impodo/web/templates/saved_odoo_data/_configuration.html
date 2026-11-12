@@ -1,0 +1,63 @@
+<section class="form-card" id="capture-configuration" aria-labelledby="capture-configuration-title">
+  <div class="page-heading compact">
+    <div>
+      <p class="eyebrow">Level 1 · What to preserve</p>
+      <h2 id="capture-configuration-title">Capture configuration</h2>
+      <p>Choose the source database, company, models, fields, and related records once. Saving these choices does not download data.</p>
+    </div>
+    {% if definition %}<span class="status registered">Revision {{ definition.configuration_revision }}</span>{% endif %}
+  </div>
+
+  {% if source_workspace %}
+    {% set values = configuration_values|default({}) %}
+    <dl class="summary-list">
+      <div><dt>Source database</dt><dd>{{ source_workspace.odoo_database }}</dd></div>
+      <div><dt>Source server</dt><dd>{{ source_workspace.odoo_base_url }}</dd></div>
+      <div><dt>Models</dt><dd>{{ source_workspace.intended_models|length }}</dd></div>
+      {% if source_workspace.odoo_company %}<div><dt>Source company</dt><dd>{{ source_workspace.odoo_company.name }}</dd></div>{% endif %}
+    </dl>
+    <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/configure" data-single-submit>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="workspace_id" value="{{ source_workspace.workspace_id }}">
+      <input type="hidden" name="operation_id" value="{{ operation_id }}">
+      <div class="form-grid">
+        <label>
+          Saved set name
+          <input name="label" maxlength="300" required value="{{ values.get('label', definition.label if definition else '') }}" placeholder="For example: Clean accounting setup">
+        </label>
+        <label>
+          Source company
+          <select name="source_company_id" required>
+            <option value="">Choose a source company</option>
+            {% for company in source_companies %}
+              <option value="{{ company.company_id }}" {% if values.get('source_company_id', source_workspace.odoo_company.company_id if source_workspace.odoo_company else '')|string == company.company_id|string %}selected{% endif %}>{{ company.name }}</option>
+            {% endfor %}
+            {% if not source_companies and source_workspace.odoo_company %}
+              <option value="{{ source_workspace.odoo_company.company_id }}" selected>{{ source_workspace.odoo_company.name }}</option>
+            {% endif %}
+          </select>
+          {% if not source_companies and not source_workspace.odoo_company %}<small>Check the source connection and company access in source setup, then return here.</small>{% endif %}
+        </label>
+      </div>
+      <label class="checkbox">
+        <input type="checkbox" name="all_fields" value="yes" {% if values.get('all_fields', true) %}checked{% endif %}>
+        <span><strong>All restorable fields</strong><small>Include eligible fields on each update. Clear this option to keep the exact field selection from source setup.</small></span>
+      </label>
+      <details>
+        <summary>Selected models and related data</summary>
+        <ul>{% for model in source_workspace.intended_models %}<li><code>{{ model }}</code></li>{% endfor %}</ul>
+        <p>Use source setup to choose models, filters, fields, archived records, and related data. Existing saved data versions keep their original choices.</p>
+      </details>
+      <div class="actions">
+        <a class="button secondary" href="/workspaces/{{ source_workspace.workspace_id }}/sources">Edit models, fields, and related data</a>
+        <button class="button primary" type="submit" data-submitting-label="Saving capture configuration...">Save capture configuration</button>
+      </div>
+    </form>
+  {% elif definition %}
+    <p>{{ definition.label }} · Odoo {{ definition.odoo_major }} · Configuration revision {{ definition.configuration_revision }}</p>
+    <div class="actions"><a class="button secondary" href="/workspaces/{{ definition.source_workspace_id }}/sources">Open source configuration</a></div>
+  {% else %}
+    <p>Choose an Odoo source workspace in this data project, connect its database, and select the models and related data to preserve.</p>
+    <div class="actions"><a class="button primary" href="/projects/{{ project.project_id }}">Choose source data</a></div>
+  {% endif %}
+</section>

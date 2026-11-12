@@ -40,10 +40,12 @@ from impodo.domain.odoo.field_capabilities import (
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch
 from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
+from impodo.domain.odoo_restore import OdooRestorePlan, restore_policy_binding
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from impodo.domain.odoo_source_scope import is_writable_related_many2one
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
+    FieldMetadata,
     OdooReadIdentity,
     TargetRecord,
     target_record_binding_hash,
@@ -217,6 +219,7 @@ class _PreparedModel:
     row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
     rule_excluded_source_row_numbers: tuple[int, ...] = ()
     rule_blocked_source_row_numbers: tuple[int, ...] = ()
+    restore_plan: OdooRestorePlan | None = None
 
     @property
     def included_source_row_count(self) -> int:
@@ -323,12 +326,17 @@ def _destination_record_requests(
     requests: list[RecordRequest] = []
     for item in sorted(prepared, key=lambda current: current.model):
         values = item.source_query_values
+        policy_fields = (
+            tuple(field.destination.name for field in item.restore_plan.fields)
+            if item.restore_plan is not None
+            else ()
+        )
         for start in range(0, len(values), MAX_KEYS_PER_RECORD_REQUEST):
             batch = values[start : start + MAX_KEYS_PER_RECORD_REQUEST]
             requests.append(
                 RecordRequest(
                     model=item.model,
-                    fields=item.key_fields,
+                    fields=tuple(sorted(set(item.key_fields) | set(policy_fields))) if policy_fields else item.key_fields,
                     domain=_exact_identity_domain(item.key_fields, batch),
                     limit=DESTINATION_MATCH_RECORD_LIMIT,
                 )
@@ -400,11 +408,16 @@ class DestinationMatchingService:
         excluded_source_rows: Mapping[str, Sequence[int]] | None = None,
         relationship_scope: OdooRelationshipScope | None = None,
         row_inclusion_confirmation_hash: str | None = None,
+        restore_plans: Mapping[str, OdooRestorePlan] | None = None,
     ) -> DestinationMatchPlan:
         """Return a current plan from one bounded metadata/record read."""
 
         if not workspace.destination_verified:
             raise WorkspaceError("Verify the destination Odoo connection first")
+        try:
+            restore_policy_binding(restore_plans, workspace.saved_restore_generation_id)
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
         selected = {item.dataset_id: item.source_column_keys for item in choices}
         destination_handlings = {
             item.dataset_id: item.destination_handling for item in choices
@@ -425,6 +438,8 @@ class DestinationMatchingService:
             for dataset in selection.datasets
             if isinstance(dataset.source, OdooSourceBinding)
         }
+        if restore_plans is not None and set(restore_plans) - selected_model_names:
+            raise WorkspaceError("Restore field plans contain an unselected record type")
         prepared: list[_PreparedModel] = []
         exclusions_by_dataset = dict(excluded_source_rows or {})
         if set(exclusions_by_dataset) - {
@@ -441,6 +456,16 @@ class DestinationMatchingService:
                 raise WorkspaceError(
                     f"Refresh the source fields for {dataset.source.model} first"
                 )
+            restore_plan = (restore_plans or {}).get(source_model.name)
+            restore_source_fields = (
+                {field.source.name for field in restore_plan.fields}
+                if restore_plan is not None else None
+            )
+            if restore_plan is not None and (
+                not same_odoo_major(restore_plan.source_version, source_schema.odoo_version)
+                or any(field.source not in source_model.fields for field in restore_plan.fields)
+            ):
+                raise WorkspaceError("The restore policies no longer describe the saved source fields")
             source_column_keys = selected[dataset.dataset_id]
             governed = governed_choices.get(dataset.dataset_id)
             recommended_identity = recommend_business_key(source_model)
@@ -638,10 +663,11 @@ class DestinationMatchingService:
                     source_fields=tuple(
                         field
                         for field in source_model.fields
-                        if _is_transferable_scalar_field(
+                        if (restore_source_fields is None or field.name in restore_source_fields)
+                        and (_is_transferable_scalar_field(
                             field,
                             selected_source_names,
-                        )
+                        ))
                         or _is_transferable_relationship_field(
                             field,
                             selected_model_names,
@@ -680,6 +706,7 @@ class DestinationMatchingService:
                     row_inclusion=policy,
                     rule_excluded_source_row_numbers=rule_excluded,
                     rule_blocked_source_row_numbers=rule_blocked,
+                    restore_plan=restore_plan,
                 )
             )
 

@@ -95,7 +95,7 @@ class JoinLookupPreparationTests(TestCase):
 
     def _setup(self, row_counts=(4753, 44387, 16159)):
         context, actor = self.context, self.actor
-        workspace_id, physical, by_name = self.fixture._frozen_customer_workspace(
+        workspace_id, _physical, by_name = self.fixture._frozen_customer_workspace(
             source_files=delivery(row_counts)
         )
         self._schema(workspace_id)

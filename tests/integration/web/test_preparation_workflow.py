@@ -671,7 +671,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 return_value=report,
             ),
         ):
-            page = self.client.get(f"/workspaces/{workspace_id}/summary")
+            page = self.client.get(f"/workspaces/{workspace_id}/summary?step=prepared")
             package = self.client.post(
                 f"/workspaces/{workspace_id}/summary/package",
                 data={"csrf_token": self.csrf},

@@ -1,19 +1,29 @@
 """Qualify native source identities and explicit ordering against the oracle."""
 
-from dataclasses import replace
 import json
-from pathlib import Path
 import tempfile
 import unittest
+from dataclasses import replace
+from pathlib import Path
 
 import duckdb
 
-from impodo.adapters.duckdb.native_prepared_projection import projected_encoded_rows_sql, supports_clean_native_projection
+from impodo.adapters.duckdb.native_prepared_projection import (
+    projected_encoded_rows_sql,
+    supports_clean_native_projection,
+)
 from impodo.adapters.polars_transformation import iter_polars_prepared_batches
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
-from impodo.domain.compiler.columnar_transformation import ColumnarSupport, ColumnarTransformationProgram, compile_columnar_transformation_program
+from impodo.domain.compiler.columnar_transformation import (
+    ColumnarSupport,
+    ColumnarTransformationProgram,
+    compile_columnar_transformation_program,
+)
 from impodo.domain.mapping.contracts import ScalarFieldMapping
-from impodo.domain.mapping.generated_ordering import GENERATED_ORDER_SOURCE, GeneratedOrdering
+from impodo.domain.mapping.generated_ordering import (
+    GENERATED_ORDER_SOURCE,
+    GeneratedOrdering,
+)
 from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.preparation.source import CompiledPreparedRowTransformer, SourceRow
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy

@@ -30,6 +30,7 @@ from impodo.domain.data_version.selection_domains import (
     live_selection_metadata_issues,
     validate_selection_metadata_drift,
 )
+from impodo.domain.hierarchy import block_hierarchy_descendants
 from impodo.domain.mapping.source_record_identity import (
     SOURCE_EXTERNAL_IDS_FIELD,
     source_record_external_id,
@@ -171,6 +172,7 @@ class PreflightEngine:
                     )
                 )
 
+        decisions = block_hierarchy_descendants(resolved_records, decisions, frozenset(dataset.name for dataset in plan.datasets if dataset.hierarchy_parent is not None))
         all_issues = [
             *prepared.issues,
             *metadata_issues,
@@ -949,6 +951,15 @@ def _classify_record(
         (tuple(record.target_identity), tuple(record.target_scope)), ()
     )
     record_issues = list(record.issues)
+    reference_only = False
+    if dataset.hierarchy_parent is not None and not record.blocked:
+        try:
+            reference_only = dataset.hierarchy_parent.is_reference(record, tuple(
+                field for component in dataset.target_identity.scope for field in component.target_fields
+            ))
+        except ValueError as error:
+            record_issues.append(Issue(code="HIERARCHY_PARENT_UNRESOLVED", message=str(error), dataset=record.dataset, row=record.source_row))
+            record = replace(record, issues=tuple(record_issues))
     if record.blocked:
         return Decision(
             dataset=record.dataset,
@@ -979,6 +990,13 @@ def _classify_record(
             issues=(issue,),
         )
     if len(matches) == 0:
+        if reference_only:
+            return Decision(
+                dataset=record.dataset, source_row=record.source_row, source_trace_id=record.source_trace_id,
+                business_identity=business_identity, business_scope=business_scope,
+                classification=Classification.BLOCKED, target_match_count=0,
+                issues=(Issue(code="HIERARCHY_EXISTING_PARENT_NOT_FOUND", message="This hierarchy level must already exist in Odoo. Check its full path and company, then check again.", dataset=record.dataset, row=record.source_row),),
+            )
         if (policy := dataset.source_record_identity) is not None:
             generated = source_record_external_id(policy.namespace, dataset.target.model, record.source_identity)
             supplied = record.target_identity != (generated,)
@@ -1031,7 +1049,7 @@ def _classify_record(
             issues=tuple(record_issues),
         )
 
-    if any(
+    if reference_only or any(
         issue.code == "REFERENCE_TARGET_PRECEDENCE_REUSE" for issue in record_issues
     ):
         return Decision(

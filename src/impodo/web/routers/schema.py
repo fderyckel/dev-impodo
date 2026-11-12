@@ -1032,7 +1032,7 @@ def build_schema_router(context: WebContext) -> APIRouter:
         """Carry the current draft through one verified schema update."""
 
         migration = context.migration_workspaces.get(workspace_id, actor=actor)
-        if migration.recipe_application_id or context.corrections.binding_for_successor(workspace_id):
+        if migration.recipe_application_id:
             raise WorkspaceError("Check Odoo fields in the workspace that owns these field matches.")
         refresh = context.schema_workspace.optional_field_refresh(
             workspace_id, candidate_id=candidate_id,

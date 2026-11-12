@@ -565,8 +565,11 @@ class RecipeCompiler:
             target_contract["supporting_choices"] = portable_supporting_choices(
                 supporting_choices, dataset_ids
             )
+        contract_versions = dict(CURRENT_RECIPE_CONTRACT_VERSIONS)
+        if preparation is not None and any(isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None for rule in preparation.rules):
+            contract_versions["source_preparation_recipe"] = 2
         recipe: dict[str, object] = {
-            "contract_versions": dict(CURRENT_RECIPE_CONTRACT_VERSIONS),
+            "contract_versions": contract_versions,
             "source_shape": source_shape,
             "parameter_definitions": {
                 "parameters": self._parameter_definitions(

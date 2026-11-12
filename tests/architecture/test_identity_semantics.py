@@ -207,9 +207,25 @@ CURRENT_IDENTITY_SURFACES = {
             "src/impodo/web/templates/mapping/page.html",
             "/workspaces/{{ workspace_id }}",
         ),
-        (
-            "src/impodo/web/templates/workspace_summary.html",
-            "/workspaces/{{ workspace_id }}",
+        *(
+            (
+                f"src/impodo/web/templates/{partial}",
+                "/workspaces/{{ workspace_id }}",
+            )
+            for partial in (
+                "final_review/_prepared.html",
+                "final_review/_compare.html",
+                "final_review/_results.html",
+                "final_review/_result_actions.html",
+                "final_review/_load_handoff.html",
+                "final_review/_quality_rows.html",
+                "final_review/_comparison_rows.html",
+                "final_review/_outside.html",
+                "final_review/_attention_download.html",
+                "final_review/_unprepared.html",
+                "transfer/_review_policies.html",
+                "transfer/_review_approval.html",
+            )
         ),
     ),
 }

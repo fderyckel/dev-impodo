@@ -11,7 +11,7 @@
   {% set prepared_duplicate_review = duplicate_picker_url and migration_project.data_classification.value != 'RESTRICTED' and workspace_navigation.journey != 'RECIPE_APPLICATION' %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Preparation issue</p>
+      <p class="eyebrow">Stage 5 of 6 · Final review · 5.1 Prepared data · Preparation issue</p>
       <h1>{{ cause_title }}</h1>
       <p>{{ cause_message }}</p>
       {% if cause_issue.affected_fields %}<p><strong>Source or mapped fields:</strong> {{ cause_issue.affected_fields|join(', ') }}</p>{% endif %}
@@ -29,7 +29,7 @@
         <p>These records are set aside. This finding does not block comparison of the remaining included records.</p>
       {% endif %}
     </div>
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary#migration-issues">Back to migration issues</a>
+    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=prepared#migration-issues" data-final-review-back>Back to migration issues</a>
   </div>
 
   <section class="readiness-cards quality-cards" aria-label="Affected record totals">

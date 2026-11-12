@@ -139,6 +139,9 @@ def _render(
             if supplied_navigation_read_ms is not None:
                 timings["navigation_read"] = float(supplied_navigation_read_ms)
         started = perf_counter()
+        continuation_binding = context.get("correction_binding")
+        if continuation_binding is None and workspace_view.migration_run.purpose.value == "AUTHORING":
+            continuation_binding = application.corrections.binding_for_successor(workspace_state.workspace_id)
         context["workspace_navigation"] = build_workspace_navigation(
             navigation_facts,
             workspace_state,
@@ -155,6 +158,18 @@ def _render(
                 if template_name == "mapping/page.html"
                 else None
             ),
+            review_step=(
+                context["final_review_journey"]["step"]
+                if "final_review_journey" in context
+                else request.query_params.get("step")
+                if template_name in {
+                    "workspace_summary.html", "workspace_quality_cause.html",
+                }
+                else None
+            ),
+            transfer_review_step=context.get("transfer_review_step"),
+            continuation=continuation_binding is not None,
+            continuation_plan_ready=bool(continuation_binding and continuation_binding.current_plan),
         )
         timings["navigation_present"] = (perf_counter() - started) * 1000
     if (

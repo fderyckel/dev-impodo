@@ -87,6 +87,7 @@ from ..target_credentials import (
 )
 from .common import _render
 from .comparison_recovery import comparison_recovery_view
+from .final_review_journey import final_review_journey
 from .missing_parent_actions import missing_parent_source_key
 from .quality_messages import (
     SOURCE_IDENTITY_REASONS,
@@ -514,9 +515,53 @@ def _render_summary(
         ) as scope_error:
             if error is None:
                 error = str(scope_error)
+    if (
+        comparison_failure is None
+        and remote_read_credential_missing
+        and (report is not None or (normalization is not None and normalization.frozen))
+    ):
+        comparison_failure = classify_odoo_read_failure(
+            OdooReadCredentialMissingError(
+                "The Odoo read key is not available for this target."
+            )
+        )
+    comparison_recovery = (
+        comparison_recovery_view(workspace_id, comparison_failure)
+        if comparison_failure is not None
+        else None
+    )
+    summary_readiness_ms = (perf_counter() - readiness_started) * 1000
+    execution_started = perf_counter()
+    load_preview = navigation_snapshot.facts.execution_preview
+    business_review = (
+        context.preflight.business_intent_review(workspace_id, load_preview.state.summary.snapshot_hash,
+            actor=actor, run_id=load_preview.current_run_id)
+        if workspace_state.source_mode is SourceMode.FILE and report is not None and load_preview is not None
+        else None
+    )
+    deferred_scope_available = not decision_exists and bool(
+        deferred_scope_available
+        or (
+            report is not None
+            and workspace_state.source_mode is not SourceMode.ODOO
+            and load_preview is not None
+            and load_preview.scope_error == "The reviewed load shape needs attention"
+        )
+    )
+    summary_execution_ms = (perf_counter() - execution_started) * 1000
+    review_journey = final_review_journey(
+        request.query_params,
+        comparison_available=report is not None,
+        preparation_approved=bool(normalization and normalization.frozen),
+        comparison_recovery=comparison_recovery is not None or open_local_stack,
+        attention_required=bool(
+            (report and report.attention_count and not (deferred_scope and deferred_scope.decision))
+            or (business_review and not business_review.ready)
+        ),
+    )
     missing_parent_views = []
     missing_parent_evidence_error = ""
-    if report is not None:
+    if report is not None and review_journey["step"] == "results" and review_journey["view"] == "attention":
         try:
             missing_parent_groups = context.preflight.current_missing_parent_groups(
                 workspace_id
@@ -619,43 +664,11 @@ def _render_summary(
                         "draft_url": draft_url,
                     }
                 )
-    if (
-        comparison_failure is None
-        and remote_read_credential_missing
-        and (report is not None or (normalization is not None and normalization.frozen))
-    ):
-        comparison_failure = classify_odoo_read_failure(
-            OdooReadCredentialMissingError(
-                "The Odoo read key is not available for this target."
-            )
-        )
-    comparison_recovery = (
-        comparison_recovery_view(workspace_id, comparison_failure)
-        if comparison_failure is not None
-        else None
-    )
-    summary_readiness_ms = (perf_counter() - readiness_started) * 1000
-    execution_started = perf_counter()
-    load_preview = navigation_snapshot.facts.execution_preview
-    business_review = (
-        context.preflight.business_intent_review(workspace_id, load_preview.state.summary.snapshot_hash,
-            actor=actor, run_id=load_preview.current_run_id)
-        if workspace_state.source_mode is SourceMode.FILE and report is not None and load_preview is not None
-        else None
-    )
-    deferred_scope_available = not decision_exists and bool(
-        deferred_scope_available
-        or (
-            report is not None
-            and workspace_state.source_mode is not SourceMode.ODOO
-            and load_preview is not None
-            and load_preview.scope_error == "The reviewed load shape needs attention"
-        )
-    )
-    summary_execution_ms = (perf_counter() - execution_started) * 1000
     quality_status = request.query_params.get("quality_status", "").strip()
     if quality_status not in {"", "ready", "review", "quarantined", "blocked"}:
         quality_status = ""
+    if review_journey["step"] == "results" and review_journey["view"] == "outside":
+        quality_status = "quarantined"
     quality_dataset = request.query_params.get("quality_dataset", "").strip()
     quality_datasets = {item.dataset for item in (staging.datasets if staging else ())}
     if quality_dataset not in quality_datasets:
@@ -667,7 +680,11 @@ def _render_summary(
         request.query_params.get("quality_page_size")
     )
     quality_page_started = perf_counter()
-    if quality is not None:
+    if quality is not None and (
+        review_journey["step"] == "prepared"
+        or review_journey["step"] == "results"
+        and review_journey["view"] in {"attention", "outside"}
+    ):
         quality_page = context.queries.get_quality_review_page(
             workspace_id,
             quality.run_id,
@@ -733,6 +750,8 @@ def _render_summary(
         "blocked",
     }:
         status_filter = ""
+    if review_journey["step"] == "results" and not status_filter:
+        status_filter = "attention" if review_journey["view"] == "attention" else "ready"
     dataset_filter = request.query_params.get("dataset", "").strip()
     available_datasets = {item.dataset for item in (report.datasets if report else ())}
     if dataset_filter not in available_datasets:
@@ -749,7 +768,7 @@ def _render_summary(
     )
     readiness_page_size = _summary_page_size(request.query_params.get("page_size"))
     readiness_page_started = perf_counter()
-    if report is not None:
+    if report is not None and review_journey["step"] == "results" and review_journey["view"] != "outside":
         persisted_page = context.preflight.readiness_rows(
             workspace_id,
             report.run_id,
@@ -775,6 +794,7 @@ def _render_summary(
     response = _render(
         request,
         "workspace_summary.html",
+        final_review_journey=review_journey,
         workspace_state=workspace_state,
         comparison_operation_id=str(uuid4()),
         revision=revision,
@@ -817,6 +837,8 @@ def _render_summary(
                 "size": size,
                 "url": _quality_summary_url(
                     workspace_id,
+                    step=review_journey["step"],
+                    view=review_journey["view"],
                     status=quality_status,
                     dataset=quality_dataset,
                     page_size=size,
@@ -827,6 +849,8 @@ def _render_summary(
         quality_previous_url=(
             _quality_summary_url(
                 workspace_id,
+                step=review_journey["step"],
+                view=review_journey["view"],
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page - 1,
@@ -838,6 +862,8 @@ def _render_summary(
         quality_next_url=(
             _quality_summary_url(
                 workspace_id,
+                step=review_journey["step"],
+                view=review_journey["view"],
                 status=quality_status,
                 dataset=quality_dataset,
                 page=quality_page.page + 1,
@@ -1836,8 +1862,9 @@ def _summary_rows_url(
     params = {
         name: value
         for name, value in request.query_params.items()
-        if name in {"status", "dataset", "issue"} and len(value) <= 256
+        if name in {"status", "dataset", "issue", "view"} and len(value) <= 256
     }
+    params["step"] = "results"
     if page is not None and page > 1:
         params["page"] = str(page)
     if page_size != DEFAULT_SUMMARY_ROWS_PER_PAGE:
@@ -1855,8 +1882,12 @@ def _quality_summary_url(
     dataset: str = "",
     page: int | None = None,
     page_size: int = DEFAULT_SUMMARY_ROWS_PER_PAGE,
+    step: str = "prepared",
+    view: str = "changes",
 ) -> str:
-    params = {}
+    params = {"step": step}
+    if step == "results":
+        params["view"] = view
     if status:
         params["quality_status"] = status
     if dataset:

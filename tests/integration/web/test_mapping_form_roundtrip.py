@@ -1,9 +1,9 @@
 """Reopening checked matches must preserve their semantic content."""
 
+import unittest
 from dataclasses import replace
 from html.parser import HTMLParser
 from types import SimpleNamespace
-import unittest
 
 from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
@@ -15,10 +15,15 @@ from impodo.domain.mapping.contracts import (
     RelationshipMapping,
     RelationshipValueSource,
 )
-from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
+from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.domain.workspace.contracts import SchemaField, SchemaModel, SourceDataset, SourceDatasetColumn
+from impodo.domain.workspace.contracts import (
+    SchemaField,
+    SchemaModel,
+    SourceDataset,
+    SourceDatasetColumn,
+)
 from impodo.domain.workspace.derived_entities import DerivedDatasetLink
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.supporting_lookups import portable_supporting_value
@@ -187,7 +192,12 @@ class MappingFormRoundTripTests(unittest.TestCase):
         self.assertEqual(help_details.disclosures, [])
 
     def test_explicit_blank_relationship_survives_form_reopening(self):
-        from impodo.domain.mapping.contracts import CategoricalCoveragePolicy, ReferenceKeyMapping, RelationshipResolver, ResolverOrigin
+        from impodo.domain.mapping.contracts import (
+            CategoricalCoveragePolicy,
+            ReferenceKeyMapping,
+            RelationshipResolver,
+            ResolverOrigin,
+        )
 
         mapping = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
         relation = RelationshipMapping(target_field="parent_id", kind="many2one",

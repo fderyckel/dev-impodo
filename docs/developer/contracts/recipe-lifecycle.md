@@ -18,8 +18,11 @@ creates an empty Recipe shell.
 
 ## Eligibility
 
-Only an open Authoring workspace over a frozen Authoring DataVersion and an
-Authoring run can publish reusable meaning. An application workspace cannot
+An open Authoring workspace, or a verified completed Authoring workspace with
+a retained completion binding, over a frozen Authoring DataVersion and an
+Authoring run can publish reusable meaning. The browser selects that workspace
+explicitly through **Rules to save** or the completed-load action. Publication
+reads its retained mapping even when a newer working revision exists. An application workspace cannot
 publish Recipe meaning. The compiler requires current immutable source
 references, a submitted mapping, matching schema governance, current quality
 rules, and any referenced preparation, parameter, control, or standard-key
@@ -51,6 +54,14 @@ missing-value policies. Publication replaces every physical hierarchy field
 with its logical identity. Application must rebind every level in the saved
 order and stops when one is missing or ambiguous; it never substitutes a
 similar heading or a model-specific category convention.
+
+Existing-parent hierarchies require `source_preparation_recipe` contract v2.
+They retain portable parent paths, company business names, the captured parent
+field, and the count of source levels that must exist. Applications rebind
+source columns and resolve parent paths against their own destination
+evidence. Numeric parent IDs and search results never enter the Recipe.
+Contract v1 remains accepted for existing Recipes, and a v1 envelope containing
+the new parent policy is rejected rather than silently dropping that policy.
 
 Conditional field rules store their ordered conditions and logical source
 columns, but not the authoring rule or condition UUIDs. Application generates

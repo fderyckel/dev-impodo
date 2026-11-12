@@ -7,19 +7,19 @@ from unittest.mock import patch
 from openpyxl import load_workbook
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
-from impodo.domain.workspace.workbench import SourceMode
-from impodo.domain.preparation.quality import QualityDisposition, QualityOutcomePolicy
-from impodo.domain.preparation.staging_contracts import StagingDisposition
-from impodo.domain.preflight.attention_projection import project_attention_export
-from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.application.workspace.review.attention_export import (
     verify_attention_export_current,
 )
+from impodo.domain.preflight.attention_projection import project_attention_export
+from impodo.domain.preparation.quality import QualityDisposition, QualityOutcomePolicy
+from impodo.domain.preparation.staging_contracts import StagingDisposition
+from impodo.domain.shared.access import AuthorizationError, Capability
+from impodo.domain.workspace.workbench import SourceMode
+from tests.integration.web.test_mapping_form_roundtrip import _RenderedControls
 from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_cases import CATEGORY_ROWS
 from tests.support.hierarchy_odoo import HierarchyOdoo
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
-from tests.integration.web.test_mapping_form_roundtrip import _RenderedControls
 
 
 def workbook_rows(response):

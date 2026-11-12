@@ -71,7 +71,11 @@ from ...domain.schema.governance import (
     BusinessKeyDefinition,
     BusinessKeyStatus,
 )
-from ...domain.source_binding import OdooSourceBinding, SourceOriginKind
+from ...domain.source_binding import (
+    DerivedSourceBinding,
+    OdooSourceBinding,
+    SourceOriginKind,
+)
 from ..context import WebContext
 from ..forms import (
     _checked,
@@ -582,6 +586,15 @@ def _mapping_datasets_from_form(
                 )
                 else IdentityNullPolicy.REJECT
             )
+            if (
+                is_scope and isinstance(source_dataset.source, DerivedSourceBinding)
+                and source_dataset.source.hierarchy_parent is not None
+                and source_dataset.source.hierarchy_parent.company_field == target_field
+                and metadata is not None and not metadata.required
+                and metadata.relation == "res.company" and resolver is not None
+                and resolver.origin is ResolverOrigin.TARGET_CATALOG
+            ):
+                null_policy = IdentityNullPolicy.EXPLICIT_SCOPE_NULL
             component = IdentityComponentMapping(
                 source_column_keys=selected_sources,
                 target_fields=(target_field,),

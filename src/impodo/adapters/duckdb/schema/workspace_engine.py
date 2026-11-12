@@ -32,6 +32,10 @@ from .forward_upgrades import (
 )
 from .load_control import create_load_control_event_schema, create_load_control_schema
 from .odoo_company import create_odoo_company_bindings
+from .odoo_saved_source_company import (
+    SAVED_SOURCE_COMPANY_COLUMNS,
+    create_saved_source_company_schema,
+)
 from .preflight import create_preflight_schema
 from .preparation_session import create_preparation_session_schema
 from .prepared_snapshot import create_prepared_snapshot_schema
@@ -317,7 +321,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "resolution_current", "resolution_decision", "resolution_finding",
         "resolution_policy_current", "resolution_policy_revision", "resolution_run",
         "retired_evidence", "schema_governance_current", "schema_governance_revision",
-        "schema_migration", "schema_version", "source_accounting_entry",
+        "schema_migration", "schema_version", "odoo_saved_source_company", "source_accounting_entry",
         "source_accounting_link",
         "source_catalog", "source_configuration", "source_file", "source_selection",
         "source_snapshot_current", "source_snapshot_manifest",
@@ -1052,6 +1056,7 @@ class WorkspaceEngineSchemaMixin:
             """
         )
         create_odoo_company_bindings(connection)
+        create_saved_source_company_schema(connection)
         create_schema_migration_ledger(connection)
         create_preflight_schema(connection)
         create_advanced_coverage_schema(connection)
@@ -1137,6 +1142,7 @@ class WorkspaceEngineSchemaMixin:
             ("execution_load_control_event", ("run_id", "ordinal", "control_json")),
             ("execution_rejected_transport", ("run_id", "transport_batch", "rejection_json")),
             ("odoo_company_binding", ("binding_hash", "selection_json")),
+            ("odoo_saved_source_company", SAVED_SOURCE_COMPANY_COLUMNS),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
             (
                 "mapping_mutation_receipt",
@@ -1273,4 +1279,5 @@ WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     3: ForwardSchemaUpgrade("execution-load-control-v4", create_load_control_schema),
     4: ForwardSchemaUpgrade("execution-load-control-events-v5", create_load_control_event_schema),
     5: ForwardSchemaUpgrade("transformation-field-counts-v6", _upgrade_transformation_field_counts),
+    6: ForwardSchemaUpgrade("saved-odoo-source-company-v7", create_saved_source_company_schema),
 }

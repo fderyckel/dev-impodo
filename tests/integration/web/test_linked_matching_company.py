@@ -1,8 +1,8 @@
 """Reuse the company chosen after Stage 2 when loading linked matching fields."""
 
+import unittest
 from contextlib import contextmanager
 from dataclasses import replace
-import unittest
 from unittest.mock import Mock, patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
@@ -97,14 +97,14 @@ class LinkedMatchingCompanyTests(unittest.TestCase):
                         )
                         original_reader = fixture.context.schema_reader
 
-                        def read(state, secret):
+                        def read(state, secret, *, fixture=fixture, reader=original_reader):
                             self.assertFalse(
                                 getattr(_read_databases, "connections", None)
                             )
                             self.assertEqual(
                                 state.odoo_company, fixture.access.choices[0]
                             )
-                            return original_reader(state, secret)
+                            return reader(state, secret)
 
                         fixture.context.schema_reader = Mock(side_effect=read)
                         local_reader = fixture.local_odoo_reader.get_model_metadata

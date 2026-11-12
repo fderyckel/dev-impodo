@@ -16,6 +16,7 @@ from impodo.domain.shared.access import (
     LOCAL_ACTOR,
 )
 from impodo.domain.workspace.derived_entities import (
+    DERIVED_ENTITY_CONTRACT_VERSION,
     DerivedEntityPlan,
     DerivedEntityRule,
     HierarchicalLookupRule,
@@ -1171,7 +1172,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
         )
 
         self.assertEqual(plan.version, 2)
-        self.assertEqual(plan.contract_version, 8)
+        self.assertEqual(plan.contract_version, DERIVED_ENTITY_CONTRACT_VERSION)
         self.assertEqual(
             plan.dataset_uses,
             (

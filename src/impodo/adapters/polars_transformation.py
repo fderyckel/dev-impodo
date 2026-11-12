@@ -222,6 +222,7 @@ class PreparedIntentColumn:
     relationship_key_fields: tuple[str, ...] = ()
     relationship_scope_fields: tuple[str, ...] = ()
     value_mappings: tuple[tuple[str, str], ...] = ()
+    null_policy: str = "distinct"
 
 
 def write_polars_prepared_snapshot(
@@ -645,6 +646,7 @@ def prepared_intent_columns(
             value_kind=CorrectionValueKind.SCALAR,
             value_type=item.field.value_type,
             value_aliases=(item.value_alias,),
+            null_policy=item.field.null_policy,
         )
         for item in layout.scalars
         if item.field.compare and not item.field.validate_only
@@ -661,6 +663,7 @@ def prepared_intent_columns(
             relationship_model=relationship.related_model,
             relationship_key_fields=relationship.target_key_fields,
             relationship_scope_fields=relationship.target_scope_fields,
+            null_policy=relationship.null_policy,
             value_mappings=(
                 ()
                 if program.compiler_version >= 5

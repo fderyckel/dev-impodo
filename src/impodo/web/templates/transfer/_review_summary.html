@@ -1,0 +1,76 @@
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Frozen execution scope</p>
+          <h2>
+            {{ transfer_review_package.totals.dataset_count }} record type(s)
+            bound to one exact plan
+          </h2>
+          <p>
+            Package {{ transfer_review_package.export_plan.plan_id }} was frozen
+            {{ transfer_review_package.export_plan.frozen_at.strftime('%Y-%m-%d %H:%M UTC') }}.
+          </p>
+        </div>
+        <span class="status {% if transfer_review_approved %}ready{% else %}review{% endif %}">
+          {% if transfer_review_approved %}Stage 5 complete{% else %}Review and approve{% endif %}
+        </span>
+      </div>
+
+      <div class="notice">
+        <strong>Exact destination behavior</strong>
+        Each record type follows its reviewed policy. Destination records
+        outside this incoming data remain unchanged.
+      </div>
+
+      <dl class="definition-list capture-summary">
+        <div>
+          <dt>Source records</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.source_record_count) }}</dd>
+        </div>
+        <div>
+          <dt>Existing matches</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Create</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.destination_create_record_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Create waves</dt>
+          <dd>{{ transfer_review_package.totals.wave_count }}</dd>
+        </div>
+        <div>
+          <dt>Scalar fields</dt>
+          <dd>{{ transfer_review_package.totals.scalar_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship fields</dt>
+          <dd>{{ transfer_review_package.totals.relationship_write_field_count }}</dd>
+        </div>
+        <div>
+          <dt>Relationship links</dt>
+          <dd>
+            {{ "{:,}".format(transfer_review_package.totals.source_relationship_link_count) }}
+          </dd>
+        </div>
+        <div>
+          <dt>Post-create links</dt>
+          <dd>{{ "{:,}".format(transfer_review_package.totals.post_create_link_count) }}</dd>
+        </div>
+      </dl>
+
+
+      <div class="notice">
+        <strong>Control totals reconcile.</strong>
+        {{ "{:,}".format(transfer_review_package.totals.destination_existing_record_count) }}
+        reused plus
+        {{ "{:,}".format(transfer_review_package.totals.destination_create_record_count) }}
+        created equals
+        {{ "{:,}".format(transfer_review_package.totals.source_record_count) }}
+        source records. Relationship reuse plus incoming links also equals the
+        captured relationship-link total.
+      </div>
+

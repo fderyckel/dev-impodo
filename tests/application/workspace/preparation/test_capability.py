@@ -77,7 +77,7 @@ class PreparationCapabilityTests(unittest.TestCase):
             self.assertEqual(manifest.permits_materialized_fallback, row_count == 25_000)
 
     def test_verified_relational_identity_reports_native_bounded_route(self) -> None:
-        selection = _selection((26_000,))
+        selection = _selection((54_191,))
         definition = _definition(selection)
         dataset = replace(definition.datasets[0], target_scope=(
             IdentityComponentMapping(
@@ -113,12 +113,48 @@ class PreparationCapabilityTests(unittest.TestCase):
         )
         self.assertEqual(
             transformation.reason_codes,
-            ("RELATIONAL_IDENTITY_SCALE_UNQUALIFIED",),
+            (),
         )
+        self.assertEqual(manifest.supported_rows, 100_000)
         canonical = next(
             item for item in manifest.stages if item.stage == "canonical_adaptation"
         )
         self.assertEqual(canonical.reason_codes, ("PREPARED_SNAPSHOT_VALUE_PROJECTION",))
+
+    def test_verified_native_identity_scale_covers_existing_and_incoming_records(self) -> None:
+        for model in ("stock.lot", "x_custom.batch"):
+            for origin in ResolverOrigin:
+                with self.subTest(model=model, origin=origin):
+                    selection = _selection((54_191,))
+                    definition = _definition(selection)
+                    resolver = RelationshipResolver(
+                        origin=origin,
+                        dataset_id=(selection.datasets[0].dataset_id
+                                    if origin is not ResolverOrigin.TARGET_CATALOG else None),
+                        model="product.product" if origin is not ResolverOrigin.DATASET else None,
+                        key_mappings=((ReferenceKeyMapping("column:1", "default_code"),)
+                                      if origin is not ResolverOrigin.DATASET else ()),
+                    )
+                    dataset = replace(definition.datasets[0], target_model=model, target_scope=(
+                        IdentityComponentMapping(
+                            source_column_keys=("column:1",), target_fields=("product_id",),
+                            resolver=resolver,
+                        ),
+                    ))
+                    snapshots = (SimpleNamespace(dataset_id=dataset.dataset_id),)
+                    with (
+                        patch.object(capability_module, "validate_snapshot_for_dataset"),
+                        patch.object(bounded_module, "validate_snapshot_for_dataset"),
+                    ):
+                        manifest = compile_preparation_capability(
+                            definition=replace(definition, datasets=(dataset,)),
+                            physical_selection=selection, effective_selection=selection,
+                            source_snapshots=snapshots, derived_plan=None,
+                            current_ruleset=None, reference_bundle=None,
+                        )
+                    self.assertTrue(manifest.admitted)
+                    self.assertEqual(manifest.supported_rows, 100_000)
+                    self.assertFalse(manifest.permits_materialized_fallback)
 
     def test_incoming_identity_limit_is_generic_and_checked_before_rows(self) -> None:
         for model, role in (
@@ -222,7 +258,7 @@ class PreparationCapabilityTests(unittest.TestCase):
             PreparationRouteBehavior.BOUNDED_RUNTIME_GUARDED,
         )
 
-    def test_unqualified_high_volume_multi_dataset_run_is_not_admitted(self) -> None:
+    def test_native_high_volume_multi_dataset_run_is_admitted(self) -> None:
         selection = _selection(
             (16_000, 80_000),
             names=("products", "bom_lines"),
@@ -243,11 +279,11 @@ class PreparationCapabilityTests(unittest.TestCase):
                 reference_bundle=None,
             )
 
-        self.assertFalse(manifest.admitted)
+        self.assertTrue(manifest.admitted)
         self.assertFalse(manifest.permits_materialized_fallback)
         self.assertEqual(
             manifest.supported_rows,
-            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         )
         quality = next(
             item for item in manifest.stages if item.stage == "quality"
@@ -261,13 +297,9 @@ class PreparationCapabilityTests(unittest.TestCase):
         )
         self.assertEqual(
             relationships.reason_codes,
-            ("MULTI_DATASET_OR_RELATIONSHIP_SCALE_UNQUALIFIED",),
+            ("BOUNDED_RELATIONSHIP_INDEX",),
         )
-        with self.assertRaisesRegex(
-            ReadinessError,
-            "safely check up to 50,000 rows",
-        ):
-            manifest.require_supported()
+        manifest.require_supported()
 
     def test_multi_dataset_direct_run_is_admitted_inside_proven_boundary(self) -> None:
         selection = _selection(
@@ -293,12 +325,12 @@ class PreparationCapabilityTests(unittest.TestCase):
         self.assertTrue(manifest.admitted)
         self.assertEqual(
             manifest.supported_rows,
-            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         )
         manifest.require_supported()
 
-    def test_single_dataset_relationship_uses_unqualified_boundary(self) -> None:
-        selection = _selection((60_000,))
+    def test_single_dataset_relationship_admits_reported_54_191_rows(self) -> None:
+        selection = _selection((54_191,))
 
         with patch(
             "impodo.application.workspace.preparation.preparation_capability."
@@ -315,11 +347,30 @@ class PreparationCapabilityTests(unittest.TestCase):
                 reference_bundle=None,
             )
 
-        self.assertFalse(manifest.admitted)
+        self.assertTrue(manifest.admitted)
         self.assertEqual(
             manifest.supported_rows,
-            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
         )
+        self.assertFalse(manifest.permits_materialized_fallback)
+        manifest.require_supported()
+
+    def test_relationships_do_not_bypass_snapshot_or_python_limits(self) -> None:
+        selection = _selection((54_191,))
+        manifest = _manifest(_definition(selection, related=True), selection)
+        self.assertFalse(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 50_000)
+        with self.assertRaisesRegex(ReadinessError, "safely check up to 50,000 rows"):
+            manifest.require_supported()
+
+    def test_native_relationships_stop_above_qualified_scale(self) -> None:
+        selection = _selection((100_001,))
+        with patch.object(capability_module, "direct_preparation_row_limit", return_value=100_000):
+            manifest = _manifest(_definition(selection, related=True), selection)
+        self.assertFalse(manifest.admitted)
+        self.assertEqual(manifest.supported_rows, 100_000)
+        with self.assertRaisesRegex(ReadinessError, "safely check up to 100,000 rows"):
+            manifest.require_supported()
 
     def test_current_advanced_ruleset_selects_the_truthful_lower_route(self) -> None:
         selection = _selection((30_000,))

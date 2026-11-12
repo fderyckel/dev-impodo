@@ -1,0 +1,147 @@
+<div id="impodo-review-proposal" aria-label="Proposed Impodo Stage 5 interface with fictional data">
+  <style>
+    #impodo-review-proposal{color-scheme:light dark;--ip-paper:light-dark(#f5f5f2,#181a19);--ip-panel:light-dark(#ffffff,#222523);--ip-ink:light-dark(#29322e,#eceee9);--ip-muted:light-dark(#58635e,#b5bfb8);--ip-line:light-dark(#d4d9d3,#4a534d);--ip-green:light-dark(#356849,#a1d1b1);--ip-green-bg:light-dark(#edf5ee,#263e2e);--ip-red:light-dark(#a1322a,#ffb0a6);--ip-warning-bg:light-dark(#fff2e6,#3d3021);--ip-warning:light-dark(#835017,#f1c58f);font-family:system-ui,-apple-system,sans-serif;color:var(--ip-ink);font-size:14px;line-height:1.5;background:var(--ip-paper);border:1px solid var(--ip-line);border-radius:8px;overflow-wrap:anywhere}
+    #impodo-review-proposal *{box-sizing:border-box}
+    #impodo-review-proposal [hidden]{display:none!important}
+    #impodo-review-proposal h2,#impodo-review-proposal h3,#impodo-review-proposal p{margin:0}
+    #impodo-review-proposal h2{font-size:23px;line-height:1.3;font-weight:600}
+    #impodo-review-proposal h3{font-size:16px;font-weight:600}
+    #impodo-review-proposal button{font:inherit;cursor:pointer}
+    #impodo-review-proposal button:focus-visible{outline:3px solid var(--ip-green);outline-offset:3px}
+    #impodo-review-proposal .ip-top{display:flex;gap:16px;align-items:center;padding:15px 20px;background:var(--ip-panel);border-bottom:1px solid var(--ip-line);padding-right:100px}
+    #impodo-review-proposal .ip-brand{font-weight:650;letter-spacing:.04em}
+    #impodo-review-proposal .ip-muted{color:var(--ip-muted)}
+    #impodo-review-proposal .ip-small{font-size:12px}
+    #impodo-review-proposal .ip-layout{display:grid;grid-template-columns:205px minmax(0,1fr)}
+    #impodo-review-proposal .ip-nav{padding:22px 14px;background:var(--ip-panel);border-right:1px solid var(--ip-line)}
+    #impodo-review-proposal .ip-stage{display:block;padding:7px 9px;color:var(--ip-muted)}
+    #impodo-review-proposal .ip-stage.ip-current{font-weight:600;color:var(--ip-ink);margin-top:4px}
+    #impodo-review-proposal .ip-subnav{display:grid;gap:5px;margin:5px 0 16px 8px}
+    #impodo-review-proposal .ip-step{background:transparent;color:var(--ip-ink);border:0;border-radius:4px;text-align:left;padding:10px 12px;display:block;width:100%}
+    #impodo-review-proposal .ip-step[aria-current="step"]{background:var(--ip-green-bg);box-shadow:inset 3px 0 var(--ip-green)}
+    #impodo-review-proposal .ip-step small{display:block;color:var(--ip-muted);font-size:12px;margin-top:2px}
+    #impodo-review-proposal .ip-main{padding:25px;min-width:0;display:grid;gap:20px;align-content:start;min-height:580px}
+    #impodo-review-proposal .ip-heading{display:grid;gap:7px}
+    #impodo-review-proposal .ip-eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--ip-red)}
+    #impodo-review-proposal .ip-panel{display:grid;gap:18px;min-width:0}
+    #impodo-review-proposal .ip-status{display:flex;align-items:start;gap:12px;background:var(--ip-warning-bg);padding:14px 16px;border-left:3px solid var(--ip-warning)}
+    #impodo-review-proposal .ip-status.ip-ready{background:var(--ip-green-bg);border-left-color:var(--ip-green)}
+    #impodo-review-proposal .ip-status strong{display:block;margin-bottom:3px;font-weight:600}
+    #impodo-review-proposal .ip-counts{display:flex;flex-wrap:wrap;gap:15px 25px;padding:4px 0 15px;border-bottom:1px solid var(--ip-line)}
+    #impodo-review-proposal .ip-counts span{display:block;color:var(--ip-muted);font-size:12px}
+    #impodo-review-proposal .ip-counts strong{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}
+    #impodo-review-proposal .ip-tabs{display:flex;gap:5px;flex-wrap:wrap;border-bottom:1px solid var(--ip-line);padding-bottom:9px}
+    #impodo-review-proposal .ip-tab{border:0;background:transparent;color:var(--ip-muted);padding:7px 9px;border-radius:4px}
+    #impodo-review-proposal .ip-tab[aria-selected="true"]{color:var(--ip-ink);background:var(--ip-panel);box-shadow:0 1px 0 var(--ip-ink)}
+    #impodo-review-proposal .ip-box{background:var(--ip-panel);padding:18px;border:1px solid var(--ip-line);border-radius:5px;display:grid;gap:12px}
+    #impodo-review-proposal .ip-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+    #impodo-review-proposal .ip-button{background:var(--ip-panel);color:var(--ip-ink);border:1px solid var(--ip-line);padding:8px 12px;border-radius:4px}
+    #impodo-review-proposal .ip-primary{background:var(--ip-ink);color:var(--ip-panel);border-color:var(--ip-ink)}
+    #impodo-review-proposal .ip-link{background:transparent;border:0;padding:0;color:var(--ip-green);text-decoration:underline;text-underline-offset:3px;text-align:left}
+    #impodo-review-proposal .ip-table{width:100%;border-collapse:collapse}
+    #impodo-review-proposal .ip-table th,#impodo-review-proposal .ip-table td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--ip-line);font-size:13px;vertical-align:top}
+    #impodo-review-proposal .ip-table th{font-weight:600}
+    #impodo-review-proposal .ip-scroll{overflow-x:auto;min-width:0}
+    #impodo-review-proposal .ip-downloads{border-top:1px solid var(--ip-line);padding-top:14px;display:grid;gap:8px}
+    #impodo-review-proposal .ip-detail{display:grid;gap:14px}
+    #impodo-review-proposal .ip-pair{display:flex;justify-content:space-between;gap:18px;padding:8px 0;border-bottom:1px solid var(--ip-line)}
+    #impodo-review-proposal .ip-recovery{padding:12px 0;color:var(--ip-muted)}
+    @media(max-width:650px){#impodo-review-proposal .ip-layout{grid-template-columns:1fr}#impodo-review-proposal .ip-nav{padding:10px 14px;border-right:0;border-bottom:1px solid var(--ip-line)}#impodo-review-proposal .ip-nav>.ip-stage{display:none}#impodo-review-proposal .ip-subnav{display:flex;flex-wrap:wrap;margin:0}#impodo-review-proposal .ip-subnav .ip-step{width:auto;flex:1 1 145px}#impodo-review-proposal .ip-main{padding:18px;min-height:0}#impodo-review-proposal .ip-top{padding:13px 16px;flex-wrap:wrap;gap:4px 14px;padding-right:90px}}
+  </style>
+  <div class="ip-top"><span class="ip-brand">IMPODO</span><span>Product catalogue import</span><span class="ip-small ip-muted">Design proposal · Fictional data</span></div>
+  <div class="ip-layout">
+    <nav class="ip-nav" aria-label="Migration stages and Final review substeps">
+      <span class="ip-stage">1 · Source data ✓</span>
+      <span class="ip-stage">2 · Odoo data ✓</span>
+      <span class="ip-stage">3 · Match data ✓</span>
+      <span class="ip-stage">4 · Prepare data ✓</span>
+      <span class="ip-stage ip-current">5 · Final review</span>
+      <div class="ip-subnav">
+        <button class="ip-step" type="button" data-step="1">5.1 Prepared data<small>Approved in Stage 4</small></button>
+        <button class="ip-step" type="button" data-step="2">5.2 Compare with Odoo<small>Comparison complete</small></button>
+        <button class="ip-step" type="button" data-step="3" aria-current="step">5.3 Review results<small>4 records need attention</small></button>
+      </div>
+      <span class="ip-stage">6 · Load into Odoo</span>
+    </nav>
+    <main class="ip-main">
+      <div class="ip-heading"><p class="ip-eyebrow" id="ip-location">Stage 5 of 6 · Final review · Step 3 of 3</p><h2 id="ip-title">Review results</h2><p class="ip-small ip-muted">Data version: November catalogue · Destination: Training Odoo · Company: Example Manufacturing</p></div>
+      <section class="ip-panel" id="ip-step-1" aria-label="Prepared data" hidden>
+        <div class="ip-status ip-ready"><div><strong>Prepared data approved in Stage 4</strong><span>108 records are included in the Odoo comparison.</span></div></div>
+        <div class="ip-counts"><div><span>Source records</span><strong>120</strong></div><div><span>For comparison</span><strong>108</strong></div><div><span>Excluded by filters</span><strong>8</strong></div><div><span>Set aside: data issues</span><strong>4</strong></div></div>
+        <div class="ip-box"><h3>Records included</h3><div class="ip-pair"><span>Categories</span><strong>20</strong></div><div class="ip-pair"><span>Products</span><strong>88</strong></div><button class="ip-link" type="button" data-open-outside>Review the 12 records outside this load</button></div>
+        <div class="ip-actions"><button class="ip-button ip-primary" type="button" data-go="2">Continue to comparison →</button><button class="ip-button" type="button" data-note="The existing Stage 4 prepared-data review opens here. Returning retains the Stage 5 location.">View approved preparation</button></div>
+      </section>
+      <section class="ip-panel" id="ip-step-2" aria-label="Compare with Odoo" hidden>
+        <div class="ip-status ip-ready"><div><strong>Comparison complete</strong><span>108 records checked against Training Odoo.</span></div></div>
+        <div class="ip-box"><h3>Saved comparison</h3><div class="ip-pair"><span>Prepared records</span><strong>108</strong></div><div class="ip-pair"><span>Destination</span><span>Training Odoo</span></div><div class="ip-pair"><span>Company</span><span>Example Manufacturing</span></div><div class="ip-pair"><span>Result</span><span>4 records need attention</span></div></div>
+        <div class="ip-actions"><button class="ip-button ip-primary" type="button" data-go="3">Review results →</button><button class="ip-button" type="button" data-note="An explicit comparison starts the existing read-only job. Its progress and recovery stay under Step 5.2. Opening this step alone starts nothing.">Compare with Odoo again</button></div>
+      </section>
+      <section class="ip-panel" id="ip-step-3" aria-label="Review results">
+        <div class="ip-status"><div><strong>108 records compared; 4 need attention</strong><span>Review the affected records before continuing.</span></div></div>
+        <div class="ip-counts"><div><span>New in Odoo</span><strong>70</strong></div><div><span>Different from Odoo</span><strong>18</strong></div><div><span>Already matches</span><strong>16</strong></div><div><span>Needs attention</span><strong>4</strong></div></div>
+        <div class="ip-tabs" role="tablist" aria-label="Comparison result views">
+          <button class="ip-tab" id="ip-tab-attention" type="button" role="tab" aria-controls="ip-view-attention" aria-selected="true" data-view="attention">Needs attention · 4</button>
+          <button class="ip-tab" id="ip-tab-changes" type="button" role="tab" aria-controls="ip-view-changes" aria-selected="false" data-view="changes">Proposed changes</button>
+          <button class="ip-tab" id="ip-tab-outside" type="button" role="tab" aria-controls="ip-view-outside" aria-selected="false" data-view="outside">Outside this load · 12</button>
+        </div>
+        <div id="ip-view-attention" role="tabpanel" aria-labelledby="ip-tab-attention" class="ip-panel">
+          <div id="ip-finding" class="ip-box"><p class="ip-small ip-muted">Products · Category · 4 affected records</p><h3>Category could not be found in Odoo</h3><p>The Category value “ACCESSORIES” has no matching record.</p><div class="ip-actions"><button class="ip-button ip-primary" type="button" id="ip-show-records">Review affected records</button><button class="ip-link" type="button" data-note="Open the exact Products → Connect linked values → Category choice in Stage 3. After a saved correction, the existing preparation and comparison checks still apply. Return to Final review restores this finding.">Edit Category match in Stage 3</button></div><details><summary>Support details</summary><p class="ip-small ip-muted">Technical codes and saved evidence remain available here.</p></details></div>
+          <div id="ip-records" class="ip-detail" hidden><button class="ip-link" type="button" id="ip-back-finding">← Back to finding</button><h3>Products / Category / 4 affected records</h3><div class="ip-scroll"><table class="ip-table"><thead><tr><th>Source row</th><th>Product</th><th>Category value</th></tr></thead><tbody><tr><td>24</td><td>PRD-024</td><td>ACCESSORIES</td></tr><tr><td>25</td><td>PRD-025</td><td>ACCESSORIES</td></tr><tr><td>26</td><td>PRD-026</td><td>ACCESSORIES</td></tr><tr><td>27</td><td>PRD-027</td><td>ACCESSORIES</td></tr></tbody></table></div><button class="ip-link" type="button" data-note="The existing affected-group preview opens here. It shows linked records, writes remaining, and blockers before any explicit set-aside decision.">Preview rows to set aside</button></div>
+        </div>
+        <div id="ip-view-changes" role="tabpanel" aria-labelledby="ip-tab-changes" class="ip-panel" hidden>
+          <div class="ip-scroll"><table class="ip-table"><thead><tr><th>Table</th><th>New</th><th>Different</th><th>Matches</th><th>Attention</th></tr></thead><tbody><tr><th>Categories</th><td>10</td><td>2</td><td>8</td><td>0</td></tr><tr><th>Products</th><td>60</td><td>16</td><td>8</td><td>4</td></tr></tbody></table></div>
+          <div class="ip-box"><h3>Example: Product PRD-042</h3><div class="ip-pair"><span>Sales price in Odoo</span><span>€12.00</span></div><div class="ip-pair"><span>Proposed sales price</span><span>€13.50</span></div></div>
+          <button class="ip-link" type="button" data-note="Existing Expected versus found shows saved allowed changes and count limits. A mismatch retains its current correction and reassessment requirements.">Review expected versus found</button>
+        </div>
+        <div id="ip-view-outside" role="tabpanel" aria-labelledby="ip-tab-outside" class="ip-panel" hidden>
+          <div class="ip-box"><h3>12 records outside this load</h3><div class="ip-pair"><span>Excluded by Rows to use filters</span><strong>8</strong></div><div class="ip-pair"><span>Set aside during preparation: missing identifier</span><strong>4</strong></div><div class="ip-pair"><span>Set aside by a Stage 5 decision</span><strong>0</strong></div><p class="ip-small ip-muted">These records were not included in the 108-record comparison.</p></div>
+        </div>
+      </section>
+      <div class="ip-downloads"><span class="ip-small ip-muted">Downloads · Optional</span><div class="ip-actions"><button class="ip-link" type="button" data-note="The correction worklist covers all current saved findings across tables and pages. It remains available before comparison and while findings are unresolved.">Download rows needing attention</button><button class="ip-link" type="button" data-note="The full review workbook retains its existing availability checks. Downloading it does not complete a required step.">Review workbook</button></div></div>
+      <p id="ip-note" class="ip-recovery ip-small" aria-live="polite" hidden></p>
+    </main>
+  </div>
+  <script>
+    (()=>{
+      const root=document.getElementById('impodo-review-proposal');
+      if(!root)return;
+      const titles={1:'Prepared data',2:'Compare with Odoo',3:'Review results'};
+      const state={step:3,view:'attention',detail:false};
+      const note=root.querySelector('#ip-note');
+      const saved=window.openai?.widgetState?.privateContent;
+      if(saved && [1,2,3].includes(saved.step))state.step=saved.step;
+      if(saved && ['attention','changes','outside'].includes(saved.view))state.view=saved.view;
+      function render(){
+        root.querySelectorAll('[data-step]').forEach(b=>{if(Number(b.dataset.step)===state.step)b.setAttribute('aria-current','step');else b.removeAttribute('aria-current');});
+        [1,2,3].forEach(i=>{root.querySelector('#ip-step-'+i).hidden=i!==state.step;});
+        root.querySelector('#ip-title').textContent=titles[state.step];
+        root.querySelector('#ip-location').textContent='Stage 5 of 6 · Final review · Step '+state.step+' of 3';
+        root.querySelectorAll('[data-view]').forEach(b=>b.setAttribute('aria-selected',String(b.dataset.view===state.view)));
+        ['attention','changes','outside'].forEach(v=>{root.querySelector('#ip-view-'+v).hidden=v!==state.view;});
+        root.querySelector('#ip-finding').hidden=state.detail;
+        root.querySelector('#ip-records').hidden=!state.detail;
+      }
+      function save(){window.openai?.setWidgetState?.({modelContent:{proposal:'Impodo Stage 5: three substeps',selectedStep:titles[state.step],resultView:state.view},privateContent:{step:state.step,view:state.view}})?.catch(()=>{});}
+      root.addEventListener('click',e=>{
+        const b=e.target.closest('button');if(!b)return;
+        note.hidden=true;
+        if(b.dataset.step||b.dataset.go){state.step=Number(b.dataset.step||b.dataset.go);state.detail=false;}
+        if(b.dataset.view){state.view=b.dataset.view;state.detail=false;}
+        if(b.hasAttribute('data-open-outside')){state.step=3;state.view='outside';state.detail=false;}
+        if(b.id==='ip-show-records')state.detail=true;
+        if(b.id==='ip-back-finding')state.detail=false;
+        if(b.dataset.note){note.textContent=b.dataset.note;note.hidden=false;}
+        render();save();
+      });
+      root.querySelector('.ip-tabs').addEventListener('keydown',e=>{
+        if(!['ArrowLeft','ArrowRight','Home','End'].includes(e.key))return;
+        const tabs=Array.from(root.querySelectorAll('[data-view]'));
+        let idx=tabs.indexOf(document.activeElement);if(idx<0)return;
+        if(e.key==='Home')idx=0;else if(e.key==='End')idx=tabs.length-1;else idx=(idx+(e.key==='ArrowRight'?1:-1)+tabs.length)%tabs.length;
+        e.preventDefault();tabs[idx].focus();tabs[idx].click();
+      });
+      window.addEventListener('openai:set_globals',e=>{const next=e.detail?.globals?.widgetState?.privateContent;if(!next)return;if([1,2,3].includes(next.step))state.step=next.step;if(['attention','changes','outside'].includes(next.view))state.view=next.view;render();});
+      render();
+    })();
+  </script>
+</div>

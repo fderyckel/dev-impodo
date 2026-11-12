@@ -1116,6 +1116,7 @@ qualify another remote topology.
 - [`tests/integration/web/test_odoo_transfer_journey.py`](../../../tests/integration/web/test_odoo_transfer_journey.py)
 - [`tests/integration/web/test_transfer_order_navigation.py`](../../../tests/integration/web/test_transfer_order_navigation.py)
 - [`tests/integration/web/test_transfer_review_routes.py`](../../../tests/integration/web/test_transfer_review_routes.py)
+- [`tests/integration/web/test_transfer_review_steps.py`](../../../tests/integration/web/test_transfer_review_steps.py) verifies the separate transfer contents and approval pages without changing package decisions.
 - [`tests/integration/web/test_transfer_review_presenter.py`](../../../tests/integration/web/test_transfer_review_presenter.py)
 - [`tests/integration/web/test_transfer_preflight_routes.py`](../../../tests/integration/web/test_transfer_preflight_routes.py)
 - [`tests/integration/web/test_transfer_page_reads.py`](../../../tests/integration/web/test_transfer_page_reads.py)
@@ -1137,3 +1138,38 @@ supported Odoo target.
 - [Remote Odoo acceptance](../runbooks/remote-odoo-acceptance.md)
 - [Recipe and data-version lifecycle contract](../contracts/recipe-lifecycle.md)
 - [Proposed exact-record repair for known fallout](../../plans/06-load-fallout-source-cell-workbook.md)
+
+## Saved stages and continued Authoring loads
+
+`web/routers/history.py` reads a selected completed workspace without entering
+mutable authoring routes. Its continuation command creates or resumes a
+successor, refreshes read authority, and rebinds saved rules. All local reads
+and commands use bounded off-loop operations. Odoo capture and artifact
+construction happen after local owners are released.
+
+`web/routers/continuation.py` presents prepared-data readiness, exact-target
+comparison, results, confirmation, and outcome. The existing correction job,
+comparison, scoped writer, journal, and reconciliation services own execution.
+[`application/continuation_publication.py`](../../../src/impodo/application/continuation_publication.py) seals the complete target index for
+another cycle. Its protected audit observations support a zero-write outcome
+and a selected-comparison workbook. Earlier saved comparisons remain immutable.
+
+The initial scope is direct file-source Authoring with native prepared snapshots
+and standard data checks. The successor seeder rejects generated or combined
+datasets and manager-authored or scope-approved checks before provisioning; it
+must never silently omit their rules.
+Native compilation rejects row filters and other evaluator-only rules; changed
+source populations and identities cannot become implicit creates. Recipe Test,
+Production, and Odoo-source transfer keep their owning execution journeys.
+
+[`tests/integration/web/test_post_load_continuation.py`](../../../tests/integration/web/test_post_load_continuation.py) exercises forgotten fields,
+repeat cycles, saved-stage reads, selected workbooks, and saving completed rules
+while a different draft exists. It uses fictional targets and real local
+repositories for Odoo 19/20 and local/remote contracts. This is controlled
+qualification, not a live-server or JavaScript-browser acceptance claim.
+[`tests/integration/columnar/test_continuation_fields.py`](../../../tests/integration/columnar/test_continuation_fields.py) covers added and removed
+fields and preservation of independent Odoo changes.
+
+[`tests/application/test_continuation_eligibility.py`](../../../tests/application/test_continuation_eligibility.py)
+checks that unsupported source construction and additional checks cannot be
+silently discarded when starting another working revision.

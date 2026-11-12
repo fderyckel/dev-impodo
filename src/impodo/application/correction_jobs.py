@@ -43,6 +43,7 @@ class CorrectionJobResult:
     already_corrected_count: int = 0
     blocker_messages: tuple[str, ...] = ()
     verified: bool = False
+    preserved_field_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

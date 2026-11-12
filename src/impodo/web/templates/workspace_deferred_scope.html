@@ -4,7 +4,7 @@
   {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
-      <p class="eyebrow">Stage 5 of 6 · Final review</p>
+      <p class="eyebrow">Stage 5 of 6 · Final review · 5.3 Review results</p>
       <h1>Review complete affected groups</h1>
       <p>Preview which problem records and linked records would stay out of this load.</p>
     </div>
@@ -17,7 +17,7 @@
     {% endif %}
   </div>
   {% if not deferred_review or not deferred_review.decision %}
-    <p><a href="/workspaces/{{ workspace_id }}/summary#migration-issues">Back to migration issues</a></p>
+    <p><a href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view=attention#migration-issues" data-final-review-back>Back to migration issues</a></p>
   {% endif %}
 
   {% if error %}<p class="notice warning" role="alert">{{ error }}</p>{% endif %}
@@ -35,7 +35,7 @@
           </p>
           <small>Accepted by {{ deferred_review.decision.accepted_by.display_name }} on {{ deferred_review.decision.accepted_at.strftime("%Y-%m-%d %H:%M") }} UTC.</small>
         </div>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/summary">Return to Final review</a>
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=results" data-final-review-back>Return to Final review</a>
       </section>
     {% elif deferred_review.bulk_preview or deferred_review.finding_options %}
       {% if deferred_review.bulk_preview %}<p><a href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose individual problems instead</a></p>{% endif %}

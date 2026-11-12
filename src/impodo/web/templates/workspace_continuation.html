@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Continue saved load · Impodo{% endblock %}
+{% block content %}
+  {% set review_stage = continuation_step in ['prepared', 'compare', 'results'] %}
+  <div class="page-heading"><div><p class="eyebrow">Working revision · Stage {{ 5 if review_stage else 6 }} of 6</p><h1>{{ 'Review and compare' if review_stage else 'Load reviewed changes' }}</h1></div><span class="status {{ 'registered' if continuation_view.completed else 'ready' if current_plan else 'review' }}">{{ 'Verified' if continuation_view.completed else 'Comparison ready' if current_plan else 'Review required' }}</span></div>
+  <section class="notice">
+    <strong>Update records from the previous load</strong><p>This revision uses the same uploaded data and the exact records identified by the saved load. Each load retains its own rules and results.</p>
+    <a href="/workspaces/{{ correction_binding.completed_workspace_id }}/history/5">View the previous saved review</a>
+  </section>
+  <nav class="steps" aria-label="Final review steps">
+    <a class="setup-step{% if continuation_step == 'prepared' %} current{% endif %}" href="/workspaces/{{ workspace_id }}/continuation/prepared">5.1 Prepared data</a>
+    <a class="setup-step{% if continuation_step == 'compare' %} current{% endif %}" href="/workspaces/{{ workspace_id }}/continuation/compare">5.2 Compare with Odoo</a>
+    <a class="setup-step{% if continuation_step == 'results' %} current{% endif %}" href="/workspaces/{{ workspace_id }}/continuation/results">5.3 Review results</a>
+    <a class="setup-step{% if not review_stage %} current{% endif %}" href="/workspaces/{{ workspace_id }}/continuation/confirm">6. Confirm and load</a>
+  </nav>
+  {% if latest_job and latest_job.status.value == 'FAILED' %}<section class="notice warning"><strong>The last action stopped safely.</strong><p>{{ latest_job.failure_message }}</p><a href="/workspaces/{{ workspace_id }}/continuation/compare">Review and compare again</a></section>{% endif %}
+  {% if latest_job and latest_job.result and latest_job.result.blocker_messages %}<section class="notice warning"><h2>Resolve these issues before loading</h2><ul>{% for message in latest_job.result.blocker_messages %}<li>{{ message }}</li>{% endfor %}</ul><a href="/workspaces/{{ workspace_id }}/mapping">Review the field mappings</a> · <a href="/workspaces/{{ workspace_id }}/continuation/compare">Compare again after correcting them</a></section>{% endif %}
+  {% if continuation_view.completed %}
+    <section class="next-action-card ready"><div><h2>Changes verified in Odoo</h2><p>The comparison and any reviewed writes were verified successfully.</p></div><a class="button primary" href="/workspaces/{{ workspace_id }}/history/6">View this saved load</a><a class="button secondary" href="/projects/{{ migration_project.project_id }}?recipe_workspace={{ workspace_id }}#project-recipes-title">Save these rules as a Recipe</a></section>
+  {% elif continuation_step == 'prepared' %}
+    <section class="form-card"><h2>Check the prepared revision</h2>{% if quality %}<p>{{ quality.ready_count }} ready · {{ quality.review_count }} to review · {{ quality.blocked_count }} blocked · {{ quality.excluded_count }} excluded.</p>{% endif %}
+      {% if can_compare %}<p>The prepared revision is approved for comparison.</p><a class="button primary" href="/workspaces/{{ workspace_id }}/continuation/compare">Continue to Odoo comparison</a>{% else %}<p>Prepare and approve the current revision in Stage 4 before comparing.</p><a class="button primary" href="/workspaces/{{ workspace_id }}/prepare">Open Stage 4</a>{% endif %}
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Review Stage 3 mappings</a>
+    </section>
+  {% elif continuation_step == 'compare' %}
+    <section class="form-card"><h2>Compare this revision with current Odoo values</h2><p>Impodo checks the exact earlier records. Independent Odoo changes are preserved or shown as conflicts before loading.</p>
+      {% if can_compare %}<form method="post" action="/projects/{{ migration_project.project_id }}/completed-loads/{{ correction_binding.completed_workspace_id }}/review?continue=1">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="review_request_id" value="{{ review_request_id }}">
+        <label>Odoo read API key <input type="password" name="read_api_key" autocomplete="off"><small>Leave blank to use the available read key.</small></label>
+        <label class="checkbox-label"><input type="checkbox" name="remember_read_api_key">Remember this read key</label>
+        <button class="button primary" type="submit">Compare with Odoo</button>
+      </form>{% else %}<p>Prepare and approve the current revision first.</p><a class="button primary" href="/workspaces/{{ workspace_id }}/prepare">Open Stage 4</a>{% endif %}
+    </section>
+  {% elif continuation_step == 'results' %}
+    <section class="form-card"><h2>Review the proposed changes</h2>
+      {% if current_plan %}<p><strong>{{ continuation_view.plan_summary.record_count }} updates · Zero creates.</strong> {{ continuation_view.plan_summary.field_count }} field changes.</p>
+      <table class="data-table"><thead><tr><th>Table</th><th>Source row</th><th>Field</th><th>Current Odoo value</th><th>Proposed value</th><th>Result</th></tr></thead><tbody>{% for row in comparison_rows %}<tr><td>{{ row.dataset }}</td><td>{{ row.row }}</td><td>{{ row.field }}</td><td>{{ row.current if row.kind == 'SCALAR' else 'Existing linked record' }}</td><td>{{ row.proposed if row.kind == 'SCALAR' else row.reference or 'Reviewed existing linked record' }}</td><td>{{ 'Update' if row.outcome == 'READY' else 'Preserved Odoo change' if row.outcome == 'PRESERVED_IN_ODOO' else 'Unchanged' }}</td></tr>{% endfor %}</tbody></table>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/continuation/workbook?comparison_id={{ current_plan.plan_id }}">Download review workbook</a><div class="button-row">{% if page > 1 %}<a class="button secondary" href="?page={{ page - 1 }}">Previous records</a>{% endif %}<span>Page {{ page }} of {{ page_count }}</span>{% if page < page_count %}<a class="button secondary" href="?page={{ page + 1 }}">Next records</a>{% endif %}<a class="button primary" href="/workspaces/{{ workspace_id }}/continuation/confirm">Continue to confirmation</a></div>
+      {% elif latest_job and latest_job.status.value == 'SUCCEEDED' and latest_job.result and not latest_job.result.blocker_messages %}<p>No update is needed. Current Odoo values already satisfy the revised intent.</p>{% else %}<p>A current comparison is required.</p><a class="button primary" href="/workspaces/{{ workspace_id }}/continuation/compare">Compare with Odoo</a>{% endif %}
+      {% if latest_job and latest_job.result and latest_job.result.preserved_field_count %}<p>{{ latest_job.result.preserved_field_count }} field values changed directly in Odoo and are preserved.</p>{% endif %}
+    </section>
+  {% elif current_plan %}
+    <section class="form-card"><h2>Confirm {{ continuation_view.plan_summary.record_count }} record updates</h2><p>Only the reviewed fields on the exact earlier records will be updated. Impodo checks their current values again before writing.</p>
+      <form method="post" action="/projects/{{ migration_project.project_id }}/completed-loads/{{ correction_binding.completed_workspace_id }}/apply?continue=1">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="confirmation_id" value="{{ confirmation_id }}">
+        <label>Odoo write API key <input type="password" name="write_api_key" autocomplete="off"><small>Leave blank to use the available loading key.</small></label>
+        <label class="checkbox-label"><input type="checkbox" name="remember_write_api_key">Remember this loading key</label>
+        <label class="checkbox-label"><input type="checkbox" name="confirm_apply" value="yes" required>I confirm these {{ continuation_view.plan_summary.record_count }} updates and their reviewed fields.</label>
+        <button class="button primary" type="submit">Load reviewed updates</button>
+      </form><a class="button secondary" href="/workspaces/{{ workspace_id }}/continuation/results">Back to review results</a>
+    </section>
+  {% else %}<section class="notice"><p>Compare and review the current revision before confirming a load.</p><a class="button primary" href="/workspaces/{{ workspace_id }}/continuation/compare">Compare with Odoo</a></section>{% endif %}
+{% endblock %}

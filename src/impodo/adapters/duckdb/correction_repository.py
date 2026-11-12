@@ -191,6 +191,13 @@ class CorrectionRepository:
                 """,
                 [binding.completed_workspace_id],
             ).fetchone()
+            verified_successor = connection.execute(
+                """SELECT 1 FROM correction_run_binding
+                     WHERE successor_workspace_id = ?
+                       AND successor_migration_run_id = ?
+                       AND current_plan_id IS NOT NULL""",
+                [binding.completed_workspace_id, binding.completed_migration_run_id],
+            ).fetchone() is not None
             if (
                 run is None
                 or workspace is None
@@ -205,7 +212,10 @@ class CorrectionRepository:
                     binding.data_version_id,
                     binding.completed_migration_run_id,
                 )
-                or str(workspace[3]) != "OPEN"
+                or (str(workspace[3]) != "OPEN" and not (
+                    str(workspace[3]) == "CLOSED"
+                    and str(run[3]) == "COMPLETED" and verified_successor
+                ))
                 or int(workspace[4]) != expected_workspace_revision
             ):
                 raise MigrationConflictError(
@@ -420,6 +430,7 @@ class CorrectionRepository:
                 or current.successor_workspace_id != successor_workspace_id
             ):
                 raise MigrationConflictError("Correction review is stale")
+            self._require_editable_successor(connection, current)
             now = datetime.now(UTC)
             connection.execute(
                 """
@@ -488,6 +499,7 @@ class CorrectionRepository:
                 return current
             if current.optimistic_revision != require_revision(expected_revision):
                 raise MigrationConflictError("Correction invalidation is stale")
+            self._require_editable_successor(connection, current)
             now = datetime.now(UTC)
             connection.execute(
                 """
@@ -555,6 +567,7 @@ class CorrectionRepository:
                 or current.current_plan.logical_hash != plan_hash
             ):
                 raise MigrationConflictError("Correction confirmation is stale")
+            self._require_editable_successor(connection, current)
             now = datetime.now(UTC)
             connection.execute(
                 """
@@ -600,6 +613,7 @@ class CorrectionRepository:
         reconciliation_hash: str,
         expected_revision: int,
         actor: Actor,
+        read_only_plan_hash: str = "",
     ) -> CorrectionBinding:
         """Close the successor owners after a current VERIFIED reconciliation."""
 
@@ -632,7 +646,10 @@ class CorrectionRepository:
                 current.successor_migration_run_id == successor_migration_run_id
                 and current.successor_workspace_id == successor_workspace_id
                 and current.current_plan is not None
-                and current.current_confirmation is not None
+                and (current.current_confirmation is not None or (
+                    bool(read_only_plan_hash)
+                    and current.current_plan.logical_hash == read_only_plan_hash
+                ))
             )
             if (
                 binding_matches
@@ -709,6 +726,12 @@ class CorrectionRepository:
         if current is None:
             raise CorrectionOriginError("Correction binding is missing")
         return current
+
+    @staticmethod
+    def _require_editable_successor(connection, binding: CorrectionBinding) -> None:
+        row = connection.execute("SELECT state FROM migration_workspace WHERE workspace_id = ?", [binding.successor_workspace_id]).fetchone()
+        if row is None or str(row[0]) != "OPEN":
+            raise MigrationConflictError("This completed revision is saved. Continue editing to create another working revision.")
 
     def _read_binding(self, connection, completed_workspace_id: str):
         row = connection.execute(

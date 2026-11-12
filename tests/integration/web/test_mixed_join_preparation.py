@@ -1,8 +1,8 @@
 """Exercise multiple combined outputs through the real preparation worker."""
 
+import re
 from asyncio import get_running_loop
 from dataclasses import replace
-import re
 from datetime import UTC, datetime
 from threading import get_ident
 from unittest import TestCase
@@ -384,7 +384,7 @@ class MixedJoinPreparationTests(TestCase):
         self._worker(workspace_id, count, 100000)
 
     def test_start_page_reads_off_loop_and_failed_repeat_preserves_good_result(self):
-        workspace_id, count = self._setup((3, 4, 4))
+        workspace_id, _count = self._setup((3, 4, 4))
         caller = get_ident()
         reads = []
         original = self.context.queries.get_mapping_revision
@@ -421,9 +421,8 @@ class MixedJoinPreparationTests(TestCase):
             self.context.preparation.quality,
             "evaluate_and_publish",
             side_effect=OSError("injected storage exhaustion"),
-        ):
-            with self.assertRaises(OSError):
-                self.context.preparation.prepare(workspace_id, actor=self.actor)
+        ), self.assertRaises(OSError):
+            self.context.preparation.prepare(workspace_id, actor=self.actor)
         self.assertEqual(
             self.context.preparation.staging.get_current_staging_summary(workspace_id),
             before,
@@ -517,7 +516,7 @@ class MixedJoinPreparationTests(TestCase):
             if action == "accept":
                 data.update(parameter_revision="", warnings_acknowledged="1")
                 if stable_lookup:
-                    match = re.search(r'<select[^>]*name="(match_[0-9]+)"[^>]*>.*?<option value="([^"]+)"[^>]*>cust03\.csv', page.text, re.S)
+                    match = re.search(r'<select[^>]*name="(match_[0-9]+)"[^>]*>.*?<option value="([^"]+)"[^>]*>cust03\.csv', page.text, re.DOTALL)
                     self.assertIsNotNone(match, "The key-only address input needs an explicit table choice")
                     data[match.group(1)] = match.group(2)
             response = client.post(

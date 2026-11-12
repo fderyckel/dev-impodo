@@ -477,6 +477,7 @@ def _render_derived_entities(
         pending_related=pending_related,
         pending_lookup=pending_lookup,
         pending_hierarchy=pending_hierarchy,
+        hierarchy_parent_outcome=getattr(request.state, "hierarchy_parent_outcome", None),
         pending_join=pending_join,
         pending_join_group=pending_join_group,
         join_group_error=join_group_error,

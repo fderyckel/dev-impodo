@@ -889,7 +889,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(review_page.status_code, 200)
         self.assertIn("Stage 5 of 6", review_page.text)
-        self.assertIn("Approve the exact Odoo transfer package", review_page.text)
+        self.assertIn("Review the Odoo transfer contents", review_page.text)
         review_built = self._post(
             f"/workspaces/{workspace_id}/transfer-review/build",
             {
@@ -904,7 +904,13 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         built_page = self.client.get(review_built.headers["location"])
         self.assertIn("Frozen execution scope", built_page.text)
         self.assertIn("Control totals reconcile", built_page.text)
-        self.assertIn("Approve exact transfer package", built_page.text)
+        self.assertIn("Continue to approval", built_page.text)
+        self.assertNotIn('name="confirmation"', built_page.text)
+        approval_page = self.client.get(
+            f"/workspaces/{workspace_id}/transfer-review?step=approve"
+        )
+        self.assertIn("Approve exact transfer package", approval_page.text)
+        self.assertIn('name="confirmation" value="approve" required', approval_page.text)
 
         review_approved = self._post(
             f"/workspaces/{workspace_id}/transfer-review/approve",

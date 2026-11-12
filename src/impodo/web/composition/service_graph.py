@@ -992,6 +992,7 @@ def build_correction_service_graph(
         mapping_seeder=CorrectionMappingSeedService(
             schemas=authoring.schema_workspace,
             mappings=authoring.mapping_workspace,
+            quality=preparation.quality.quality,
         ),
     )
     reviewer = CorrectionReviewOrchestrator(

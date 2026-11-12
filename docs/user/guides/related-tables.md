@@ -206,6 +206,11 @@ Product Categories: the same rule can prepare departments, analytic accounts,
 locations, classification trees, or another Odoo model with a compatible
 self-referential many2one field.
 
+You can also start beneath an existing Odoo parent. For example, select
+`Physical Locations / WH / Stock` from Odoo and use your `Aisle` and `Bin`
+columns for the new levels beneath it. One source field is sufficient when
+you select an existing starting parent.
+
 To create the generated table:
 
 1. Select the original source table.
@@ -235,6 +240,40 @@ not the final label, owns their identity.
 
 Select **Use this table** only when the preview represents the
 intended business records.
+
+To use an existing parent:
+
+1. Open **Use parents that already exist in Odoo** after choosing the record
+   type. Select **Load companies** to fetch the companies available to the
+   checking user.
+2. Choose **Company for this load**, then select **Load existing Odoo
+   parents**. You do not need to type a parent name. You can enter part of a
+   name in **Filter Odoo parents (optional)** and load the list again to narrow
+   it. The selected company continues into the following stages.
+3. Choose **Starting parent in Odoo** from the full paths returned by the
+   list. This can be an existing second level or a deeper record. Shared
+   ancestors keep their own company setting.
+4. If the first fields in your source also describe existing levels, set
+   **Source levels that must already exist**. Those levels must match existing
+   paths during comparison. They cannot be created or updated by this import.
+   This count starts at the first field selected from your file; the selected
+   Odoo parent is already reused. Leave it at **None — follow the reviewed
+   import rules** when all selected source levels are new.
+5. Select **Preview hierarchy records**. Check the complete paths, **Company**,
+   and **Planned use**, then select **Use this table**.
+
+New hierarchy records use the company selected for this load. In **Match
+data**, include the parent relationship and Company in the hierarchy's record
+identity, and use the generated **Company for this hierarchy record** field
+for Company. A shared existing parent does not make its new children shared.
+If you change the load company, check the hierarchy again in **Source data**.
+
+Impodo checks the selected parent again before saving and compares the full
+hierarchy with current Odoo records later. Missing or ambiguous required
+parents hold back their descendants. A list with more than 50 parents shows
+the first 50 and asks you to narrow the optional filter. A typed filter is
+never saved as the parent. Searching and building the table only read
+Odoo; loading remains the later approved action.
 
 If this source also feeds a combined table, Impodo adds **Selected categories
 path** to that combined table when your hierarchy is named `categories`. The

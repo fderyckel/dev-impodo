@@ -1,41 +1,34 @@
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
-from datetime import UTC, datetime
 import json
 import unittest
-from unittest.mock import MagicMock
 from dataclasses import replace
+from datetime import UTC, datetime
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from uuid import uuid4
 
-from jinja2 import Environment, FileSystemLoader
 from fastapi import Request
+from jinja2 import Environment, FileSystemLoader
 from starlette.datastructures import FormData
 
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
-    IdentityNullPolicy,
-    MappingDefinition,
     DatasetMapping,
+    IdentityNullPolicy,
     MappingControlExpectation,
+    MappingDefinition,
     ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipResolver,
     RelationshipValueSource,
     ResolverOrigin,
-    RowInclusionPolicy,
-    RowInclusionMode,
-    RowInclusionJoin,
     RowInclusionCondition,
+    RowInclusionJoin,
+    RowInclusionMode,
+    RowInclusionPolicy,
     SelectionConditionOperator,
-)
-from impodo.domain.preflight.missing_parents import missing_parent_groups
-from impodo.domain.preparation.quality import (
-    QualityCollisionGroup,
-    QualityCollisionMember,
 )
 from impodo.domain.mapping.validation.evidence import MappingValidationStatus
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
@@ -45,6 +38,11 @@ from impodo.domain.matching_order import (
     MatchingOrderPreference,
     MatchingOrderRecommendation,
     MatchingOrderSource,
+)
+from impodo.domain.preflight.missing_parents import missing_parent_groups
+from impodo.domain.preparation.quality import (
+    QualityCollisionGroup,
+    QualityCollisionMember,
 )
 from impodo.domain.schema.governance import (
     BusinessKeyDefinition,
@@ -59,24 +57,25 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
 )
-from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.derived_entities import DerivedDatasetLink
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.presenters.mapping_forms import (
-    _related_business_keys,
-    _resolver_business_key,
     _mapping_allowed_fields,
     _mapping_datasets_from_form,
+    _related_business_keys,
+    _resolver_business_key,
     _text_steps_from_form,
 )
 from impodo.web.presenters.mapping_view import (
     _collision_exclusion_draft,
-    _missing_parent_exclusion_draft,
     _is_phone_field,
     _mapping_dataset_views,
     _matching_order_custom_warnings,
+    _missing_parent_exclusion_draft,
     _ordered_mapping_dataset_views,
     _row_inclusion_slots,
 )
+from tests.support.paths import REPOSITORY_ROOT
 
 
 class OrderedTextStepFormTests(unittest.TestCase):
@@ -361,8 +360,10 @@ class OrderedTextStepFormTests(unittest.TestCase):
         self.assertEqual(
             warnings,
             (
-                "Impodo recommends matching plw_article first because "
-                "plw_bom refers to it.",
+                (
+                    "Impodo recommends matching plw_article first because "
+                    "plw_bom refers to it."
+                ),
             ),
         )
 

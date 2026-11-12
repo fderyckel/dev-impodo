@@ -14,7 +14,7 @@
   >
     <section class="page-heading">
       <div>
-        <p class="eyebrow">Stage 5 of 6 · Final review</p>
+        <p class="eyebrow">Stage 5 of 6 · Final review · 5.2 Compare with Odoo</p>
         <h1 data-preflight-heading>{% if job.status.value == 'FAILED' %}Comparison stopped{% elif job.status.value == 'SUCCEEDED' %}Comparison saved{% else %}Comparing {{ job.migration_project_name }} with Odoo{% endif %}</h1>
         <p data-preflight-intro aria-live="polite">{{ comparison_outcome_message }}</p>
       </div>
@@ -53,7 +53,7 @@
           <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
           <button class="button primary" data-preflight-retry-label type="submit">{{ recovery.action_label if recovery and recovery.action_kind == 'retry' else 'Try comparison again' }}</button>
         </form>
-        <a class="button secondary" data-preflight-previous-review href="/workspaces/{{ job.workspace_id }}/summary" {% if not previous_review_available %}hidden{% endif %}>View previous review</a>
+        <a class="button secondary" data-preflight-previous-review href="/workspaces/{{ job.workspace_id }}/summary?step=results" {% if not previous_review_available %}hidden{% endif %}>View previous review</a>
       </div>
     </section>
 

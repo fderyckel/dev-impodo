@@ -63,6 +63,8 @@ def attention_column_origins(
                         (rule.source_dataset_id, component.source_column_key)
                     )
     for link in derived_dataset_links(plan):
+        if link.company_column_key is not None:
+            graph[(link.derived_dataset_id, link.company_column_key)] = []
         inputs = link.source_level_column_keys or (link.source_column_key,)
         origins = [(link.consumer_dataset_id, key) for key in inputs]
         for key in (

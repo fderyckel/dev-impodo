@@ -13,6 +13,7 @@ from impodo.application.data_version.source_packages import (
     SourcePackageOrigin,
     SourcePackageState,
 )
+from impodo.application.odoo_saved_data_ports import SavedOdooDataRepository
 from impodo.domain.project.foundation import MigrationConflictError, utc_now
 from impodo.domain.run.setup import MigrationRunTargetSetup
 from impodo.domain.shared.access import Actor
@@ -34,6 +35,7 @@ from ...domain.workspace.models import (
 from .migration_foundation_repository import MigrationFoundationRepository
 from .migration_workspace_engine_database import MigrationWorkspaceEngineDatabase
 from .repository import DuckDbRepository
+from .schema.odoo_saved_source_company import read_saved_source_company
 from .workspace_state_repository import WorkspaceStateRepository
 
 
@@ -53,9 +55,11 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         self,
         database: MigrationWorkspaceEngineDatabase,
         foundation: MigrationFoundationRepository,
+        *, saved_odoo_data: SavedOdooDataRepository | None = None,
     ) -> None:
         DuckDbRepository.__init__(self, database)
         self.foundation = foundation
+        self.saved_odoo_data = saved_odoo_data
 
     def initialize_workbench(
         self,
@@ -135,6 +139,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
+            source_company = read_saved_source_company(connection)
         workbench = self._get_workspace_unresolved(workspace_id)
         project = self.foundation.get_project(workspace.project_id)
         package = self.foundation.get_source_package(workspace.data_version_id)
@@ -151,6 +156,13 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             status = WorkspaceStatus.REGISTERED
         else:
             status = WorkspaceStatus.DRAFT
+        restore = (
+            self.saved_odoo_data.get_restore_binding(workspace_id)
+            if self.saved_odoo_data is not None and package.origin is SourcePackageOrigin.ODOO
+            else None
+        )
+        if restore is not None and (restore.project_id != workspace.project_id or restore.data_version_id != workspace.data_version_id):
+            raise WorkspaceStateError("The saved restore belongs to another source")
         return replace(
             workbench,
             name=workspace.display_name,
@@ -168,7 +180,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             odoo_base_url=target.base_url if target is not None else "",
             odoo_database=target.database if target is not None else "",
             odoo_company=(self.get_odoo_company_binding(workspace_id, target.company_binding_hash)
-                if target is not None and target.company_workspace_id is not None and package.origin is SourcePackageOrigin.FILE else None),
+                if target is not None and target.company_workspace_id is not None and package.origin is SourcePackageOrigin.FILE else source_company if package.origin is SourcePackageOrigin.ODOO else None),
             destination_company=(self.get_odoo_company_binding(workspace_id, target.company_binding_hash)
                 if target is not None and target.company_workspace_id is not None and package.origin is SourcePackageOrigin.ODOO else None),
             intended_applications=(
@@ -178,6 +190,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             status=status,
             created_at=workspace.created_at,
             registered_at=workspace.setup_completed_at,
+            saved_restore_generation_id=restore.generation_id if restore else None,
         ), package
 
     def save(

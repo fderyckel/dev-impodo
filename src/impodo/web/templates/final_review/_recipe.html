@@ -1,0 +1,13 @@
+    {% if migration_context.data_version_purpose == 'AUTHORING' and not odoo_source and submission and staging and staging.control_totals_passed and quality and quality.ready_for_package and not readiness.blocked_count and not readiness.needs_review_count %}
+      <section class="form-card" aria-labelledby="recipe-save-title" data-recipe-save-handoff>
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Optional before Odoo load</p>
+            <h2 id="recipe-save-title">Keep these rules for another data version</h2>
+            <p>Your submitted preparation, matching, relationship, and checking rules are already saved in this workspace. Save a Recipe when you want Impodo to apply them to another suitable data version.</p>
+            <p class="muted">The review workbook documents this data check. It does not save the rules for reuse.</p>
+          </div>
+          <a class="button secondary" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Review and save Recipe</a>
+        </div>
+      </section>
+    {% endif %}

@@ -171,6 +171,11 @@ def _company_choice_connector(workspace_state: WorkspaceState, api_key: str) -> 
     return Json2ReadConnector(_target_json2_config(replace(workspace_state, odoo_company=None), api_key))
 
 
+def hierarchy_parent_connector(workspace_state: WorkspaceState, api_key: str) -> Json2ReadConnector:
+    """Compose the scoped read-only adapter for an authorized Stage 1 lookup."""
+    return Json2ReadConnector(_target_json2_config(workspace_state, api_key))
+
+
 def _test_connection(
     workspace_state: WorkspaceState,
     api_key: str,

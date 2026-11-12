@@ -166,6 +166,5 @@ class AttentionJoinedSourceTests(TestCase):
         self.assertTrue(header.derived_plan_hash)
         with patch.object(
             context.preflight.derived, "get_derived_entity_plan", return_value=None
-        ):
-            with self.assertRaisesRegex(ReadinessError, "saved rows or checks changed"):
-                verify_attention_export_current(context.preflight, header, actor=actor)
+        ), self.assertRaisesRegex(ReadinessError, "saved rows or checks changed"):
+            verify_attention_export_current(context.preflight, header, actor=actor)

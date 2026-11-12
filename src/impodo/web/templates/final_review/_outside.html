@@ -1,0 +1,13 @@
+<section class="form-card" id="records-outside-load" aria-labelledby="outside-load-title">
+  <h2 id="outside-load-title">Records outside this load</h2>
+  <dl class="summary-grid">
+    <div><dt>Outside during preparation</dt><dd>{{ quality.quarantined_count + quality.excluded_count if quality else 0 }}</dd></div>
+    <div><dt>Omitted by your Final review decision</dt><dd>{{ deferred_scope.preview.newly_set_aside_count if scope_accepted else 0 }}</dd></div>
+  </dl>
+  <p>Preparation rows below identify exclusions by filters separately from records set aside for a data issue.</p>
+  {% if scope_accepted %}
+    <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Review all {{ deferred_scope.preview.newly_set_aside_count }} records omitted by the set-aside decision</a></p>
+    <p>That review includes linked records held back with the selected problem groups.</p>
+  {% endif %}
+</section>
+{% if quality %}{% include "final_review/_quality_rows.html" %}{% endif %}

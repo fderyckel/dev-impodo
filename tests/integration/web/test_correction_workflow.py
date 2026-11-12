@@ -72,13 +72,13 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
         page = self.client.get(f"/projects/{closed.project_id}")
 
         self.assertEqual(page.status_code, 200)
-        self.assertIn("Correct this Odoo load", page.text)
+        self.assertIn("View saved load and continue", page.text)
         self.assertIn(
-            f'/workspaces/{closed.workspace_id}/correction',
+            f'/workspaces/{closed.workspace_id}/history/6',
             page.text,
         )
 
-    def test_old_mapping_url_redirects_to_the_safe_successor_explanation(self) -> None:
+    def test_old_mapping_url_redirects_to_the_saved_mapping(self) -> None:
         closed = self._closed_workspace()
         context = self.app.state.context
         context.corrections = _CorrectionViews(
@@ -101,7 +101,7 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(response.status_code, 303)
         self.assertEqual(
             response.headers["location"],
-            f"/workspaces/{closed.workspace_id}/correction",
+            f"/workspaces/{closed.workspace_id}/history/3",
         )
 
     def test_compact_review_contains_counts_but_no_protected_values_or_ids(self) -> None:

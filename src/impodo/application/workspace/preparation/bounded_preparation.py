@@ -4,7 +4,8 @@ This module publishes canonical prepared rows only for an unchanged direct
 selection of physical datasets. It compiles dataset-wide capability decisions
 before transforming rows, routes supported programs through the columnar port,
 and uses the bounded Python evaluator for unsupported mappings. The 100,000-row
-limit applies only to the qualified exact-snapshot, single-dataset native route.
+limit applies to qualified exact-snapshot native routes, including relationships
+and relational identities across direct datasets.
 Both paths preserve the same session evidence, quality inputs, and control
 totals. Full-pipeline admission also checks downstream preparation capabilities.
 """
@@ -166,10 +167,9 @@ def direct_preparation_row_limit(
     """Choose the safe evaluation ceiling for the verified source representation.
 
     A valid frozen snapshot permits the 100,000-row columnar limit for routes
-    qualified at that scale. Relational identity programs currently retain
-    the 50,000-row ceiling pending complete-route scale qualification, even
-    when clean rows use the set-based canonical projection. Missing or
-    malformed evidence uses the same conservative limit.
+    qualified at that scale, including relational identity programs. Missing
+    or malformed evidence and unsupported programs retain the conservative
+    Python evaluation limit.
     """
 
     try:
@@ -179,11 +179,6 @@ def direct_preparation_row_limit(
     except ColumnarCompilationError:
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     if any(item.support is not ColumnarSupport.SUPPORTED for item in decisions):
-        return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
-    if any(
-        item.program is not None and item.program.identity_resolvers
-        for item in decisions
-    ):
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     snapshots = tuple(source_snapshots)
     snapshots_by_id = {item.dataset_id: item for item in snapshots}

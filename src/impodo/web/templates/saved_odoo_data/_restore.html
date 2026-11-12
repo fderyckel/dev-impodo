@@ -1,0 +1,90 @@
+{% set values = restore_values|default({}) %}
+<section id="restore-saved-data" aria-labelledby="restore-saved-data-title">
+  <div class="section-heading">
+    <div>
+      <h3 id="restore-saved-data-title">Restore a saved version</h3>
+      <p>Load all included models into one destination database. Choose how matching records should keep or replace their field values.</p>
+    </div>
+  </div>
+  <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/restore" data-saved-odoo-restore data-single-submit>
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="operation_id" value="{{ operation_id }}">
+    <div class="form-grid">
+      <label>
+        Saved data version
+        <select name="version_number" required>
+          {% for version in versions %}<option value="{{ version.version_number }}" {% if values.get('version_number', definition.latest_version)|string == version.version_number|string %}selected{% endif %}>Version {{ version.version_number }} · {{ version.captured_at.strftime('%Y-%m-%d %H:%M') }}</option>{% endfor %}
+        </select>
+      </label>
+      {% if profiles %}
+        <label>
+          Saved destination
+          <select name="profile_id" data-saved-odoo-profile>
+            <option value="">Enter another destination</option>
+            {% for profile in profiles %}
+              <option value="{{ profile.profile_id }}" data-connection-mode="{{ profile.connection_mode }}" data-base-url="{{ profile.base_url }}" data-database="{{ profile.database }}" data-company-name="{{ profile.company_name }}" {% if values.get('profile_id', '') == profile.profile_id %}selected{% endif %}>{{ profile.label }} · {{ profile.database }} · {{ profile.company_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      {% endif %}
+    </div>
+
+    <fieldset>
+      <legend>Destination database and company</legend>
+      <div class="form-grid">
+        <label>Odoo location<select name="odoo_connection_mode" required><option value="REMOTE" {% if values.get('odoo_connection_mode', 'REMOTE') == 'REMOTE' %}selected{% endif %}>Managed elsewhere</option><option value="LOCAL" {% if values.get('odoo_connection_mode') == 'LOCAL' %}selected{% endif %}>On this computer</option></select></label>
+        <label>Odoo web address<input type="url" name="odoo_base_url" value="{{ values.get('odoo_base_url', '') }}" placeholder="https://destination.example.com" required></label>
+        <label>Database name<input name="odoo_database" maxlength="200" value="{{ values.get('odoo_database', '') }}" required></label>
+        <label>Destination company<input name="destination_company_name" maxlength="200" value="{{ values.get('destination_company_name', '') }}" required><small>Impodo checks this company against the selected destination before loading.</small></label>
+        <label>Destination API key<input type="password" name="api_key" autocomplete="off" data-saved-odoo-key><small>{% if profiles %}Leave empty to reuse the saved destination's access, or enter a replacement key.{% else %}Use access approved for checking and loading this destination.{% endif %}</small></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Values on records already in the destination</legend>
+      <label>
+        Default choice for captured fields
+        <select name="policy_default" data-saved-odoo-default-policy>
+          <option value="use_saved" {% if values.get('policy_default', 'use_saved') == 'use_saved' %}selected{% endif %}>Use saved values</option>
+          <option value="keep_destination" {% if values.get('policy_default') == 'keep_destination' %}selected{% endif %}>Keep destination values</option>
+          <option value="fill_empty" {% if values.get('policy_default') == 'fill_empty' %}selected{% endif %}>Fill only empty fields</option>
+        </select>
+      </label>
+      {% if field_rows %}
+        <div class="actions">
+          <button class="button secondary" type="button" data-saved-odoo-preset="use_saved">Use saved for all fields</button>
+          <button class="button secondary" type="button" data-saved-odoo-preset="keep_destination">Keep destination for all fields</button>
+          <button class="button secondary" type="button" data-saved-odoo-preset="fill_empty">Fill empty for all fields</button>
+        </div>
+        <details>
+          <summary>Review {{ field_rows|length }} field choices</summary>
+          <p>Each choice applies to every matching record for that field. Missing records are created using saved values or checked defaults.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th scope="col">Model</th><th scope="col">Field</th><th scope="col">When destination values differ</th></tr></thead>
+              <tbody>
+                {% for field in field_rows %}
+                  {% set field_name = 'policy__' ~ field.model ~ '__' ~ field.name %}
+                  {% set policy = values.get(field_name, field.policy|default('use_saved')) %}
+                  <tr>
+                    <td><code>{{ field.model }}</code></td>
+                    <th scope="row"><label for="saved-odoo-field-{{ loop.index }}">{{ field.label }}</label></th>
+                    <td><select id="saved-odoo-field-{{ loop.index }}" name="{{ field_name }}" data-saved-odoo-field-policy><option value="use_saved" {% if policy == 'use_saved' %}selected{% endif %}>Use saved value</option><option value="keep_destination" {% if policy == 'keep_destination' %}selected{% endif %}>Keep destination value</option><option value="fill_empty" {% if policy == 'fill_empty' %}selected{% endif %}>Fill only when empty</option></select></td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </details>
+        <p class="muted" role="status" aria-live="polite" data-saved-odoo-policy-status>Field choices apply to all matching records.</p>
+      {% endif %}
+      <p class="muted">Using saved links replaces membership of a relationship, including removing extra links. Destination-only records remain available.</p>
+    </fieldset>
+
+    <label class="checkbox">
+      <input type="checkbox" name="confirm_restore" value="yes" required>
+      <span>I confirm the destination database and company above and authorize this restore. Impodo will check all included models before writing.</span>
+    </label>
+    <div class="actions"><button class="button primary" type="submit" data-submitting-label="Checking and starting restoration..." {% if job and active_job %}disabled{% endif %}>Restore all</button></div>
+  </form>
+</section>

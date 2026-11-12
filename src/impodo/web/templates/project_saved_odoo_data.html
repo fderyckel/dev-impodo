@@ -1,0 +1,86 @@
+{% extends "base.html" %}
+{% block title %}Saved Odoo data · {{ project.display_name }} · Impodo{% endblock %}
+{% block page_scripts %}
+  <script src="{{ url_for('static', path='/saved-odoo-data.js') }}" defer></script>
+{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div>
+      <p class="eyebrow">{{ project.display_name }}</p>
+      <h1>Saved Odoo data</h1>
+      <p>Keep your clean Odoo configuration and records, then restore a saved version after a database reset.</p>
+    </div>
+    {% if definition %}
+      <span class="status {% if definition.latest_version %}ready{% else %}registered{% endif %}">
+        {% if definition.latest_version %}Saved version {{ definition.latest_version }}{% else %}Configuration saved{% endif %}
+      </span>
+    {% endif %}
+  </div>
+
+  {% if error %}
+    <div class="notice error" role="alert"><strong>{{ error }}</strong><p>Review the affected choices below and try the action again.</p></div>
+  {% endif %}
+
+  {% if job %}
+    {% set job_status = job.status.value if job.status.value is defined else job.status %}
+    {% set active_job = job_status in ('QUEUED', 'RUNNING') %}
+    <section class="form-card" aria-labelledby="saved-data-progress-title" aria-busy="{{ 'true' if active_job else 'false' }}">
+      <div class="page-heading compact">
+        <div role="status" aria-live="polite">
+          <p class="eyebrow">Current action</p>
+          <h2 id="saved-data-progress-title">{{ job.message }}</h2>
+        </div>
+        <span class="status {% if job_status == 'FAILED' %}blocked{% elif active_job %}review{% else %}ready{% endif %}">
+          {% if job_status == 'FAILED' %}Needs attention{% elif active_job %}In progress{% elif job_status == 'CANCELLED' %}Stopped{% else %}Complete{% endif %}
+        </span>
+      </div>
+      {% if active_job and job.progress_percent is defined %}
+        <progress max="100" value="{{ job.progress_percent }}" aria-label="Saved Odoo data progress">{{ job.progress_percent }}%</progress>
+      {% endif %}
+      {% if job.failure_message is defined and job.failure_message %}<p class="notice error">{{ job.failure_message }}</p>{% endif %}
+      <div class="actions">
+        {% if active_job %}<a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data{% if definition %}?selected={{ definition.saved_data_id }}{% endif %}">Refresh progress</a>{% endif %}
+        {% if job.redirect_url is defined and job.redirect_url %}<a class="button primary" href="{{ job.redirect_url }}">Review result</a>{% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if definitions %}
+    <section class="form-card" aria-labelledby="saved-data-sets-title">
+      <h2 id="saved-data-sets-title">Saved sets in this data project</h2>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead><tr><th scope="col">Saved set</th><th scope="col">Odoo version</th><th scope="col">Latest saved data</th><th scope="col">Action</th></tr></thead>
+          <tbody>
+            {% for item in definitions %}
+              <tr>
+                <th scope="row">{{ item.label }}{% if definition and item.saved_data_id == definition.saved_data_id %} <span class="status current">Selected</span>{% endif %}</th>
+                <td>Odoo {{ item.odoo_major }}</td>
+                <td>{% if item.latest_version %}Version {{ item.latest_version }}{% else %}No data captured yet{% endif %}</td>
+                <td><a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ item.saved_data_id }}#capture-configuration">Open saved set</a></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {% endif %}
+
+  {% include "saved_odoo_data/_configuration.html" %}
+  {% include "saved_odoo_data/_versions.html" %}
+
+  <details class="form-card" id="import-saved-data">
+    <summary>Import a saved data package</summary>
+    <p>Open a protected package downloaded from Impodo. The package password is needed to read its contents.</p>
+    <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/import" enctype="multipart/form-data" data-single-submit>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="form-grid">
+        <label>Saved data package<input type="file" name="package_file" accept=".impodo" required></label>
+        <label>Package password<input type="password" name="package_password" autocomplete="off" minlength="8" required></label>
+      </div>
+      <div class="actions"><button class="button secondary" type="submit" data-submitting-label="Checking and importing package...">Import saved package</button></div>
+    </form>
+  </details>
+
+  <div class="actions"><a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a></div>
+{% endblock %}

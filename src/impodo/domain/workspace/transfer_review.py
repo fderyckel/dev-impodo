@@ -23,7 +23,7 @@ from impodo.domain.cutover.approvals import (
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 6
+TRANSFER_REVIEW_CONTRACT_VERSION = 7
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
 TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v5"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
@@ -287,7 +287,7 @@ class TransferReviewPackage:
 
     def __post_init__(self) -> None:
         if self.contract_version not in {
-            1, 2, 3, 4, 5, TRANSFER_REVIEW_CONTRACT_VERSION
+            1, 2, 3, 4, 5, 6, TRANSFER_REVIEW_CONTRACT_VERSION
         }:
             raise ValueError("Transfer-review contract version is unsupported")
         matched_policy = (
@@ -304,7 +304,12 @@ class TransferReviewPackage:
             raise ValueError("Legacy transfer-review models must use upsert")
         if self.unmatched_destination_policy != "leave_unchanged":
             raise ValueError("Transfer-review unmatched-record policy is invalid")
-        if set(self.export_plan.source_hashes) != _SOURCE_HASH_NAMES:
+        expected_hashes = set(_SOURCE_HASH_NAMES)
+        if self.restore_policy_hash is not None:
+            if self.contract_version < 7 or _HASH.fullmatch(self.restore_policy_hash) is None:
+                raise ValueError("Transfer-review restore policy binding is invalid")
+            expected_hashes.add("restore_policy")
+        if set(self.export_plan.source_hashes) != expected_hashes:
             raise ValueError("Transfer-review source bindings are incomplete")
         if self.export_plan.mapping_hash != self.destination_match_plan_hash:
             raise ValueError("Transfer-review matching binding is inconsistent")
@@ -376,6 +381,12 @@ class TransferReviewPackage:
     @property
     def destination_target_hash(self) -> str:
         return self.export_plan.source_hashes["destination_target"]
+
+    @property
+    def restore_policy_hash(self) -> str | None:
+        """Return the exact generation-bound field policies when restoring saved data."""
+
+        return self.export_plan.source_hashes.get("restore_policy")
 
     @property
     def content_hash(self) -> str:

@@ -1,17 +1,36 @@
 """Preserve repeated business values while matching stable source records."""
 
-from dataclasses import replace
-from pathlib import PurePath
 import unittest
+from pathlib import PurePath
 
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.execution.planner import plan_preflight_requirements
-from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD, SourceRecordIdentity, source_record_external_id
+from impodo.domain.mapping.source_record_identity import (
+    SOURCE_EXTERNAL_IDS_FIELD,
+    SourceRecordIdentity,
+    source_record_external_id,
+)
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preparation.preflight import PreflightEngine
-from impodo.domain.preparation.source import SourceRow, SourceTable, prepare_source_tables
-from impodo.domain.recipe.profile import DatasetSpec, FieldSpec, SourceIdentitySpec, SourceSpec, TargetIdentitySpec, TargetSpec
-from impodo.domain.shared.models import FieldMetadata, ModelMetadata, TargetFingerprint, TargetRecord
+from impodo.domain.preparation.source import (
+    SourceRow,
+    SourceTable,
+    prepare_source_tables,
+)
+from impodo.domain.recipe.profile import (
+    DatasetSpec,
+    FieldSpec,
+    SourceIdentitySpec,
+    SourceSpec,
+    TargetIdentitySpec,
+    TargetSpec,
+)
+from impodo.domain.shared.models import (
+    FieldMetadata,
+    ModelMetadata,
+    TargetFingerprint,
+    TargetRecord,
+)
 
 HASH = "sha256:" + "b" * 64
 MODEL = "x.document.line"

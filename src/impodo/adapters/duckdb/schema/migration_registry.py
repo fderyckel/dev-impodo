@@ -18,10 +18,31 @@ from .structure import read_table_columns
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-10-31-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 1
+MIGRATION_REGISTRY_VERSION = 2
 
 
 EXPECTED_REGISTRY_COLUMNS = {
+    "saved_odoo_data_identity": ("saved_data_id", "project_id"),
+    "saved_odoo_data_definition": (
+        "saved_data_id", "project_id", "revision", "configuration_revision",
+        "latest_version", "definition_json", "content_hash",
+    ),
+    "saved_odoo_data_configuration": (
+        "saved_data_id", "configuration_revision", "definition_json", "content_hash",
+    ),
+    "saved_odoo_data_version": (
+        "saved_data_id", "project_id", "version_number", "configuration_revision",
+        "workspace_id", "data_version_id", "operation_id", "version_json", "content_hash",
+    ),
+    "saved_odoo_restore_binding": (
+        "workspace_id", "project_id", "saved_data_id", "version_number",
+        "source_workspace_id", "data_version_id", "generation_id", "binding_json",
+        "content_hash",
+    ),
+    "saved_odoo_restore_profile": (
+        "profile_id", "project_id", "saved_data_id", "revision",
+        "credential_workspace_id", "profile_json", "content_hash",
+    ),
     "production_run_values": ("migration_run_id", "revision", "values_json", "content_hash"),
     "schema_version": (
         "singleton_id",
@@ -590,7 +611,74 @@ def _create_production_run_values(connection: duckdb.DuckDBPyConnection) -> None
     """)
 
 
-MIGRATION_REGISTRY_UPGRADES: dict[int, ForwardSchemaUpgrade] = {}
+def _create_saved_odoo_data(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add retained capture definitions and immutable source references."""
+
+    connection.execute(
+        """
+        CREATE TABLE saved_odoo_data_identity (
+            saved_data_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id)
+        );
+        CREATE TABLE saved_odoo_data_definition (
+            saved_data_id VARCHAR PRIMARY KEY REFERENCES saved_odoo_data_identity(saved_data_id),
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+            latest_version INTEGER CHECK (latest_version >= 1),
+            definition_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL
+        );
+        CREATE TABLE saved_odoo_data_configuration (
+            saved_data_id VARCHAR NOT NULL REFERENCES saved_odoo_data_identity(saved_data_id),
+            configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+            definition_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            PRIMARY KEY (saved_data_id, configuration_revision)
+        );
+        CREATE TABLE saved_odoo_data_version (
+            saved_data_id VARCHAR NOT NULL REFERENCES saved_odoo_data_identity(saved_data_id),
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            version_number INTEGER NOT NULL CHECK (version_number >= 1),
+            configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+            workspace_id VARCHAR NOT NULL REFERENCES migration_workspace_identity(workspace_id),
+            data_version_id VARCHAR NOT NULL REFERENCES data_version_identity(data_version_id),
+            operation_id VARCHAR NOT NULL UNIQUE,
+            version_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            PRIMARY KEY (saved_data_id, version_number),
+            FOREIGN KEY (saved_data_id, configuration_revision) REFERENCES
+                saved_odoo_data_configuration(saved_data_id, configuration_revision)
+        );
+        CREATE TABLE saved_odoo_restore_binding (
+            workspace_id VARCHAR PRIMARY KEY REFERENCES migration_workspace_identity(workspace_id),
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            saved_data_id VARCHAR NOT NULL,
+            version_number INTEGER NOT NULL,
+            source_workspace_id VARCHAR NOT NULL REFERENCES migration_workspace_identity(workspace_id),
+            data_version_id VARCHAR NOT NULL REFERENCES data_version_identity(data_version_id),
+            generation_id VARCHAR NOT NULL UNIQUE,
+            binding_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            FOREIGN KEY (saved_data_id, version_number) REFERENCES
+                saved_odoo_data_version(saved_data_id, version_number)
+        );
+        CREATE TABLE saved_odoo_restore_profile (
+            profile_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            saved_data_id VARCHAR NOT NULL REFERENCES saved_odoo_data_identity(saved_data_id),
+            revision INTEGER NOT NULL CHECK (revision >= 1),
+            credential_workspace_id VARCHAR REFERENCES migration_workspace_identity(workspace_id),
+            profile_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL
+        )
+        """
+    )
+
+
+MIGRATION_REGISTRY_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
+    1: ForwardSchemaUpgrade("saved-odoo-data-and-restore-v2", _create_saved_odoo_data),
+}
 
 
 def _initialize_migration_registry(
@@ -1156,6 +1244,7 @@ def _initialize_migration_registry(
         _create_test_run_parameter_values(connection)
         _create_production_run_values(connection)
         _create_correction_run_binding(connection)
+        _create_saved_odoo_data(connection)
         create_schema_migration_ledger(connection)
         connection.commit()
     except Exception:

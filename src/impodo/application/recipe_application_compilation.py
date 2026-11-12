@@ -16,6 +16,7 @@ from typing import Protocol
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.domain.coverage import CoverageScopeRevision, ReferenceBundle
+from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.mapping.generated_ordering import GeneratedOrdering
 from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
@@ -1105,6 +1106,7 @@ class RecipeApplicationCompiler:
             missing_parent = dict(value.get("missing_parent", {}))
             all_blank = dict(value.get("all_blank", {}))
             return HierarchicalLookupRule(
+                existing_parent=HierarchyParentPolicy.from_dict(value["existing_parent"]) if value.get("existing_parent") is not None else None,
                 rule_id=rule_id,
                 output_dataset_name=str(value["output_dataset_name"]),
                 source_dataset_id=bindings[str(value["source_dataset_id"])],

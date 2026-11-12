@@ -129,8 +129,11 @@ class BusinessExpectationsBrowserTests(HierarchyWorkflowFixture):
         review = self.review()
         self.assertFalse(review.ready)
         summary = self.client.get(self.base + "/summary")
-        self.assertIn("At most 0", summary.text)
-        self.assertIn("#expect-product.template", summary.text)
+        self.assertIn("Review business expectations", summary.text)
+        self.assertIn("view=changes#expected-versus-found", summary.text)
+        changes = self.client.get(self.base + "/summary?step=results&view=changes")
+        self.assertIn("At most 0", changes.text)
+        self.assertIn("#expect-product.template", changes.text)
         navigation = self.context.navigation.get_for_workspace(
             self.workspace_id, actor=self.actor
         )

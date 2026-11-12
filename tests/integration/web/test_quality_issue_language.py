@@ -132,7 +132,7 @@ class QualityIssueLanguageTests(unittest.TestCase):
         html = self.templates.get_template("_workflow_issue_summary.html").render(
             workflow_issue_summary=summary,
         )
-        visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
+        visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.DOTALL)
         self.assertNotIn("Your saved work", visible)
         self.assertNotIn("Impodo shows the cause", visible)
         self.assertIn("BusRelAccount", visible)
@@ -328,7 +328,7 @@ class QualityIssueLanguageTests(unittest.TestCase):
             decision_help_by_id=DECISION_HELP_BY_ID,
             url_for=lambda _name, *, path: f"/static{path}",
         )
-        visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.S)
+        visible = re.sub(r"<details\b.*?</details>", "", html, flags=re.DOTALL)
         self.assertIn("Issue on this row", visible)
         self.assertIn("BusRelAccount) is empty", visible)
         self.assertIn("not with Odoo records", visible)

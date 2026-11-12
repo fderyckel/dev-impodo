@@ -37,8 +37,8 @@ class CompiledMigrationPlan(BaseModel):
     source_selection_hash: str | None = None
     schema_hash: str | None = None
     derived_plan_hash: str | None = None
-    contract_version: Literal[1, 2, 3] = COMPILED_MIGRATION_PLAN_VERSION
-    compiler_version: Literal[2, 3, 4] = MIGRATION_COMPILER_VERSION
+    contract_version: Literal[1, 2, 3, 4] = COMPILED_MIGRATION_PLAN_VERSION
+    compiler_version: Literal[2, 3, 4, 5] = MIGRATION_COMPILER_VERSION
 
     @field_validator(
         "origin_hash",
@@ -82,8 +82,10 @@ class CompiledMigrationPlan(BaseModel):
         ):
             raise ValueError("profile plans cannot contain browser evidence bindings")
         validate_dataset_graph(self.datasets)
-        if (self.contract_version, self.compiler_version) not in {(1, 2), (2, 3), (3, 4)}:
+        if (self.contract_version, self.compiler_version) not in {(1, 2), (2, 3), (3, 4), (4, 5)}:
             raise ValueError("compiled plan contract and compiler versions disagree")
+        if self.contract_version < 4 and any(dataset.hierarchy_parent is not None for dataset in self.datasets):
+            raise ValueError("Existing hierarchy parents require compiled plan v4")
         if self.contract_version < 3 and any(
             dataset.target.mode == "update" for dataset in self.datasets
         ):

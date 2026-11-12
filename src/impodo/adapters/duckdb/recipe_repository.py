@@ -480,7 +480,14 @@ class RecipeRepository:
         context = connection.execute(
             """
             SELECT w.project_id, w.data_version_id, w.recipe_application_id,
-                   w.state, d.purpose, d.state, r.purpose
+                   w.state, d.purpose, d.state, r.purpose, r.state,
+                   EXISTS (
+                     SELECT 1 FROM correction_run_binding b
+                      WHERE b.completed_workspace_id = w.workspace_id
+                         OR (b.successor_workspace_id = w.workspace_id
+                             AND b.current_plan_id IS NOT NULL
+                             AND b.current_confirmation_id IS NOT NULL)
+                   )
               FROM migration_workspace w
               JOIN data_version d ON d.data_version_id = w.data_version_id
               JOIN migration_run r ON r.migration_run_id = w.migration_run_id
@@ -494,14 +501,19 @@ class RecipeRepository:
             raise RecipeError(
                 "Recipe publication does not match this Project and DataVersion"
             )
-        if context[2] is not None or tuple(str(item) for item in context[3:]) != (
-            "OPEN",
+        authoring = context[2] is None and tuple(str(item) for item in context[4:7]) == (
             "AUTHORING",
             "FROZEN",
             "AUTHORING",
-        ):
+        )
+        eligible_state = str(context[3]) == "OPEN" or (
+            str(context[3]) == "CLOSED"
+            and str(context[7]) == "COMPLETED"
+            and bool(context[8])
+        )
+        if not authoring or not eligible_state:
             raise RecipeError(
-                "Only an open Authoring workspace can publish reusable rules"
+                "Choose an open Authoring workspace or a verified completed Authoring load to save these rules"
             )
         if recipe_id is None:
             return 1

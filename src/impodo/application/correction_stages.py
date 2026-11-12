@@ -70,6 +70,7 @@ class CurrentCorrectionMappingReviewStage:
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_submitted: bool = False,
     ) -> MappingRevision:
         draft = self.mappings.mappings.get_mapping_working_draft(
             successor_workspace_id
@@ -77,6 +78,17 @@ class CurrentCorrectionMappingReviewStage:
         revision = self.mappings.mappings.get_mapping_revision(
             successor_workspace_id
         )
+        if require_submitted:
+            submission = self.mappings.mappings.get_mapping_submission(
+                successor_workspace_id, revision.version,
+            ) if revision is not None else None
+            if (
+                revision is None or submission is None
+                or submission.mapping_content_hash != revision.definition.content_hash
+                or (draft is not None and draft.definition.content_hash != revision.definition.content_hash)
+            ):
+                raise CorrectionOriginError("Confirm the current field matches in Stage 3 before comparing with Odoo.")
+            return revision
         if draft is not None:
             datasets = draft.definition.datasets
         elif revision is not None:
@@ -143,8 +155,12 @@ class CurrentCorrectionPreparationReviewStage:
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_prepared: bool = False,
     ) -> tuple[CorrectionDatasetReviewInput, ...]:
-        self.preparation.prepare(successor_workspace_id, actor=actor)
+        if not require_prepared:
+            self.preparation.prepare(successor_workspace_id, actor=actor)
+        elif not self.sessions.current_prepared_snapshots(successor_workspace_id):
+            raise CorrectionOriginError("Prepare the current rules in Stage 4 before comparing with Odoo.")
         previous_mapping = self.mappings.get_mapping_revision(
             manifest.completed_workspace_id
         )
@@ -230,6 +246,7 @@ class CurrentCorrectionQualityReviewStage:
         successor_workspace_id: str,
         *,
         actor: Actor,
+        require_approved: bool = False,
     ) -> None:
         quality = self.quality.current_summary(successor_workspace_id)
         if quality is None or not quality.ready_for_package:
@@ -250,6 +267,8 @@ class CurrentCorrectionQualityReviewStage:
         if normalization is None:
             raise CorrectionOriginError("Correction prepared review is missing")
         if not normalization.frozen:
+            if require_approved:
+                raise CorrectionOriginError("Approve the prepared data in Stage 4 before comparing with Odoo.")
             normalization = self.normalization.approve(
                 successor_workspace_id,
                 normalization.run_id,

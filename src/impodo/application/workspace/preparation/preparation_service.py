@@ -71,7 +71,10 @@ from impodo.domain.target_numeric_precision import (
     TargetNumericPrecisionLosses,
 )
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
-from impodo.domain.workspace.derived_entities import DerivedEntityPlan
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    HierarchicalLookupRule,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
 
@@ -259,6 +262,13 @@ class PreparationService:
         )
 
         derived_plan = self.derived_entities.get_derived_entity_plan(workspace_id)
+        for rule in derived_plan.rules if derived_plan is not None else ():
+            existing_parent = rule.existing_parent if isinstance(rule, HierarchicalLookupRule) else None
+            if existing_parent is not None and existing_parent.company_field is not None and (
+                workspace_state.odoo_company is None
+                or workspace_state.odoo_company.name != existing_parent.company_name
+            ):
+                raise ReadinessError("The company for this hierarchy changed. Return to Source data and check its existing parents for the selected company before preparing again")
         if self.supporting_decisions is not None and self.schemas is not None:
             self.supporting_decisions.require_preparation(
                 workspace_id, revision.definition.datasets, self.schemas,

@@ -187,6 +187,7 @@ class WorkspaceState:
     approval_status: ApprovalStatus = ApprovalStatus.NOT_STARTED
     odoo_company: OdooCompanySelection | None = None
     destination_company: OdooCompanySelection | None = None
+    saved_restore_generation_id: str | None = None
 
     @property
     def odoo_operation_context(self) -> dict[str, object]:
@@ -200,6 +201,11 @@ class WorkspaceState:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_mode", SourceMode(self.source_mode))
+        if self.saved_restore_generation_id is not None:
+            try:
+                UUID(self.saved_restore_generation_id)
+            except (ValueError, TypeError, AttributeError) as error:
+                raise WorkspaceStateError("The saved restore generation is invalid") from error
         if self.destination_odoo_connection_mode is not None:
             object.__setattr__(
                 self,
@@ -228,7 +234,7 @@ class WorkspaceState:
 
         return bool(
             self.destination_configured
-            and not transfer_destination_matches_source(self)
+            and (not transfer_destination_matches_source(self) or self.saved_restore_generation_id is not None)
             and self.destination_verified_target_hash
             == transfer_destination_identity_hash(self)
             and self.destination_verified_credential_binding_hash
@@ -789,7 +795,7 @@ class WorkspaceStateService:
             destination_odoo_database=database,
         )
         same_database = transfer_destination_matches_source(candidate)
-        if destination_hash == source_hash or same_database:
+        if (destination_hash == source_hash or same_database) and workspace.saved_restore_generation_id is None:
             raise WorkspaceStateError(
                 "Choose a different Odoo database for the destination"
             )

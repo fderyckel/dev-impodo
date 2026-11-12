@@ -151,11 +151,9 @@ Odoo or the frozen evidence.
 
 ### 3. Review the order and exact transfer
 
-1. In Stage 5, select **Validate transfer order**.
+1. In Stage 5, open **Transfer order** and select **Validate transfer order**.
 2. Confirm that supporting records appear before records that use them.
-3. Select **Review transfer**.
-
-![The current transfer-order result shows the approved waves and keeps destination writes disabled.](../../images/user/21-transfer-order.png)
+3. Open **Transfer contents**.
 
 A **wave** is one group of record types that Impodo can load together. Impodo
 calculates the waves from the saved relationships; you do not arrange them by
@@ -178,10 +176,10 @@ For each transferable record type, choose one policy:
 
 Select **Build review package**. Check the source count, reuse count,
 create count, fields to write, fields and records put aside, create-only
-values, and load order. Add an optional approval note, select the approval
-checkbox, and then select **Approve exact transfer package**.
-
-![The current frozen transfer package shows the exact policy, counts, fields, and create-only value source before approval.](../../images/user/22-transfer-review.png)
+values, and load order. Select **Continue to approval** to open **Approve
+transfer**. Add an optional approval note, select the approval checkbox, and
+then select **Approve exact transfer package**. Opening these pages does not
+build or approve a package; the explicit actions retain those decisions.
 
 ### 4. Run the final read-only check, then load once
 
@@ -337,39 +335,47 @@ action before attempting another write.
 
 ## Correct a verified Authoring load
 
-When an eligible Authoring load is fully verified, its data-project page shows
-**Correct this Odoo load**. The original load and workspace become historical
-evidence; Impodo creates a separate correction workspace over the same data.
+You can inspect the saved stages, continue editing the same files, and save
+the successful rules as a Recipe. Each completed load keeps its own results.
 
-1. Select **Correct this Odoo load**, then **Start correction**.
-2. Select **Edit correction rules**.
-3. Change only the rule that was wrong. This can be a source-to-field value
-   rule, a Selection choice, a constant or fallback, or trimming and casing
-   behavior. The same editor also lets you inspect relationship matches.
-4. Return to the correction page and select **Review correction**.
-5. Review the compact counts by dataset, Odoo model, and field. The review
-   always shows zero creates.
-6. If there are no blockers, explicitly confirm and select **Apply N
-   corrections**.
-7. Leave the progress page open or return to it later. Impodo rereads the exact
-   affected records, applies only the reviewed fields, and verifies the
-   outcome automatically.
+For example, you may notice after importing customers that you forgot to map
+a description. Select **View saved review** or a saved stage to inspect the
+completed load. Select **Continue editing** to open a working revision in
+Stage 3. Add the description, confirm your mappings, prepare and approve the
+revised data in Stage 4, and compare with current Odoo values in Stage 5.
 
-Impodo compares the previous prepared intent, the current Odoo value, and the
-corrected prepared intent. It does not rerun the whole migration and does not
-search for another target by business key. If the corrected result is already
-present in Odoo, the page shows that no write is needed.
+The continuation updates the exact records identified by the earlier load.
+It proposes zero creates. Review the field changes, then confirm the updates
+in Stage 6. Impodo checks the reviewed values before writing and reads them
+back afterward. If the comparison needs no writes, Impodo records that result
+without requesting a loading key.
 
-Impodo can also correct a many-to-one choice when both the previous choice and
-the corrected choice each match exactly one existing Odoo record. For example,
-you can correct 37 Products from a mistaken `UNI` Unit choice to the existing
-standard `Unit` record. Impodo changes only each Product's Unit field. It does
-not create, rename, merge, or otherwise change a Unit of Measure record.
+Removing a field from the mapping leaves its Odoo value untouched. An
+unchanged mapping also preserves values edited independently in Odoo. When
+both your revised value and the current Odoo value differ from the earlier
+import, resolve the conflict before loading. A missing or unreadable earlier
+record blocks its update instead of creating a replacement.
 
-Matching remains case-sensitive. `Kg`, `kg`, and `KG` stay different unless
-you explicitly confirm another rule in **Match data**. A missing or duplicate
-relationship match, a move to another target field, a missing Product, or a
-concurrent Odoo change stops the whole correction before writing.
+Use **Save these rules as a Recipe** to save the selected completed load's
+rules. On the project page, **Rules to save** distinguishes rules from a
+completed load from current working rules. Recipe saving still checks whether
+the rules can be reused; it does not require another load.
+
+Saved Stage 5 and Stage 6 pages retain the selected load's comparison and
+review workbook. The next working revision does not replace them. You can
+continue again after its load has been verified.
+
+Continuation currently covers direct file-source Authoring loads with retained
+exact record associations, standard data checks, and native prepared data.
+Combined or generated source tables and additional business checks require
+further qualification; their saved stages and eligible Recipe saving remain
+available. Changing the source population
+or record identity requires a separately reviewed workflow. Rules that require
+the bounded preparation evaluator, including row filters, stop with an
+explanation. Recipe Test and Production keep their selected Recipe versions;
+Odoo-to-Odoo transfers keep their existing transfer journey. An uncertain or
+interrupted continuation blocks another comparison or load until its owning
+attempt is resolved.
 
 ## How saving a Recipe relates to the verified outcome
 

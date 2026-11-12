@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import unittest
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -136,7 +136,7 @@ class Json2SchemaReadSessionTests(unittest.TestCase):
             connector = Json2ReadConnector(
                 config,
                 transport=transport,
-                now=lambda: datetime(2026, 10, 12, tzinfo=timezone.utc),
+                now=lambda: datetime(2026, 10, 12, tzinfo=UTC),
             )
             connectors.append(connector)
             return connector
@@ -409,7 +409,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             read_principal_hash=self.schema.read_principal_hash,
             read_permission_hash="sha256:" + "8" * 64,
             read_context_hash=self.schema.read_context_hash,
-            captured_at=datetime(2026, 8, 21, tzinfo=timezone.utc),
+            captured_at=datetime(2026, 8, 21, tzinfo=UTC),
             captured_by="test:operator",
             choices=(),
             ambiguous_values=(),
@@ -539,7 +539,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                     read_principal_hash=self.schema.read_principal_hash,
                     read_permission_hash=self.schema.read_permission_hash,
                     read_context_hash=self.schema.read_context_hash,
-                    captured_at=datetime(2026, 8, 21, tzinfo=timezone.utc),
+                    captured_at=datetime(2026, 8, 21, tzinfo=UTC),
                     captured_by="test:operator",
                     choices=(), ambiguous_values=(), reference_policy_hash=policy,
                 )
@@ -551,7 +551,9 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 context = self._context()
                 context.readiness_reader = None
                 context.supporting_lookups = SupportingLookupService(
-                    SimpleNamespace(list_current_for_model=lambda *_: (saved_contract,)),
+                    SimpleNamespace(
+                        list_current_for_model=lambda *_, snapshot=saved_contract: (snapshot,)
+                    ),
                     CapabilityAuthorizationPolicy(),
                 )
                 fingerprint = TargetFingerprint(
@@ -783,7 +785,9 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             with self.subTest(changes=changes), patch(
                 "impodo.web.composition.target_readers.Json2ReadConnector"
             ) as connector:
-                context.read_identity_probe = lambda *_args: replace(identity, **changes)
+                context.read_identity_probe = lambda *_args, changes=changes: replace(
+                    identity, **changes
+                )
                 with self.assertRaisesRegex(WorkspaceError, message) as raised:
                     _read_supporting_lookup_snapshots(
                         context,
@@ -879,7 +883,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
         schema = OdooSchemaCatalog(
             workspace_id=workspace.workspace_id,
             policy_hash=HASH,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             captured_by="Data manager",
             connection_mode="REMOTE",
             database="test",
@@ -1069,7 +1073,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
         schema = OdooSchemaCatalog(
             workspace_id=workspace.workspace_id,
             policy_hash=HASH,
-            captured_at=datetime.now(timezone.utc),
+            captured_at=datetime.now(UTC),
             captured_by="Data manager",
             connection_mode="REMOTE",
             database="test",
@@ -1320,7 +1324,7 @@ class ScopedRelationshipChoiceTests(unittest.TestCase):
         )
         schema = OdooSchemaCatalog(
             workspace_id=workspace.workspace_id, policy_hash=HASH,
-            captured_at=datetime.now(timezone.utc), captured_by="Tester",
+            captured_at=datetime.now(UTC), captured_by="Tester",
             connection_mode="REMOTE", database="test", odoo_version="19.0",
             models=(SchemaModel("mrp.workcenter", "Work Center", (relation,)),),
             content_hash=HASH, origin=SchemaOrigin.LIVE_API,

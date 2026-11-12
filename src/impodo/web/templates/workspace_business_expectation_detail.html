@@ -2,8 +2,8 @@
 {% block title %}Expected versus found · Impodo{% endblock %}
 {% block page_styles %}<link rel="stylesheet" href="{{ url_for('static', path='/business-expectations.css') }}">{% endblock %}
 {% block content %}
-  <a href="/workspaces/{{ workspace_id }}/{{ 'load/outcome' if evidence and evidence.run_id else 'summary#expected-versus-found' }}">Back to {{ 'saved load' if evidence and evidence.run_id else 'Final review' }}</a>
-  <header class="page-heading"><div><p class="eyebrow">{{ 'Original approval' if evidence and evidence.run_id else 'Business expectations' }}</p><h1>Expected versus found</h1></div></header>
+  <a href="/workspaces/{{ workspace_id }}/{{ 'load/outcome' if evidence and evidence.run_id else 'summary?step=results&view=changes#expected-versus-found' }}"{% if not (evidence and evidence.run_id) %} data-final-review-back{% endif %}>Back to {{ 'saved load' if evidence and evidence.run_id else 'Final review' }}</a>
+  <header class="page-heading"><div><p class="eyebrow">{{ 'Original approval' if evidence and evidence.run_id else 'Stage 5 of 6 · Final review · 5.3 Review results' }}</p><h1>Expected versus found</h1></div></header>
   {% if evidence_error %}<div class="notice error" role="alert">{{ evidence_error }}</div>
   {% elif evidence %}
     {% from "_business_intent_review.html" import count_expectation %}

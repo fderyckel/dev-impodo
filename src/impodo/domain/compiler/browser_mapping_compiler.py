@@ -25,6 +25,7 @@ from impodo.domain.recipe.profile import (
     TargetIdentitySpec,
     TargetSpec,
 )
+from impodo.domain.source_binding import DerivedSourceBinding
 from impodo.domain.workspace.contracts import SourceSelection
 
 from ..errors import ReadinessError
@@ -182,6 +183,29 @@ def compile_browser_mapping(
     profile_datasets: list[DatasetSpec] = []
     for mapping in definition.datasets:
         source_dataset = datasets[mapping.dataset_id]
+        hierarchy_parent = source_dataset.source.hierarchy_parent if isinstance(source_dataset.source, DerivedSourceBinding) else None
+        if hierarchy_parent is not None:
+            if len(mapping.target_identity) != 1 or mapping.target_identity[0].target_fields != (hierarchy_parent.name_field,) or mapping.target_identity[0].source_column_keys != (f"{mapping.dataset_id}:name",):
+                raise ReadinessError("Use this hierarchy's generated name field and its checked Odoo name field for the record identity")
+            parent_components = tuple(
+                item for item in mapping.target_scope
+                if item.target_fields == (hierarchy_parent.parent_field,)
+                and item.resolver is not None and item.resolver.origin is ResolverOrigin.DATASET
+                and item.resolver.dataset_id == mapping.dataset_id
+                and item.null_policy.value == "explicit_scope_null"
+                and item.source_column_keys == (f"{mapping.dataset_id}:parent_key",)
+            )
+            if len(parent_components) != 1 or mapping.source_record_identity is not None:
+                raise ReadinessError("Keep this hierarchy's parent in its record identity so existing paths can be checked safely")
+            if hierarchy_parent.company_field is not None and not any(
+                item.target_fields == (hierarchy_parent.company_field,)
+                and item.source_column_keys == (f"{mapping.dataset_id}:company",)
+                and item.resolver is not None and item.resolver.origin is ResolverOrigin.TARGET_CATALOG
+                and item.resolver.model == "res.company"
+                and tuple(key.target_field for key in item.resolver.key_mappings) == ("name",)
+                for item in mapping.target_scope
+            ):
+                raise ReadinessError("Include Company in this hierarchy's record identity")
         provided_fields = {
             field_name
             for component in (*mapping.target_identity, *mapping.target_scope)
@@ -289,6 +313,7 @@ def compile_browser_mapping(
                 ),
                 source_record_identity=mapping.source_record_identity,
                 generated_ordering=mapping.generated_ordering,
+                hierarchy_parent=hierarchy_parent,
                 target_identity=TargetIdentitySpec(
                     components=tuple(
                         IdentityComponent(
@@ -327,6 +352,8 @@ def compile_browser_mapping(
         )
     token = definition.content_hash.removeprefix("sha256:")[:24]
     return CompiledMigrationPlan(
+        contract_version=4 if any(item.hierarchy_parent is not None for item in profile_datasets) else 3,
+        compiler_version=5 if any(item.hierarchy_parent is not None for item in profile_datasets) else 4,
         plan_id=f"browser_{token}",
         origin="browser_mapping",
         origin_hash=definition.content_hash,

@@ -18,6 +18,7 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("DROP TABLE execution_load_control")
             connection.execute("DROP TABLE execution_rejected_transport")
             connection.execute("DROP TABLE execution_load_control_event")
@@ -92,5 +93,5 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)],
+                [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)],
             )

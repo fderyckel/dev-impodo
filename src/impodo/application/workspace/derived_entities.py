@@ -18,6 +18,7 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     DataVersionSourceArtifactStore,
 )
+from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.preparation.source import SourceLoadError, SourceTable
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
@@ -1602,6 +1603,7 @@ class DerivedEntityWorkspaceService:
         missing_leaf: str,
         all_blank_mode: str,
         all_blank_value: str | None,
+        existing_parent: HierarchyParentPolicy | None = None,
     ) -> tuple[HierarchicalLookupRule, DerivedEntityPreview]:
         """Validate and preview an ordered multi-column hierarchy."""
 
@@ -1611,6 +1613,7 @@ class DerivedEntityWorkspaceService:
         current = self.derived_entities.get_derived_entity_plan(workspace_id)
         rule = self._hierarchy_rule(
             selection,
+            existing_parent=existing_parent,
             output_dataset_name=output_dataset_name,
             source_dataset_id=source_dataset_id,
             source_level_column_keys=source_level_column_keys,
@@ -1650,6 +1653,7 @@ class DerivedEntityWorkspaceService:
         all_blank_value: str | None,
         expected_parent_version: int | None,
         actor: Actor,
+        existing_parent: HierarchyParentPolicy | None = None,
     ) -> tuple[DerivedEntityPlan, HierarchicalLookupRule]:
         """Append one reviewed multi-column hierarchy rule."""
 
@@ -1673,6 +1677,7 @@ class DerivedEntityWorkspaceService:
             )
         rule = self._hierarchy_rule(
             selection,
+            existing_parent=existing_parent,
             output_dataset_name=output_dataset_name,
             source_dataset_id=source_dataset_id,
             source_level_column_keys=source_level_column_keys,
@@ -1724,8 +1729,10 @@ class DerivedEntityWorkspaceService:
         missing_leaf: str,
         all_blank_mode: str,
         all_blank_value: str | None,
+        existing_parent: HierarchyParentPolicy | None = None,
     ) -> HierarchicalLookupRule:
         rule = HierarchicalLookupRule(
+            existing_parent=existing_parent,
             rule_id=str(uuid4()),
             output_dataset_name=output_dataset_name,
             source_dataset_id=source_dataset_id,

@@ -1,0 +1,37 @@
+    <section class="form-card readiness-datasets">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">By table</p>
+          <h2>{{ readiness.total_count }} rows checked</h2>
+        </div>
+        <span class="muted">{{ readiness.checked_at.strftime("%Y-%m-%d %H:%M") }} UTC</span>
+      </div>
+      <div class="table-scroll">
+        <table class="data-table">
+          <thead>
+            {% if odoo_source %}
+            <tr><th>Record type</th><th>Ready to update</th><th>Already matches</th><th>Needs refresh</th></tr>
+            {% else %}
+            <tr><th>Table</th><th>New in Odoo</th><th>Different</th><th>Already matches</th><th>{{ 'Original findings' if scope_accepted else 'Needs attention' }}</th></tr>
+            {% endif %}
+          </thead>
+          <tbody>
+            {% for item in readiness.datasets %}
+              <tr>
+                <th>{{ item.label }}</th>
+                {% if not odoo_source %}
+                <td>{{ item.create_count }}</td>
+                {% endif %}
+                <td>{{ item.update_count }}</td>
+                <td>{{ item.unchanged_count }}</td>
+                <td>{{ item.ambiguous_count + item.blocked }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <details class="technical-details">
+        <summary>Support details</summary>
+        {% for item in readiness.datasets %}<p>{{ item.label }}: <code>{{ item.target_model }}</code></p>{% endfor %}
+      </details>
+    </section>

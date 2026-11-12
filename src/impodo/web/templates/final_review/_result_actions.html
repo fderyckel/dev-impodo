@@ -1,0 +1,85 @@
+    {% if not (load_preview and (load_preview.can_load or load_preview.can_complete_without_load or load_preview.current_run)) %}
+    <section class="next-action-card {% if business_review and not business_review.ready and not business_run_id %}review{% elif readiness.blocked_count and not scope_accepted %}blocked{% elif readiness.needs_review_count or (load_preview and load_preview.scope_error) %}review{% else %}ready{% endif %}" id="compare-with-odoo" aria-labelledby="next-action-title">
+      <div>
+        <p class="eyebrow">Next action</p>
+        {% if business_review and not business_review.ready and not business_run_id %}
+          <h2 id="next-action-title">Review business expectations</h2>
+          <p>The proposed changes are outside your saved expectations. Review the expected and found values before continuing.</p>
+        {% elif quality and quality.blocked_count %}
+          <h2 id="next-action-title">Fix the data-check setup</h2>
+          <p>Impodo stopped before contacting Odoo because the source evidence or recommended checks are incomplete.</p>
+        {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
+          <h2 id="next-action-title">Review {{ quality.review_count }} quality finding{{ "s" if quality.review_count != 1 else "" }}</h2>
+          <p>A warning cannot silently become a pass. Correct the source or guided check, then rerun.</p>
+        {% elif odoo_source and readiness.blocked_count %}
+          <h2 id="next-action-title">Refresh the captured Odoo records</h2>
+          <p>Odoo changed after these records were captured. Refreshing is the safe way to continue.</p>
+        {% elif deferred_scope_available %}
+          <h2 id="next-action-title">Review complete affected groups</h2>
+          <p>Impodo can calculate whether the problem records and every linked parent, child or sibling can stay out of this load together.</p>
+        {% elif readiness.blocked_count and not scope_accepted %}
+          <h2 id="next-action-title">Fix {{ readiness.blocked_count }} row{{ "s" if readiness.blocked_count != 1 else "" }} first {{ decision_help("comparison-blockers") }}</h2>
+          <p>These rows cannot continue until their data or field matches are corrected.</p>
+        {% elif staging and staging.failed_control_total_count %}
+          <h2 id="next-action-title">Review {{ staging.failed_control_total_count }} total{{ "s" if staging.failed_control_total_count != 1 else "" }}</h2>
+          <p>The prepared values do not yet match the known totals you entered.</p>
+        {% elif readiness.needs_review_count and not scope_accepted %}
+          <h2 id="next-action-title">Review {{ readiness.needs_review_count }} decision{{ "s" if readiness.needs_review_count != 1 else "" }}</h2>
+          <p>Impodo needs your choice before it can mark the data check complete.</p>
+        {% elif odoo_source %}
+          <h2 id="next-action-title">Comparison complete</h2>
+          <p>{{ readiness.update_count }} record{{ "s" if readiness.update_count != 1 else "" }} ready to update and {{ readiness.unchanged_count }} already matching. Nothing was changed in Odoo.</p>
+        {% elif load_preview and load_preview.scope_error %}
+          <h2 id="next-action-title">Odoo load unavailable</h2>
+          <p>{{ load_preview.scope_error }}</p>
+        {% elif review_workbook_ready %}
+          <h2 id="next-action-title">Your review workbook is ready</h2>
+          <p>Download the workbook to share or keep with the migration evidence.</p>
+        {% else %}
+          <h2 id="next-action-title">Your data check is complete</h2>
+          <p>Create a review workbook with the checked rows and supporting evidence.</p>
+        {% endif %}
+      </div>
+      <div class="next-action-buttons">
+        {% if business_review and not business_review.ready and not business_run_id %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view=changes#expected-versus-found">Review expected versus found</a>
+        {% elif quality and quality.blocked_count %}
+          <a class="button primary" href="?step=prepared&amp;quality_status=blocked#quality-rows">Review setup</a>
+        {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
+          <a class="button primary" href="?step=prepared&amp;quality_status=review#quality-rows">Review findings</a>
+        {% elif odoo_source and readiness.blocked_count %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Refresh Odoo records</a>
+        {% elif deferred_scope_available %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button primary" type="submit" name="select_all" value="1">Preview all problem groups</button>
+          </form>
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose affected groups</a>
+          {% if readiness.blocked_count %}<a class="button secondary" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>{% endif %}
+        {% elif readiness.blocked_count and not scope_accepted %}
+          <a class="button primary" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>
+        {% elif staging and staging.failed_control_total_count %}
+          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=prepared#control-totals">Review totals</a>
+        {% elif readiness.needs_review_count and not scope_accepted %}
+          <a class="button primary" href="?step=results&amp;view=attention&amp;status=needs_review#readiness-rows">Review decisions</a>
+        {% elif odoo_source %}
+          <a class="button primary" href="#readiness-rows">Review checked records</a>
+        {% elif load_preview and load_preview.scope_error %}
+          {% if load_preview.credential_refresh_required %}
+            <a class="button primary" href="{% if is_recipe_application %}{{ run_odoo_url }}{% else %}/workspaces/{{ workspace_id }}/schema{% endif %}">{% if is_recipe_application %}Return to Check Odoo{% else %}Refresh Odoo data{% endif %}</a>
+          {% else %}
+            <a class="button primary" href="/workspaces/{{ workspace_id }}/load">Review load availability</a>
+          {% endif %}
+        {% endif %}
+        {% if not (odoo_source and readiness.blocked_count) %}
+        {% if local_odoo_recovery_needed %}
+          {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
+        {% elif comparison_recovery_needed %}
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare#comparison-recovery">Resolve Odoo check</a>
+        {% else %}
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare">Compare with Odoo again</a>
+        {% endif %}
+        {% endif %}
+      </div>
+    </section>
+    {% endif %}

@@ -1,0 +1,38 @@
+{% if readiness %}
+  {% if scope_accepted %}
+    <section class="notice" aria-labelledby="current-load-title">
+      <h2 id="current-load-title">Current load after your set-aside decision</h2>
+      <p>{{ deferred_scope.preview.newly_set_aside_count }} affected records stay out of this load. {{ deferred_scope.preview.remaining_write_count }} safe writes remain.</p>
+      <a href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Review set-aside decision</a>
+    </section>
+  {% endif %}
+  {% include "final_review/_result_actions.html" %}
+  {% include "final_review/_load_handoff.html" %}
+  {% if scope_accepted %}
+    <h2>Original comparison</h2>
+    <p class="muted">These saved comparison counts and findings include the records omitted by your decision. The current load totals are shown above.</p>
+  {% endif %}
+  {% include "final_review/_comparison_cards.html" %}
+  <nav class="actions" aria-label="Review result views">
+    {% for value, label in [('attention', 'Needs attention'), ('changes', 'Proposed changes'), ('outside', 'Records outside this load')] %}
+      <a class="button {{ 'primary' if review_view == value else 'secondary' }}" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ value }}"{% if review_view == value %} aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+  {% if review_view == 'attention' %}
+    {% include "_workflow_issue_summary.html" %}
+    {% include "final_review/_missing_parents.html" %}
+    {% include "final_review/_comparison_rows.html" %}
+  {% elif review_view == 'changes' %}
+    {% if not odoo_source %}{% include "_business_intent_review.html" %}{% endif %}
+    {% include "final_review/_comparison_tables.html" %}
+    {% include "final_review/_comparison_rows.html" %}
+  {% else %}
+    {% include "final_review/_outside.html" %}
+  {% endif %}
+  <details class="technical-details"><summary>Support details</summary><p><a href="/workspaces/{{ workspace_id }}/summary/manifest">Download the support file</a></p></details>
+{% else %}
+  <section class="next-action-card review">
+    <div><p class="eyebrow">Not yet compared</p><h2>{{ 'Compare this data with Odoo first' if normalization and normalization.frozen else 'Review prepared data first' }}</h2><p>There is no current saved Odoo comparison to review.</p></div>
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step={{ 'compare' if normalization and normalization.frozen else 'prepared' }}">{{ 'Continue to comparison' if normalization and normalization.frozen else 'Open Prepared data' }}</a>
+  </section>
+{% endif %}

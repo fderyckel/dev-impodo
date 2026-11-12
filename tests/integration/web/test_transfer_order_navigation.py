@@ -51,7 +51,7 @@ class TransferOrderNavigationTests(unittest.TestCase):
         )
         self.assertEqual(
             tuple(page.page_id for page in by_id["transfer-review"].pages),
-            ("transfer-order", "transfer-review"),
+            ("transfer-order", "transfer-review", "transfer-approve"),
         )
         self.assertEqual(navigation.viewed_stage_id, "transfer-review")
 

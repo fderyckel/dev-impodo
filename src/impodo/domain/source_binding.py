@@ -6,6 +6,8 @@ import re
 from dataclasses import dataclass
 from enum import StrEnum
 
+from impodo.domain.hierarchy import HierarchyParentPolicy
+
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _TECHNICAL_NAME = re.compile(r"[a-z_][a-z0-9_.]{0,127}")
 
@@ -131,6 +133,7 @@ class DerivedSourceBinding:
     rule_hash: str
     input_dataset_ids: tuple[str, ...]
     data_hash: str
+    hierarchy_parent: HierarchyParentPolicy | None = None
 
     def __post_init__(self) -> None:
         _require_hash(self.rule_hash, "derived rule hash")
@@ -158,6 +161,7 @@ class DerivedSourceBinding:
             "rule_hash": self.rule_hash,
             "input_dataset_ids": list(self.input_dataset_ids),
             "data_hash": self.data_hash,
+            **({"hierarchy_parent": self.hierarchy_parent.to_dict()} if self.hierarchy_parent is not None else {}),
         }
 
 
@@ -222,12 +226,14 @@ def source_binding_from_dict(value: object) -> SourceBinding:
             )
         _require_exact_keys(
             value,
-            {"origin", "rule_hash", "input_dataset_ids", "data_hash"},
+            {"origin", "rule_hash", "input_dataset_ids", "data_hash"}
+            | ({"hierarchy_parent"} if "hierarchy_parent" in value else set()),
         )
         return DerivedSourceBinding(
             rule_hash=str(value["rule_hash"]),
             input_dataset_ids=tuple(str(item) for item in value["input_dataset_ids"]),
             data_hash=str(value["data_hash"]),
+            hierarchy_parent=HierarchyParentPolicy.from_dict(value["hierarchy_parent"]) if "hierarchy_parent" in value else None,
         )
     except (KeyError, TypeError, ValueError) as error:
         if isinstance(error, SourceBindingContractError):

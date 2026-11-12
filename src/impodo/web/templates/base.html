@@ -27,9 +27,12 @@
     <script src="{{ url_for('static', path='/server-recovery.js') }}" defer></script>
     <script src="{{ url_for('static', path='/operation-state.js') }}" defer></script>
     <script src="{{ url_for('static', path='/user-help.js') }}" defer></script>
+    {% if navigation and navigation.workspace_id is defined %}
+      <script src="{{ url_for('static', path='/final-review-navigation.js') }}" defer></script>
+    {% endif %}
     {% block page_scripts %}{% endblock %}
   </head>
-  <body class="{% block body_class %}{% endblock %}">
+  <body class="{% block body_class %}{% endblock %}"{% if navigation and navigation.workspace_id is defined %} data-final-review-workspace="{{ navigation.workspace_id }}"{% endif %}>
     <header class="site-header">
       <div class="header-leading">
         <button
@@ -308,6 +311,11 @@
                 {{ navigation.current_work_label }}: <a href="{{ navigation.current_stage.href }}">Step {{ navigation.current_stage.number }} · {{ navigation.current_stage.label }}</a>.
               </div>
             {% endif %}
+          {% endif %}
+          {% if navigation and navigation.workspace_id is defined and navigation.viewed_stage_id in ('source', 'odoo', 'match', 'prepare', 'destination') %}
+            <p class="workflow-location-notice" data-final-review-return hidden>
+              <a href="/workspaces/{{ navigation.workspace_id }}/summary" data-final-review-back>Return to Final review</a>
+            </p>
           {% endif %}
           {% if flash %}
             <div class="notice success" role="status">{{ flash }}</div>

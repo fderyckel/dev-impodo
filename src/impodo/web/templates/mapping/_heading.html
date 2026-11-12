@@ -1,7 +1,7 @@
 <div class="page-heading">
   <div>
-    <p class="eyebrow">{% if correction_binding %}Completed-load correction{% else %}Stage 3 of 6 · Match data{% endif %}</p>
-    <h1 data-mapping-journey-heading tabindex="-1">{% if correction_binding %}Correct the matching rules{% else %}Match your data to Odoo{% endif %}</h1>
+    <p class="eyebrow">{% if correction_binding %}Working revision · {% endif %}Stage 3 of 6 · Match data</p>
+    <h1 data-mapping-journey-heading tabindex="-1">Match your data to Odoo</h1>
   </div>
   {% if related_data_review and related_data_review.mapping_conflict %}
     <span class="status review" data-mapping-journey-state>Linked fields need attention</span>
@@ -18,9 +18,9 @@
 
 {% if correction_binding %}
   <div class="notice">
-    <strong>You are editing a separate correction workspace.</strong>
-    <p>Save the rule changes here, then return to the focused correction review. Impodo will run the internal preparation and checks for you.</p>
-    <a class="button secondary" href="/workspaces/{{ correction_binding.completed_workspace_id }}/correction">Back to correction review</a>
+    <strong>You are continuing a saved load.</strong>
+    <p>Add or revise the field mappings, then prepare in Stage 4 and compare again in Stage 5. The next load updates the exact records identified by the saved load.</p>
+    <a class="button secondary" href="/workspaces/{{ correction_binding.completed_workspace_id }}/history/3">View the saved mapping</a>
   </div>
 {% endif %}
 

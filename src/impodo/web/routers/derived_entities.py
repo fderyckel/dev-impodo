@@ -27,6 +27,7 @@ from impodo.domain.workspace.derived_entities import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
+from impodo.web.composition.hierarchy_parents import resolve_hierarchy_parent
 from impodo.web.composition.target_readers import (
     _existing_catalog_model,
     _refresh_model_catalog,
@@ -618,6 +619,12 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         "missing_leaf",
         "all_blank_mode",
         "all_blank_value",
+        "existing_parent_search",
+        "existing_parent_choice",
+        "existing_source_levels",
+        "hierarchy_parent_field",
+        "hierarchy_company_id",
+        "hierarchy_lookup_action",
     }
 
     def hierarchy_values(form):
@@ -650,10 +657,50 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
             ),
         }
 
+    async def checked_parent(request, workspace_id, form, *, find=False, companies_only=False):
+        existing_levels = _optional_int(_text(form, "existing_source_levels")) or 0
+        selected = _text(form, "existing_parent_choice")
+        if not find and not companies_only and not selected and not existing_levels:
+            return None
+        actor = request_identity(request, context.identity_resolver).actor
+        result = await resolve_hierarchy_parent(
+            context, workspace_id, actor=actor, model=_text(form, "target_model"),
+            name_field=_text(form, "target_name_field") or "name",
+            parent_field=_text(form, "hierarchy_parent_field"), existing_levels=existing_levels,
+            selected=selected, search=_text(form, "existing_parent_search"),
+            company_id=_text(form, "hierarchy_company_id"), find=find,
+            companies_only=companies_only,
+        )
+        request.state.hierarchy_parent_outcome = result
+        if result.error:
+            raise WorkspaceError(result.error)
+        return result.policy
+
+    @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/parents")
+    async def find_workspace_hierarchy_parents(request: Request, workspace_id: str):
+        require_session(request)
+        form = await request.form()
+        _secure_source_form(request, form, hierarchy_fields, "hierarchy-extraction")
+        try:
+            action = _text(form, "hierarchy_lookup_action") or "parents"
+            if action not in {"companies", "parents"}:
+                raise WorkspaceError("Choose Load companies or Load existing Odoo parents")
+            await checked_parent(
+                request, workspace_id, form,
+                find=action == "parents", companies_only=action == "companies",
+            )
+        except (WorkspaceError, ValueError, ConnectorError, LocalStackError, WorkspaceStateError, SecretStoreError) as error:
+            return await run_page_read(_render_derived_entities, request, context, workspace_id, error=str(error), status_code=422)
+        return await run_page_read(_render_derived_entities, request, context, workspace_id)
+
     @router.post("/workspaces/{workspace_id}/derived-entities/hierarchy/preview")
     async def preview_workspace_hierarchy(request: Request, workspace_id: str):
         form = await request.form()
         _secure_source_form(request, form, hierarchy_fields, "hierarchy-extraction")
+        try:
+            existing_parent = await checked_parent(request, workspace_id, form)
+        except (WorkspaceError, ValueError, ConnectorError, LocalStackError, WorkspaceStateError, SecretStoreError) as error:
+            return await run_page_read(_render_derived_entities, request, context, workspace_id, error=str(error), status_code=422)
 
         def apply_source_action():
             try:
@@ -666,6 +713,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 )
                 rule, preview = context.derived_entities.preview_hierarchy(
                     workspace_id,
+                    existing_parent=existing_parent,
                     **values,
                     target_model=target_model,
                 )
@@ -691,6 +739,10 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
         form = await request.form()
         _secure_source_form(request, form, hierarchy_fields, "hierarchy-extraction")
         actor = request_identity(request, context.identity_resolver).actor
+        try:
+            existing_parent = await checked_parent(request, workspace_id, form)
+        except (WorkspaceError, ValueError, ConnectorError, LocalStackError, WorkspaceStateError, SecretStoreError) as error:
+            return await run_page_read(_render_derived_entities, request, context, workspace_id, error=str(error), status_code=422)
 
         def apply_source_action():
             try:
@@ -703,6 +755,7 @@ def build_derived_entities_router(context: WebContext) -> APIRouter:
                 )
                 _plan, rule = context.derived_entities.save_hierarchy(
                     workspace_id,
+                    existing_parent=existing_parent,
                     **values,
                     target_model=target_model,
                     expected_parent_version=_optional_int(

@@ -1,0 +1,72 @@
+    {% if staging %}
+      <section class="form-card" aria-labelledby="prepared-data-title" data-staging-summary>
+        <div class="page-heading compact">
+          <div>
+            <p class="eyebrow">Prepared data</p>
+            <h2 id="prepared-data-title">{{ staging.total_rows }} prepared row{{ "s" if staging.total_rows != 1 else "" }} safely saved</h2>
+            <p>Impodo saved the exact rows used for this check. You can close Impodo and return later.</p>
+          </div>
+          <span class="status ready">Saved locally</span>
+        </div>
+        <details class="technical-details">
+          <summary>Support details</summary>
+          <p>This evidence is tied to field-match version {{ staging.mapping_version }} and has not changed Odoo.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead>
+                <tr><th>Table</th><th>Source rows</th><th>Prepared rows</th><th>Combined</th><th>Additional</th></tr>
+              </thead>
+              <tbody>
+                {% for item in staging.datasets %}
+                  <tr>
+                    <th>{{ item.dataset.replace('_', ' ')|title }}</th>
+                    <td>{{ item.input_rows }}</td>
+                    <td>{{ item.output_rows }}</td>
+                    <td>{{ item.combined_rows }}</td>
+                    <td>{{ item.created_rows }}</td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+          <p><code>Run {{ staging.run_id }} · Evidence {{ staging.content_hash }}</code></p>
+        </details>
+      </section>
+
+      {% if staging.control_totals %}
+        <section class="form-card" id="control-totals" aria-labelledby="control-totals-title">
+          <div class="page-heading compact">
+            <div>
+              <p class="eyebrow">Known totals</p>
+              <h2 id="control-totals-title">{% if staging.control_totals_passed %}All declared totals match{% else %}Some totals need attention{% endif %}</h2>
+              <p>These checks use only the names, fields and expected values entered in Field matching.</p>
+            </div>
+            <span class="status {% if staging.control_totals_passed %}ready{% else %}blocked{% endif %}">{% if staging.control_totals_passed %}Matched{% else %}Review{% endif %}</span>
+          </div>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th>Check</th><th>Expected</th><th>Prepared</th><th>Result</th></tr></thead>
+              <tbody>
+                {% for total in staging.control_totals %}
+                  <tr>
+                    <th>
+                      {{ total.name }}
+                      <small class="row-field">{{ total.dataset.replace('_', ' ')|title }}</small>
+                    </th>
+                    <td>{{ total.expected_total }} {{ total.unit }}</td>
+                    <td>{{ total.actual_total }} {{ total.unit }}</td>
+                    <td>
+                      {% if total.passed %}Matches{% elif total.empty_rows %}{{ total.empty_rows }} empty value{{ "s" if total.empty_rows != 1 else "" }}{% else %}Difference {{ total.difference }} {{ total.unit }}{% endif %}
+                      <details class="technical-details">
+                        <summary>Support details</summary>
+                        <code>{{ total.target_field }}</code> · {{ total.included_rows }} value{{ "s" if total.included_rows != 1 else "" }} · tolerance {{ total.tolerance }}
+                      </details>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      {% endif %}
+    {% endif %}

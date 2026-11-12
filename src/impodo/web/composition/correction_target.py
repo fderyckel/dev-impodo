@@ -112,6 +112,7 @@ class CredentialBackedCorrectionTargetReviewStage:
         )
         if (
             identity.target_hash != manifest.target_hash
+            or identity.context_hash != manifest.read_context_hash
             or not set(models).issubset(identity.readable_models)
         ):
             raise CorrectionOriginError(

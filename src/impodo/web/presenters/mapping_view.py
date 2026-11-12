@@ -701,7 +701,6 @@ def _render_mapping(
         allow_field_refresh=(
             schema is not None and schema.origin is SchemaOrigin.LIVE_API
             and governance is not None and workspace_state.source_mode is SourceMode.FILE
-            and correction_binding is None
         ),
         error=error,
         status_code=status_code,
@@ -2427,7 +2426,11 @@ def _mapping_dataset_views(
                                 if hierarchy_self_parent
                                 and derived_link is not None
                                 else (
-                                    (derived_link.name_column_key,)
+                                    (derived_link.company_column_key,)
+                                    if derived_link is not None
+                                    and derived_link.company_column_key is not None
+                                    and metadata is not None and metadata.relation == "res.company"
+                                    else (derived_link.name_column_key,)
                                     if derived_link is not None
                                     and target_field
                                     == derived_link.target_name_field

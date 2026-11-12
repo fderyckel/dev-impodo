@@ -98,6 +98,12 @@ from ...adapters.duckdb.migration_workspace_state_repository import (
 from ...adapters.duckdb.navigation_repository import WorkspaceNavigationRepository
 from ...adapters.duckdb.normalization_repository import NormalizationRepository
 from ...adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
+from impodo.adapters.duckdb.odoo_saved_data_repository import DuckDbSavedOdooDataRepository
+from impodo.adapters.duckdb.odoo_saved_data_projection import OdooSavedDataProjectionRepository
+from impodo.adapters.duckdb.odoo_saved_source_company import OdooSavedSourceCompanyRepository
+from impodo.application.odoo_saved_data_service import SavedOdooDataService
+from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
+from impodo.application.odoo_saved_data_workspaces import OdooSavedDataWorkspaceService
 from ...adapters.duckdb.preflight_repository import PreflightRepository
 from ...adapters.duckdb.preparation_recovery_repository import (
     PreparationRecoveryRepository,
@@ -304,9 +310,11 @@ def create_local_app(
     correction_repository = CorrectionRepository(foundation_repository)
     database = foundation.workspace_database
     artifacts = foundation.artifacts
+    saved_odoo_repository = DuckDbSavedOdooDataRepository(foundation_database)
     workspace_state_repository = MigrationWorkspaceStateRepository(
         database,
         foundation_repository,
+        saved_odoo_data=saved_odoo_repository,
     )
     recipe_compilation_repository = RecipeCompilationRepository(database)
     workspace_physical_sources = WorkspaceMappingSourceProjection(
@@ -737,6 +745,30 @@ def create_local_app(
             remote_connections=RemoteConnectionStatusService(),
         ),
     )
+    context.saved_odoo_data = SavedOdooDataService(
+        repository=saved_odoo_repository,
+        access=context.workspace_access, authorization=context.authorization,
+        states=context.workspace_states, evidence=context.queries,
+        workspaces=OdooSavedDataWorkspaceService(
+            projects=context.migration_projects, data_versions=context.data_versions,
+            runs=context.migration_runs, workspaces=context.migration_workspaces,
+            workspace_states=context.workspace_states,
+            projections=authoring_services.source_projections,
+            source_restarts=context.odoo_source_restarts,
+            projection_repository=OdooSavedDataProjectionRepository(
+                database, foundation=foundation_repository, sources=source_repository,
+                schemas=schema_repository, provenance=odoo_provenance_repository,
+                artifacts=artifacts,
+            ),
+        ),
+        sources=context.sources, schemas=context.schema_workspace,
+        provenance=context.odoo_provenance, publication=context.odoo_capture_publication,
+        projections=context.data_version_source_projection,
+        source_companies=OdooSavedSourceCompanyRepository(database),
+        local_operation=run_local_operation_sync,
+    )
+    context.saved_odoo_jobs = SavedOdooDataJobManager()
+    context.odoo_provenance.retained_data_version = saved_odoo_repository.retained_data_version
     if preparation_jobs is not None:
         preparation_jobs.set_result_reader(
             lambda job, actor: context.preparation_recovery.current(

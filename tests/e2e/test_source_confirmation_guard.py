@@ -16,15 +16,12 @@ class SourceConfirmationGuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.playwright = sync_playwright().start()
+        cls.addClassCleanup(cls.playwright.stop)
         cls.browser = cls.playwright.chromium.launch(
             channel="msedge" if sys.platform == "win32" else None,
             headless=True,
         )
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.browser.close()
-        cls.playwright.stop()
+        cls.addClassCleanup(cls.browser.close)
 
     def setUp(self):
         script = (

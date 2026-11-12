@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import datetime, timezone
-from decimal import Decimal
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
+from decimal import Decimal
 
-from impodo.domain.schema.governance import (
-    BusinessKeyDefinition,
-    BusinessKeyStatus,
-    SchemaGovernance,
-)
+from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
+from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
 from impodo.domain.mapping.contracts import (
     BusinessControlDefinition,
     BusinessControlTotal,
@@ -18,8 +15,8 @@ from impodo.domain.mapping.contracts import (
     ConstantReferenceComponent,
     DatasetMapping,
     IdentityComponentMapping,
-    MappingDefinition,
     MappingControlExpectation,
+    MappingDefinition,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -38,23 +35,27 @@ from impodo.domain.mapping.scalar_values import (
     canonicalize_scalar_value,
     evaluate_scalar_mapping_value,
 )
-from impodo.domain.mapping.canonicalization import canonicalize_mapping_definition
-from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
-from impodo.domain.relationship_dependencies import DependencyStrength
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationResult,
     MappingValidationStatus,
 )
 from impodo.domain.mapping.validation.validator import MappingSemanticValidator
-from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
-from impodo.domain.staging.transformation_impact import (
-    TransformationRuleImpact,
-    transformation_rule_impact_definitions,
-)
+from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
     TextTransformStep,
+)
+from impodo.domain.relationship_dependencies import DependencyStrength
+from impodo.domain.schema.governance import (
+    BusinessKeyDefinition,
+    BusinessKeyStatus,
+    SchemaGovernance,
+)
+from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
+from impodo.domain.staging.transformation_impact import (
+    TransformationRuleImpact,
+    transformation_rule_impact_definitions,
 )
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
@@ -72,10 +73,8 @@ from impodo.domain.workspace.supporting_lookups import (
     SupportingLookupChoice,
     SupportingLookupSnapshot,
 )
-from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
 
-
-NOW = datetime(2026, 7, 29, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 7, 29, 12, 0, tzinfo=UTC)
 
 
 class MappingSemanticValidatorTests(unittest.TestCase):
@@ -201,9 +200,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(len(transform["text_steps"]), 2)
         self.assertEqual(MappingDefinition.from_dict(payload), definition)
         for noncurrent_version in (2, 7, 11):
-            with self.subTest(noncurrent_version=noncurrent_version):
-                with self.assertRaisesRegex(ValueError, "unsupported"):
-                    replace(definition, contract_version=noncurrent_version)
+            with (
+                self.subTest(noncurrent_version=noncurrent_version),
+                self.assertRaisesRegex(ValueError, "unsupported"),
+            ):
+                replace(definition, contract_version=noncurrent_version)
 
         noncurrent_payload = definition.to_dict()
         noncurrent_payload["datasets"][0]["fields"][0]["transform"][
@@ -317,9 +318,11 @@ class MappingSemanticValidatorTests(unittest.TestCase):
             definition.content_hash,
             "sha256:faf1a889f09cb6ec1d747ffcc9ced68697fadb290ab6cfa6aa4246a463e93969",
         )
+        # Fresh validation binds the current reference policy, including when
+        # the portable mapping uses an older supported format.
         self.assertEqual(
             first.validation_hash,
-            "sha256:c1dd15b660deafee316129ea615d26de80d266f307eacc9797bd73e512b4a6c4",
+            "sha256:bd99ec978d1e95bf5391b98895d650db921fbc92e89e1af60122b901aaf3619a",
         )
         self.assertEqual(
             replace(definition, contract_version=23).content_hash,
@@ -332,14 +335,14 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         )
         self.assertEqual(
             self.validator.validate(previous, self.selection, self.schema, self.governance).validation_hash,
-            "sha256:03d11f8c8214a14943916dba5cc2e672087fc44738fa8e32c4834c3e26d51149",
+            "sha256:bbceead86772169e72f22a121288444a71f6056bc0e400b9eaa5a05b5c648e24",
         )
         previous = replace(definition, contract_version=21)
         self.assertEqual(previous.content_hash,
             "sha256:0a66a696251a2d624f53d7ddc39f7c9498b788d1c07ef1634e0c7490fa2e6d50")
         self.assertEqual(
             self.validator.validate(previous, self.selection, self.schema, self.governance).validation_hash,
-            "sha256:77f8956a5bc1e95483e989614e12f57f13fdd3206722ded49ad9e16820755cd9",
+            "sha256:3480a3a1607db000a39c68498ddbd0509d039366089ba306fed9a49766c5432e",
         )
         self.assertEqual(replace(definition, contract_version=20).content_hash,
             "sha256:cc54e87aff4bf8b2a0ce1b91e2305775681999f45c78c683656d32b9b62757a6")
@@ -2039,7 +2042,7 @@ class MappingSemanticValidatorTests(unittest.TestCase):
                 "2",
                 source_values_by_ordinal={1: "2", 2: "1.235"},
             ),
-            Decimal("2"),
+            Decimal(2),
         )
 
         missing_expectation = replace(

@@ -1,0 +1,22 @@
+    <section class="readiness-cards quality-cards" aria-label="Data quality overview">
+      <a class="readiness-card ready{% if quality_status == 'ready' %} selected{% endif %}" href="?step=prepared&amp;quality_status=ready#quality-rows" {% if quality_status == 'ready' %}aria-current="true"{% endif %}>
+        <span>Included in preparation</span>
+        <strong>{{ quality.ready_count }}</strong>
+        <small>Ready for prepared-data review</small>
+      </a>
+      <a class="readiness-card review{% if quality_status == 'review' %} selected{% endif %}" href="?step=prepared&amp;quality_status=review#quality-rows" {% if quality_status == 'review' %}aria-current="true"{% endif %}>
+        <span>Needs a decision</span>
+        <strong>{{ quality.review_count }}</strong>
+        <small>A business decision is needed</small>
+      </a>
+      <a class="readiness-card blocked{% if quality_status == 'quarantined' %} selected{% endif %}" href="?step=prepared&amp;quality_status=quarantined#quality-rows" {% if quality_status == 'quarantined' %}aria-current="true"{% endif %}>
+        <span>Set aside</span>
+        <strong>{{ quality.quarantined_count + quality.excluded_count }}</strong>
+        <small>Excluded by filters or held back by data checks</small>
+      </a>
+      <a class="readiness-card blocked{% if quality_status == 'blocked' %} selected{% endif %}" href="?step=prepared&amp;quality_status=blocked#quality-rows" {% if quality_status == 'blocked' %}aria-current="true"{% endif %}>
+        <span>Needs correction</span>
+        <strong>{{ quality.blocked_count }}</strong>
+        <small>The project cannot continue yet</small>
+      </a>
+    </section>

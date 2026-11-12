@@ -1,6 +1,7 @@
 """Exercise run-owned company selection without replacing an existing workspace."""
 
 from unittest.mock import patch
+from uuid import uuid4
 
 import duckdb
 
@@ -9,26 +10,31 @@ from impodo.domain.mapping.contracts import DatasetMapping, IdentityComponentMap
 from impodo.domain.odoo.company import OdooCompanyAccess, OdooCompanySelection
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.workbench import (
-    transfer_destination_workspace,
     transfer_destination_identity_hash,
+    transfer_destination_workspace,
 )
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
-from uuid import uuid4
 from tests.support.browser_scenarios import (
     POST_HEADERS,
     OdooConnectionMode,
     ProjectSetupBrowserTestCase,
 )
-from tests.support.identity import resolve_local_actor
 from tests.support.database_probe import count_duckdb_statements
+from tests.support.identity import resolve_local_actor
 
 
 class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
     def test_check_matches_refreshes_stale_key_and_company_before_many2one_reads(self):
-        self._check_matches_refresh()
+        for major in (19, 20):
+            with self.subTest(major=major):
+                self._check_matches_refresh(major=major)
 
     def test_check_matches_refreshes_saved_model_catalogue_with_company_access(self):
-        self._check_matches_refresh(saved_model_catalog=True, use_session=True)
+        for major in (19, 20):
+            with self.subTest(major=major):
+                self._check_matches_refresh(
+                    major=major, saved_model_catalog=True, use_session=True
+                )
 
     def test_catalogue_refresh_keeps_permission_changes_in_review(self):
         self._check_matches_refresh(saved_model_catalog=True, changed_permissions=True)
@@ -46,25 +52,25 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         self._check_matches_refresh(rotate_during_read=True)
 
     def _check_matches_refresh(
-        self, *, changed_permissions=False, rotate_during_read=False,
+        self, *, major=19, changed_permissions=False, rotate_during_read=False,
         saved_model_catalog=False, changed_catalog_reader=False, use_session=False,
     ):
         from unittest.mock import Mock
+
         from impodo.adapters.duckdb.unit_of_work import _read_databases
         from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+        from impodo.domain.schema.governance import (
+            BusinessKeyDefinition,
+            BusinessKeyStatus,
+        )
         from impodo.domain.shared.models import (
             FieldMetadata,
             ModelMetadata,
             TargetRecord,
         )
-        from tests.support.recipe_lifecycle import metadata_for_schema
-
-        from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
         from impodo.domain.workspace.contracts import SchemaField, SchemaModel
-        from impodo.domain.schema.governance import (
-            BusinessKeyDefinition,
-            BusinessKeyStatus,
-        )
+        from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
+        from tests.support.recipe_lifecycle import metadata_for_schema
 
         context = self.app.state.context
         actor = resolve_local_actor(context)
@@ -75,6 +81,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
         original = HierarchyWorkflowFixture.schema(
             self,
             workspace_id,
+            major=major,
             mode="REMOTE",
             extra_models=(
                 SchemaModel(
@@ -211,8 +218,9 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
             context.schema_read_session_factory = Mock(return_value=ReadSession())
 
         class SupportingReader:
-            def get_model_metadata(reader, _requests):
+            def get_model_metadata(reader, _requests, *, include_create_defaults=True):
                 self.assertFalse(hasattr(_read_databases, "connections"))
+                self.assertFalse(include_create_defaults)
                 return MetadataSnapshot(
                     metadata.fingerprint,
                     {
@@ -270,16 +278,19 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
                 '[{"source_value":"Example","target_value":"EX"}]',
             ],
         ]
-        with patch(
-            "impodo.web.composition.target_readers.Json2ReadConnector",
-            return_value=SupportingReader(),
-        ) as supporting:
-            with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
-                checked = self.client.post(
-                    f"/workspaces/{workspace_id}/mapping/save",
-                    json={"entries": entries},
-                    headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
-                )
+        with (
+            patch(
+                "impodo.web.composition.target_readers.Json2ReadConnector",
+                return_value=SupportingReader(),
+            ) as supporting,
+            count_duckdb_statements() as statements,
+            collect_duckdb_request_timings() as timings,
+        ):
+            checked = self.client.post(
+                f"/workspaces/{workspace_id}/mapping/save",
+                json={"entries": entries},
+                headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+            )
         refreshed = context.queries.get_odoo_schema_catalog(workspace_id)
         if changed_permissions or rotate_during_read or changed_catalog_reader:
             self.assertEqual(checked.status_code, 422, checked.text)
@@ -346,8 +357,9 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
 
     def test_browser_recipe_activation_requires_its_own_company_choice(self):
         from dataclasses import replace
-        from impodo.web.routers.schema import _require_run_company
+
         from impodo.domain.workspace.workbench import WorkspaceStateError
+        from impodo.web.routers.schema import _require_run_company
 
         workspace_id, access, _draft, _source, _schema = self.configured()
         state = self.app.state.context.queries.get(workspace_id)
@@ -357,6 +369,7 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
 
     def test_local_shell_company_context_does_not_claim_an_api_principal(self):
         from dataclasses import replace
+
         from impodo.application.schema_workspace_service import _validate_read_identity
         from impodo.domain.shared.models import target_identity_hash
 

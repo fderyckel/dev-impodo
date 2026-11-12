@@ -1,0 +1,73 @@
+    <section class="form-card" id="readiness-rows">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Checked rows</p>
+          <h2>
+            {% if status_filter == 'ready' %}Ready{% elif status_filter == 'create' %}New in Odoo{% elif status_filter == 'update' %}{% if odoo_source %}Ready to update{% else %}Different from Odoo{% endif %}{% elif status_filter == 'unchanged' %}Already matches{% elif status_filter == 'attention' %}Needs attention{% elif status_filter == 'needs_review' %}Needs a decision{% elif status_filter == 'blocked' %}Needs correction{% else %}All results{% endif %}
+            {% if dataset_filter %} · {{ dataset_filter.replace('_', ' ')|title }}{% endif %}
+          </h2>
+        </div>
+        <div class="readiness-row-summary">
+          <span class="muted">
+            Rows {{ readiness_row_start }}-{{ readiness_row_end }} of {{ readiness_row_total }}
+          </span>
+          {% if status_filter or dataset_filter or readiness_issue_code %}
+            <a class="button secondary small" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ final_review_journey.view }}#readiness-rows">Clear filter</a>
+          {% endif %}
+        </div>
+      </div>
+      {% if readiness_rows %}
+        <div class="table-scroll">
+          <table class="data-table readiness-row-table">
+            <thead>
+              <tr><th>Table</th><th>Source row</th><th>Record</th><th>What Impodo found</th><th>What to do</th></tr>
+            </thead>
+            <tbody>
+              {% for row in readiness_rows %}
+                <tr data-readiness-row>
+                  <td>{{ row.dataset_label }}</td>
+                  <td>{{ row.source_row }}</td>
+                  <th>{{ row.identity }}</th>
+                  <td>
+                    {{ row.reason }}
+                    {% if row.field %}<small class="row-field">Field: {{ row.field }}</small>{% endif %}
+                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count - 1 }} more issue{{ "s" if row.issue_count > 2 else "" }} in Support details</small>{% endif %}
+                  </td>
+                  <td>
+                    {{ row.recommended_action }}
+                    <details class="technical-details">
+                      <summary>Support details</summary>
+                      <code>{{ row.classification }}{% if row.technical_code %} · {{ row.technical_code }}{% endif %}</code>
+                    </details>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if readiness_row_total > 10 %}
+          <nav class="field-catalog-navigation" aria-label="Checked-row pages">
+            <div class="field-page-size" aria-label="Number of checked rows shown per page">
+              <span>Rows per page:</span>
+              {% for option in readiness_page_size_options %}
+                <a class="field-count-button{% if option.size == readiness_page_size %} active{% endif %}" href="{{ option.url }}" {% if option.size == readiness_page_size %}aria-current="page"{% endif %}>{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if readiness_row_previous_url %}
+                <a class="button secondary" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
+              {% endif %}
+              <span class="muted">Page {{ readiness_row_page }} of {{ readiness_row_page_count }}</span>
+              {% if readiness_row_next_url %}
+                <a class="button secondary" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
+              {% endif %}
+            </div>
+          </nav>
+        {% endif %}
+      {% else %}
+        <div class="empty-state compact">
+          <h3>No rows in this view</h3>
+          <p>Choose another readiness card or clear the filter.</p>
+        </div>
+      {% endif %}
+    </section>

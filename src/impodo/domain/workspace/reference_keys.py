@@ -49,6 +49,7 @@ class ReferenceReadPurpose(StrEnum):
     PREFLIGHT = "PREFLIGHT"
     RECIPE_PUBLICATION = "RECIPE_PUBLICATION"
     RECIPE_APPLICATION = "RECIPE_APPLICATION"
+    HIERARCHY_PARENT_CHOICES = "HIERARCHY_PARENT_CHOICES"
 
 
 class ReferenceEvidenceKind(StrEnum):
@@ -178,6 +179,38 @@ class GovernedReferenceDecision:
     contract: StandardReferenceKey | None = None
     denial: ReferencePolicyDenial | None = None
     affected_field: str | None = None
+
+
+def authorize_hierarchy_parent_read(request: GovernedReferenceRequest, captured_fields: tuple[StandardReferenceFieldContract, ...]) -> GovernedReferenceDecision:
+    """Authorize one captured self-parent and its closed path projection.
+
+    This purpose grants no complete model catalogue, write use, or permission
+    to reuse a bounded parent search as ordinary Match-data evidence.
+    """
+    fields = {item.name: item for item in captured_fields}
+    parent = fields.get(request.relationship_field)
+    key = fields.get(request.key_fields[0]) if len(request.key_fields) == 1 else None
+    company_fields = tuple(name for name in request.scope_fields if name != request.relationship_field)
+    permitted = {*(request.key_fields), request.relationship_field, *company_fields}
+    if "active" in fields and fields["active"].field_type == "boolean":
+        permitted.add("active")
+    policy = reference_policy_hash(request.odoo_major_version)
+    accepted = bool(
+        policy is not None and request.purpose is ReferenceReadPurpose.HIERARCHY_PARENT_CHOICES
+        and request.parent_model == request.related_model == request.relationship_model
+        and request.relationship_type == "many2one" and parent is not None
+        and parent.field_type == "many2one" and parent.relation_model == request.related_model and not parent.readonly
+        and key is not None and key.field_type in {"char", "text"}
+        and request.relationship_field in request.scope_fields and len(company_fields) <= 1
+        and all(name in fields and fields[name].relation_model == "res.company" and fields[name].field_type == "many2one" for name in company_fields)
+        and set(request.requested_fields) == permitted
+        and not request.write_use and not request.all_fields and not request.include_unique_constraints
+    )
+    return GovernedReferenceDecision(
+        accepted=accepted, evidence_kind=ReferenceEvidenceKind.BOUNDED_MATCH_PROBE if accepted else None,
+        policy_hash=content_hash({"contract": "hierarchy-parent-read-v1", "reference_policy": policy}),
+        denial=None if accepted else ReferencePolicyDenial.FIELD_NOT_ALLOWED,
+    )
 
 
 COUNTRY_REFERENCE_KEY = StandardReferenceKey(

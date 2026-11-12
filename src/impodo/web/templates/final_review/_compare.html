@@ -1,0 +1,36 @@
+{% if comparison_recovery %}{% include "_comparison_recovery.html" %}{% endif %}
+<section class="form-card" aria-labelledby="comparison-destination-title">
+  <h2 id="comparison-destination-title">Odoo destination</h2>
+  <dl class="summary-grid">
+    <div><dt>Odoo database</dt><dd>{{ workspace_state.odoo_database or 'Not yet checked' }}</dd></div>
+    <div><dt>Location</dt><dd>{{ 'On this computer' if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == 'LOCAL' else 'Managed elsewhere' }}</dd></div>
+    <div><dt>Prepared data</dt><dd>{{ 'Approved' if normalization and normalization.frozen else 'Approval required in Stage 4' }}</dd></div>
+    {% if staging %}<div><dt>Prepared rows</dt><dd>{{ staging.total_rows }}</dd></div>{% endif %}
+    {% if readiness %}<div><dt>Saved comparison</dt><dd>{{ readiness.checked_at.strftime('%Y-%m-%d %H:%M') }} UTC</dd></div>{% endif %}
+  </dl>
+</section>
+{% if not comparison_recovery %}
+  <section class="next-action-card {{ 'ready' if normalization and normalization.frozen else 'review' }}" id="compare-with-odoo">
+    <div>
+      <p class="eyebrow">Next action</p>
+      <h2>{{ 'Review the saved comparison' if readiness else 'Compare the approved data with Odoo' if normalization and normalization.frozen else 'Approve the prepared data first' if normalization else 'Prepare the data first' }}</h2>
+      <p>{{ 'The saved result remains available. Run another comparison when you need a fresh Odoo check.' if readiness else 'The comparison reads Odoo and saves its findings for review.' if normalization and normalization.frozen else 'Return to the existing prepared-data review in Stage 4.' if normalization else 'Open Prepared data to prepare the current source and field matches.' }}</p>
+    </div>
+    <div class="next-action-buttons">
+      {% if readiness %}<a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=results">Review results</a>{% endif %}
+      {% if readiness or normalization and normalization.frozen %}
+        {% if local_odoo_recovery_needed %}
+          {% if is_recipe_application %}<a class="button {{ 'secondary' if readiness else 'primary' }}" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button {{ 'secondary' if readiness else 'primary' }}" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
+        {% else %}
+          <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
+            <button class="button {{ 'secondary' if readiness else 'primary' }}" type="submit">{{ 'Compare with Odoo again' if readiness else 'Compare with Odoo' }}</button>
+            <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
+          </form>
+        {% endif %}
+      {% elif not readiness %}<a class="button primary" href="/workspaces/{{ workspace_id }}/{{ 'normalization' if normalization else 'summary?step=prepared' }}">{{ 'Review prepared data' if normalization else 'Open Prepared data' }}</a>{% endif %}
+      {% if normalization or readiness %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=prepared">View prepared data</a>{% endif %}
+    </div>
+  </section>
+{% endif %}

@@ -45,6 +45,50 @@ qualification boundary and its grouped 500-ID reads.
 
 ## Implementation flow
 
+### Focused review pages
+
+The summary presenter uses
+[`final_review_journey`](../../../src/impodo/web/presenters/final_review_journey.py)
+to select **Prepared data**, **Compare with Odoo**, or **Review results**.
+The `step` query accepts `prepared`, `compare`, and `results`. Within results,
+`view` accepts `attention`, `changes`, and `outside`. Legacy row filters still
+select their corresponding view. These values control presentation only;
+they never establish approval, current comparison evidence, or load authority.
+
+`workspace_summary.html` renders the active page through the partials under
+`templates/final_review/`. The presenter retains the existing bounded page-read
+scope and current evidence checks. It requests record pages for the displayed
+responsibility rather than materializing every hidden view. Preparation and
+comparison counts keep their existing owners. The outside-load view separates
+saved preparation omissions from the accepted comparison-specific scope.
+
+`build_workspace_navigation` and `build_preflight_workspace_navigation` keep
+the three sidebar locations visible in Authoring and Recipe application
+journeys. A completed comparison job marks the comparison substep complete;
+the job alone does not establish that the resulting load is ready. Existing
+clean-result redirects to Stage 6 and Recipe no-change completion are retained.
+
+`final-review-navigation.js` remembers only same-workspace review location,
+filters, scroll, and focus in session storage. Explicit section links have
+priority. Return links cannot select another workspace or external origin,
+and changed preparation or comparison evidence prevents scroll restoration.
+Navigation sends no Odoo request and saves no business decision. Storage
+failure leaves ordinary links available. Existing CSS and design tokens own
+all presentation; the sequence adds no stylesheet or colour override.
+
+The transfer branch uses **Transfer order**, **Transfer contents**, and
+**Approve transfer**. Its `contents` and `approve` locations split the existing
+transfer-review page. The exact-package approval remains mandatory there;
+no new approval is introduced for ordinary file-source comparisons.
+
+The [page-selection and bounded-read tests](../../../tests/integration/web/test_final_review_journey.py)
+exercise the visible responsibility and unchanged evidence for both supported
+Odoo majors and access modes. The
+[navigation tests](../../../tests/integration/web/test_final_review_navigation.py)
+cover Authoring, Recipe, transfer, and comparison-job locations. The
+[browser-state tests](../../../tests/e2e/final-review-navigation.test.cjs)
+cover exact return scope, stale evidence, legacy anchors, and denied storage.
+
 ### Correction download before readiness
 
 The [correction export router](../../../src/impodo/web/routers/attention_export.py)

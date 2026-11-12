@@ -232,8 +232,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
     """Exercise the real local preparation services and DuckDB repositories."""
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.app = create_local_app(self.root)
         self.context = self.app.state.context
@@ -2419,8 +2418,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
     """Prove the direct path preserves the materialized staging bytes."""
 
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.app = create_local_app(self.root)
         self.context = self.app.state.context

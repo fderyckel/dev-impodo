@@ -53,6 +53,7 @@ from impodo.domain.workspace.derived_entities import (
     evaluate_hierarchy_path,
     hierarchy_consumer_bindings,
     hierarchy_consumer_values,
+    hierarchy_path_key,
 )
 
 from ..compiler.browser_mapping_compiler import compile_browser_mapping
@@ -1442,13 +1443,16 @@ def _stage_derived_table(
         start=2,
     ):
         values: dict[str, object] = {
-            link.canonical_key_column_key: " / ".join(key_path),
+            link.canonical_key_column_key: hierarchy_path_key(rule, key_path),
             link.name_column_key: entry.name,
         }
         if link.parent_key_column_key is not None:
             values[link.parent_key_column_key] = (
-                " / ".join(key_path[:-1]) if key_path[:-1] else None
+                hierarchy_path_key(rule, key_path[:-1]) if key_path[:-1] else None
             )
+        if link.company_column_key is not None and isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None:
+            policy = rule.existing_parent
+            values[link.company_column_key] = policy.company_for_depth(len(key_path))
         source_values = MappingProxyType(dict(values))
         review_values = row_inclusion_review_values(
             effective,
@@ -1630,7 +1634,7 @@ def _normalize_derived_references(
         if isinstance(item.rule, HierarchicalLookupRule):
             evaluation = evaluate_hierarchy_path(item.rule, values)
             values[item.prepared_column_key] = (
-                " / ".join(evaluation.canonical_parts) if evaluation.has_path else None
+                hierarchy_path_key(item.rule, evaluation.canonical_parts) if evaluation.has_path else None
             )
             blocking_outcome = next(
                 (

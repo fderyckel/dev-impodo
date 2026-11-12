@@ -57,6 +57,7 @@ def _render_review(
     *,
     error: str | None = None,
     status_code: int = 200,
+    step: str | None = None,
 ):
     current = workspace_state.transfer_review_current(
         source_selection_hash=selection.content_hash,
@@ -67,6 +68,9 @@ def _render_review(
         source_schema_hash=schema.content_hash,
     )
     package = workspace_state.transfer_review_package
+    selected_step = step or request.query_params.get("step", "contents")
+    if selected_step not in {"contents", "approve"}:
+        selected_step = "contents"
     return _render(
         request,
         "workspace_transfer_review.html",
@@ -74,6 +78,7 @@ def _render_review(
         source_selection=selection,
         source_schema=schema,
         transfer_review_package=package,
+        transfer_review_step=selected_step,
         transfer_review_current=current,
         transfer_review_approved=approved,
         transfer_review_stale=package is not None and not current,
@@ -212,10 +217,11 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 schema,
                 error=str(error),
                 status_code=422,
+                step="contents",
             )
         _flash(request, "Transfer review package is ready. Nothing was sent to Odoo.")
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/transfer-review#review-package",
+            f"/workspaces/{workspace_id}/transfer-review?step=contents#review-package",
             status_code=303,
         )
 
@@ -277,13 +283,14 @@ def build_transfer_review_router(context: WebContext) -> APIRouter:
                 schema,
                 error=str(error),
                 status_code=422,
+                step="approve",
             )
         _flash(
             request,
             "Exact transfer package approved. No destination write has started.",
         )
         return RedirectResponse(
-            f"/workspaces/{workspace_id}/transfer-review#review-package",
+            f"/workspaces/{workspace_id}/transfer-review?step=approve#review-package",
             status_code=303,
         )
 

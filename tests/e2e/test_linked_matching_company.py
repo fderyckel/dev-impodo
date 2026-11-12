@@ -1,7 +1,7 @@
 """Keep unsaved identity choices while checking the company and retrying discovery."""
 
-from dataclasses import replace
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 try:

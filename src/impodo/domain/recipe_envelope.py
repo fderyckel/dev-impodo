@@ -115,10 +115,14 @@ def validate_recipe_envelope(envelope_bytes: bytes) -> dict[str, object]:
     except ValueError as error:
         raise RecipeIntegrityError(str(error)) from error
     contract_versions = recipe.get("contract_versions")
-    if contract_versions != CURRENT_RECIPE_CONTRACT_VERSIONS:
+    hierarchy_versions = {**CURRENT_RECIPE_CONTRACT_VERSIONS, "source_preparation_recipe": 2}
+    if contract_versions != CURRENT_RECIPE_CONTRACT_VERSIONS and contract_versions != hierarchy_versions:
         raise RecipeIntegrityError(
             "Recipe contract versions do not match the current contract"
         )
+    preparation = recipe.get("source_preparation")
+    if isinstance(preparation, dict) and any(isinstance(rule, dict) and rule.get("existing_parent") is not None for rule in preparation.get("rules", ())) and contract_versions != hierarchy_versions:
+        raise RecipeIntegrityError("Existing hierarchy parents require source-preparation Recipe contract v2")
     return envelope
 
 

@@ -125,7 +125,7 @@ class CompletedLoadWorkbookTests(HierarchyWorkflowFixture):
             )
             self.assertEqual(redirected.status_code, 303)
             self.assertEqual(
-                redirected.headers["location"], f"/projects/{closed.project_id}"
+                redirected.headers["location"], f"/workspaces/{workspace_id}/history/{3 if path == '/mapping' else 5}"
             )
         self.assertEqual(
             self.context.migration_workspaces.get(workspace_id, actor=self.actor),

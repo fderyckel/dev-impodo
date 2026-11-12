@@ -338,6 +338,45 @@ does not assume Product Categories or technical fields such as `parent_id` and
 fields from the captured schema. The original one-column `DerivedEntityRule`
 retains its version-4 meaning.
 
+Source-preparation contract v9 adds an optional `HierarchyParentPolicy` to a
+hierarchical lookup. It stores a portable starting path, the count of source
+levels that must already exist, the captured self-parent field, and company
+business names. An existing starting path allows one to five source fields.
+Older plan payloads retain their original serialization and hashes.
+
+`hierarchy/parents` accepts a company-discovery action without requiring a
+parent name or reading hierarchy metadata and records. The parent-list action
+uses `browse_parent_choices` to fetch at most 51 candidates and return up to
+50 full-path choices. An empty filter browses the available parents in the
+selected company. A sentinel record marks the list as partial and asks the
+operator to narrow the filter. It never becomes complete catalogue evidence.
+`read_parent_choices` independently resolves the selected portable path with
+an exact predicate before preview and save; filter text cannot become a
+selected parent. Refreshes preserve the submitted file fields and selected
+parent, including when a filter returns no matches.
+`hierarchy_parents.py::resolve_hierarchy_parent` authorizes and captures local
+inputs, closes its database owners, reads Odoo on a worker, and rechecks the
+workspace, source, plan, profile, and credential before publication. The shared
+reference policy authorizes the captured self-parent and closed field
+projection under `HIERARCHY_PARENT_CHOICES`. Ancestors are fetched in batches
+per depth, with a maximum of 20 levels. Company names come from `res.company`
+records rather than many2one display labels. Search results remain ephemeral.
+
+Generated source bindings retain this policy. The compiler requires the
+generated parent and company fields in the governed identity and emits
+compiled-plan contract v4/compiler v5 for these datasets. Existing prefix
+nodes become `UNCHANGED` only after a unique current match; missing nodes are
+blocked. Their blocked or ambiguous ancestors also block descendants.
+Imported nodes keep their reviewed target mode. Anchored source keys encode
+path components separately so a literal separator in a name cannot merge
+different paths. Legacy hierarchy keys keep their existing meaning.
+
+Company scope is explicit. Fixed existing ancestors retain their captured
+company names or shared values; source levels use the selected load company.
+An optional company scope permits an explicit blank only for this approved
+hierarchy shape. Other identity-null rules remain unchanged. Preparation
+rejects a changed load company until its hierarchy is reviewed again.
+
 ## Contract invariants
 
 File intake accepts only bounded CSV and XLSX content. Inspection records the
@@ -645,6 +684,10 @@ form token.
 | Complete one-field result review | [`review_derived_entities`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Shared one-field grouping semantics | [`_group_lookup_values`](../../../src/impodo/domain/workspace/derived_entities.py) |
 | Multi-column hierarchy contract and path oracle | [`HierarchicalLookupRule`](../../../src/impodo/domain/workspace/derived_entities.py) |
+| Existing hierarchy parent policy | [`HierarchyParentPolicy`](../../../src/impodo/domain/hierarchy.py) |
+| Bounded parent picker and exact selected-path checks | [`browse_parent_choices` and `read_parent_choices`](../../../src/impodo/application/hierarchy_parent_lookup.py) |
+| Parent-read authorization | [`authorize_hierarchy_parent_read`](../../../src/impodo/domain/workspace/reference_keys.py) |
+| Existing-parent database and Odoo boundaries | [`resolve_hierarchy_parent`](../../../src/impodo/web/composition/hierarchy_parents.py) |
 | Authenticated hierarchy-tutorial screenshot capture | [`capture_hierarchy_tutorial_screenshots.py`](../../../scripts/capture_hierarchy_tutorial_screenshots.py) |
 | Authenticated exact-join screenshot capture | [`capture_exact_join_screenshot.py`](../../../scripts/capture_exact_join_screenshot.py) |
 | Source routes | [`sources.py`](../../../src/impodo/web/routers/sources.py) |
@@ -849,6 +892,10 @@ operator workspace.
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/application/workspace/test_derived_entities.py`](../../../tests/application/workspace/test_derived_entities.py)
+- [`tests/application/test_hierarchy_parent_lookup.py`](../../../tests/application/test_hierarchy_parent_lookup.py)
+- [`tests/domain/workspace/test_existing_hierarchy_rules.py`](../../../tests/domain/workspace/test_existing_hierarchy_rules.py)
+- [`tests/domain/preparation/test_existing_hierarchy_parents.py`](../../../tests/domain/preparation/test_existing_hierarchy_parents.py)
+- [`tests/integration/web/test_existing_hierarchy_parents.py`](../../../tests/integration/web/test_existing_hierarchy_parents.py)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
 - [`tests/integration/web/test_exact_join_group_forms.py`](../../../tests/integration/web/test_exact_join_group_forms.py)

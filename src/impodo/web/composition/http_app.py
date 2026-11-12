@@ -49,6 +49,7 @@ from impodo.web.request_identity import (
     request_identity,
 )
 from impodo.web.routers.concepts import build_concepts_router
+from impodo.web.routers.continuation import build_continuation_router
 from impodo.web.routers.corrections import build_corrections_router
 from impodo.web.routers.cutover_plans import build_cutover_plans_router
 from impodo.web.routers.derived_entities import build_derived_entities_router
@@ -56,6 +57,7 @@ from impodo.web.routers.destination_matching import (
     build_destination_matching_router,
 )
 from impodo.web.routers.execution import build_execution_router
+from impodo.web.routers.history import build_history_router
 from impodo.web.routers.integrated_runs import build_integrated_runs_router
 from impodo.web.routers.mapping import build_mapping_router
 from impodo.web.routers.migration_projects import (
@@ -147,6 +149,8 @@ def install_http_application(
                 if context.load_jobs is not None:
                     context.load_jobs.shutdown()
                 context.correction_jobs.shutdown()
+                if context.saved_odoo_jobs is not None:
+                    context.saved_odoo_jobs.shutdown()
             except BaseException as error:
                 if diagnostic_recorder is not None:
                     diagnostic_recorder.record_lifecycle(
@@ -253,23 +257,15 @@ def install_http_application(
         }
         if (
             workspace.state is MigrationWorkspaceState.CLOSED
-            and area not in {"correction", "load"}
+            and area not in {"correction", "load", "history", "continuation"}
             and not historical_workbook_action
         ):
-            identity = request_identity(request, context.identity_resolver)
-            binding = context.corrections.get(
-                access_context.workspace_id,
-                actor=identity.actor,
-            )
             request.session["flash"] = (
-                "This completed workspace is historical evidence. Continue in "
-                "its separate correction workspace."
+                "This completed load is saved. Inspect its stages or choose Continue editing."
             )
             return RedirectResponse(
                 (
-                    f"/workspaces/{access_context.workspace_id}/correction"
-                    if binding is not None
-                    else f"/projects/{access_context.project_id}"
+                    f"/workspaces/{access_context.workspace_id}/history/{ {'mapping': 3, 'prepare': 4, 'normalization': 4, 'summary': 5, 'sources': 1, 'schema': 2}.get(area, 6) }"
                 ),
                 status_code=303,
             )
@@ -285,6 +281,22 @@ def install_http_application(
             # Progress/status requests keep using their verified job packet and
             # do not reopen the registry merely to confirm an allowed route.
             return None
+        if workspace.state is MigrationWorkspaceState.OPEN and request.method != "GET":
+            continuation = context.corrections.binding_for_successor(access_context.workspace_id)
+            if continuation is not None:
+                active = context.correction_jobs.active(continuation.completed_workspace_id)
+                execution = context.corrections.executions.get_current_run(access_context.workspace_id)
+                if active is not None or (execution is not None and execution.status.value in {"RUNNING", "OUTCOME_UNKNOWN"}):
+                    return HTMLResponse("The continuation is running or its outcome needs review. Inspect its saved progress before changing these rules.", status_code=409)
+        if workspace.state is MigrationWorkspaceState.OPEN and area in {"summary", "load"}:
+            continuation = context.corrections.binding_for_successor(access_context.workspace_id)
+            if continuation is not None:
+                if request.method != "GET":
+                    return HTMLResponse("Use the current continuation review before loading these records.", status_code=409)
+                step = request.query_params.get("step", "compare") if area == "summary" else "outcome" if parts[-1] == "outcome" else "confirm"
+                if step not in {"prepared", "compare", "results", "confirm", "outcome"}:
+                    step = "compare"
+                return RedirectResponse(f"/workspaces/{access_context.workspace_id}/continuation/{step}", 303)
         if access_context.run_purpose is None:
             raise MigrationIdentifierConfusionError(
                 "Workspace route ownership is missing its MigrationRun purpose"
@@ -414,6 +426,8 @@ def install_http_application(
             diagnostic_recorder=diagnostic_recorder,
         ),
         build_corrections_router(context),
+        build_history_router(context),
+        build_continuation_router(context),
     ):
         app.include_router(router)
 

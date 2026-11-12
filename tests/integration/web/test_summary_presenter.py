@@ -349,20 +349,26 @@ class SummaryCardLinkContractTests(unittest.TestCase):
             / "templates"
             / "workspace_summary.html"
         )
-        template = template_path.read_text(encoding="utf-8")
+        partials = template_path.parent / "final_review"
+        quality_cards = (partials / "_quality_cards.html").read_text(encoding="utf-8")
+        comparison_cards = (partials / "_comparison_cards.html").read_text(encoding="utf-8")
+        quality_rows = (partials / "_quality_rows.html").read_text(encoding="utf-8")
+        comparison_rows = (partials / "_comparison_rows.html").read_text(encoding="utf-8")
 
-        self.assertEqual(template.count('id="quality-rows"'), 1)
-        self.assertEqual(template.count('id="readiness-rows"'), 1)
+        self.assertEqual(quality_rows.count('id="quality-rows"'), 1)
+        self.assertEqual(comparison_rows.count('id="readiness-rows"'), 1)
         for status in ("ready", "review", "quarantined", "blocked"):
             self.assertIn(
-                f'href="?quality_status={status}#quality-rows"',
-                template,
+                f'href="?step=prepared&amp;quality_status={status}#quality-rows"',
+                quality_cards,
             )
         for status in ("create", "update", "unchanged", "attention"):
+            view = "attention" if status == "attention" else "changes"
             self.assertIn(
-                f'href="?status={status}#readiness-rows"',
-                template,
+                f'href="?step=results&amp;view={view}&amp;status={status}#readiness-rows"',
+                comparison_cards,
             )
+        self.assertIn('href="?step=results&amp;view=outside#records-outside-load"', comparison_cards)
 
 
 if __name__ == "__main__":

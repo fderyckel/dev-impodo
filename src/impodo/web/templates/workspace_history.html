@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Saved {{ stage_label }} · Impodo{% endblock %}
+{% block page_scripts %}{% if saved_report %}<script src="{{ url_for('static', path='/review-workbook.js') }}" defer></script>{% endif %}{% endblock %}
+{% block content %}
+  <div class="page-heading">
+    <div><p class="eyebrow">Saved load · Stage {{ stage }} of 6</p><h1>{{ stage_label }}</h1><p>{{ migration_workspace.display_name }} · Saved rules and results from this load.</p></div>
+    <span class="status registered">Saved</span>
+  </div>
+  <section class="notice">
+    <strong>You are viewing the completed load.</strong>
+    <p>Continue editing to reuse these files and rules in a new working revision. Each completed load keeps its own saved results.</p>
+    <div class="button-row">
+      {% if (can_restore_origin or (continuation and not continuation.completed)) and workspace_state.source_mode.value == 'FILE' %}
+        <form method="post" action="/projects/{{ migration_project.project_id }}/completed-loads/{{ workspace_id }}/continue">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="request_id" value="{{ request_id }}">
+          <button class="button primary" type="submit">{{ 'Continue working revision' if continuation.successor_workspace_id else 'Continue editing' }}</button>
+        </form>
+      {% elif continuation and continuation.completed %}
+        <a class="button secondary" href="/workspaces/{{ continuation.successor_workspace_id }}/history/6">View the next saved load</a>
+      {% endif %}
+      {% if migration_run.purpose.value == 'AUTHORING' %}<a class="button secondary" href="{{ recipe_source_url }}">Save these rules as a Recipe</a>{% endif %}
+      <a class="button secondary" href="/projects/{{ migration_project.project_id }}">Back to data project</a>
+    </div>
+    {% if workspace_state.source_mode.value == 'ODOO' %}<p>Continue this data through its Odoo-to-Odoo transfer journey.</p>{% elif can_restore_origin %}<p>Continue editing restores the next working revision from this verified load without repeating its writes.</p>{% elif not continuation %}<p>Exact record associations for continuing this load are unavailable. Its saved evidence remains available for inspection.</p>{% endif %}
+  </section>
+  <nav class="steps" aria-label="Saved stages">
+    {% for label in stage_labels %}<a class="setup-step{% if loop.index == stage %} current{% endif %}" href="/workspaces/{{ workspace_id }}/history/{{ loop.index }}" {% if loop.index == stage %}aria-current="step"{% endif %}>{{ loop.index }}. {{ label }}</a>{% endfor %}
+  </nav>
+  <section class="form-card">
+    {% if stage == 1 and selection %}
+      <h2>Saved source tables</h2><table class="data-table"><thead><tr><th>Table</th><th>Columns</th></tr></thead><tbody>{% for dataset in selection.datasets %}<tr><td>{{ dataset.name }}</td><td>{{ dataset.columns | map(attribute='source_name') | join(', ') }}</td></tr>{% endfor %}</tbody></table>
+    {% elif stage == 2 and saved_schema %}
+      <h2>Saved Odoo fields</h2><p>Odoo {{ saved_schema.odoo_version }}</p>
+      {% for model in saved_schema.models %}<h3>{{ model.label }} ({{ model.name }})</h3><table class="data-table"><thead><tr><th>Field</th><th>Type</th></tr></thead><tbody>{% for field in model.fields %}<tr><td>{{ field.label }} ({{ field.name }})</td><td>{{ field.type }}</td></tr>{% endfor %}</tbody></table>{% endfor %}
+    {% elif stage == 3 and saved_revision %}
+      <h2>Saved field mappings · revision {{ saved_revision.version }}</h2>
+      <table class="data-table"><thead><tr><th>Table</th><th>Odoo model</th><th>Odoo field</th><th>Value from</th><th>Fixed value</th><th>Blank policy</th></tr></thead><tbody>{% for row in mapping_rows %}<tr><td>{{ row.dataset }}</td><td>{{ row.model }}</td><td>{{ row.field }}</td><td>{{ row.source }}</td><td>{{ row.constant if row.constant is not none else '—' }}</td><td>{{ row.blank }}</td></tr>{% endfor %}</tbody></table>
+      {% for dataset in saved_revision.definition.datasets %}
+        {% if dataset.relationships %}<h3>Linked fields · {{ dataset.target_model }}</h3><ul>{% for relation in dataset.relationships %}<li>{{ relation.target_field }} · {{ relation.resolver.model }}</li>{% endfor %}</ul>{% endif %}
+      {% endfor %}
+    {% elif stage == 4 and staging %}
+      <h2>Saved prepared-data checks</h2><p>{{ staging.total_rows }} prepared records · {{ staging.attention_rows }} needed attention.</p>
+      {% if saved_quality %}<p>{{ saved_quality.ready_count }} ready · {{ saved_quality.review_count }} to review · {{ saved_quality.blocked_count }} blocked.</p>{% endif %}
+      {% if prepared_rows %}
+        <table class="data-table"><thead><tr><th>Table and source row</th><th>Record</th><th>Check result</th><th>Prepared values</th></tr></thead><tbody>
+          {% for item in prepared_rows.items %}<tr><td>{{ item.row.dataset }} · {{ item.row.source_row }}</td><td>{{ item.row.record_label }}</td><td>{{ item.row.effective_disposition.value }}{% for issue in item.issues %}<p>{{ issue.message }}</p>{% endfor %}</td><td>{% if item.prepared_row %}{% for name, value in item.prepared_row.proposed_values.items() %}<p><strong>{{ name }}:</strong> {{ value if value is not none else 'Empty' }}</p>{% endfor %}{% endif %}</td></tr>{% endfor %}
+        </tbody></table>
+        {% if prepared_rows.page_count > 1 %}<div class="button-row">{% if prepared_rows.page > 1 %}<a class="button secondary" href="?page={{ prepared_rows.page - 1 }}">Previous records</a>{% endif %}<span>Page {{ prepared_rows.page }} of {{ prepared_rows.page_count }}</span>{% if prepared_rows.page < prepared_rows.page_count %}<a class="button secondary" href="?page={{ prepared_rows.page + 1 }}">Next records</a>{% endif %}</div>{% endif %}
+      {% endif %}
+    {% elif stage in [5, 6] and saved_report %}
+      <h2>Saved comparison</h2><p>{{ saved_report.status }} · {{ saved_report.create_count }} creates · {{ saved_report.update_count }} updates · {{ saved_report.unchanged_count }} unchanged.</p>
+      {% if stage == 6 %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/load/outcome">View verified load results</a>{% endif %}
+      {% set review_workbook_comparison_id = saved_report.run_id %}
+      {% set review_workbook_ready = false %}
+      {% include "_review_workbook_actions.html" %}
+      {% if saved_rows %}<table class="data-table"><thead><tr><th>Table</th><th>Source row</th><th>Record</th><th>Action</th><th>Reason</th></tr></thead><tbody>{% for row in saved_rows.items %}<tr><td>{{ row.dataset_label }}</td><td>{{ row.source_row }}</td><td>{{ row.identity }}</td><td>{{ row.classification }}</td><td>{{ row.reason }}</td></tr>{% endfor %}</tbody></table>{% endif %}
+    {% elif stage in [5, 6] and saved_plan %}
+      <h2>Saved verified comparison</h2><p>{{ plan_summary.record_count }} updates · Zero creates · {{ plan_summary.field_count }} field changes.</p>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/continuation/workbook?comparison_id={{ saved_plan.plan_id }}">Download this load's review workbook</a>
+      <table class="data-table"><thead><tr><th>Table</th><th>Source row</th><th>Field</th><th>Compared Odoo value</th><th>Reviewed value</th><th>Result</th></tr></thead><tbody>{% for field in plan_rows %}<tr><td>{{ field.dataset }}</td><td>{{ field.source_row }}</td><td>{{ field.target_field }}</td><td>{{ field.current if field.value_kind.value == 'SCALAR' else 'Existing linked record' }}</td><td>{{ field.corrected if field.value_kind.value == 'SCALAR' else field.review_value }}</td><td>{{ 'Update verified' if field.outcome == 'READY' else 'Preserved Odoo change' if field.outcome == 'PRESERVED_IN_ODOO' else 'Unchanged' }}</td></tr>{% endfor %}</tbody></table>
+      {% if plan_page_count > 1 %}<div class="button-row">{% if page > 1 %}<a href="?page={{ page - 1 }}">Previous records</a>{% endif %}<span>Page {{ page }} of {{ plan_page_count }}</span>{% if page < plan_page_count %}<a href="?page={{ page + 1 }}">Next records</a>{% endif %}</div>{% endif %}
+    {% else %}
+      <p>This load has no retained evidence for this stage. Continue with another saved stage.</p>
+    {% endif %}
+    {% if saved_rows and saved_rows.page_count > 1 %}<div class="button-row">{% if saved_rows.page > 1 %}<a class="button secondary" href="?page={{ saved_rows.page - 1 }}">Previous records</a>{% endif %}<span>Page {{ saved_rows.page }} of {{ saved_rows.page_count }}</span>{% if saved_rows.page < saved_rows.page_count %}<a class="button secondary" href="?page={{ saved_rows.page + 1 }}">Next records</a>{% endif %}</div>{% endif %}
+  </section>
+{% endblock %}

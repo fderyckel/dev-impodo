@@ -1,0 +1,103 @@
+    <section class="form-card" id="quality-rows" aria-labelledby="quality-rows-title">
+      <div class="page-heading compact">
+        <div>
+          <p class="eyebrow">Prepared data review</p>
+          <h2 id="quality-rows-title">
+            {% if quality_status == 'ready' %}Included in preparation{% elif quality_status == 'review' %}Needs a decision{% elif quality_status == 'quarantined' %}Set aside{% elif quality_status == 'blocked' %}Needs correction{% else %}All prepared records{% endif %}
+          </h2>
+        </div>
+        <div class="readiness-row-summary">
+          {% if quality_review_page and quality_review_page.matching_count %}
+            <span class="muted">Records {{ quality_review_row_start }}-{{ quality_review_row_end }} of {{ quality_review_page.matching_count }}</span>
+          {% endif %}
+          {% if quality_status or quality_dataset %}
+            {% if review_step != 'results' or review_view != 'outside' %}<a class="button secondary small" href="/workspaces/{{ workspace_id }}/summary?step=prepared#quality-rows">Clear filter</a>{% endif %}
+          {% endif %}
+        </div>
+      </div>
+      {% if quality_review_page and quality_review_page.items %}
+        <div class="table-scroll">
+          <table class="data-table readiness-row-table">
+            <thead><tr><th>Table</th><th>Source row</th><th>Record and prepared values</th><th>What Impodo found</th><th>Owner and next step</th></tr></thead>
+            <tbody>
+              {% for item in quality_review_page.items %}
+                {% set row = item.row %}
+                {% set excluded_by_filter = row.effective_disposition.value == 'EXCLUDED' and not item.issues %}
+                <tr data-quality-row>
+                  <td>{{ row.dataset.replace('_', ' ')|title }}</td>
+                  <td>{{ row.source_row }}</td>
+                  <td>{% include "_quality_record.html" %}</td>
+                  <td>
+                    {% if excluded_by_filter %}
+                      <strong>Excluded by filters</strong>
+                      <small class="row-field">This row did not meet your Rows to use rule.</small>
+                    {% else %}
+                      {% if row.effective_disposition.value in ['QUARANTINED', 'EXCLUDED'] %}
+                        <strong>Set aside for a data issue</strong>
+                      {% endif %}
+                      {% for message, fields in quality_review_findings.get(row.row_id, ()) %}
+                        <p>
+                          {{ message }}
+                          {% if fields %}<small class="row-field">Fields: {{ fields|join(', ') }}</small>{% endif %}
+                        </p>
+                      {% else %}
+                        {% if row.effective_disposition.value in ['CANDIDATE', 'REFERENCE'] %}
+                          Included for prepared-data review.
+                        {% else %}
+                          This row needs a preparation review.
+                        {% endif %}
+                      {% endfor %}
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if excluded_by_filter %}
+                      <a href="{{ quality_rows_to_use_urls.get(row.dataset, '/workspaces/' ~ workspace_id ~ '/mapping') }}">Review Rows to use</a>
+                    {% elif item.issues %}
+                      <strong>{{ item.issues[0].owner_label }}</strong>
+                      <small class="row-field">{{ item.correction_route or "Review the source or guided data check, then check all rows again." }}</small>
+                    {% else %}
+                      <a href="/workspaces/{{ workspace_id }}/normalization">Review prepared data</a>
+                    {% endif %}
+                    <details class="technical-details">
+                      <summary>Support details</summary>
+                      <code>{{ row.effective_disposition.value }} · {{ row.row_id }}</code>
+                      {% for detail in item.issues %}<small class="row-field"><code>{{ detail.reason_code }} · {{ detail.rule_id }}</code>: {{ detail.message }}</small>{% endfor %}
+                    </details>
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% if quality_review_page.matching_count > 10 %}
+          <nav class="field-catalog-navigation" aria-label="Prepared-data record pages">
+            <div class="field-page-size" aria-label="Number of prepared-data records shown per page">
+              <span>Records per page:</span>
+              {% for option in quality_page_size_options %}
+                <a class="field-count-button{% if option.size == quality_page_size %} active{% endif %}" href="{{ option.url }}" {% if option.size == quality_page_size %}aria-current="page"{% endif %}>{{ option.size }}</a>
+              {% endfor %}
+            </div>
+            <div class="field-pagination">
+              {% if quality_previous_url %}<a class="button secondary" href="{{ quality_previous_url }}">Previous</a>{% endif %}
+              <span class="muted">Page {{ quality_review_page.page }} of {{ quality_review_page.page_count }}</span>
+              {% if quality_next_url %}<a class="button secondary" href="{{ quality_next_url }}">Next</a>{% endif %}
+            </div>
+          </nav>
+        {% endif %}
+      {% else %}
+        <div class="empty-state compact">
+          {% if quality_status == 'blocked' and quality.blocked_count %}
+            <h3>Data project setup needs attention</h3>
+            <p>Restore the recommended checks or correct unreconciled source evidence, then check all rows again.</p>
+          {% else %}
+            <h3>No records in this view</h3>
+            <p>Choose another quality card or clear the filter.</p>
+          {% endif %}
+        </div>
+      {% endif %}
+      <details class="technical-details">
+        <summary>Support details</summary>
+        <p><code>Quality run {{ quality.run_id }} · {{ quality.content_hash }}</code></p>
+        <p>Prepared evidence <code>{{ quality.staging_content_hash }}</code> · rules <code>{{ quality.ruleset_hash }}</code></p>
+      </details>
+    </section>

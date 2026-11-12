@@ -34,6 +34,7 @@ class CorrectionAuthoringStageOwner(Protocol):
         successor_workspace_id: str,
         *,
         actor: Actor,
+        audit_unchanged: bool = False,
     ) -> CorrectionAuthoringReviewResult:
         """Validate, submit, prepare, quality-check, and refresh target evidence."""
         ...
@@ -51,11 +52,15 @@ class NativeCorrectionReviewPipeline:
         successor_workspace_id: str,
         *,
         actor: Actor,
+        audit_unchanged: bool = False,
     ) -> CorrectionReviewEvidence:
         result = self.stages.prepare_review(
             manifest,
             successor_workspace_id,
             actor=actor,
+            audit_unchanged=True,
+        ) if audit_unchanged else self.stages.prepare_review(
+            manifest, successor_workspace_id, actor=actor,
         )
         datasets = tuple(
             sorted(
@@ -102,7 +107,7 @@ class NativeCorrectionReviewPipeline:
             mapping=result.mapping,
             previous_prepared_hash=manifest.prepared_set_hash,
             corrected_prepared_hash=corrected_prepared_hash,
-            candidate_batches=self._candidate_batches(datasets),
+            candidate_batches=self._candidate_batches(datasets, audit_unchanged=audit_unchanged),
             reader=result.reader,
             reader_scope_hash=result.reader_scope_hash,
             read_credential_binding_hash=result.read_credential_binding_hash,
@@ -113,6 +118,7 @@ class NativeCorrectionReviewPipeline:
     @staticmethod
     def _candidate_batches(
         datasets: tuple[CorrectionDatasetReviewInput, ...],
+        *, audit_unchanged: bool = False,
     ) -> Iterator[tuple[CorrectionCandidate, ...]]:
         """Keep transient sparse files alive only while their batches are read."""
 
@@ -127,6 +133,8 @@ class NativeCorrectionReviewPipeline:
                     item.corrected_snapshot,
                     item.corrected_program,
                     root / f"candidates-{ordinal:04d}.parquet",
+                    allow_field_changes=True,
+                    audit_unchanged=audit_unchanged,
                 )
                 yield from iter_polars_correction_candidate_batches(artifact)
 

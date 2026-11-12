@@ -181,6 +181,11 @@ stages:
       - src/impodo/application/workspace/derived_entities.py::DerivedEntityWorkspaceService
       - src/impodo/domain/workspace/derived_entities.py::HierarchicalLookupRule
       - src/impodo/domain/workspace/derived_entities.py::evaluate_hierarchy_path
+      - src/impodo/domain/hierarchy.py::HierarchyParentPolicy
+      - src/impodo/application/hierarchy_parent_lookup.py::read_parent_choices
+      - src/impodo/application/hierarchy_parent_lookup.py::browse_parent_choices
+      - src/impodo/web/composition/hierarchy_parents.py::resolve_hierarchy_parent
+      - src/impodo/domain/workspace/reference_keys.py::authorize_hierarchy_parent_read
       - src/impodo/domain/workspace/derived_entities.py::review_derived_entities
       - src/impodo/domain/workspace/derived_entities.py::_group_lookup_values
       - src/impodo/domain/structural.py::review_exact_join
@@ -210,6 +215,10 @@ stages:
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/application/workspace/test_derived_entities.py
+      - tests/application/test_hierarchy_parent_lookup.py
+      - tests/domain/workspace/test_existing_hierarchy_rules.py
+      - tests/domain/preparation/test_existing_hierarchy_parents.py
+      - tests/integration/web/test_existing_hierarchy_parents.py
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
       - tests/integration/web/test_exact_join_group_forms.py
@@ -864,6 +873,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.current_review
       - src/impodo/application/workspace/navigation.py::WorkspaceNavigationQueryService
       - src/impodo/web/presenters/summary.py::_render_quality_cause
+      - src/impodo/web/presenters/final_review_journey.py::final_review_journey
       - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
       - src/impodo/adapters/duckdb/foundation_operation_intents.py::FoundationOperationIntents.reserve_preflight_comparison
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
@@ -894,6 +904,9 @@ stages:
       - tests/integration/web/test_missing_source_match_review.py
       - tests/integration/duckdb/test_quality_review_details.py
       - tests/integration/web/test_final_review_performance.py
+      - tests/integration/web/test_final_review_journey.py
+      - tests/integration/web/test_final_review_navigation.py
+      - tests/e2e/final-review-navigation.test.cjs
       - tests/integration/web/test_comparison_progress_recovery.py
       - tests/e2e/comparison-progress.test.cjs
       - tests/application/workspace/review/test_preflight_jobs.py
@@ -951,6 +964,8 @@ stages:
     developer_doc: docs/developer/workflow/06-load-into-odoo.md
     router_modules:
       - src/impodo/web/routers/execution.py
+      - src/impodo/web/routers/history.py
+      - src/impodo/web/routers/continuation.py
       - src/impodo/web/routers/corrections.py
       - src/impodo/web/routers/transfer_destination.py
       - src/impodo/web/routers/destination_matching.py
@@ -961,6 +976,8 @@ stages:
     templates:
       - src/impodo/web/templates/workspace_load.html
       - src/impodo/web/templates/workspace_load_progress.html
+      - src/impodo/web/templates/workspace_history.html
+      - src/impodo/web/templates/workspace_continuation.html
       - src/impodo/web/templates/workspace_correction.html
       - src/impodo/web/templates/workspace_correction_progress.html
       - src/impodo/web/templates/workspace_transfer_destination.html
@@ -991,6 +1008,7 @@ stages:
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/application/workspace/execution/job_models.py::LoadJob
       - src/impodo/application/correction_workflow.py::CorrectionWorkflowService
+      - src/impodo/application/continuation_publication.py::publish_continued_load
       - src/impodo/application/correction_jobs.py::CorrectionJobManager
       - src/impodo/application/correction_orchestration.py::CorrectionOriginPublisher
       - src/impodo/application/correction_orchestration.py::CorrectionSuccessorService
@@ -1111,8 +1129,11 @@ stages:
       - tests/integration/web/test_recipe_run_progress.py
       - tests/integration/protected_evidence/test_target_credentials.py
       - tests/integration/web/test_correction_workflow.py
+      - tests/integration/web/test_post_load_continuation.py
+      - tests/integration/columnar/test_continuation_fields.py
       - tests/application/test_correction_jobs.py
       - tests/application/test_correction_orchestration.py
+      - tests/application/test_continuation_eligibility.py
       - tests/application/test_correction_execution.py
       - tests/integration/columnar/test_polars_correction.py
       - tests/performance/test_correction_qualification.py
@@ -1130,6 +1151,7 @@ stages:
       - tests/integration/web/test_odoo_transfer_journey.py
       - tests/integration/web/test_transfer_order_navigation.py
       - tests/integration/web/test_transfer_review_routes.py
+      - tests/integration/web/test_transfer_review_steps.py
       - tests/integration/web/test_transfer_review_presenter.py
       - tests/integration/web/test_transfer_preflight_routes.py
       - tests/integration/web/test_transfer_page_reads.py

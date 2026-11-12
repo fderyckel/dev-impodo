@@ -34,7 +34,6 @@ from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.source_binding import SourceOriginKind
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
-    BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
     LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
@@ -435,18 +434,12 @@ def compile_preparation_capability(
             for item in getattr(definition, "datasets", ())
         )
     )
-    relationship_limit = (
-        min(
-            normalization_limit,
-            BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
-        )
-        if (direct or grouped_exact_join is not None)
-        and not quality_reasons
-        and related_or_multi_dataset
-        else normalization_limit
-    )
+    # Relationship facts are resolved set-wise from the durable session. They
+    # share the qualified transformation/quality envelope rather than imposing
+    # a second, lower ceiling solely because a dataset contains a link.
+    relationship_limit = normalization_limit
     relationship_reasons = (
-        ("MULTI_DATASET_OR_RELATIONSHIP_SCALE_UNQUALIFIED",)
+        ("BOUNDED_RELATIONSHIP_INDEX",)
         if (direct or grouped_exact_join is not None)
         and not quality_reasons
         and related_or_multi_dataset

@@ -1,15 +1,19 @@
 ---
 audience: developer
 document_type: plan
-status: proposed
+status: partially-implemented
 ---
 
 # Continue working after a successful load
 
 This proposal lets a data manager inspect a completed load, add a forgotten
 field, repeat preparation and comparison, load the reviewed changes, and save
-a Recipe after success. It is proposed behavior, not an implemented workflow.
-Every button and message introduced below is proposed wording.
+a Recipe after success. The initial implementation supports direct file-source Authoring with standard
+data checks and native prepared snapshots. Saved stage browsing and selected
+completed-load Recipe saving are implemented independently. Combined or
+generated tables, additional business checks, evaluator-only preparation, and
+interrupted-attempt recovery still need qualification. The sections below
+retain the full approved target behavior.
 
 ## Recommended product decision
 

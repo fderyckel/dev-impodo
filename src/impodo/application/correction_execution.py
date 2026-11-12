@@ -334,6 +334,48 @@ class CorrectionExecutionService:
             )
         return CorrectionExecutionResult(finished, report, current)
 
+    def complete_no_changes(
+        self, completed_workspace_id: str, plan: CorrectionPlan,
+        *, target_database: str, actor: Actor,
+    ) -> CorrectionExecutionResult:
+        """Seal a freshly audited no-write review without loading credentials.
+
+        This command is called only by the review owner immediately after its
+        exact-target reads. It grants no transport or confirmation authority.
+        """
+
+        self.authorization.require(actor, Capability.PROTECTED_EVIDENCE_READ, project_id=plan.project_id)
+        binding = self._require_plan(completed_workspace_id, plan)
+        if plan.fields or not plan.audited:
+            raise CorrectionPlanError("A current read-only comparison is required")
+        run = ExecutionRun(
+            run_id=str(uuid4()), workspace_id=plan.workspace_id,
+            snapshot_hash=plan.plan_hash, snapshot_root_hash=plan.plan_hash,
+            preflight_run_id=plan.plan_id, target_hash=plan.target_hash,
+            target_database=target_database, batch_rows=MAX_CORRECTION_BATCH_ROWS,
+            status=ExecutionRunStatus.RUNNING, started_at=datetime.now(UTC),
+            started_by=actor.identity.display_name, completed_at=None, rows=(),
+        )
+        self.execution.start_run(plan.workspace_id, run, actor=actor, correction_plan_hash=plan.plan_hash)
+        finished = self.execution.finish_run(plan.workspace_id, run.run_id, ExecutionRunStatus.COMPLETED, actor=actor)
+        report = ReconciliationRun(
+            reconciliation_id=str(uuid4()), workspace_id=plan.workspace_id,
+            execution_run_id=finished.run_id, snapshot_hash=plan.plan_hash,
+            target_hash=plan.target_hash, status=ReconciliationRunStatus.VERIFIED,
+            target_database=target_database, verified_at=datetime.now(UTC),
+            verified_by=actor.identity.display_name,
+            unchanged_count=len({(item.target_model, item.odoo_id) for item in plan.observations}), rows=(),
+        )
+        self.reconciliations.publish(plan.workspace_id, report, actor=actor)
+        completed = self.bindings.complete_verified_successor(
+            completed_workspace_id, successor_migration_run_id=plan.successor_migration_run_id,
+            successor_workspace_id=plan.workspace_id, execution_run_id=finished.run_id,
+            reconciliation_id=report.reconciliation_id, reconciliation_hash=report.semantic_hash,
+            expected_revision=binding.optimistic_revision, actor=actor,
+            read_only_plan_hash=plan.plan_hash,
+        )
+        return CorrectionExecutionResult(finished, report, completed)
+
     def _require_plan(
         self, completed_workspace_id: str, plan: CorrectionPlan
     ) -> CorrectionBinding:

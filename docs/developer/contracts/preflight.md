@@ -84,6 +84,14 @@ inside target evidence and runtime lookups. Source and target identity cycles
 produce blocking evidence rather than recursion failure. Historical references
 without field metadata retain their original portable encoding and hashes.
 
+Compiled-plan v4 can require a prefix of a generated hierarchy to exist in
+Odoo. A unique existing prefix is reused as `UNCHANGED` without field updates.
+A missing prefix produces `HIERARCHY_EXISTING_PARENT_NOT_FOUND`; ambiguous
+matches retain the ordinary ambiguity result. Affected descendants are
+blocked with `HIERARCHY_EXISTING_ANCESTOR_NEEDS_ATTENTION`. The comparison uses
+the complete parent lineage and explicit company scope, including shared
+ancestors. A missing required parent never becomes a create decision.
+
 A remote reader performs one exact identity probe for captured models and, if
 needed, one combined identity probe for all authorized supporting models. A
 local reader receives only models named by the plan. Both paths group bounded
