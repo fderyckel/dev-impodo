@@ -144,6 +144,34 @@
             <section class="identity-panel" aria-labelledby="target-identity-{{ dataset_index }}">
               <p class="eyebrow">Odoo</p>
               <h3 id="target-identity-{{ dataset_index }}">How should Impodo find the same record in Odoo? {{ decision_help("target-identity") }}</h3>
+              <label>
+                Identify these records using
+                <select name="identity_method_{{ dataset_index }}" data-source-identity-method>
+                  <option value="business_fields" {% if not view.mapping or not view.mapping.source_record_identity %}selected{% endif %}>Odoo matching fields</option>
+                  <option value="source_record" {% if view.mapping and view.mapping.source_record_identity %}selected{% endif %}>A source record ID stored in Odoo</option>
+                </select>
+              </label>
+              {% set source_record_policy = view.mapping.source_record_identity if view.mapping else none %}
+              <div data-source-record-identity {% if not source_record_policy %}hidden{% endif %}>
+                <p>Impodo uses the unique source columns selected on the left. Repeated values in ordinary fields stay valid. Include a parent or company column when it distinguishes separate source records.</p>
+                <label>Source identity name
+                  <input name="identity_namespace_{{ dataset_index }}" value="{{ source_record_policy.namespace if source_record_policy else '' }}" maxlength="48" pattern="[a-z][a-z0-9_]{0,47}" placeholder="legacy_document_lines" data-source-identity-namespace>
+                  <small>Use the same name for future deliveries from this source. A different name identifies a different set of records.</small>
+                </label>
+                <label>Existing Odoo External ID column (optional)
+                  <select name="identity_existing_id_{{ dataset_index }}">
+                    <option value="">No existing External ID column</option>
+                    {% for column in view.source.columns %}
+                      <option value="{{ column.stable_key }}" {% if source_record_policy and source_record_policy.existing_external_id_column_key == column.stable_key %}selected{% endif %}>{{ column.source_name }}</option>
+                    {% endfor %}
+                  </select>
+                  <small>For new records, select <strong>No existing External ID column</strong>. Choose a column here only when it contains External IDs exported from Odoo, such as <code>__export__.record_123_abcd</code>. Every nonblank External ID must already exist in this Odoo database. A legacy source ID belongs in <strong>Unique row identifier</strong>.</small>
+                </label>
+                <label class="checkbox-label"><input type="checkbox" name="identity_allow_new_{{ dataset_index }}" data-source-identity-allow-new {% if source_record_policy and source_record_policy.allow_new_records %}checked{% endif %}>I have reviewed the source records. Create records whose generated source ID is not yet in Odoo.</label>
+                <small>Leave this clear to review unmatched records before creating them. Keep existing External IDs in later deliveries and Recipes.</small>
+                <p class="muted">Ordering is a separate field choice. Keeping a repeated ordering value does not guarantee the order of tied records in an Odoo view.</p>
+              </div>
+              <div data-business-field-identity {% if source_record_policy %}hidden{% endif %}>
               <p class="muted">Choose the matching rule, then connect each Odoo matching field to your source.</p>
               {% if view.business_keys %}
                 <label>
@@ -234,6 +262,7 @@
                                 data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
                                 data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
                               <small role="status" data-linked-matching-field-status></small>
+                              <a href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes" data-linked-matching-schema-review hidden>Review Odoo changes</a>
                             </div>
                           {% elif not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model before using Odoo lookup.</small>{% endif %}
                         </label>
@@ -247,6 +276,7 @@
                   <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Set an Odoo matching rule</a>
                 </div>
               {% endif %}
+              </div>
             </section>
           </div>
           {% if view.active and identity_health %}
@@ -262,6 +292,7 @@
             <div data-mapping-task-panel="fields" {% if mapping_journey.task != 'fields' %}hidden{% endif %}>
               <h3 id="scalar-fields-{{ dataset_index }}" data-mapping-task-heading tabindex="-1">Match field values {{ decision_help("field-values") }}</h3>
               <p class="muted">Choose where each Odoo field gets its value.</p>
+              {% if not view.odoo_pinned %}{% include "mapping/_ordering.html" %}{% endif %}
               <div id="mapping-table-fields-{{ dataset_index }}" data-table-fields-panel>
                 {% include "mapping/_scalar_fields.html" %}
               </div>

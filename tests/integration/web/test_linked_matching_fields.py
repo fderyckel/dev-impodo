@@ -246,7 +246,7 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
             with self.subTest(parent=parent):
                 self.exercise_selector(major, mode, parent, edge, related, key, label)
 
-    def configure_link(self, major, mode, parent, edge, related, key, label, *, kind="many2one", source_value="ITEM-42", source_rows=None):
+    def configure_link(self, major, mode, parent, edge, related, key, label, *, kind="many2one", source_value="ITEM-42", source_rows=None, choose_company=True):
         workspace_id = self.freeze_files(
             {"records": source_rows if source_rows is not None else f"Reference,ItemID\nR-1,{source_value}\n".encode()}
         )
@@ -273,12 +273,13 @@ class LinkedMatchingFieldTests(MappingJourneyFixture):
             "Workshop",
             (OdooCompanySelection(target, 1, "Workshop"),),
         )
-        state = self.context.workspace_states.select_odoo_company(
-            workspace_id,
-            actor=self.actor,
-            expected_revision=state.revision,
-            selection=self.access.choices[0],
-        )
+        if choose_company:
+            state = self.context.workspace_states.select_odoo_company(
+                workspace_id,
+                actor=self.actor,
+                expected_revision=state.revision,
+                selection=self.access.choices[0],
+            )
         identity_field = "code" if parent == "mrp.bom" else "x_order"
         self.metadata = MetadataSnapshot(
             TargetFingerprint(

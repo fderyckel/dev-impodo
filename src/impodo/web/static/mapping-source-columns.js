@@ -1,6 +1,34 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  for (const choice of document.querySelectorAll("[data-ordering-mode]")) {
+    const controls = choice.closest("[data-ordering-controls]");
+    const generated = controls.querySelector("[data-generated-ordering]");
+    const target = controls.querySelector("[data-ordering-target]");
+    const sync = () => {
+      const selected = choice.value === "generate";
+      generated.hidden = !selected;
+      target.required = selected;
+    };
+    choice.addEventListener("change", sync);
+    sync();
+  }
+  for (const choice of document.querySelectorAll("[data-source-identity-method]")) {
+    const panel = choice.closest("section");
+    const source = panel.querySelector("[data-source-record-identity]");
+    const business = panel.querySelector("[data-business-field-identity]");
+    const namespace = panel.querySelector("[data-source-identity-namespace]");
+    const allowNew = panel.querySelector("[data-source-identity-allow-new]");
+    const sync = () => {
+      const selected = choice.value === "source_record";
+      source.hidden = !selected;
+      business.hidden = selected;
+      namespace.required = selected;
+    };
+    choice.addEventListener("change", sync);
+    namespace.addEventListener("input", () => { allowNew.checked = false; });
+    sync();
+  }
   const hydrateSourceOptions = (select) => {
     if (select.dataset.sourceOptionsLoaded === "true") {
       return;

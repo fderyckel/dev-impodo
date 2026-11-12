@@ -12,6 +12,7 @@ there is never a per-row fallback inside this plan.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -104,6 +105,7 @@ def supports_clean_native_projection(
                    {_integer_compatibility(layout)}
                    AND {_source_display_compatibility(program)}
                    AND {_reference_label_compatibility(layout)}
+                   AND {_source_external_id_compatibility(program)}
                ))
           FROM read_parquet(?)
         """,
@@ -443,7 +445,7 @@ def projected_review_identity_sql(projection: PreparedCanonicalProjection) -> st
     layout = _layout(projection.program)
     return f"""
         SELECT {_identity_json(layout.source_identity)} AS source_identity,
-               {_identity_json(layout.target_identity, contract_version=projection.contract_version)}
+               {_target_identity_json(projection.program, layout, projection.contract_version)}
                    AS target_identity,
                {_identity_json(layout.target_scope, contract_version=projection.contract_version)}
                    AS target_scope
@@ -529,9 +531,7 @@ def _projected_relation_sql(
 ) -> str:
     program = projection.program
     source_identity = _identity_json(layout.source_identity)
-    target_identity = _identity_json(
-        layout.target_identity, contract_version=projection.contract_version,
-    )
+    target_identity = _target_identity_json(program, layout, projection.contract_version)
     target_scope = _identity_json(
         layout.target_scope, contract_version=projection.contract_version,
     )
@@ -598,6 +598,8 @@ def _projected_relation_sql(
         )
         or "FALSE"
     )
+    if program.source_record_identity is not None:
+        quality_complete = " AND ".join(f"{_identifier(value.alias)} IS NOT NULL AND {_display_sql(value.alias, value.value_type)} <> ''" for value in _flatten(layout.source_identity)) or "FALSE"
     source_filter = (
         f"WHERE {_identifier(PREPARED_ORDINAL_COLUMN)} >= ? "
         f"AND {_identifier(PREPARED_ORDINAL_COLUMN)} < ?"
@@ -1239,6 +1241,33 @@ def _datetime_text(column: str) -> str:
              ELSE strftime({utc}, '%Y-%m-%dT%H:%M:%S.%fZ')
         END
     """
+
+
+def _source_external_id_input(program: ColumnarTransformationProgram) -> str:
+    policy = program.source_record_identity
+    if policy is None or not policy.existing_external_id_column_key:
+        return "''"
+    column = next(item for item in program.inputs if item.stable_key == policy.existing_external_id_column_key)
+    return f"trim(COALESCE(CAST({_identifier(source_value_column(column.ordinal))} AS VARCHAR), ''))"
+
+
+def _source_external_id_compatibility(program: ColumnarTransformationProgram) -> str:
+    value = _source_external_id_input(program)
+    return f"({value} = '' OR (length({value}) <= 255 AND regexp_full_match({value}, '[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z0-9_][A-Za-z0-9_.-]*')))"
+
+
+def _target_identity_json(program: ColumnarTransformationProgram, layout: _ProjectionLayout, contract_version: int) -> str:
+    """Derive source IDs in the native set projection with Python-oracle parity."""
+    policy = program.source_record_identity
+    if policy is None:
+        return _identity_json(layout.target_identity, contract_version=contract_version)
+    source = _identity_json(layout.source_identity)
+    token = re.sub(r"[^a-z0-9_]+", "_", program.target_model.casefold())[:36]
+    prefix = f"impodo_source_{policy.namespace}.{token}_"
+    payload = f"CAST(to_json(list_prepend({_literal(program.target_model)}, from_json({source}, '[\"VARCHAR\"]'))) AS VARCHAR)"
+    generated = f"({_literal(prefix)} || sha256({payload}))"
+    supplied = _source_external_id_input(program)
+    return f"to_json([COALESCE(NULLIF({supplied}, ''), {generated})])"
 
 
 def _identity_json(

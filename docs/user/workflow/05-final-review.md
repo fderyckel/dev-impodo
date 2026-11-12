@@ -90,8 +90,51 @@ again. Your older form cannot overwrite them silently.
    the bulk preview). Impodo returns you to Final review with the reduced
    load ready to review. Correct any problem that affects the whole comparison,
    then compare again.
-8. Download the workbook when you need to review the proposed load in Excel or
-   keep a durable rehearsal record.
+8. Select **Download rows needing attention** to share the complete correction
+   worklist in Excel. When the proposed load is ready, use the separate review
+   workbook to inspect or retain the full proposed load.
+
+### Download a correction worklist
+
+Select **Download rows needing attention** after preparing the data, including
+when unresolved findings prevent you from continuing. The export includes all
+saved findings across every table and page. The browser's current row filter
+does not restrict it. Records intentionally omitted by **Rows to use** are
+counted separately.
+
+The counts beside the download show distinct affected records and findings.
+Open **What this correction worklist includes** to see the problems and next
+actions that also appear in the workbook. If the counts cannot be checked,
+select **Retry export counts** or reopen Final review.
+
+Start with **Overview** for the distinct affected-record count and the checks
+completed. Before comparison, the report says **Odoo comparison not completed**.
+After comparison, it also includes the current Odoo findings and any saved
+load-expectation problem.
+
+In **Needs attention**, each line identifies a record and one problem. It names
+the source location, affected columns, available original and prepared values,
+why the record needs attention, a suggested action, and where to correct it.
+Whole-table and whole-load findings state their scope instead of blaming an
+individual row. A record held back by a linked record points to that cause.
+
+Open the **Data** sheets to see the affected records and highlighted columns.
+For duplicates, review the complete matching columns and all peers in
+**Duplicate groups**. Larger peer lists link to that sheet. Repeating one
+reference is not by itself an error when another identifying column, parent,
+or company distinguishes the records.
+
+**Not retained** means the saved evidence has no original value available.
+**(empty)** identifies an actual empty value. **Restricted** identifies a
+protected value that remains inside Impodo, including Odoo-source values.
+Identifiers retain leading zeros, and source text is displayed as literal text
+in Excel. Excel cannot display an individual cell above its text limit; Impodo
+reports that limitation instead of silently shortening a finding.
+
+Correct the source, the named Impodo choice, or Odoo as indicated. Then prepare
+and compare again. Editing this workbook does not change Impodo. If the saved
+results change during export, reopen Final review and download the current
+report.
 
 Before comparison, the prepared-data section can show records that Impodo set
 aside. Its cause summary distinguishes a problem on the record itself from a

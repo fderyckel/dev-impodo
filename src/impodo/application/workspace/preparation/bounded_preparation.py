@@ -39,6 +39,7 @@ from impodo.domain.compiler.columnar_transformation import (
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import MappingDefinition, RowInclusionMode
+from impodo.domain.mapping.generated_ordering import GENERATED_ORDER_SOURCE
 from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.preparation.source import (
     CompiledPreparedRowTransformer,
@@ -619,7 +620,13 @@ def prepare_bounded_direct_session(
                     raise ReadinessError(
                         "Stored source content changed after selection"
                     )
-                for source_batch in source.iter_batches():
+                source_batches = source.iter_batches()
+                generated_values = None
+                if mapping.generated_ordering is not None:
+                    captured_rows = tuple(row for batch in source_batches for row in batch)
+                    generated_values = transformer.ordering_values(mapping.generated_ordering, captured_rows).values
+                    source_batches = (captured_rows[start:start + 1024] for start in range(0, len(captured_rows), 1024))
+                for source_batch in source_batches:
                     prepared_batch: list[CanonicalPreparedSessionRow] = []
                     for source_row in source_batch:
                         projected = transformer.project(source_row)
@@ -681,6 +688,8 @@ def prepare_bounded_direct_session(
                             projected,
                             impact_collector=impact_collector,
                         )
+                        if generated_values is not None:
+                            staged_row = replace(staged_row, values={**staged_row.values, GENERATED_ORDER_SOURCE: generated_values[source_row.number]})
                         record = preparer.transform(staged_row)
                         included_row_count += 1
                         if preparation_issues:

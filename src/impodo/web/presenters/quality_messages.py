@@ -12,6 +12,25 @@ SOURCE_IDENTITY_REASONS = frozenset(
 )
 
 
+def invalid_existing_external_id(code: str, message: str) -> bool:
+    """Recognize the saved External ID finding without relabeling source keys."""
+
+    return (
+        code == "SOURCE_RECORD_IDENTITY_INVALID"
+        and message == "The existing Odoo External ID is invalid"
+    )
+
+
+def existing_external_id_next_step() -> str:
+    """Direct new-record imports to the optional External ID decision."""
+
+    return (
+        "In Match data → Identify these records, select No existing External ID "
+        "column when creating new records. For existing records, choose a column "
+        "containing their Odoo External IDs. Save, then prepare the complete data again."
+    )
+
+
 def quality_reason_message(
     code: str,
     message: str,
@@ -22,6 +41,13 @@ def quality_reason_message(
     """Name the identifier columns and distinguish source checks from Odoo."""
 
     columns = ", ".join(fields) if fields else "the selected source columns"
+    if invalid_existing_external_id(code, message):
+        subject = f"The column {columns}" if fields else "The selected column"
+        return (
+            f"{subject} was selected as an Odoo External ID column, but contains "
+            "a value that is not a valid Odoo External ID. This setting identifies "
+            "the records being imported. " + existing_external_id_next_step()
+        )
     if code == "SOURCE_IDENTITY_INVALID":
         problem = (
             "is empty"

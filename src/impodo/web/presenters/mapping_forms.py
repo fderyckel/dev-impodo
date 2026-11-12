@@ -13,6 +13,9 @@ from starlette.datastructures import FormData
 from impodo.application.workspace.mapping.incoming_dependencies import (
     match_incoming_identity_columns,
 )
+from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
+from impodo.domain.odoo.compatibility import recognize_odoo_version
 from impodo.domain.recipe.value_rules import (
     MAX_TEXT_TRANSFORM_STEPS,
     ScalarTransformPolicy,
@@ -266,6 +269,17 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"mode_{dataset_index}",
                 f"on_existing_{dataset_index}",
                 f"source_identity_{dataset_index}",
+                f"identity_method_{dataset_index}",
+                f"identity_namespace_{dataset_index}",
+                f"identity_allow_new_{dataset_index}",
+                f"identity_existing_id_{dataset_index}",
+                f"ordering_mode_{dataset_index}",
+                f"ordering_target_{dataset_index}",
+                f"ordering_groups_{dataset_index}",
+                f"ordering_descending_{dataset_index}",
+                f"ordering_blanks_{dataset_index}",
+                f"ordering_start_{dataset_index}",
+                f"ordering_step_{dataset_index}",
                 f"business_key_{dataset_index}",
                 f"visible_scalar_target_{dataset_index}",
                 f"visible_relation_target_{dataset_index}",
@@ -286,6 +300,8 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"row_inclusion_type_{dataset_index}_{condition_index}",
                 }
             )
+        for sort_index in range(5):
+            allowed.update({f"ordering_sort_{dataset_index}_{sort_index}", f"ordering_type_{dataset_index}_{sort_index}"})
         target_model = _text(form, f"target_model_{dataset_index}")
         if target_model not in model_names:
             continue
@@ -430,9 +446,22 @@ def _mapping_datasets_from_form(
             raise WorkspaceError("Choose a captured target model")
         selected_key = (
             None
-            if pinned_update
+            if pinned_update or _text(form, f"identity_method_{dataset_index}") == "source_record"
             else keys.get(_text(form, f"business_key_{dataset_index}"))
         )
+        identity_method = _text(form, f"identity_method_{dataset_index}") or "business_fields"
+        if identity_method not in {"business_fields", "source_record"} or (pinned_update and identity_method != "business_fields"):
+            raise WorkspaceError("Choose a supported way to identify these records")
+        source_record_identity = None
+        if identity_method == "source_record":
+            try:
+                source_record_identity = SourceRecordIdentity(
+                    namespace=_text(form, f"identity_namespace_{dataset_index}").strip(),
+                    allow_new_records=_checked(form, f"identity_allow_new_{dataset_index}"),
+                    existing_external_id_column_key=_text(form, f"identity_existing_id_{dataset_index}") or None,
+                )
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
         if selected_key is not None and selected_key.model != target_model:
             raise WorkspaceError("Target business key does not match its model")
         field_by_name = {item.name: item for item in model.fields}
@@ -447,6 +476,30 @@ def _mapping_datasets_from_form(
         identity_components: list[IdentityComponentMapping] = []
         scope_components: list[IdentityComponentMapping] = []
         identity_targets: set[str] = set()
+        generated_ordering = None
+        ordering_mode = _text(form, f"ordering_mode_{dataset_index}") or "preserve"
+        if ordering_mode not in {"preserve", "generate"} or (pinned_update and ordering_mode != "preserve"):
+            raise WorkspaceError("Choose a supported ordering policy")
+        if ordering_mode == "generate":
+            sort_columns, sort_types = [], []
+            for slot in range(5):
+                column = _text(form, f"ordering_sort_{dataset_index}_{slot}")
+                if column:
+                    sort_columns.append(column)
+                    sort_types.append(_text(form, f"ordering_type_{dataset_index}_{slot}") or "string")
+            try:
+                generated_ordering = GeneratedOrdering(
+                    target_field=_text(form, f"ordering_target_{dataset_index}"),
+                    group_column_keys=tuple(_texts(form, f"ordering_groups_{dataset_index}")),
+                    sort_column_keys=tuple(sort_columns), sort_value_types=tuple(sort_types),
+                    descending=_checked(form, f"ordering_descending_{dataset_index}"),
+                    blanks=_text(form, f"ordering_blanks_{dataset_index}") or "last",
+                    start=int(_text(form, f"ordering_start_{dataset_index}") or "10"),
+                    step=int(_text(form, f"ordering_step_{dataset_index}") or "10"),
+                )
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            identity_targets.add(generated_ordering.target_field)
         key_fields = (
             (*selected_key.key_fields, *selected_key.scope_fields)
             if selected_key
@@ -1265,6 +1318,8 @@ def _mapping_datasets_from_form(
                     )
                 ),
                 target_identity=tuple(identity_components),
+                source_record_identity=source_record_identity,
+                generated_ordering=generated_ordering,
                 target_scope=tuple(scope_components),
                 fields=tuple(
                     sorted(
@@ -1632,8 +1687,10 @@ def _row_inclusion_from_form(
 
 def _standard_reference_business_key(
     model: str | None,
+    *,
+    odoo_major_version: int = 19,
 ) -> BusinessKeyDefinition | None:
-    rule = standard_reference_key(model or "")
+    rule = standard_reference_key(model or "", odoo_major_version=odoo_major_version)
     if rule is None:
         return None
     return BusinessKeyDefinition(
@@ -1668,10 +1725,12 @@ def _supporting_name_business_key(
 
 def _reviewed_supporting_business_key(
     model: str | None,
+    *,
+    odoo_major_version: int = 19,
 ) -> BusinessKeyDefinition | None:
     """Offer one reviewed candidate without claiming target-wide uniqueness."""
 
-    candidate = supporting_reference_candidate(model or "")
+    candidate = supporting_reference_candidate(model or "", odoo_major_version=odoo_major_version)
     if candidate is None:
         return None
     return BusinessKeyDefinition(
@@ -1711,13 +1770,14 @@ def _related_business_keys(
     model: str | None,
     *,
     include_supporting_name: bool = True,
+    odoo_major_version: int = 19,
 ) -> tuple[BusinessKeyDefinition, ...]:
     confirmed = tuple(
         item
         for item in definitions
         if item.model == model and item.status is BusinessKeyStatus.CONFIRMED
     )
-    standard = _standard_reference_business_key(model)
+    standard = _standard_reference_business_key(model, odoo_major_version=odoo_major_version)
     available = list(confirmed)
     if standard is not None and not any(
         item.key_fields == standard.key_fields
@@ -1725,18 +1785,19 @@ def _related_business_keys(
         for item in available
     ):
         available.append(standard)
-    reviewed_candidate = _reviewed_supporting_business_key(model)
+    reviewed_candidate = _reviewed_supporting_business_key(model, odoo_major_version=odoo_major_version)
     if reviewed_candidate is not None and not any(
         item.key_fields == reviewed_candidate.key_fields
         and item.scope_fields == reviewed_candidate.scope_fields
         for item in available
     ):
         available.append(reviewed_candidate)
-    if include_supporting_name and reviewed_candidate is None:
-        for candidate in (
-            _supporting_name_business_key(model),
-            _supporting_name_company_business_key(model),
-        ):
+    reviewed = supporting_reference_candidate(model or "", odoo_major_version=odoo_major_version)
+    if include_supporting_name and (reviewed_candidate is None or (reviewed is not None and reviewed.allow_name_lookup)):
+        fallbacks = (_supporting_name_business_key(model),)
+        if reviewed_candidate is None:
+            fallbacks = (*fallbacks, _supporting_name_company_business_key(model))
+        for candidate in fallbacks:
             if candidate is not None and not any(
                 item.key_fields == candidate.key_fields
                 and item.scope_fields == candidate.scope_fields
@@ -1769,6 +1830,7 @@ def _available_mapping_business_keys(
             confirmed,
             related_model,
             include_supporting_name=relationship_type == "many2one",
+            odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
         ):
             keys.setdefault(key.key_id, key)
     return keys

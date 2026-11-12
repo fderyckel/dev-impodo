@@ -1,0 +1,64 @@
+{% set order_policy = view.mapping.generated_ordering if view.mapping else none %}
+<details class="technical-details" data-ordering-controls {% if order_policy %}open{% endif %}>
+  <summary>Ordering (optional)</summary>
+  <p>Keep the values supplied by your field matches, or explicitly generate whole-number ordering values. Record identity stays separate.</p>
+  <label>Ordering values
+    <select name="ordering_mode_{{ dataset_index }}" data-ordering-mode>
+      <option value="preserve" {% if not order_policy %}selected{% endif %}>Keep mapped field values</option>
+      <option value="generate" {% if order_policy %}selected{% endif %}>Generate ordering values</option>
+    </select>
+  </label>
+  <div data-generated-ordering {% if not order_policy %}hidden{% endif %}>
+    <label>Odoo field to receive the generated values
+      <select name="ordering_target_{{ dataset_index }}" data-ordering-target>
+        <option value="">Choose a whole-number field</option>
+        {% for field in view.ordering_fields %}
+          <option value="{{ field.name }}" {% if order_policy and order_policy.target_field == field.name %}selected{% endif %}>{{ field.label }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <p>Save this choice before matching other fields. Impodo supplies this field from the ordering rule.</p>
+    <label>Restart numbering within each combination (optional)
+      <select name="ordering_groups_{{ dataset_index }}" multiple size="4">
+        {% for column in view.source.columns %}
+          <option value="{{ column.stable_key }}" {% if order_policy and column.stable_key in order_policy.group_column_keys %}selected{% endif %}>{{ column.source_name }}</option>
+        {% endfor %}
+      </select>
+      <small>For document lines, choose the columns that identify their parent. Leave this empty to number the complete table.</small>
+    </label>
+    <p>Leave the sorting columns empty to follow file order. Equal values use original file order as the tie-breaker.</p>
+    {% for slot in range(5) %}
+      {% set selected_sort = order_policy.sort_column_keys[slot] if order_policy and slot < order_policy.sort_column_keys|length else '' %}
+      {% set selected_type = order_policy.sort_value_types[slot] if order_policy and slot < order_policy.sort_value_types|length else 'string' %}
+      <div class="form-grid">
+        <label>{{ 'Order by' if slot == 0 else 'Then by' }}
+          <select name="ordering_sort_{{ dataset_index }}_{{ slot }}">
+            <option value="">{{ 'Original file order' if slot == 0 else 'Not used' }}</option>
+            {% for column in view.source.columns %}
+              <option value="{{ column.stable_key }}" {% if column.stable_key == selected_sort %}selected{% endif %}>{{ column.source_name }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <label>Read these ordering values as
+          <select name="ordering_type_{{ dataset_index }}_{{ slot }}">
+            {% for value, label in [('string', 'Text'), ('integer', 'Whole number'), ('decimal', 'Number'), ('date', 'Date'), ('datetime', 'Date and time')] %}
+              <option value="{{ value }}" {% if value == selected_type %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+        </label>
+      </div>
+    {% endfor %}
+    <label class="checkbox-label"><input type="checkbox" name="ordering_descending_{{ dataset_index }}" {% if order_policy and order_policy.descending %}checked{% endif %}>Sort the selected columns in descending order</label>
+    <label>Blank ordering values
+      <select name="ordering_blanks_{{ dataset_index }}">
+        <option value="last" {% if not order_policy or order_policy.blanks == 'last' %}selected{% endif %}>After populated values</option>
+        <option value="first" {% if order_policy and order_policy.blanks == 'first' %}selected{% endif %}>Before populated values</option>
+      </select>
+    </label>
+    <div class="form-grid">
+      <label>Start at<input type="number" min="0" max="2147483647" name="ordering_start_{{ dataset_index }}" value="{{ order_policy.start if order_policy else 10 }}"></label>
+      <label>Increase by<input type="number" min="1" max="1000000" name="ordering_step_{{ dataset_index }}" value="{{ order_policy.step if order_policy else 10 }}"></label>
+    </div>
+    <p>Generating values changes the selected Odoo field. Review prepared values before loading. Odoo displays records using its model and view rules; an internal Impodo row number cannot override those rules.</p>
+  </div>
+</details>

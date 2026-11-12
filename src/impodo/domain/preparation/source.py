@@ -15,11 +15,17 @@ from pathlib import PurePath
 from typing import Any
 
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
+from impodo.domain.mapping.generated_ordering import GENERATED_ORDER_SOURCE
+from impodo.domain.mapping.source_record_identity import (
+    source_record_external_id,
+    valid_external_id,
+)
 from impodo.domain.preparation.canonical import (
     ValueParseError,
     parse_field,
     parse_value,
 )
+from impodo.domain.preparation.ordering import generate_ordering
 from impodo.domain.recipe.profile import (
     DatasetSpec,
     IdentityComponent,
@@ -155,6 +161,12 @@ def prepare_source_tables(
 
     for dataset in plan.datasets:
         table = by_dataset[dataset.name]
+        if dataset.generated_ordering is not None:
+            ordering = generate_ordering(dataset.generated_ordering, ((row.number, row.values) for row in table.rows))
+            table = replace(table,
+                headers=(*table.headers, GENERATED_ORDER_SOURCE),
+                rows=tuple(replace(row, values={**row.values, GENERATED_ORDER_SOURCE: ordering.values[row.number]}) for row in table.rows),
+            )
         transformer = CompiledPreparedRowTransformer.compile(
             dataset,
             table.headers,
@@ -183,6 +195,8 @@ def _required_headers(dataset: DatasetSpec) -> set[str]:
     """Collect every source column used by a dataset's mapping contract."""
 
     headers = set(dataset.source_identity.fields)
+    if dataset.source_record_identity is not None and dataset.source_record_identity.existing_external_id_column_key:
+        headers.add(dataset.source_record_identity.existing_external_id_column_key)
     for component in (
         *dataset.target_identity.components,
         *dataset.target_identity.scope,
@@ -311,6 +325,26 @@ def _prepare_row(
             component, row, dataset.name, row_index, row_issues
         )
     )
+
+    if (policy := dataset.source_record_identity) is not None:
+        try:
+            external_id = source_record_external_id(policy.namespace, dataset.target.model, source_identity)
+            if policy.existing_external_id_column_key:
+                raw_id = row.get(policy.existing_external_id_column_key)
+                supplied_id = "" if raw_id is None else str(raw_id).strip()
+                if supplied_id:
+                    if not valid_external_id(supplied_id):
+                        raise ValueError("The existing Odoo External ID is invalid")
+                    external_id = supplied_id
+            target_identity = (external_id,)
+            target_scope = ()
+        except ValueError as error:
+            target_identity = (None,)
+            row_issues.append(Issue(
+                code="SOURCE_RECORD_IDENTITY_INVALID", message=str(error),
+                dataset=dataset.name, row=row_index,
+                field=policy.existing_external_id_column_key,
+            ))
 
     references: dict[str, Any] = {}
     for target_field, relation in dataset.relations.items():

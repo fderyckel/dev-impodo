@@ -18,6 +18,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from impodo.domain.mapping.generated_ordering import (
+    GENERATED_ORDER_SOURCE,
+    GeneratedOrdering,
+)
+from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.recipe.value_rules import MAX_FORMULA_LENGTH
 from impodo.domain.relationship_dependencies import (
     extract_dataset_dependency_edges,
@@ -381,6 +386,8 @@ class DatasetSpec(StrictModel):
     target: TargetSpec
     source_identity: SourceIdentitySpec
     target_identity: TargetIdentitySpec
+    source_record_identity: SourceRecordIdentity | None = None
+    generated_ordering: GeneratedOrdering | None = None
     fields: dict[str, FieldSpec] = Field(default_factory=dict)
     relations: dict[str, RelationSpec] = Field(default_factory=dict)
     target_domain: tuple[Any, ...] = ()
@@ -400,17 +407,27 @@ class DatasetSpec(StrictModel):
             or self.target_identity.components
             or self.target_identity.scope
             or self.relations
+            or self.source_record_identity is not None
+            or self.generated_ordering is not None
         ):
             raise ValueError(
                 "odoo_pinned_update uses protected origins and scalar fields only"
             )
         if not pinned and (
             not self.source_identity.fields
-            or not self.target_identity.components
+            or (not self.target_identity.components and self.source_record_identity is None)
         ):
             raise ValueError(
                 "source and target identities are required outside pinned updates"
             )
+        if self.source_record_identity is not None and (
+            self.target_identity.components or self.target_identity.scope
+        ):
+            raise ValueError("Source record identity cannot also match ordinary Odoo fields")
+        if self.generated_ordering is not None:
+            if any(self.generated_ordering.target_field in component.target_fields for component in (*self.target_identity.components, *self.target_identity.scope)):
+                raise ValueError("Generated ordering must use a field separate from the record identity")
+            object.__setattr__(self, "fields", {**self.fields, self.generated_ordering.target_field: FieldSpec(source=GENERATED_ORDER_SOURCE, type="integer", required=True)})
         return self
 
 

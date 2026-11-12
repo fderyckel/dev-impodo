@@ -18,8 +18,11 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import StrEnum
-from typing import Protocol, cast
+from typing import Any, Protocol, cast
 
+from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
+from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
@@ -138,6 +141,8 @@ class ColumnarOperationKind(StrEnum):
     VALIDATE_TYPED_VALUE = "validate_typed_value"
     VALIDATE_PATTERN = "validate_pattern"
     SOURCE_IDENTITY_NORMALIZATION = "source_identity_normalization"
+    SOURCE_RECORD_IDENTITY = "source_record_identity"
+    GENERATE_ORDERING = "generate_ordering"
     TARGET_IDENTITY_NORMALIZATION = "target_identity_normalization"
     IDENTITY_RESOLVER = "identity_resolver"
     UNSUPPORTED_IDENTITY_RESOLVER = "unsupported_identity_resolver"
@@ -296,6 +301,8 @@ COLUMNAR_CAPABILITY_MATRIX = (
         "Custom-pattern validation still requires the Python oracle.",
     ),
     _native(ColumnarOperationKind.SOURCE_IDENTITY_NORMALIZATION),
+    _native(ColumnarOperationKind.SOURCE_RECORD_IDENTITY),
+    _set_global(ColumnarOperationKind.GENERATE_ORDERING),
     _native(ColumnarOperationKind.TARGET_IDENTITY_NORMALIZATION),
     _native(ColumnarOperationKind.IDENTITY_RESOLVER),
     _oracle(
@@ -602,6 +609,9 @@ class ColumnarTransformationProgram:
     relationships: tuple[ColumnarRelationshipProgram, ...]
     set_requirements: tuple[ColumnarSetRequirement, ...]
     identity_resolvers: tuple[ColumnarIdentityResolverProgram, ...] = ()
+    source_record_identity: SourceRecordIdentity | None = None
+    generated_ordering: GeneratedOrdering | None = None
+    ordering_fields: tuple[ColumnarScalarFieldProgram, ...] = ()
     preserve_source_row: bool = True
     preserve_source_order: bool = True
     sparse_transformation_impacts: bool = True
@@ -610,6 +620,11 @@ class ColumnarTransformationProgram:
 
     def to_portable_dict(self) -> dict[str, object]:
         payload = cast(dict[str, object], portable(asdict(self)))
+        if self.source_record_identity is None:
+            payload.pop("source_record_identity")
+        if self.generated_ordering is None:
+            payload.pop("generated_ordering")
+            payload.pop("ordering_fields")
         if self.compiler_version != 11:
             for relationship in cast(list[dict[str, object]], payload["relationships"]):
                 relationship.pop("blank_source_action", None)
@@ -874,6 +889,7 @@ class ColumnarTransformationProgram:
             dataset_name=str(payload["dataset_name"]),
             target_model=str(payload["target_model"]),
             target_mode=str(payload["target_mode"]),
+            source_record_identity=(SourceRecordIdentity.from_dict(cast(Mapping[str, Any], payload["source_record_identity"])) if payload.get("source_record_identity") is not None else None),
             mapping_content_hash=str(payload["mapping_content_hash"]),
             source_selection_hash=str(payload["source_selection_hash"]),
             schema_hash=str(payload["schema_hash"]),
@@ -897,6 +913,8 @@ class ColumnarTransformationProgram:
                 scalar(item)
                 for item in cast(Sequence[object], payload["scalar_fields"])
             ),
+            generated_ordering=GeneratedOrdering.from_dict(cast(Mapping[str, Any], payload["generated_ordering"])) if payload.get("generated_ordering") is not None else None,
+            ordering_fields=tuple(scalar(item) for item in cast(Sequence[object], payload.get("ordering_fields", ()))),
             relationships=tuple(
                 relationship(item)
                 for item in cast(Sequence[object], payload["relationships"])
@@ -1093,6 +1111,10 @@ def _compile_dataset(
         _source_identity_component(key, columns, draft, index)
         for index, key in enumerate(authored.source_identity_column_keys)
     )
+    if authored.source_record_identity is not None and authored.source_record_identity.existing_external_id_column_key:
+        _require_column(authored.source_record_identity.existing_external_id_column_key, columns, draft)
+    if authored.source_record_identity is not None:
+        draft.use(ColumnarOperationKind.SOURCE_RECORD_IDENTITY, "/source_record_identity")
     compiled_target_identity = tuple(
         _identity_component(
             component, "target_identity", columns, draft, index,
@@ -1337,6 +1359,21 @@ def _compile_dataset(
             )
         )
 
+    ordering_fields: tuple[ColumnarScalarFieldProgram, ...] = ()
+    if (ordering := authored.generated_ordering) is not None:
+        draft.use(ColumnarOperationKind.GENERATE_ORDERING, "/generated_ordering", target_field=ordering.target_field)
+        for key in ordering.group_column_keys:
+            _require_column(key, columns, draft)
+        ordering_fields = tuple(
+            _scalar_field_program(ScalarFieldMapping(target_field=ordering.target_field, source_column_key=key, value_type=value_type, transform=ScalarTransformPolicy(trim=True, empty_as_null=True)), index,
+                f"/generated_ordering/sort/{index}", columns, draft)
+            for index, (key, value_type) in enumerate(zip(ordering.sort_column_keys, ordering.sort_value_types, strict=True))
+        )
+        scalar_fields.append(_scalar_field_program(ScalarFieldMapping(
+            target_field=ordering.target_field, value_source=ScalarValueSource.CONSTANT,
+            literal_value="0", value_type="integer", required=True,
+        ), len(scalar_fields), "/generated_ordering/output", columns, draft))
+
     uses = tuple(
         sorted(
             draft.uses,
@@ -1393,6 +1430,9 @@ def _compile_dataset(
         relationships=tuple(relationships),
         set_requirements=tuple(set_requirements),
         identity_resolvers=identity_resolvers,
+        source_record_identity=authored.source_record_identity,
+        generated_ordering=authored.generated_ordering,
+        ordering_fields=ordering_fields,
     )
     return ColumnarCompilationDecision(
         dataset_id=source.dataset_id,

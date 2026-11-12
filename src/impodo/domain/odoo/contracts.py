@@ -41,6 +41,7 @@ class RecordRequest:
     fields: tuple[str, ...]
     domain: tuple[Any, ...] = ()
     limit: int | None = None
+    external_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, order=True)

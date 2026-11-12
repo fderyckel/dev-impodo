@@ -38,11 +38,16 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
+from impodo.domain.mapping.source_record_identity import (
+    SOURCE_EXTERNAL_IDS_FIELD,
+    source_record_external_ids,
+)
 from impodo.domain.odoo.company import (
     CompanyReferenceCheck,
     OdooCompanyAccess,
     OdooCompanySelection,
 )
+from impodo.domain.odoo.company_domains import linked_value_domain
 from impodo.domain.odoo.compatibility import OdooVersionProblem, recognize_odoo_version
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -59,6 +64,7 @@ from impodo.domain.shared.models import (
 )
 
 from .company_checks import capture_company_checks
+from .external_identity import external_id_bindings, external_id_domain
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100
@@ -313,11 +319,16 @@ class SnapshotConnector:
             requested_fields[request.model] = tuple(request.fields)
             model_records = []
             for item in available.get(request.model, {}).get("records", ()):
+                aliases = source_record_external_ids(item.get("values", {})) if request.external_ids else ()
+                if request.external_ids and not set(aliases).intersection(request.external_ids):
+                    continue
                 values = {
                     field: item.get("values", {}).get(field)
                     for field in request.fields
                     if field in item.get("values", {})
                 }
+                if request.external_ids:
+                    values[SOURCE_EXTERNAL_IDS_FIELD] = tuple(value for value in aliases if value in request.external_ids)
                 model_records.append(
                     TargetRecord(
                         model=request.model,
@@ -1041,6 +1052,35 @@ class Json2ReadConnector:
             for model, items in by_model.items()
         }
 
+    def linked_lookup_domain(self, parent_model: str, field_name: str, related_model: str) -> tuple[Any, ...]:
+        """Read the current company-dependent field rule before fetching choices.
+
+        Odoo supplies its own company predicate through fields_get. This keeps
+        company_id, company_ids, shared accounts and branch rules in Odoo's
+        metadata rather than assuming one company field on every model.
+        """
+        snapshot = self.get_model_metadata(
+            (MetadataRequest(parent_model, (field_name,)),), include_create_defaults=False,
+        )
+        model = snapshot.models.get(parent_model)
+        field = model.fields.get(field_name) if model is not None else None
+        companies = self._config.context.get("allowed_company_ids")
+        if (
+            field is None or field.type != "many2one" or field.relation != related_model
+            or field.company_dependent is not True
+            or not isinstance(companies, (list, tuple)) or len(companies) != 1
+            or type(companies[0]) is not int
+        ):
+            raise ConnectorIncompleteResultError(
+                "Check the company for this load and refresh the Odoo fields before choosing this record."
+            )
+        domain = linked_value_domain(self._company_domains.get((parent_model, field_name)), companies[0])
+        if domain is None:
+            raise ConnectorIncompleteResultError(
+                "Odoo uses a field rule that Impodo cannot safely check. Review the linked field in Odoo before choosing a record."
+            )
+        return tuple(domain)
+
     def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
         """Fetch all matching records through deterministic, paginated reads.
 
@@ -1052,6 +1092,7 @@ class Json2ReadConnector:
         fingerprint = self.get_target_fingerprint()
         records_by_model: dict[str, dict[int, TargetRecord]] = {}
         fields_by_model: dict[str, tuple[str, ...]] = {}
+        external_models = {request.model for request in requests if request.external_ids}
         for request in sorted(
             requests,
             key=lambda item: (
@@ -1060,12 +1101,26 @@ class Json2ReadConnector:
                 item.limit if item.limit is not None else -1,
             ),
         ):
+            bindings: dict[int, tuple[str, ...]] = {}
+            if request.external_ids:
+                binding_rows = self._post_read_method("ir.model.data", "search_read", {
+                    "domain": external_id_domain(request.external_ids),
+                    "fields": ["module", "name", "model", "res_id"],
+                    "offset": 0, "limit": len(request.external_ids) + 1,
+                    "order": "id asc", "context": dict(self._config.context),
+                })
+                bindings = external_id_bindings(request.model, request.external_ids, binding_rows)
+                request = replace(request, domain=(
+                    "&", ("id", "in", sorted(bindings)), *request.domain,
+                ) if request.domain else (("id", "in", sorted(bindings)),))
             if request.limit is not None and request.limit <= 0:
                 raise ConnectorConfigurationError(
                     "record request limit must be positive"
                 )
             fields = tuple(dict.fromkeys(("id", *request.fields)))
             projected_fields = tuple(field for field in fields if field != "id")
+            if request.model in external_models:
+                projected_fields = (*projected_fields, SOURCE_EXTERNAL_IDS_FIELD)
             previous_fields = fields_by_model.setdefault(
                 request.model, projected_fields
             )
@@ -1113,13 +1168,15 @@ class Json2ReadConnector:
                                 field: item.get(field)
                                 for field in request.fields
                                 if field in item
-                            },
+                            } | ({SOURCE_EXTERNAL_IDS_FIELD: bindings.get(int(item["id"]), ())} if request.model in external_models else {}),
                         )
                     )
                 if len(response) < page_limit:
                     break
                 offset += len(response)
             unique = {record.odoo_id: record for record in collected}
+            if request.external_ids and set(unique) != set(bindings):
+                raise ConnectorIncompleteResultError("A source record External ID points to a missing or inaccessible Odoo record. Review it before loading; Impodo will not create a replacement.")
             if len(unique) != len(collected):
                 raise ConnectorIncompleteResultError(
                     f"pagination repeated records for {request.model}"
@@ -1127,6 +1184,15 @@ class Json2ReadConnector:
             merged = records_by_model.setdefault(request.model, {})
             for record_id, record in unique.items():
                 previous = merged.setdefault(record_id, record)
+                if previous != record and request.model in external_models:
+                    old_values, new_values = dict(previous.values), dict(record.values)
+                    old_aliases = source_record_external_ids(old_values)
+                    new_aliases = source_record_external_ids(new_values)
+                    old_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                    new_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                    if old_values == new_values:
+                        merged[record_id] = replace(record, values=new_values | {SOURCE_EXTERNAL_IDS_FIELD: tuple(sorted(set(old_aliases) | set(new_aliases)))})
+                        continue
                 if previous != record:
                     raise ConnectorIncompleteResultError(
                         f"record chunks conflict for {request.model}"

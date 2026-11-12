@@ -11,7 +11,7 @@ from typing import Protocol
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import FieldMetadata
 
-REFERENCE_POLICY_VERSION = 7
+REFERENCE_POLICY_VERSION = 8
 _SELECTED_MATCH_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
 SELECTED_MATCH_FIELD_PREFIX = "odoo-field:"
 
@@ -145,6 +145,7 @@ class SupportingReferenceCandidate:
     description: str
     reason: str
     warning: str
+    allow_name_lookup: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -299,6 +300,21 @@ ACCOUNT_TAG_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
         "identifies exactly one accessible tag."
     ),
 )
+ACCOUNT_REFERENCE_CANDIDATE = SupportingReferenceCandidate(
+    model="account.account",
+    odoo_major_version=19,
+    key_fields=("code",),
+    scope_fields=(),
+    display_field="name",
+    field_contracts=(
+        StandardReferenceFieldContract("code", "char", False, False),
+        StandardReferenceFieldContract("name", "char", True, False),
+    ),
+    description="Account code in the selected company",
+    reason="Account codes are read in the company selected for the load.",
+    warning="The destination must prove that the code identifies one eligible account.",
+    allow_name_lookup=True,
+)
 
 
 def _candidate_for_major(
@@ -316,6 +332,7 @@ _SUPPORTING_REFERENCE_CANDIDATES_BY_MAJOR = {
             PRODUCT_VARIANT_REFERENCE_CANDIDATE,
             COMPANY_REFERENCE_CANDIDATE,
             ACCOUNT_TAG_REFERENCE_CANDIDATE,
+            ACCOUNT_REFERENCE_CANDIDATE,
         )
     }
     for major in (19, 20)
@@ -379,6 +396,7 @@ def _reference_policy_hash(
                     "key_fields": item.key_fields,
                     "scope_fields": item.scope_fields,
                     "display_field": item.display_field,
+                    "allow_name_lookup": item.allow_name_lookup,
                     "field_contracts": [
                         {
                             "name": field.name,
@@ -519,7 +537,7 @@ def authorize_supporting_match_probe(
         and bool(request.relationship_field)
         and (
             (
-                candidate is None
+                (candidate is None or (candidate.allow_name_lookup and name_only))
                 and request.key_fields == ("name",)
                 and (name_only or name_within_company)
             )

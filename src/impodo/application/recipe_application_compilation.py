@@ -16,6 +16,8 @@ from typing import Protocol
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from impodo.domain.coverage import CoverageScopeRevision, ReferenceBundle
+from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
@@ -1467,6 +1469,16 @@ class RecipeApplicationCompiler:
                         bindings[str(value)]
                         for value in dataset.get("source_identity_column_ids", ())
                     ),
+                    source_record_identity=(SourceRecordIdentity(
+                        namespace=str(dataset["source_record_identity"]["namespace"]),
+                        allow_new_records=dataset["source_record_identity"]["allow_new_records"],
+                        existing_external_id_column_key=bindings[str(dataset["source_record_identity"]["existing_external_id_column_key"])] if dataset["source_record_identity"].get("existing_external_id_column_key") is not None else None,
+                    ) if dataset.get("source_record_identity") is not None else None),
+                    generated_ordering=GeneratedOrdering.from_dict({
+                        **dataset["generated_ordering"],
+                        "group_column_keys": tuple(bindings[str(key)] for key in dataset["generated_ordering"]["group_column_keys"]),
+                        "sort_column_keys": tuple(bindings[str(key)] for key in dataset["generated_ordering"]["sort_column_keys"]),
+                    }) if dataset.get("generated_ordering") is not None else None,
                     target_identity=tuple(
                         self._identity(item, bindings)
                         for item in dataset.get("identity", ())

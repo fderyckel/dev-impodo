@@ -6,7 +6,7 @@ from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operatio
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.supporting_review import SupportingReview
 
-_TRIGGERS = {"COMPANY_REFRESH", "CHECK_MATCHES", "LINKED_VALUE_LOOKUP"}
+_TRIGGERS = {"COMPANY_REFRESH", "CHECK_MATCHES", "LINKED_VALUE_LOOKUP", "LINKED_MATCHING_FIELDS"}
 _CHANGES = {
     "CREDENTIAL_VERSION",
     "COMPANY_CONTEXT",

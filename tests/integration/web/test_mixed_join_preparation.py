@@ -81,6 +81,7 @@ class MixedJoinPreparationTests(TestCase):
         self.addCleanup(self.fixture.tearDown)
         self.context = self.fixture.app.state.context
         self.actor = resolve_local_actor(self.context)
+        self.odoo_major = 19
 
     def _setup(self, row_counts=(4753, 44387, 16159)):
         context, actor = self.context, self.actor

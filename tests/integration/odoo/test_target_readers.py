@@ -720,7 +720,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                 self.metadata_requests = ()
                 self.record_requests = ()
 
-            def get_model_metadata(self, requests):
+            def get_model_metadata(self, requests, *, include_create_defaults=False):
                 self.metadata_requests = tuple(requests)
                 return MetadataSnapshot(
                     fingerprint=fingerprint,

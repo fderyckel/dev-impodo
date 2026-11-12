@@ -26,6 +26,11 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
+from impodo.adapters.odoo.external_identity import (
+    external_id_bindings,
+    external_id_domain,
+    external_lookup_values,
+)
 from impodo.adapters.odoo.lookup_values import bounded_lookup_query, lookup_values_equal
 from impodo.domain.execution.models import MAX_CREATE_BATCH_ROWS
 from impodo.domain.execution.odoo_scope import OdooApiScope
@@ -40,6 +45,8 @@ from impodo.domain.execution.write_diagnostics import (
     OdooWriteErrorType,
     WriteFailureCode,
 )
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
+from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
 from .write_diagnostics import import_rejection_diagnostic
@@ -75,6 +82,9 @@ class Json2WriteExecutor:
         domain: Sequence[tuple[str, str, Any]],
     ) -> tuple[int, ...]:
         """Return at most two IDs for one exact service-generated key."""
+
+        if any(field == SOURCE_EXTERNAL_IDS_FIELD for field, _, _ in domain):
+            return self.find_ids_many(model, (domain,))[0]
 
         permitted = self.scope.lookup_fields(model)
         if not permitted:
@@ -128,6 +138,31 @@ class Json2WriteExecutor:
             raise OdooWriteRejected(
                 "Odoo business-key lookup page is outside the safe bound"
             )
+        if any(field == SOURCE_EXTERNAL_IDS_FIELD for domain in domain_page for field, _, _ in domain):
+            if SOURCE_EXTERNAL_IDS_FIELD not in permitted:
+                raise OdooWriteRejected("Source record identity is outside the reviewed preview")
+            try:
+                keys = external_lookup_values(domain_page, SOURCE_EXTERNAL_IDS_FIELD)
+                bindings = external_id_bindings(model, keys, self._post(
+                    "ir.model.data", "search_read", {
+                        "domain": external_id_domain(keys),
+                        "fields": ["module", "name", "model", "res_id"],
+                        "limit": len(set(keys)) + 1, "order": "id asc",
+                        "context": target_record_read_context(self.config.context),
+                    }, write=False, identity_model=model,
+                ))
+            except ConnectorError as error:
+                raise OdooWriteRejected(str(error)) from error
+            if bindings:
+                records = self._post(model, "search_read", {
+                    "domain": [["id", "in", sorted(bindings)]], "fields": ["id"],
+                    "limit": len(bindings) + 1, "order": "id asc",
+                    "context": target_record_read_context(self.config.context),
+                }, write=False)
+                if not isinstance(records, list) or {row.get("id") for row in records if isinstance(row, Mapping)} != set(bindings):
+                    raise OdooWriteRejected("A source record External ID points to a missing or inaccessible record")
+            by_key = {key: identifier for identifier, aliases in bindings.items() for key in aliases}
+            return tuple((by_key[key],) if key in by_key else () for key in keys)
         normalized: list[tuple[tuple[str, str, Any], ...]] = []
         requested_fields: set[str] = set()
         for domain in domain_page:
@@ -436,11 +471,14 @@ class Json2WriteExecutor:
         *,
         write: bool,
         batch_size: int = 1,
+        identity_model: str | None = None,
     ) -> object:
         permitted_methods = {"create", "load", "write"} if write else {"search_read"}
         permitted_fields = (
             self.scope.write_fields(model) if write else self.scope.lookup_fields(model)
         )
+        if not write and model == "ir.model.data" and identity_model is not None and SOURCE_EXTERNAL_IDS_FIELD in self.scope.lookup_fields(identity_model):
+            permitted_fields = frozenset({"module", "name", "model", "res_id"})
         if method not in permitted_methods or not permitted_fields:
             raise OdooWriteRejected(
                 "Odoo operation is outside the reviewed load preview"

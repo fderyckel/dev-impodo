@@ -55,7 +55,11 @@ from impodo.domain.matching_order import (
     MatchingOrderCheckStatus,
     MatchingOrderVersionConflict,
 )
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo.compatibility import (
+    OdooOperation,
+    assess_odoo_operation,
+    recognize_odoo_version,
+)
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.project.foundation import MigrationFoundationError
@@ -851,7 +855,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
     @router.post("/workspaces/{workspace_id}/mapping/linked-matching-fields")
     async def linked_matching_fields(request: Request, workspace_id: str):
-        """Return matching fields for the captured relationship on request."""
+        """Refresh saved company access before discovering linked matching fields."""
 
         require_session(request)
         form = await request.form()
@@ -869,9 +873,8 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 state.source_mode is not SourceMode.FILE
                 or schema is None
                 or schema.origin is not SchemaOrigin.LIVE_API
-                or (state.odoo_company is not None and state.odoo_company.context_hash != schema.read_context_hash)
             ):
-                raise WorkspaceError("Check Odoo details and the company for this load first")
+                raise WorkspaceError("Check Odoo details before loading matching fields")
             parent = next(
                 (model for model in schema.models if model.name == _text(form, "target_model")),
                 None,
@@ -887,10 +890,31 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 or any(model.name == field.relation for model in schema.models)
             ):
                 raise WorkspaceError("Choose a current field that links to one existing Odoo record")
-            return state, schema, field.relation
+            access = prepare_matching_access(
+                context, workspace_id, actor=actor, schema=schema,
+                expected_revision=state.revision,
+            )
+            return access, field.relation
 
         try:
-            state, schema, relation_model = await run_local_operation(read_inputs)
+            access, relation_model = await run_local_operation(read_inputs)
+            schema = await check_matching_access(
+                context, access, actor=actor, request=request,
+                trigger="LINKED_MATCHING_FIELDS",
+            )
+            if schema.pending_refresh is not None:
+                return JSONResponse(
+                    {
+                        "detail": "Odoo fields or access changed. Save progress, then review the Odoo changes.",
+                        "review_odoo_details": True,
+                    },
+                    status_code=422,
+                )
+            state = access.workspace
+            if state.odoo_company is not None and state.odoo_company.context_hash != schema.read_context_hash:
+                raise WorkspaceError(
+                    "Impodo could not check the selected company. Check Odoo access under Company for this load, then retry."
+                )
             fields = await run_in_threadpool(
                 _supporting_matching_fields, context, state, schema, relation_model, actor=actor,
             )
@@ -1080,6 +1104,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         for item in _related_business_keys(
                             governance.business_keys,
                             related_model,
+                            odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
                         )
                         if item.key_id == _text(form, "business_key_id")
                     ),

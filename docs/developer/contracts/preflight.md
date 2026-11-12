@@ -17,6 +17,22 @@ execution plan, approval, or write authorization.
 
 ## Prepared-record boundary
 
+The Stage 5 correction export can read current, authorized preparation findings
+without a successful comparison or package-readiness result. It includes only
+saved findings and their bound source locations and permitted values. A report
+without a current comparison explicitly identifies its preparation-only
+coverage. Exporting does not reclassify records, approve findings, or alter
+comparison or load prerequisites. Odoo-source values and numeric Odoo record
+identifiers remain outside this portable workbook.
+
+The correction worklist retains records set aside by data-check findings, but
+counts explicit **Rows to use** exclusions separately. Informational notes do
+not create correction findings. Its browser counts and optional problem
+summary derive from the same bound findings and correction advice as Excel.
+For combined sources, column origins come from the saved preparation rules.
+The report verifies that plan against staging and checks it again before
+returning the completed download.
+
 Every nonblank input row produces an immutable prepared record, including a row
 with validation issues. The record stores the source trace and target model
 separately from its ordered business identity and scope. It also stores typed

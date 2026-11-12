@@ -247,9 +247,14 @@ def install_http_application(
         workspace = context.migration_workspaces.repository.get_migration_workspace(
             access_context.workspace_id
         )
+        historical_workbook_action = (request.method, tuple(parts[2:])) in {
+            ("POST", ("summary", "package")),
+            ("GET", ("summary", "workbook")),
+        }
         if (
             workspace.state is MigrationWorkspaceState.CLOSED
             and area not in {"correction", "load"}
+            and not historical_workbook_action
         ):
             identity = request_identity(request, context.identity_resolver)
             binding = context.corrections.get(

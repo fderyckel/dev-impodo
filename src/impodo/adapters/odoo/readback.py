@@ -16,8 +16,11 @@ from impodo.adapters.odoo.connectors import (
     _urllib_transport,
     target_record_read_context,
 )
+from impodo.adapters.odoo.external_identity import external_lookup_values
 from impodo.adapters.odoo.lookup_values import bounded_lookup_query, lookup_values_equal
 from impodo.domain.execution.odoo_scope import OdooApiScope
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
+from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
 MAX_READBACK_BODY_BYTES = 1024 * 1024
@@ -57,7 +60,7 @@ class Json2ReadbackReader:
 
     @property
     def imports_external_ids(self) -> bool:
-        return self.config.connection_mode == "REMOTE"
+        return self.config.connection_mode == "REMOTE" or any(SOURCE_EXTERNAL_IDS_FIELD in item.lookup_fields for item in self.scope.models)
 
     def read_ids(
         self,
@@ -112,6 +115,30 @@ class Json2ReadbackReader:
         permitted_lookup_fields = self.scope.lookup_fields(model)
         if not permitted_lookup_fields:
             raise OdooReadbackError("An exact Odoo read-back key is required")
+
+        if any(field == SOURCE_EXTERNAL_IDS_FIELD for lookup in requested for field, _, _ in lookup.domain):
+            if SOURCE_EXTERNAL_IDS_FIELD not in permitted_lookup_fields:
+                raise OdooReadbackError("Source record identity is outside the reviewed preview")
+            try:
+                keys = external_lookup_values(tuple(lookup.domain for lookup in requested), SOURCE_EXTERNAL_IDS_FIELD)
+            except ConnectorError as error:
+                raise OdooReadbackError(str(error)) from error
+            bindings = self.read_external_ids(tuple(sorted(set(keys))))
+            if any(binding.model != model for binding in bindings):
+                raise OdooReadbackError("A source record External ID belongs to another record type")
+            by_key = {binding.external_id: binding.odoo_id for binding in bindings}
+            identifiers = frozenset(by_key.values())
+            selected_fields = tuple(self._fields(model, lookup.fields) for lookup in requested)
+            fields = tuple(sorted({name for group in selected_fields for name in group if name != SOURCE_EXTERNAL_IDS_FIELD}))
+            records = self._search(model, [["id", "in", sorted(identifiers)]], fields, limit=len(identifiers) + 1, permitted_ids=identifiers) if identifiers else ()
+            by_id = {record.odoo_id: record for record in records}
+            if set(by_id) != identifiers:
+                raise OdooReadbackError("A source record External ID points to a missing or inaccessible record")
+            return tuple(
+                (ReadbackRecord(by_key[key], {name: key if name == SOURCE_EXTERNAL_IDS_FIELD else by_id[by_key[key]].values[name] for name in names}),)
+                if key in by_key else ()
+                for key, names in zip(keys, selected_fields, strict=True)
+            )
 
         normalized_domains = []
         requested_fields = []

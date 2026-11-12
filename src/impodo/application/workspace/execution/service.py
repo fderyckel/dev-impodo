@@ -51,6 +51,7 @@ from impodo.domain.execution_snapshot import (
     FieldIntent,
     dependency_ordered_execution_datasets,
 )
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.reconciliation import (
     ReconciliationRowStatus,
@@ -1717,6 +1718,7 @@ class ExecutionService:
     ) -> ExecutionRun:
         """Consume unfinished rows from one durable schedule."""
 
+        create_with_external_ids = create_with_external_ids or any(SOURCE_EXTERNAL_IDS_FIELD in item.identity_fields for item in snapshot.datasets)
         workspace_id = workspace_state.workspace_id
         write_rows = tuple(
             row
@@ -1929,6 +1931,7 @@ class ExecutionService:
                             protected_values=protected_values,
                             import_relations=(
                                 create_with_external_ids
+                                or SOURCE_EXTERNAL_IDS_FIELD in metadata[row.dataset].identity_fields
                                 or workspace_state.odoo_connection_mode
                                 is OdooConnectionMode.REMOTE
                             ),
@@ -1969,6 +1972,7 @@ class ExecutionService:
                     import_create = (
                         create_with_external_ids
                         or workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                        or any(SOURCE_EXTERNAL_IDS_FIELD in metadata[item[0].dataset].identity_fields for item in prepared_group)
                     )
                     continuation = bool(run.load_control and run.load_control.policy is RejectionPolicy.CONTINUE)
 

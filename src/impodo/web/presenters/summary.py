@@ -90,6 +90,8 @@ from .comparison_recovery import comparison_recovery_view
 from .missing_parent_actions import missing_parent_source_key
 from .quality_messages import (
     SOURCE_IDENTITY_REASONS,
+    existing_external_id_next_step,
+    invalid_existing_external_id,
     quality_reason_message,
     source_identity_next_step,
 )
@@ -1522,7 +1524,9 @@ def _quality_workflow_issue_summary(
         cause_title = _QUALITY_CAUSE_TITLES.get(
             cause.reason_code, cause.reason_code.replace("_", " ").title(),
         )
-        if cause.reason_code == "SOURCE_IDENTITY_INVALID":
+        if invalid_existing_external_id(cause.reason_code, message):
+            cause_title = "Review the Odoo External ID column"
+        elif cause.reason_code == "SOURCE_IDENTITY_INVALID":
             subject = (
                 "Source row identifier"
                 if source_row_identifier
@@ -1593,6 +1597,9 @@ def _quality_workflow_issue_summary(
                     "or saved rules."
                 ),
                 recheck=(
+                    existing_external_id_next_step()
+                    if invalid_existing_external_id(cause.reason_code, message)
+                    else
                     "Compare the rows, select any copies to exclude, then prepare again."
                     if duplicate_review else source_identity_next_step(
                         cause.reason_code,
@@ -1673,6 +1680,15 @@ def _quality_correction_action(
     base_parameters: dict[str, str | int] = {
         "mapping_dataset": dataset_index,
     }
+    if invalid_existing_external_id(cause.reason_code, cause.message):
+        return (
+            f"Review {dataset_label} External ID column",
+            _quality_mapping_url(
+                workspace_id,
+                {**base_parameters, "step": "tables", "task": "identity"},
+                anchor=f"target-identity-{dataset_index}",
+            ),
+        )
     if cause.reason_code in SOURCE_IDENTITY_REASONS:
         identifier = "source" if source_row_identifier else "target"
         return (

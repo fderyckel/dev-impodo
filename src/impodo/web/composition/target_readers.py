@@ -1335,7 +1335,10 @@ def _relationship_value_choices(
         database=workspace_state.odoo_database,
     )
     targeted = bool(constant_key_value)
-    if not refresh and not targeted:
+    field_scoped = field.company_dependent is True
+    if field_scoped and workspace_state.odoo_company is None:
+        raise WorkspaceError("Choose the company for this load before checking this linked record.")
+    if not refresh and not targeted and not field_scoped:
         current = run_local_operation_sync(
             context.supporting_lookups.current,
             workspace_state.workspace_id,
@@ -1399,6 +1402,7 @@ def _relationship_value_choices(
         relation_model=relation_model,
         requested_fields=requested_fields,
         record_requests=record_requests,
+        lookup_relationship=(parent_model, field.name) if field_scoped else None,
     )
     if (
         metadata.fingerprint != record_snapshot.fingerprint
@@ -1505,9 +1509,9 @@ def _relationship_value_choices(
             label = f"{label} ({value})"
         choices.append({"value": value, "label": label})
     captured_at = _snapshot_datetime(record_snapshot.fingerprint.snapshot_timestamp)
-    if targeted:
-        # A one-key result is not a complete choice catalogue. Never publish it
-        # into the cache consumed by later unfiltered relationship browsing.
+    if targeted or field_scoped:
+        # Exact and field-filtered results are not complete model catalogues.
+        # Another linked field may have a different eligibility domain.
         return tuple(choices), ambiguous, captured_at, False, {}
     stored = run_local_operation_sync(
         context.supporting_lookups.capture,
@@ -2272,6 +2276,7 @@ def _read_supporting_lookup_batches(
     record_requests: tuple[RecordRequest, ...] | None = None,
     verify_schema_access: bool = False,
     discover_fields: bool = False,
+    lookup_relationship: tuple[str, str] | None = None,
 ) -> tuple[MetadataSnapshot, RecordSnapshot, _SupportingLookupAccess]:
     """Batch supporting reads and optionally recheck primary schema access first."""
 
@@ -2320,7 +2325,9 @@ def _read_supporting_lookup_batches(
             metadata_requests,
             record_requests,
             related_models=relation_models,
-            **({"discover_matching_fields": True} if discover_fields else {}),
+            discover_matching_fields=discover_fields,
+            validate_lookup_fields=True,
+            lookup_relationship=lookup_relationship,
         )
         return (
             metadata,
@@ -2398,11 +2405,24 @@ def _read_supporting_lookup_batches(
     connector = Json2ReadConnector(
         _target_json2_config(workspace_state, credential.secret)
     )
+    if lookup_relationship is not None:
+        if len(grouped_requests) != 1 or len(record_requests) != 1:
+            raise WorkspaceError("Choose one linked field to check its available records.")
+        domain = connector.linked_lookup_domain(*lookup_relationship, grouped_requests[0][0])
+        domain_fields = tuple(item[0] for item in domain if isinstance(item, (list, tuple)))
+        metadata_requests = tuple(replace(item, fields=tuple(dict.fromkeys((*item.fields, *domain_fields)))) for item in metadata_requests)
+        record_requests = tuple(replace(item, domain=(*item.domain, *domain)) for item in record_requests)
+    metadata = connector.get_model_metadata(metadata_requests, include_create_defaults=False)
+    if not metadata.complete:
+        raise WorkspaceError("Odoo field details were incomplete. Refresh the Odoo fields before checking this record again.")
+    for planned in metadata_requests:
+        model = metadata.models.get(planned.model)
+        if model is None or any(name not in model.fields for name in planned.fields):
+            raise WorkspaceError(
+                "This matching rule uses a field that is unavailable in Odoo. Choose another matching rule, then check this record again."
+            )
     return (
-        (
-            connector.get_model_metadata(metadata_requests, include_create_defaults=False)
-            if discover_fields else connector.get_model_metadata(metadata_requests)
-        ),
+        metadata,
         connector.get_records(record_requests),
         _SupportingLookupAccess(
             credential_binding_hash=credential.binding_hash,
@@ -2422,6 +2442,7 @@ def _read_supporting_lookup_snapshots(
     relation_model: str,
     requested_fields: tuple[str, ...],
     record_requests: tuple[RecordRequest, ...] | None = None,
+    lookup_relationship: tuple[str, str] | None = None,
 ) -> tuple[
     MetadataSnapshot,
     RecordSnapshot,
@@ -2436,6 +2457,7 @@ def _read_supporting_lookup_snapshots(
         actor=actor,
         grouped_requests=((relation_model, requested_fields),),
         record_requests=record_requests,
+        lookup_relationship=lookup_relationship,
     )
 
 

@@ -4,6 +4,7 @@
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/review.js') }}" defer></script>
   <script src="{{ url_for('static', path='/review-workbook.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/attention-export.js') }}" defer></script>
 {% endblock %}
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
@@ -59,6 +60,18 @@
       <span class="status registered">{% if workspace_state.status.value == 'REGISTERED' %}Ready for source check{% else %}Continue setup{% endif %}</span>
     {% endif %}
   </div>
+
+  {% if source_stage_ready and staging and quality %}
+    <div class="actions" data-attention-export>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/attention.xlsx?quality={{ quality.run_id | urlencode }}{% if readiness %}&amp;comparison={{ readiness.run_id | urlencode }}{% endif %}">Download rows needing attention</a>
+      <small class="muted" role="status" data-attention-export-counts data-endpoint="/workspaces/{{ workspace_id }}/summary/attention/counts?quality={{ quality.run_id | urlencode }}{% if readiness %}&amp;comparison={{ readiness.run_id | urlencode }}{% endif %}">Includes all saved findings across every table and page.</small>
+      <button type="button" class="button secondary compact" data-attention-export-retry hidden>Retry export counts</button>
+    </div>
+    <details class="technical-details" data-attention-export-preview hidden>
+      <summary>What this correction worklist includes</summary>
+      <ul data-attention-export-problems></ul>
+    </details>
+  {% endif %}
 
   {% if comparison_recovery %}
     {% include "_comparison_recovery.html" %}

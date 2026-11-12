@@ -28,6 +28,7 @@ from impodo.application.workspace.mapping.incoming_dependencies import (
 )
 from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.mapping.source_conditions import parse_source_text_list
+from impodo.domain.odoo.compatibility import recognize_odoo_version
 from impodo.domain.preparation.quality import (
     MAX_MANAGER_RULES_PER_DATASET,
     QualityOutcomePolicy,
@@ -897,6 +898,9 @@ def _render_mapping_field_catalog(
     html = template.render(
         request=request,
         workspace_id=workspace_id,
+        workspace_state=(
+            context.queries.get(workspace_id) if catalog_kind == "relation" else None
+        ),
         dataset_index=active_view["index"],
         view=active_view,
         formula_authoring_issues_by_dataset=(
@@ -2331,6 +2335,8 @@ def _mapping_dataset_views(
             ),
             model_keys[0] if model_keys else None,
         )
+        if existing is not None and existing.source_record_identity is not None:
+            selected_key = None
         field_by_name = (
             {item.name: item for item in model.fields} if model else {}
         )
@@ -2357,9 +2363,11 @@ def _mapping_dataset_views(
                     include_supporting_name=(
                         metadata is not None and metadata.type == "many2one"
                     ),
+                    odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
                 )
                 standard_related_key = _standard_reference_business_key(
-                    metadata.relation if metadata is not None else None
+                    metadata.relation if metadata is not None else None,
+                    odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
                 )
                 selected_related_key = _resolver_business_key(
                     component.resolver if component else None,
@@ -2479,6 +2487,8 @@ def _mapping_dataset_views(
         identity_targets = {
             row["target_field"] for row in identity_rows
         }
+        if existing is not None and existing.generated_ordering is not None:
+            identity_targets.add(existing.generated_ordering.target_field)
         scalar_by_target = (
             {item.target_field: item for item in existing.fields}
             if existing
@@ -2707,9 +2717,10 @@ def _mapping_dataset_views(
                 confirmed,
                 field.relation,
                 include_supporting_name=field.type == "many2one",
+                odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
             )
             standard_related_key = _standard_reference_business_key(
-                field.relation
+                field.relation, odoo_major_version=recognize_odoo_version(schema.odoo_version).major or -1,
             )
             selected_relationship_key = None
             if mapping is not None:
@@ -2863,6 +2874,7 @@ def _mapping_dataset_views(
                 "source_by_key": source_by_key,
                 "source_samples": source_samples,
                 "mapping": existing,
+                "ordering_fields": tuple(field for field in model.fields if field.type == "integer" and not field.readonly and field.exportable is not False and field.company_dependent is not True) if model else (),
                 "row_inclusion_parents": tuple(
                     {
                         "field": link.target_field,

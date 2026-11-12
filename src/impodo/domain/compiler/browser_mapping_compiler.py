@@ -287,6 +287,8 @@ def compile_browser_mapping(
                 source_identity=SourceIdentitySpec(
                     fields=mapping.source_identity_column_keys
                 ),
+                source_record_identity=mapping.source_record_identity,
+                generated_ordering=mapping.generated_ordering,
                 target_identity=TargetIdentitySpec(
                     components=tuple(
                         IdentityComponent(

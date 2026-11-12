@@ -39,7 +39,7 @@ from ..create_field_policy import (
     required_create_hook_inputs,
 )
 from ..row_inclusion import IncludedParentRuleError, included_parent_bindings
-from .common import _issue
+from .common import _check_column, _issue
 from .context import (
     SchemaCatalogView,
     SourceSelectionView,
@@ -307,6 +307,8 @@ class MappingSemanticValidator:
                     dataset.source_identity_column_keys
                     or dataset.target_identity
                     or dataset.target_scope
+                    or dataset.source_record_identity is not None
+                    or dataset.generated_ordering is not None
                 ):
                     issues.append(
                         _issue(
@@ -343,6 +345,18 @@ class MappingSemanticValidator:
                     collected.extend(component.target_fields)
             if is_odoo_source:
                 pass
+            elif dataset.source_record_identity is not None:
+                if dataset.target_identity or dataset.target_scope:
+                    issues.append(_issue(
+                        "MAPPING_SOURCE_RECORD_IDENTITY_CONFLICT",
+                        f"{base}/source_record_identity",
+                        "Source record identity cannot also match ordinary Odoo fields.",
+                        "Choose source record identity or a matching rule based on Odoo fields.",
+                        dataset=dataset,
+                    ))
+                existing_id_column = dataset.source_record_identity.existing_external_id_column_key
+                if existing_id_column is not None:
+                    _check_column(dataset, existing_id_column, base, columns, issues)
             elif not dataset.target_identity:
                 issues.append(
                     _issue(
@@ -371,6 +385,17 @@ class MappingSemanticValidator:
                     )
                 )
 
+            if (ordering := dataset.generated_ordering) is not None:
+                ordering_field = context.fields_by_model[dataset.target_model].get(ordering.target_field)
+                if ordering_field is None or ordering_field.type != "integer" or ordering_field.readonly or ordering.target_field in provided:
+                    issues.append(_issue(
+                        "MAPPING_GENERATED_ORDERING_INVALID", f"{base}/generated_ordering",
+                        "Generated ordering needs a writable whole-number field separate from the matching rule.",
+                        "Choose a writable ordering field and a different record identity.", dataset=dataset,
+                    ))
+                for column in (*ordering.group_column_keys, *ordering.sort_column_keys):
+                    _check_column(dataset, column, base, columns, issues)
+                provided.add(ordering.target_field)
             target_owners: dict[str, str] = {
                 item: "identity" for item in provided
             }

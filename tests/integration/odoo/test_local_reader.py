@@ -368,7 +368,10 @@ class LocalOdooMetadataReaderTests(unittest.TestCase):
         self.assertEqual(len(calls), 1)
         script = calls[0][1]
         self.assertEqual(script.count(".fields_get("), 1)
-        self.assertEqual(script.count(".search_read("), 1)
+        # External IDs add a bounded binding read; the paginated record-read
+        # loop is still shared by every planned model.
+        self.assertEqual(script.count("page = model.search_read("), 1)
+        self.assertIn('if request.get("external_ids"):', script)
         self.assertEqual(script.count(".default_get("), 1)
         self.assertIn("for request in metadata_requests:", script)
         self.assertIn("for request in record_requests:", script)

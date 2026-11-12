@@ -10,6 +10,7 @@ from collections.abc import Iterable
 from dataclasses import replace
 
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
 from impodo.domain.recipe.profile import IdentityComponent
 from impodo.domain.shared.models import BusinessReference, LogicalReference, ScalarValue
 
@@ -22,6 +23,14 @@ def incoming_business_reference(
 ) -> BusinessReference:
     """Express an incoming row's key and nested scope using their governed fields."""
     dataset = plan.dataset(dataset_name)
+    if dataset.source_record_identity is not None:
+        values = tuple(identity)
+        if len(values) != 1 or not isinstance(values[0], str):
+            raise TypeError("A source record identity must contain one resolved External ID")
+        return BusinessReference(
+            model=dataset.target.model, key=(values[0],), scope=(),
+            target_fields=(SOURCE_EXTERNAL_IDS_FIELD,),
+        )
 
     def shaped(values, components: tuple[IdentityComponent, ...]):
         expanded = tuple(

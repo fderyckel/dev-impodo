@@ -299,6 +299,7 @@ class MappingFormRoundTripTests(unittest.TestCase):
             return SchemaField(name, name, kind, False, False, relation, None, ())
 
         self.schema = SimpleNamespace(
+            odoo_version="19.0",
             content_hash="sha256:" + "d" * 64,
             models=(
                 SchemaModel("product.category", "Category", (

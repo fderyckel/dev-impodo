@@ -420,6 +420,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             )
 
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SchemaModel(
                     "sale.order",
@@ -588,6 +589,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             ),
         )
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SchemaModel("mrp.routing.workcenter", "Operation", ()),
                 SchemaModel(
@@ -848,6 +850,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             selection=(),
         )
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SchemaModel("mrp.bom", "Bill of Material", (relationship,)),
                 SchemaModel("uom.uom", "Unit of Measure", ()),
@@ -967,6 +970,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             )
 
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SchemaModel(
                     "product.template",
@@ -1113,6 +1117,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
             ),
         )
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SchemaModel(
                     "res.partner",
@@ -1209,6 +1214,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
         )
         selection = SimpleNamespace(datasets=(source,))
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(SchemaModel("product.template", "Product", ()),)
         )
         condition_id = str(uuid4())
@@ -1257,6 +1263,7 @@ class OrderedTextStepFormTests(unittest.TestCase):
     def test_retired_single_rule_form_names_are_not_allowed(self) -> None:
         selection = SimpleNamespace(datasets=(SimpleNamespace(),))
         schema = SimpleNamespace(
+            odoo_version="19.0",
             models=(
                 SimpleNamespace(
                     name="res.partner",

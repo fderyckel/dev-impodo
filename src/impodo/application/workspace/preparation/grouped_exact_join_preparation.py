@@ -29,6 +29,7 @@ from impodo.domain.mapping.contracts import (
     MappingDefinition,
     RowInclusionMode,
 )
+from impodo.domain.mapping.generated_ordering import GENERATED_ORDER_SOURCE
 from impodo.domain.mapping.source_conditions import SourceConditionValueError
 from impodo.domain.preparation.source import (
     CompiledPreparedRowTransformer,
@@ -452,7 +453,7 @@ def _mapping_column_keys(mapping: DatasetMapping, dataset: SourceDataset) -> tup
             for key, item in value.items():
                 if key == "formula" and item:
                     has_formula = True
-                if key in {"source_column_key", "source_column_keys", "source_identity_column_keys", "key_source_column_keys"}:
+                if key in {"source_column_key", "source_column_keys", "source_identity_column_keys", "key_source_column_keys", "existing_external_id_column_key", "group_column_keys", "sort_column_keys"}:
                     if isinstance(item, str):
                         keys.add(item)
                     elif isinstance(item, (tuple, list)):
@@ -667,6 +668,14 @@ def prepare_bounded_grouped_exact_join_session(
                     run_issues.append(preparer.dataset_issue)
                 row_count = 0
                 included_row_count = 0
+                generated_values = None
+                if mapping.generated_ordering is not None:
+                    generated_values = transformer.ordering_values(mapping.generated_ordering, (
+                        row for batch in _producer_batches(
+                            producer, workspace_state, physical_selection, artifacts,
+                            snapshot_by_id, source, _mapping_column_keys(mapping, effective),
+                        ) for row in batch.rows
+                    )).values
                 for batch in _producer_batches(
                     producer, workspace_state, physical_selection, artifacts,
                     snapshot_by_id, source, _mapping_column_keys(mapping, effective),
@@ -733,6 +742,8 @@ def prepare_bounded_grouped_exact_join_session(
                             projected,
                             impact_collector=impact_collector,
                         )
+                        if generated_values is not None:
+                            staged_row = replace(staged_row, values={**staged_row.values, GENERATED_ORDER_SOURCE: generated_values[joined_row.number]})
                         if batch.issues:
                             preparation_issues = (*preparation_issues, *batch.issues[batch_index])
                         record = preparer.transform(staged_row)

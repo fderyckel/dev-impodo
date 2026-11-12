@@ -17,6 +17,7 @@ from dataclasses import field as dataclass_field
 from hashlib import sha256
 from typing import Any
 
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
 from impodo.domain.preparation.create_relationships import blank_create_reference
 from impodo.domain.preparation.incoming_references import incoming_business_reference
 from impodo.domain.recipe.profile import DatasetSpec, IdentityComponent, ResolveSpec
@@ -582,8 +583,9 @@ def build_execution_snapshot(
             sequence=sequence,
             dependencies=dependencies_by_dataset.get(dataset.name, ()),
             existing_policy=_existing_policy(dataset),
-            identity_fields=_identity_fields(
-                dataset.target_identity.components
+            identity_fields=(
+                (SOURCE_EXTERNAL_IDS_FIELD,) if dataset.source_record_identity is not None
+                else _identity_fields(dataset.target_identity.components)
             ),
             scope_fields=_identity_fields(dataset.target_identity.scope),
             field_types=_execution_field_types(
@@ -895,7 +897,7 @@ def _incoming_update_resolution_index(
                     business_reference,
                     target_fields=_identity_fields(
                         referenced_dataset.target_identity.components
-                    ),
+                    ) if referenced_dataset.source_record_identity is None else (SOURCE_EXTERNAL_IDS_FIELD,),
                     target_scope_fields=_identity_fields(
                         referenced_dataset.target_identity.scope
                     ),
@@ -1029,7 +1031,8 @@ def _execution_row(
         )
     row_id = _portable_row_id(workspace_id, record)
     external_id = (
-        _proposed_external_id(
+        str(record.target_identity[0]) if operation is Classification.CREATE and dataset.source_record_identity is not None
+        else _proposed_external_id(
             workspace_id,
             record.target_model,
             decision.business_identity,
@@ -1089,13 +1092,11 @@ def _create_intents(
         )
         for field in component.target_fields
     }
-    _add_identity_intents(
-        intentions,
-        plan,
-        dataset.target_identity.components,
-        record.target_identity,
-        target_bindings,
-    )
+    if dataset.source_record_identity is None:
+        _add_identity_intents(
+            intentions, plan, dataset.target_identity.components,
+            record.target_identity, target_bindings,
+        )
     _add_identity_intents(
         intentions,
         plan,
@@ -1442,7 +1443,7 @@ def _relation_shape(
         "related_model": related.target.model,
         "related_identity_fields": _identity_fields(
             related.target_identity.components
-        ),
+        ) if related.source_record_identity is None else (SOURCE_EXTERNAL_IDS_FIELD,),
         "related_scope_fields": _identity_fields(
             related.target_identity.scope
         ),

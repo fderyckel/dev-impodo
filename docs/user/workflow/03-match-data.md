@@ -116,6 +116,11 @@ company has changed. It keeps the edits submitted with that check.
 When you open **Match source choices** for a linked field such as **Unit**,
 Impodo also checks the fields under the selected company if the previous
 check used a different company context.
+**Load Odoo matching fields** also uses your saved company, including for a
+parent bill of materials in **Identify records**. Impodo refreshes the checks
+automatically when needed. If a request fails, use **Retry loading Odoo matching
+fields**; your unsaved selections stay on the page. If Odoo fields or access
+changed, save progress and select **Review Odoo changes** beside the field.
 You can also save progress and select **Check company-specific values** to
 refresh explicitly before reviewing individual defaults or linked values.
 The connection and record types have already been checked in Odoo data.
@@ -654,6 +659,13 @@ connect **ItemID** to the **Product** relationship and choose **Internal
 Reference** as the matching field. The same control can use an available
 custom text identifier.
 
+The same field chooser is available in **Identify records** when part of the
+Odoo matching rule is a linked record. Choose that part's source column and
+**Only existing Odoo records**, then select **Load Odoo matching fields** below
+its lookup rule. Choose the searchable text field that contains your source
+values. Saving and reopening keeps the selection, and a Recipe retains it for
+later deliveries. Each included value must still identify one existing record.
+
 Save the rule and check matches. Impodo checks the distinct included values
 against the selected Odoo field. Reopen the relationship to see the saved
 field. The matching rule for the bill of materials itself still identifies
@@ -898,7 +910,7 @@ of Measure. Expand **Product Unit of Measure**, then:
    record**, then select that button to look up that value in Odoo. Choose
    `PCE` under **Existing Product Unit of Measure**. Leaving the value blank
    loads a bounded list instead; large lists require an entered matching value.
-   **Search existing Product Unit of Measure** filters the choices already
+   **Filter loaded Product Unit of Measure choices** filters the choices already
    loaded on this page; it does not search Odoo.
 4. If the matching rule contains several key or scope parts, enter every part
    in the order shown.
@@ -927,6 +939,21 @@ load** and check company-specific values. In **Parent Account**, select
 `401100`, and select **Check this record**. Choose **Customers (401100)**
 from the returned list, then save progress. Impodo looks up that code directly;
 it does not need to load the company's complete chart of accounts.
+
+For suppliers, expand **Account Payable** and select **The same existing Odoo
+record for every row**. The card shows **Company for this lookup**, using the
+company you selected at the start of Match data. Choose **Account code in the
+selected company**, enter the full code, and select **Check this record**.
+Then choose the returned account and save progress. **Odoo record name** is
+also available when the exact name identifies one account. The company name
+belongs under **Company for this load**, rather than in the account's matching
+value.
+
+Impodo uses Odoo's field rules to load eligible accounts for that company.
+Account Payable and Account Receivable can therefore offer different choices.
+An account shared with the selected company can remain eligible. If you change
+the company, check the choices again. This supplies each supplier's accounting
+value in that company; it does not assign a company to the contact itself.
 
 Loading the choices does not select a record. Choose a record from the list,
 or type its exact matching values in the boxes above. If a required matching

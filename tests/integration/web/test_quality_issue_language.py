@@ -26,6 +26,7 @@ from impodo.domain.preparation.quality import (
 )
 from impodo.web.presenters.summary import (
     _quality_field_label_map,
+    _quality_issue_message_map,
     _quality_workflow_issue_summary,
     _render_quality_cause,
 )
@@ -178,6 +179,86 @@ class QualityIssueLanguageTests(unittest.TestCase):
         self.assertEqual(issue.cause, "Odoo matching value is empty")
         self.assertIn("Odoo matching rule", issue.explanation)
         self.assertTrue(issue.correction_route.endswith("#target-identity-0"))
+
+    def test_existing_external_id_finding_names_column_and_links_to_its_decision(self):
+        self.labels["suppliers"][self.key] = "RecId"
+        cause = replace(
+            self.causes[0],
+            reason_code="SOURCE_RECORD_IDENTITY_INVALID",
+            message="The existing Odoo External ID is invalid",
+        )
+        issue = self.summary((cause,)).issues[0]
+        self.assertEqual(issue.cause, "Review the Odoo External ID column")
+        self.assertIn("RecId was selected as an Odoo External ID column", issue.explanation)
+        self.assertIn("records being imported", issue.explanation)
+        self.assertIn("No existing External ID column", issue.recheck)
+        self.assertIn("when creating new records", issue.recheck)
+        self.assertIn("prepare the complete data again", issue.recheck)
+        self.assertIn("step=tables&task=identity#target-identity-0", issue.correction_route)
+        self.assertEqual(issue.correction_label, "Review Suppliers External ID column")
+        self.assertEqual(cause.message, "The existing Odoo External ID is invalid")
+        html = self.templates.get_template("_workflow_issue_summary.html").render(
+            workflow_issue_summary=self.summary((cause,)),
+        )
+        self.assertIn("No existing External ID column", html)
+        self.assertNotIn("Open Suppliers field rules", html)
+
+    def test_row_external_id_message_keeps_saved_support_evidence(self):
+        self.labels["suppliers"][self.key] = "RecId"
+        issue = QualityIssue(
+            issue_id="sha256:" + "d" * 64,
+            rule_id="sha256:" + "f" * 64,
+            family=QualityRuleFamily.BOUNDED_VALUES,
+            reason_code="SOURCE_RECORD_IDENTITY_INVALID",
+            message="The existing Odoo External ID is invalid",
+            dataset="suppliers",
+            row_id="sha256:" + "c" * 64,
+            source_row=2,
+            affected_fields=(self.key,),
+            policy=QualityOutcomePolicy.QUARANTINE,
+            owner_role=QualityOwnerRole.DATA_MANAGER,
+            owner_label="Data manager",
+        )
+        messages = _quality_issue_message_map(
+            (SimpleNamespace(issues=(issue,)),), self.labels, self.selection, self.revision,
+        )
+        self.assertIn("RecId was selected", messages[issue.issue_id])
+        self.assertIn("No existing External ID column", messages[issue.issue_id])
+        self.assertNotIn(self.key, messages[issue.issue_id])
+        self.assertEqual(issue.message, "The existing Odoo External ID is invalid")
+        self.assertEqual(issue.rule_id, "sha256:" + "f" * 64)
+
+    def test_external_id_guidance_uses_saved_labels_for_different_odoo_models(self):
+        for model, column in (
+            ("res.partner", "LegacyNumber"),
+            ("mrp.bom.line", "RecId"),
+            ("x.custom.record", "SourceKey"),
+        ):
+            with self.subTest(model=model, column=column):
+                self.labels["suppliers"][self.key] = column
+                self.revision.definition.datasets = (
+                    replace(self.revision.definition.datasets[0], target_model=model),
+                )
+                cause = replace(
+                    self.causes[0],
+                    reason_code="SOURCE_RECORD_IDENTITY_INVALID",
+                    message="The existing Odoo External ID is invalid",
+                )
+                issue = self.summary((cause,)).issues[0]
+                self.assertIn(f"{column} was selected", issue.explanation)
+                self.assertIn("No existing External ID column", issue.recheck)
+                self.assertTrue(issue.correction_route.endswith("#target-identity-0"))
+                self.assertNotIn(model, issue.explanation)
+
+    def test_missing_source_identity_does_not_suggest_clearing_external_id_column(self):
+        cause = replace(
+            self.causes[0],
+            reason_code="SOURCE_RECORD_IDENTITY_INVALID",
+            message="Every source record identity column must have a value",
+        )
+        issue = self.summary((cause,)).issues[0]
+        self.assertEqual(issue.explanation, cause.message)
+        self.assertNotIn("No existing External ID column", issue.recheck)
 
     def test_detail_uses_column_names_and_keeps_raw_evidence_collapsed(self):
         row_id = "sha256:" + "c" * 64

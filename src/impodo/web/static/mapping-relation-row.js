@@ -65,6 +65,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const valueMatch = policy?.querySelector("[data-linked-value-match-entry]");
     const blankChoice = policy?.querySelector("[data-blank-create-storage]");
     const status = row.querySelector("[data-linked-matching-field-status]");
+    const schemaReview = row.querySelector("[data-linked-matching-schema-review]");
+    const loadLabel = load.textContent;
 
     const sync = () => {
       const exactOnly = Boolean(key.selectedOptions[0]?.dataset.selectedMatchingField);
@@ -90,6 +92,8 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     load.addEventListener("click", async () => {
       load.disabled = true;
+      load.textContent = loadLabel;
+      if (schemaReview) schemaReview.hidden = true;
       status.textContent = "Checking fields in Odoo…";
       try {
         const body = new URLSearchParams({
@@ -100,6 +104,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const response = await fetch(load.dataset.endpoint, { method: "POST", body });
         const payload = await response.json();
         if (!response.ok) {
+          if (schemaReview) schemaReview.hidden = payload.review_odoo_details !== true;
           throw new Error(payload.detail || "Impodo could not check the Odoo fields.");
         }
         const known = new Set(
@@ -125,6 +130,7 @@ document.addEventListener("DOMContentLoaded", () => {
           : "The list already shows the available matching fields.";
         if (load.isConnected && origin.value === "target_catalog") key.focus();
       } catch (error) {
+        load.textContent = "Retry loading Odoo matching fields";
         status.textContent = error instanceof Error ? error.message : "Impodo could not check the Odoo fields.";
       } finally {
         load.disabled = false;
@@ -201,7 +207,9 @@ document.addEventListener("DOMContentLoaded", () => {
           scopeChoice.disabled = !scoped;
           scopeChoice.required = scoped && provider?.value === "constant_existing";
         }
-        if (label && active) label.textContent = fields[slot];
+        if (label && active) label.textContent = scoped
+          ? "Company for this matching rule"
+          : `Exact ${fields[slot].replaceAll("_", " ")}`;
       }
     };
     const renderScopeChoices = (preserveSelection = false) => {

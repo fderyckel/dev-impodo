@@ -22,6 +22,8 @@ from enum import StrEnum
 from typing import Any
 from uuid import UUID
 
+from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
     ScalarValidationPolicy,
@@ -931,6 +933,8 @@ class DatasetMapping:
     mode: MappingTargetMode = MappingTargetMode.UPSERT
     on_existing: str | None = None
     source_identity_column_keys: tuple[str, ...] = ()
+    source_record_identity: SourceRecordIdentity | None = None
+    generated_ordering: GeneratedOrdering | None = None
     target_identity: tuple[IdentityComponentMapping, ...] = ()
     target_scope: tuple[IdentityComponentMapping, ...] = ()
     fields: tuple[ScalarFieldMapping, ...] = ()
@@ -1322,6 +1326,10 @@ def _dataset_mapping_from_dict(
     contract_version: int,
 ) -> DatasetMapping:
     expected_fields = _contract_fields(DatasetMapping)
+    if "source_record_identity" not in payload:
+        expected_fields.remove("source_record_identity")
+    if "generated_ordering" not in payload:
+        expected_fields.remove("generated_ordering")
     if contract_version < 16:
         expected_fields.remove("row_inclusion")
     _require_contract_fields(
@@ -1342,6 +1350,11 @@ def _dataset_mapping_from_dict(
         source_identity_column_keys=tuple(
             payload.get("source_identity_column_keys", ())
         ),
+        source_record_identity=(
+            SourceRecordIdentity.from_dict(payload["source_record_identity"])
+            if payload.get("source_record_identity") is not None else None
+        ),
+        generated_ordering=GeneratedOrdering.from_dict(payload["generated_ordering"]) if payload.get("generated_ordering") is not None else None,
         target_identity=tuple(
             _identity_component_from_dict(
                 item,
@@ -1392,6 +1405,10 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if payload["source_record_identity"] is None:
+        payload.pop("source_record_identity")
+    if payload["generated_ordering"] is None:
+        payload.pop("generated_ordering")
     for group in ("target_identity", "target_scope"):
         for component in payload.get(group, ()):
             if not component["selected_matching_field"]:

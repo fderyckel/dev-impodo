@@ -79,6 +79,10 @@
                     </select>
                   </label>
                   <div class="provider-control" data-relation-provider-constant {% if relation_value_source != 'constant_existing' %}hidden{% endif %}>
+                    {% if row.metadata.company_dependent %}
+                      {% set lookup_company = workspace_state.destination_company if workspace_state.source_mode.value == 'ODOO' else workspace_state.odoo_company %}
+                      <p data-linked-company><strong>Company for this lookup:</strong> {{ lookup_company.name if lookup_company else 'Choose the company for this load first' }}. Impodo uses the company selected at the start of Match data.</p>
+                    {% endif %}
                     {% if row.metadata.type == 'many2many' %}<p>Use one existing Odoo record as the complete list for every row.</p>{% endif %}
                     <div class="form-grid">
                       <label>
@@ -102,7 +106,7 @@
                           <label data-constant-component-row data-constant-component-slot="{{ slot }}" {% if not row.selected_key or slot >= (row.selected_key.key_fields|length + row.selected_key.scope_fields|length) %}hidden{% endif %}>
                             <span data-constant-component-label>
                               {% if row.selected_key and slot < row.selected_key.key_fields|length %}
-                                {{ row.selected_key.key_fields[slot] }}
+                                Exact {{ row.selected_key.key_fields[slot]|replace('_', ' ')|capitalize }}
                               {% elif row.selected_key %}
                                 {{ row.selected_key.scope_fields[slot - row.selected_key.key_fields|length] }}
                               {% else %}Key value{% endif %}
@@ -127,9 +131,10 @@
                         {% endfor %}
                       </div>
                       <div data-constant-existing-chooser data-endpoint="/workspaces/{{ workspace_id }}/mapping/value-choices" data-dataset-id="{{ view.source.dataset_id }}" data-constant-target-model="{{ view.selected_model }}" data-target-field="{{ row.metadata.name }}" data-source-row-count="{{ view.source.row_count }}" data-source-name="{{ view.source.name }}">
-                        <label>Search existing {{ row.metadata.label }}
-                          <input type="search" data-constant-choice-search placeholder="Type to filter loaded choices" autocomplete="off">
+                        <label>Filter loaded {{ row.metadata.label }} choices
+                          <input type="search" data-constant-choice-search placeholder="Filter the choices already loaded below" autocomplete="off">
                         </label>
+                        <small>Enter the full matching value above to check Odoo. Leave it blank to load available choices, then filter them here.</small>
                         <label>Existing {{ row.metadata.label }}
                           <select data-constant-existing-choice>
                             <option value="">Check this record to load available choices</option>
@@ -214,6 +219,7 @@
                             data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
                             data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
                           <small role="status" data-linked-matching-field-status></small>
+                          <a href="/workspaces/{{ workspace_id }}/schema#odoo-schema-changes" data-linked-matching-schema-review hidden>Review Odoo changes</a>
                         </div>
                       {% elif not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model first.</small>{% endif %}
                     </div>

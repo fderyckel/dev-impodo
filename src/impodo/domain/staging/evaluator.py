@@ -11,6 +11,11 @@ from dataclasses import (
 from functools import partial
 from types import MappingProxyType
 
+from impodo.domain.mapping.generated_ordering import (
+    GENERATED_ORDER_SOURCE,
+    GeneratedOrdering,
+)
+from impodo.domain.preparation.ordering import GeneratedOrderValues, generate_ordering
 from impodo.domain.preparation.source import (
     PreparedBundle,
     SourceRow,
@@ -284,6 +289,18 @@ class CompiledBrowserRowTransformer:
     ]
 
     included_parent: IncludedParentRows | None = None
+
+    def ordering_values(self, policy: GeneratedOrdering, rows: Iterable[SourceRow]) -> GeneratedOrderValues:
+        """Capture only included typed sort keys before the bounded row pass."""
+        def inputs():
+            for row in rows:
+                projected = self.project(row)
+                try:
+                    if self.includes(projected):
+                        yield row.number, projected.source_values
+                except SourceConditionValueError:
+                    continue
+        return generate_ordering(policy, inputs())
 
     def project(self, row: SourceRow) -> ProjectedBrowserRow:
         """Select stable columns and normalize governed related-row keys."""
@@ -1164,6 +1181,7 @@ def _prepared_headers(
 
     return (
         *(column.stable_key for column in effective.columns),
+        *((GENERATED_ORDER_SOURCE,) if mapping.generated_ordering is not None else ()),
         *(
             synthetic_field(index)
             for index, field in enumerate(mapping.fields)

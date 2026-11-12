@@ -50,6 +50,7 @@ class JoinLookupPreparationTests(TestCase):
         base.setUp()
         self.addCleanup(base.doCleanups)
         self.fixture, self.context, self.actor = base.fixture, base.context, base.actor
+        self.odoo_major = base.odoo_major
 
     def _schema(self, workspace_id):
         schema = fixtures.MixedJoinPreparationTests._schema(self, workspace_id)

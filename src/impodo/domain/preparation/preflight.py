@@ -17,7 +17,7 @@ business references instead.
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import replace
 from typing import Any
@@ -29,6 +29,11 @@ from impodo.domain.data_version.selection_domains import (
     apply_live_selection_domains,
     live_selection_metadata_issues,
     validate_selection_metadata_drift,
+)
+from impodo.domain.mapping.source_record_identity import (
+    SOURCE_EXTERNAL_IDS_FIELD,
+    source_record_external_id,
+    source_record_external_ids,
 )
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.preparation.canonical import (
@@ -139,6 +144,12 @@ class PreflightEngine:
                     for record in dataset_records
                 ]
             model = captured_models.get(dataset.target.model)
+            claimed_targets: Counter[int] = Counter()
+            if dataset.source_record_identity is not None:
+                for candidate in dataset_records:
+                    matches = target_index.get((candidate.target_identity, candidate.target_scope), ())
+                    if not candidate.blocked and len(matches) == 1:
+                        claimed_targets[matches[0].odoo_id] += 1
             expected_defaults = {
                 field.name: default_value
                 for field in model.fields
@@ -146,6 +157,13 @@ class PreflightEngine:
                 and type(default_value := field.create_default_value) is int
             } if model else None
             for record in dataset_records:
+                matches = target_index.get((record.target_identity, record.target_scope), ())
+                if len(matches) == 1 and claimed_targets[matches[0].odoo_id] > 1:
+                    record = replace(record, issues=(*record.issues, Issue(
+                        code="SOURCE_RECORD_TARGET_CONFLICT",
+                        message="Several source records identify the same Odoo record. Review the source key or existing External ID choices before loading.",
+                        dataset=dataset.name, row=record.source_row,
+                    )))
                 decisions.append(
                     _classify_record(
                         plan, dataset, record, target_index, catalog,
@@ -335,6 +353,9 @@ def _resolve_records(
 
         identity = []
         for index, value in enumerate(record.target_identity):
+            if dataset.source_record_identity is not None:
+                identity.append(value)
+                continue
             component = _expanded_component(dataset.target_identity.components, index)
             identity.append(
                 resolve_value(
@@ -772,6 +793,10 @@ def _build_target_index(
     )
     issues: list[Issue] = []
     for target in catalog.records(dataset.target.model):
+        if dataset.source_record_identity is not None:
+            for external_id in source_record_external_ids(target.values):
+                buckets[((external_id,), ())].append(target)
+            continue
         try:
             identity = _target_identity(
                 plan, dataset.target_identity.components, target, catalog
@@ -851,6 +876,13 @@ def _target_reference(
         raise KeyError("A target identity parent is absent from the captured evidence")
     dataset = plan.dataset(str(resolve.dataset))
     visited = visiting | {pointer}
+    if dataset.source_record_identity is not None:
+        aliases = source_record_external_ids(target.values)
+        matching = tuple(value for value in aliases if value.startswith(f"impodo_source_{dataset.source_record_identity.namespace}."))
+        candidates = matching or aliases
+        if len(candidates) != 1:
+            raise ValueError("The related source record has no single reviewed External ID")
+        return incoming_business_reference(plan, dataset.name, (candidates[0],), ())
     return incoming_business_reference(
         plan, dataset.name,
         _target_identity(plan, dataset.target_identity.components, target, catalog, visiting=visited),
@@ -875,6 +907,8 @@ def _resolve_target_shape(
             resolve.target_scope_fields,
         )
     referenced = plan.dataset(str(resolve.dataset))
+    if referenced.source_record_identity is not None:
+        return referenced.target.model, (SOURCE_EXTERNAL_IDS_FIELD,), ()
     identity_fields = tuple(
         target_field
         for component in referenced.target_identity.components
@@ -945,6 +979,22 @@ def _classify_record(
             issues=(issue,),
         )
     if len(matches) == 0:
+        if (policy := dataset.source_record_identity) is not None:
+            generated = source_record_external_id(policy.namespace, dataset.target.model, record.source_identity)
+            supplied = record.target_identity != (generated,)
+            if supplied or not policy.allow_new_records:
+                return Decision(
+                    dataset=record.dataset, source_row=record.source_row,
+                    source_trace_id=record.source_trace_id,
+                    business_identity=business_identity, business_scope=business_scope,
+                    classification=Classification.BLOCKED, target_match_count=0,
+                    issues=(Issue(
+                        code="EXISTING_SOURCE_EXTERNAL_ID_NOT_FOUND" if supplied else "SOURCE_RECORD_CREATE_REVIEW_REQUIRED",
+                        message=("The supplied existing Odoo External ID did not identify a record. Review its value and the selected Odoo database."
+                                 if supplied else "This source ID is not yet in Odoo. Review existing records, then explicitly allow new source records or supply an existing Odoo External ID."),
+                        dataset=dataset.name, row=record.source_row,
+                    ),),
+                )
         if dataset.target.mode == "update":
             return Decision(
                 dataset=record.dataset,

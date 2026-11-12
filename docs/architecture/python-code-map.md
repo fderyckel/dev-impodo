@@ -80,6 +80,7 @@ operation intent lets a retry return the same result. See the
 | Review counts and affected rows | `adapters/duckdb/quality_repository.py` pages the preparation cause index. `quality_review_details.py` resolves the requested rows from saved lineage and prepared data. `preflight_repository.py` publishes comparison decisions and the compact review together. |
 | Business expectations | `BusinessIntentService` saves the expectations. `application/workspace/execution/business_review.py` reviews them against the comparison. The execution journal retains the exact approval for recovery. |
 | Final review workbook | `domain/preflight/mapping_summary.py` describes field rules from the verified mapping. `adapters/artifacts/reporting.py` renders the workbook from the comparison manifest and its bound evidence. |
+| Correction worklist before load readiness | `application/workspace/review/attention_export.py` captures current saved findings. `domain/preflight/attention_projection.py` supplies their shared correction advice, and `adapters/artifacts/attention_workbook.py` writes complete Excel sheets. `web/routers/attention_export.py` serves the download and its counts. |
 
 For a remote file-source comparison,
 [`target_readers.py`](../../src/impodo/web/composition/target_readers.py) builds

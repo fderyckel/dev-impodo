@@ -27,6 +27,7 @@ from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
     plan_preflight_requirements,
 )
+from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
@@ -35,6 +36,7 @@ from impodo.domain.odoo.contracts import (
     RecordSnapshot,
     bind_snapshot_hashes,
 )
+from impodo.domain.preflight.attention import AttentionExport
 from impodo.domain.preflight.mapping_summary import workbook_mapping_rules
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.staging import StagingRunSummary
@@ -131,7 +133,9 @@ from .workspace.preparation.readiness_ports import (
     PreflightSourceRepository,
     PreflightStagingRepository,
     PreflightWorkspaceRepository,
+    PreparationDerivedRepository,
 )
+from .workspace.review.attention_export import capture_attention_export
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 EXECUTION_SNAPSHOT_NAME = "impodo_execution_snapshot.json"
@@ -307,6 +311,7 @@ class PreflightService:
         effective: PreflightEffectiveRepository | None = None,
         schemas: PreflightSchemaRepository | None = None,
         odoo_provenance: OdooProvenanceService | None = None,
+        derived: PreparationDerivedRepository | None = None,
     ) -> None:
         self.staging = staging
         self.quality = quality
@@ -320,6 +325,7 @@ class PreflightService:
         self.effective = effective
         self.schemas = schemas
         self.odoo_provenance = odoo_provenance
+        self.derived = derived
         self.engine = PreflightEngine()
 
     def current_report(self, workspace_id: str) -> ReadinessReport | None:
@@ -438,6 +444,18 @@ class PreflightService:
         """Return the current staging summary used by package eligibility UI."""
 
         return self.staging.get_current_staging_summary(workspace_id)
+
+    def attention_export(
+        self, workspace_id: str, *, actor: Actor,
+        expected_quality_run_id: str = "",
+        expected_comparison_id: str = "",
+    ) -> AttentionExport:
+        """Read every current correction finding without requiring load readiness."""
+        return capture_attention_export(
+            self, workspace_id, actor=actor,
+            expected_quality_run_id=expected_quality_run_id,
+            expected_comparison_id=expected_comparison_id,
+        )
 
     def comparison_input_hash(
         self,
@@ -1406,7 +1424,7 @@ class PreflightService:
                 current_reference_policy_hash or REFERENCE_POLICY_HASH
             ),
         )
-        if any(not request.domain for request in requirements.record_requests):
+        if any(not request.domain and not request.external_ids for request in requirements.record_requests):
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 "An Odoo record read could not be narrowed safely. "
@@ -1942,9 +1960,11 @@ def _validate_snapshot_projection(
             )
 
     expected_records: dict[str, tuple[str, ...]] = {}
+    external_models = {request.model for request in record_requests if request.external_ids}
     for request in record_requests:
-        previous = expected_records.setdefault(request.model, request.fields)
-        if previous != request.fields:
+        projected_fields = (*request.fields, SOURCE_EXTERNAL_IDS_FIELD) if request.model in external_models else request.fields
+        previous = expected_records.setdefault(request.model, projected_fields)
+        if previous != projected_fields:
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 "Odoo record plan has inconsistent field projections",

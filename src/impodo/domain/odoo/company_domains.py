@@ -6,6 +6,60 @@ See docs/developer/contracts/preflight.md.
 from __future__ import annotations
 
 import ast
+import re
+
+_LOOKUP_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
+_LOOKUP_OPERATORS = {"=", "!=", "in", "not in", "parent_of", "child_of", "like", "ilike", "=like", "=ilike", ">", ">=", "<", "<="}
+
+
+def linked_value_domain(expression: object, company_id: int) -> list[object] | None:
+    """Interpret a closed field domain using only the selected company and literals.
+
+    Unlike the company-only compatibility probe, this preserves the complete
+    field domain, including a payable/receivable type restriction. Unsupported
+    dynamic expressions remain unqualified; callers must not read choices.
+    """
+    if type(company_id) is not int or company_id <= 0:
+        return None
+    try:
+        if isinstance(expression, str):
+            if len(expression) > 8192:
+                return None
+            root = ast.parse(expression, mode="eval").body
+            if sum(1 for _ in ast.walk(root)) > 256:
+                return None
+            result = _value(root, company_id)
+        else:
+            result = expression
+        if not isinstance(result, (list, tuple)) or len(result) > 256:
+            return None
+        remaining = 0
+        for item in reversed(result):
+            if isinstance(item, str):
+                arity = {"|": 2, "&": 2, "!": 1}.get(item)
+                if arity is None or remaining < arity:
+                    return None
+                remaining += 1 - arity
+            elif (
+                isinstance(item, (list, tuple)) and len(item) == 3
+                and isinstance(item[0], str) and _LOOKUP_FIELD.fullmatch(item[0])
+                and isinstance(item[1], str) and item[1] in _LOOKUP_OPERATORS
+                and _lookup_literal(item[2])
+            ):
+                remaining += 1
+            else:
+                return None
+        return list(result)
+    except (ValueError, SyntaxError, RecursionError, TypeError):
+        return None
+
+
+def _lookup_literal(value: object) -> bool:
+    if value is None or type(value) in {str, int, bool, float}:
+        return True
+    return isinstance(value, (list, tuple)) and len(value) <= 1000 and all(
+        item is None or type(item) in {str, int, bool, float} for item in value
+    )
 
 
 def operation_company_domain(

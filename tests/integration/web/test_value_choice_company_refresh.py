@@ -114,9 +114,14 @@ class ValueChoiceCompanyRefreshTests(ProjectSetupBrowserTestCase):
                 {"uom.uom": ("name",)},
             )
 
-        def read_local(workspace, _profile, _metadata, requests, *, related_models):
+        def read_local(workspace, _profile, _metadata, requests, *, related_models,
+                       discover_matching_fields=False, validate_lookup_fields=False,
+                       lookup_relationship=None):
             self.assertEqual(workspace.odoo_operation_context, company.context)
             self.assertEqual(related_models, ("uom.uom",))
+            self.assertFalse(discover_matching_fields)
+            self.assertTrue(validate_lookup_fields)
+            self.assertIsNone(lookup_relationship)
             return related_metadata, read_records(requests)
 
         def connector(config):

@@ -39,14 +39,18 @@ function fixture(response = { ok: true, fields: [{ name: "x_asset_code", label: 
   key.add = (option) => { option.parentElement = key; key.options.push(option); };
   const picker = new Control();
   const button = new Control();
+  button.textContent = "Load Odoo matching fields";
   button.dataset = { endpoint: "/mapping/linked-matching-fields", targetModel: "x.work_order" };
   button.closest = () => picker;
   const status = new Control();
+  const schemaReview = new Control();
+  schemaReview.hidden = true;
   const controls = {
     "[data-load-linked-matching-fields]": button,
     "[data-linked-matching-key]": key,
     "[data-relationship-origin]": origin,
     "[data-linked-matching-field-status]": status,
+    "[data-linked-matching-schema-review]": schemaReview,
   };
   const row = {
     dataset: { targetField: "x_asset_id" },
@@ -68,7 +72,7 @@ function fixture(response = { ok: true, fields: [{ name: "x_asset_code", label: 
       return { ok: response.ok, json: async () => response };
     },
   });
-  return { origin, key, button, picker, status, requests };
+  return { origin, key, button, picker, status, schemaReview, requests, response };
 }
 
 test("relational identities load a custom matching field without linked-value policy controls", async () => {
@@ -94,6 +98,27 @@ test("failed discovery preserves the saved matching choice and permits retry", a
   assert.equal(current.key.options.length, 1);
   assert.equal(current.status.textContent, "Check Odoo access");
   assert.equal(current.button.disabled, false);
+  assert.equal(current.button.textContent, "Retry loading Odoo matching fields");
+  assert.equal(current.schemaReview.hidden, true);
+  current.response.ok = true;
+  current.response.fields = [{ name: "x_asset_code", label: "Asset code" }];
+  await current.button.fire("click");
+  assert.equal(current.button.textContent, "Load Odoo matching fields");
+  assert.equal(current.key.value, "name-key");
+  assert.equal(current.key.options.length, 2);
+});
+
+test("genuine Odoo changes expose review beside the field and preserve selections", async () => {
+  const current = fixture({ ok: false, detail: "Review Odoo changes", review_odoo_details: true });
+  await current.button.fire("click");
+  assert.equal(current.schemaReview.hidden, false);
+  assert.equal(current.key.value, "name-key");
+  assert.equal(current.origin.value, "target_catalog");
+  assert.equal(current.button.disabled, false);
+  current.response.ok = true;
+  current.response.fields = [];
+  await current.button.fire("click");
+  assert.equal(current.schemaReview.hidden, true);
 });
 
 test("a selected matching field cannot follow a switch to incoming records", async () => {

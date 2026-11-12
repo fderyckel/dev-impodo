@@ -27,6 +27,10 @@ from impodo.application.data_version.source_snapshots import (
 )
 from impodo.application.shared.columnar_runtime import configure_columnar_runtime
 from impodo.domain.mapping.contracts import matched_reference_components
+from impodo.domain.mapping.source_record_identity import (
+    source_record_external_id,
+    valid_external_id,
+)
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.models import (
     Issue,
@@ -445,6 +449,9 @@ def _compile_lazy_transformation(
         parallel="auto",
     ).select(raw_columns)
 
+    if program.generated_ordering is not None:
+        lazy = _with_generated_ordering(lazy, program)
+
     prepared_expressions: list[pl.Expr] = []
     value_expressions: list[pl.Expr] = []
     scalar_issue_expressions: list[pl.Expr] = []
@@ -452,6 +459,9 @@ def _compile_lazy_transformation(
     scalar_layouts: list[_ScalarLayout] = []
     for index, field in enumerate(program.scalar_fields):
         layout, prepared, value, error = _compile_scalar(index, field)
+        if program.generated_ordering is not None and field.target_field == program.generated_ordering.target_field:
+            prepared = pl.col("__impodo_order_value").cast(pl.String)
+            error = pl.when(pl.col("__impodo_order_error")).then(pl.lit(_ERROR_PARSE)).otherwise(pl.lit(None, dtype=pl.String))
         scalar_layouts.append(layout)
         prepared_expressions.append(prepared.alias(layout.prepared_alias))
         if layout.value_alias != layout.prepared_alias:
@@ -835,6 +845,71 @@ def _file_hash(path: Path) -> str:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
+
+
+def _with_generated_ordering(lazy: pl.LazyFrame, program: ColumnarTransformationProgram) -> pl.LazyFrame:
+    """Rank a complete native dataset with typed keys and physical-row ties."""
+    ordering = program.generated_ordering
+    if ordering is None:
+        raise ValueError("Generated ordering requires an ordering policy.")
+    aliases = []
+    invalid = []
+    for index, field in enumerate(program.ordering_fields):
+        layout, prepared, value, error = _compile_scalar(1_000_000 + index, field)
+        lazy = lazy.with_columns(prepared.alias(layout.prepared_alias))
+        if layout.value_alias != layout.prepared_alias:
+            lazy = lazy.with_columns(value.alias(layout.value_alias))
+        invalid.append(error.is_not_null())
+        aliases.append(layout.value_alias)
+    # Integer scalar programs retain canonical integer text for exact parsing.
+    keys = []
+    directions = []
+    for alias, field in zip(aliases, program.ordering_fields, strict=True):
+        value = pl.col(alias)
+        if field.value_type in {"integer", "decimal"}:
+            number_keys, number_invalid = _exact_numeric_order_key(value)
+            invalid.append(number_invalid)
+            keys.extend(number_keys)
+            directions.extend([ordering.descending] * len(number_keys))
+        else:
+            keys.append(value)
+            directions.append(ordering.descending)
+    keys.append(pl.col(SOURCE_ROW_COLUMN))
+    rank = pl.arg_sort_by(keys, descending=[*directions, False], nulls_last=ordering.blanks == "last").arg_sort()
+    if ordering.group_column_keys:
+        groups = [pl.col(source_value_column(next(column.ordinal for column in program.inputs if column.stable_key == key))).fill_null("").str.strip_chars() for key in ordering.group_column_keys]
+        rank = rank.over(groups)
+    number = (rank.cast(pl.Int64) * ordering.step + ordering.start)
+    return lazy.with_columns(
+        number.alias("__impodo_order_value"),
+        (pl.any_horizontal(invalid) if invalid else pl.lit(False)).or_(number > 2_147_483_647).alias("__impodo_order_error"),
+    )
+
+
+def _exact_numeric_order_key(value: pl.Expr) -> tuple[tuple[pl.Expr, ...], pl.Expr]:
+    """Compare exact decimal text by sign, magnitude and significant digits.
+
+    Numeric ordering must not cast business values to binary floats or round
+    close decimals to a fixed scale. Complemented negative digits reverse the
+    lexical order, including prefixes; equivalent representations remain ties.
+    """
+    text = value.str.to_lowercase()
+    valid = text.str.contains(r"^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:e[+-]?[0-9]+)?$").fill_null(False)
+    mantissa = text.str.split("e").list.first().str.strip_prefix("-").str.strip_prefix("+")
+    exponent_text = text.str.extract(r"e([+-]?[0-9]+)$", 1)
+    exponent = exponent_text.fill_null("0").cast(pl.Int32, strict=False)
+    digits = mantissa.str.replace_all(".", "", literal=True)
+    significant = digits.str.strip_chars_start("0").str.strip_chars_end("0")
+    zero = significant == ""
+    negative = text.str.starts_with("-") & ~zero
+    sign = pl.when(zero).then(0).when(negative).then(-1).otherwise(1)
+    magnitude = exponent.cast(pl.Int64) + mantissa.str.split(".").list.first().str.len_chars().cast(pl.Int64) - (digits.str.len_chars() - digits.str.strip_chars_start("0").str.len_chars()).cast(pl.Int64) - 1
+    ordered_magnitude = pl.when(zero).then(0).when(negative).then(-magnitude).otherwise(magnitude)
+    complemented = significant.str.replace_many([str(number) for number in range(10)], [str(9 - number) for number in range(10)])
+    ordered_digits = pl.when(zero).then(pl.lit("")).when(negative).then(complemented + pl.lit(":")) .otherwise(significant + pl.lit("/"))
+    invalid = value.is_not_null() & (~valid | exponent.is_null())
+    keys = tuple(pl.when(value.is_null() | invalid).then(None).otherwise(component) for component in (sign, ordered_magnitude, ordered_digits))
+    return keys, invalid
 
 
 def _compile_scalar(
@@ -1683,6 +1758,22 @@ def _adapt_frame(
             errors,
             raw_by_ordinal,
         )
+        if (identity_policy := program.source_record_identity) is not None:
+            try:
+                external_id = source_record_external_id(identity_policy.namespace, program.target_model, source_identity)
+                if identity_policy.existing_external_id_column_key:
+                    column = next(item for item in program.inputs if item.stable_key == identity_policy.existing_external_id_column_key)
+                    raw = raw_by_ordinal[column.ordinal][0]
+                    supplied_id = "" if raw is None else str(raw).strip()
+                    if supplied_id:
+                        if not valid_external_id(supplied_id):
+                            raise ValueError("The existing Odoo External ID is invalid")
+                        external_id = supplied_id
+                target_identity = (external_id,)
+                target_scope = ()
+            except ValueError as error:
+                target_identity = (None,)
+                issues = (*issues, Issue(code="SOURCE_RECORD_IDENTITY_INVALID", message=str(error), dataset=program.dataset_name, row=source_row, field=identity_policy.existing_external_id_column_key))
         source_identities.append(source_identity)
         target_identities.append(target_identity)
         target_scopes.append(target_scope)

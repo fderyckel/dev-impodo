@@ -201,6 +201,20 @@ constant matches. The [Unit dialog regression](../../../tests/integration/web/te
 checks the first lookup and reopening on Odoo 19 and 20 with local and remote
 access.
 
+The `/mapping/linked-matching-fields` command uses the same access preparation
+and refresh before discovering identifiers for a linked record. It validates
+the requested relationship before contacting Odoo. Company and credential
+changes reuse the saved selection; a pending schema review blocks discovery
+and exposes **Review Odoo changes** beside the field. Remote reads run outside
+the local operation scopes. The JSON response leaves unsaved form values in
+place, and a failed request offers **Retry loading Odoo matching fields**.
+The [company lookup regressions](../../../tests/integration/web/test_linked_matching_company.py)
+cover both supported majors, local and remote readers, an unrelated custom
+relationship, repeated reads, changed fields, rejected input and retry.
+The [browser regression](../../../tests/e2e/test_linked_matching_company.py)
+chooses the company after capturing fields, retries with unsaved identity
+choices, and saves and reopens the resulting parent BoM lookup.
+
 When a saved model catalogue exists, that refresh also reads the lightweight
 `ir.model` choices and verifies their read access. The JSON-2 session reuses
 one connector and target fingerprint for catalogue and field reads. Their
@@ -271,6 +285,28 @@ cover saving, reopening, checking, preparation, Recipe evidence and final
 comparison for both Odoo majors and local and remote access. Missing and
 ambiguous tags remain blocking in Final review; incompatible returned metadata
 cannot become supporting evidence.
+
+Relational identity and scope components use the same explicit linked-field
+discovery as ordinary Many2one mappings. The chooser derives its parent model
+and relationship from the captured schema, and the shared form helper accepts
+one source column and one direct text identifier for existing records only.
+`IdentityComponentMapping.selected_matching_field` carries that intent through
+supporting-data closure, grouped lookup capture, Recipe publication and Recipe
+application. False markers are omitted from serialized mappings, preserving
+historical evidence hashes. The existing metadata eligibility and exact-match
+checks remain authoritative; choosing a field does not assert global uniqueness.
+
+The identity editor reuses the existing `linked-matching-fields` command and
+the linked-value JavaScript loader. Regression fixtures compare the complete
+SQL sequence, physical connections and schema checks before and after adding a
+linked identity scope. They require identical discovery work, one grouped
+record request for distinct source values, and no retained DuckDB owner at
+Odoo-reader entry. Both Odoo majors, local and remote readers, and an unrelated
+custom model exercise saving, reopening, preparation and Recipe rebinding.
+The [identity field chooser tests](../../../tests/e2e/mapping-identity-matching-field.test.cjs)
+also cover loading custom fields without linked-value controls, retaining the
+current choice after a failed discovery, and rejecting an incoming-record
+switch while an existing-record field is selected.
 
 Related-data recovery stays inside Match data.
 [`SupportingReviewRequiredError`](../../../src/impodo/domain/workspace/supporting_review.py)
@@ -459,6 +495,43 @@ checks typed values, selecting the parent, and saving the portable rule. Set
 `IMPODO_PARENT_LOOKUP_SCREENSHOT=docs/images/user/11-parent-account-lookup.png`
 and run `tests.e2e.test_constant_record_lookup` with Playwright to reproduce
 the fictional 1440 by 1024 capture.
+
+Company-dependent linked fields reuse the selected operation company. Their
+constant cards show that company and distinguish the exact matching value from
+the filter applied to choices already loaded. The version-qualified reference
+policy offers account code and exact account name without inventing a
+`company_id` scope on `account.account`. Account code is a candidate whose
+uniqueness must still be proved in the selected company.
+
+For these fields, `Json2ReadConnector.linked_lookup_domain` reads the current
+parent field's `fields_get` domain before requesting records. The closed
+`linked_value_domain` interpreter resolves only literals, list concatenation,
+and `allowed_company_ids[0]`. It preserves Odoo's full company and field rule,
+including the payable or receivable restriction. It rejects unsupported dynamic
+expressions rather than evaluating them or reading an unrestricted list.
+The fixed local shell implements the same closed interpreter and rolls back
+after successful and rejected reads. Both transports check that matching and
+filter fields exist before `search_read`. Supporting lookups do not request
+creation defaults.
+
+Field-filtered results remain ephemeral even when the operator loads a list.
+They cannot satisfy another linked field's lookup or a complete-catalogue
+request. Save progress retains the portable identifier; Check matches and
+Recipe runs retain their separate evidence checks. The
+[company-dependent route tests](../../../tests/integration/web/test_company_dependent_lookup.py)
+cover both majors and access modes, bounded local database work, save and
+reopen, cache isolation, and Recipe evidence. The
+[transport tests](../../../tests/integration/odoo/test_linked_lookup_domains.py)
+check the outbound domain, fields and row limit, including unrelated custom
+models and rejection before record reads. The
+[browser journey](../../../tests/e2e/test_company_dependent_lookup.py)
+checks selecting and reopening a payable account. Its optional
+`IMPODO_PAYABLE_LOOKUP_SCREENSHOT` path captures fictional data for visual
+review when browser execution is available.
+The [editor checks](../../../tests/e2e/mapping-constant-company.test.cjs) execute
+the actual browser script without opening a socket. They cover exact code and
+name controls, filtering loaded choices, selecting one value, and retrying a
+failed check without losing the entered account.
 
 The browser requires each key and scope value while the constant provider is
 selected. A blank or whitespace-only value opens its enclosing cards and

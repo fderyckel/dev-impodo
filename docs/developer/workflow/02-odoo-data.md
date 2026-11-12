@@ -311,7 +311,11 @@ local operation boundaries before reading and before publishing. Recipe
 publication uses the verified lookup's field contracts; subsequent runs check
 their own supporting metadata and values. Reference policy version 7 changes the
 current hashes for both majors. Historical hashes remain readable, while
-currentness checks require renewed review and lookup evidence.
+currentness checks require renewed review and lookup evidence. Reference policy
+version 8 adds company-context account-code candidates and exact account-name
+choices for both majors. It does not treat account codes as globally unique or
+introduce a singular company field on accounts. Current lookups must be
+captured under the new policy before reuse.
 
 The save and check routes authorize the request Actor before governed work.
 They expose no generic Odoo method or write. The complete decisions, read

@@ -87,6 +87,7 @@ class PreflightRequirementPlan:
                     "model": item.model,
                     "fields": list(item.fields),
                     "domain": portable_value(item.domain),
+                    **({"external_ids": list(item.external_ids)} if item.external_ids else {}),
                 }
                 for item in self.record_requests
             ],
@@ -178,9 +179,16 @@ def plan_preflight_requirements(
 
     fields: dict[str, set[str]] = defaultdict(set)
     domain_chunks: dict[str, list[list[Any]]] = defaultdict(list)
+    external_keys: dict[str, set[str]] = defaultdict(set)
     for dataset in plan.datasets:
         dataset_records = records_by_dataset.get(dataset.name, ())
-        if dataset_records:
+        if dataset_records and dataset.source_record_identity is not None:
+            fields[dataset.target.model].update(_dataset_target_fields(dataset))
+            external_keys[dataset.target.model].update(
+                str(record.target_identity[0]) for record in dataset_records
+                if len(record.target_identity) == 1 and record.target_identity[0] is not None
+            )
+        elif dataset_records:
             dataset_domains = _dataset_identity_domain_chunks(
                 plan,
                 dataset,
@@ -285,6 +293,13 @@ def plan_preflight_requirements(
             domain_chunks[resolve.target_model].extend(reference_domains)
 
     requests: list[RecordRequest] = []
+    for model, keys in sorted(external_keys.items()):
+        ordered = sorted(keys)
+        for start in range(0, len(ordered), maximum_keys_per_request):
+            requests.append(RecordRequest(
+                model=model, fields=tuple(sorted(fields[model])),
+                external_ids=tuple(ordered[start:start + maximum_keys_per_request]),
+            ))
     for model, chunks in sorted(domain_chunks.items()):
         unique_chunks = {
             canonical_json_bytes(portable_value(tuple(chunk))): chunk

@@ -901,6 +901,16 @@ class RecipeCompiler:
                         self._column(dataset.dataset_id, key, columns)
                         for key in dataset.source_identity_column_keys
                     ],
+                    **({"generated_ordering": {
+                        **portable(asdict(dataset.generated_ordering)),
+                        "group_column_keys": [self._column(dataset.dataset_id, key, columns) for key in dataset.generated_ordering.group_column_keys],
+                        "sort_column_keys": [self._column(dataset.dataset_id, key, columns) for key in dataset.generated_ordering.sort_column_keys],
+                    }} if dataset.generated_ordering is not None else {}),
+                    **({"source_record_identity": {
+                        "namespace": dataset.source_record_identity.namespace,
+                        "allow_new_records": dataset.source_record_identity.allow_new_records,
+                        "existing_external_id_column_key": self._column(dataset.dataset_id, dataset.source_record_identity.existing_external_id_column_key, columns) if dataset.source_record_identity.existing_external_id_column_key else None,
+                    }} if dataset.source_record_identity is not None else {}),
                     "scope": [
                         self._identity(item, dataset.dataset_id, columns, dataset_ids)
                         for item in dataset.target_scope
@@ -1281,6 +1291,10 @@ class RecipeCompiler:
             write_fields.setdefault(mapping.target_model, set()).update(
                 mapping.approved_write_fields
             )
+            if mapping.generated_ordering is not None:
+                ordering_field = mapping.generated_ordering.target_field
+                write_fields[mapping.target_model].add(ordering_field)
+                field_roles.setdefault((mapping.target_model, ordering_field), set()).add("mapped_field")
             for identity in (*mapping.target_identity, *mapping.target_scope):
                 for field in identity.target_fields:
                     field_roles.setdefault((mapping.target_model, field), set()).add(

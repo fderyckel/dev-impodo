@@ -19,14 +19,19 @@ import os
 import re
 import subprocess
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
+from impodo.adapters.odoo.external_identity import external_id_domain
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.domain.mapping.create_field_policy import CREATE_DEFAULT_TYPES
+from impodo.domain.mapping.source_record_identity import (
+    SOURCE_EXTERNAL_IDS_FIELD,
+    source_record_external_ids,
+)
 from impodo.domain.odoo.company import (
     CompanyReferenceCheck,
     OdooCompanyAccess,
@@ -85,6 +90,7 @@ _FIELD_ATTRIBUTES = (
     "related",
     "translate",
     "company_dependent",
+    "domain",
     "searchable",
     "sortable",
     "exportable",
@@ -304,6 +310,8 @@ payload = {"database": env.cr.dbname, "version": release.version,
         *,
         related_models: Sequence[str] = (),
         discover_matching_fields: bool = False,
+        validate_lookup_fields: bool = False,
+        lookup_relationship: tuple[str, str] | None = None,
     ) -> tuple[MetadataSnapshot, RecordSnapshot]:
         """Capture one consistent, read-only metadata and record snapshot.
 
@@ -335,6 +343,15 @@ payload = {"database": env.cr.dbname, "version": release.version,
             *(item.model for item in metadata),
             *(item.model for item in records),
         }
+        if lookup_relationship is not None and (
+            lookup_relationship[0] not in workspace_state.intended_models
+            or _FIELD_NAME.fullmatch(lookup_relationship[1]) is None
+            or len(metadata) != 1 or len(records) != 1
+            or metadata[0].model != records[0].model
+            or workspace_state.odoo_company is None
+        ):
+            raise LocalOdooReaderError("Choose the company and one current linked field before checking its records.")
+        validate_lookup_fields = validate_lookup_fields or lookup_relationship is not None
         if not requested_models or not requested_models.issubset(permitted_models):
             raise LocalOdooReaderError(
                 "Local readiness requests must stay inside the project or "
@@ -350,6 +367,8 @@ payload = {"database": env.cr.dbname, "version": release.version,
                     "The local readiness metadata request is invalid."
                 )
         for request in records:
+            if request.external_ids:
+                external_id_domain(request.external_ids)
             if (
                 _MODEL_NAME.fullmatch(request.model) is None
                 or any(_FIELD_NAME.fullmatch(field) is None for field in request.fields)
@@ -361,8 +380,12 @@ payload = {"database": env.cr.dbname, "version": release.version,
         payload = self._invoke(
             workspace_state,
             profile,
-            _preflight_script(metadata, records),
+            _preflight_script(metadata, records, validate_lookup_fields=validate_lookup_fields, lookup_relationship=lookup_relationship),
         )
+        if payload.get("lookup_error"):
+            raise LocalOdooReaderError(
+                "This matching rule or linked field rule is unavailable in Odoo. Check the company for this load and choose another matching rule."
+            )
         fingerprint = self._fingerprint(workspace_state, payload)
         raw_models = payload.get("models")
         raw_records = payload.get("records")
@@ -405,6 +428,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         parsed_records: dict[str, tuple[TargetRecord, ...]] = {}
         requested_fields: dict[str, tuple[str, ...]] = {}
         request_by_model: dict[str, RecordRequest] = {}
+        external_models = {request.model for request in records if request.external_ids}
         for request in records:
             previous = request_by_model.setdefault(request.model, request)
             if previous.fields != request.fields:
@@ -440,9 +464,18 @@ payload = {"database": env.cr.dbname, "version": release.version,
                         field: item.get(field)
                         for field in request.fields
                         if field in item
-                    },
+                    } | ({SOURCE_EXTERNAL_IDS_FIELD: tuple(item.get(SOURCE_EXTERNAL_IDS_FIELD, ()))} if request.model in external_models else {}),
                 )
                 previous = model_records.setdefault(odoo_id, record)
+                if previous != record and request.model in external_models:
+                    old_values, new_values = dict(previous.values), dict(record.values)
+                    old_aliases = source_record_external_ids(old_values)
+                    new_aliases = source_record_external_ids(new_values)
+                    old_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                    new_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                    if old_values == new_values:
+                        model_records[odoo_id] = replace(record, values=new_values | {SOURCE_EXTERNAL_IDS_FIELD: tuple(sorted(set(old_aliases) | set(new_aliases)))})
+                        continue
                 if previous != record:
                     raise LocalOdooReaderError(
                         "The local readiness record chunks conflict."
@@ -451,6 +484,8 @@ payload = {"database": env.cr.dbname, "version": release.version,
                 sorted(model_records.values(), key=lambda item: item.odoo_id)
             )
             requested_fields[request.model] = tuple(request.fields)
+            if request.model in external_models:
+                requested_fields[request.model] += (SOURCE_EXTERNAL_IDS_FIELD,)
 
         return (
             MetadataSnapshot(
@@ -786,6 +821,9 @@ payload = {{
 def _preflight_script(
     metadata_requests: tuple[MetadataRequest, ...],
     record_requests: tuple[RecordRequest, ...],
+    *,
+    validate_lookup_fields: bool = False,
+    lookup_relationship: tuple[str, str] | None = None,
 ) -> str:
     metadata_payload = [
         {"model": item.model, "fields": list(item.fields), "discover": item.all_fields}
@@ -797,6 +835,7 @@ def _preflight_script(
             "fields": list(item.fields),
             "domain": _json_value(item.domain),
             "limit": item.limit,
+            **({"external_ids": list(item.external_ids), "external_domain": external_id_domain(item.external_ids)} if item.external_ids else {}),
         }
         for item in record_requests
     ]
@@ -810,6 +849,7 @@ def _preflight_script(
         f"""
 metadata_requests = json.loads({encoded_metadata!r})
 record_requests = json.loads({encoded_records!r})
+{_linked_lookup_script(lookup_relationship)}
 captured_models = {{}}
 for request in metadata_requests:
     model = env[request["model"]].sudo()
@@ -817,6 +857,9 @@ for request in metadata_requests:
         allfields=request["fields"],
         attributes={list(_FIELD_ATTRIBUTES)!r},
     )
+    if {validate_lookup_fields!r} and any(name not in fields for name in request["fields"]):
+        print({_OUTPUT_MARKER!r} + json.dumps({{"lookup_error": "FIELD_UNAVAILABLE"}}))
+        raise SystemExit(0)
     required_default_fields = sorted(
         field_name
         for field_name, details in fields.items()
@@ -828,12 +871,26 @@ for request in metadata_requests:
         "description": model._description,
         "fields": fields,
         "create_defaults": (
-            {{}} if request["discover"] else model.default_get(required_default_fields)
+            {{}} if request["discover"] or {validate_lookup_fields!r} else model.default_get(required_default_fields)
         ),
     }}
 captured_records = {{}}
 for request in record_requests:
     model = env[request["model"]].sudo().with_context(active_test=False)
+    bindings = {{}}
+    if request.get("external_ids"):
+        binding_rows = env["ir.model.data"].sudo().search_read(
+            request["external_domain"], ["module", "name", "model", "res_id"],
+            limit=len(request["external_ids"]) + 1, order="id asc",
+        )
+        seen = set()
+        for binding in binding_rows:
+            external_id = binding["module"] + "." + binding["name"]
+            if external_id not in request["external_ids"] or external_id in seen or binding["model"] != request["model"] or type(binding["res_id"]) is not int or binding["res_id"] <= 0:
+                raise ValueError("The source record External ID bindings are inconsistent")
+            seen.add(external_id)
+            bindings.setdefault(binding["res_id"], []).append(external_id)
+        request["domain"] = [("id", "in", sorted(bindings))] + list(request["domain"])
     offset = 0
     rows = []
     while True:
@@ -856,6 +913,11 @@ for request in record_requests:
         if len(page) < page_limit:
             break
         offset += len(page)
+    if request.get("external_ids"):
+        if set(row["id"] for row in rows) != set(bindings):
+            raise ValueError("A source record External ID points to a missing or inaccessible record")
+        for row in rows:
+            row[{SOURCE_EXTERNAL_IDS_FIELD!r}] = sorted(bindings[row["id"]])
     captured_records.setdefault(request["model"], []).extend(rows)
 company_checks = []
 company_groups = {{}}
@@ -885,6 +947,71 @@ payload = {{
 }}
 """
     )
+
+
+def _linked_lookup_script(relationship: tuple[str, str] | None) -> str:
+    """Embed the closed domain interpreter in the isolated Odoo Python process.
+
+    The local installation cannot import Impodo. Parity tests exercise this
+    fixed helper against the host's linked_value_domain interpreter.
+    """
+    if relationship is None:
+        return ""
+    return f'''
+import ast
+import re
+def reject_lookup():
+    print({_OUTPUT_MARKER!r} + json.dumps({{"lookup_error": "FIELD_RULE_UNAVAILABLE"}}))
+    raise SystemExit(0)
+def lookup_value(node):
+    if isinstance(node, ast.Constant) and (node.value is None or type(node.value) in (str, int, bool)):
+        return node.value
+    if isinstance(node, (ast.List, ast.Tuple)):
+        return [lookup_value(item) for item in node.elts]
+    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "allowed_company_ids" and isinstance(node.slice, ast.Constant) and type(node.slice.value) is int and node.slice.value == 0:
+        return env.company.id
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = lookup_value(node.left), lookup_value(node.right)
+        if isinstance(left, list) and isinstance(right, list):
+            return left + right
+    raise ValueError("Unsupported linked field rule")
+parent_model, parent_field = {relationship!r}
+details = env[parent_model].fields_get([parent_field], attributes=["type", "relation", "company_dependent", "domain"]).get(parent_field, {{}})
+if details.get("type") != "many2one" or details.get("relation") != record_requests[0]["model"] or details.get("company_dependent") is not True:
+    reject_lookup()
+try:
+    expression = details.get("domain")
+    if isinstance(expression, str):
+        if len(expression) > 8192:
+            raise ValueError("Oversized field rule")
+        root = ast.parse(expression, mode="eval").body
+        if sum(1 for _ in ast.walk(root)) > 256:
+            raise ValueError("Oversized field rule")
+        domain = lookup_value(root)
+    else:
+        domain = expression
+    if not isinstance(domain, (list, tuple)) or len(domain) > 256:
+        raise ValueError("Invalid field rule")
+    remaining = 0
+    for item in reversed(domain):
+        if isinstance(item, str):
+            arity = {{"|": 2, "&": 2, "!": 1}}.get(item)
+            if arity is None or remaining < arity:
+                raise ValueError("Invalid field rule")
+            remaining += 1 - arity
+        elif isinstance(item, (list, tuple)) and len(item) == 3 and isinstance(item[0], str) and re.fullmatch(r"[a-zA-Z][a-zA-Z0-9_]{{0,127}}", item[0]) and isinstance(item[1], str) and item[1] in ("=", "!=", "in", "not in", "parent_of", "child_of", "like", "ilike", "=like", "=ilike", ">", ">=", "<", "<="):
+            value = item[2]
+            if not (value is None or type(value) in (str, int, bool, float) or isinstance(value, (list, tuple)) and len(value) <= 1000 and all(part is None or type(part) in (str, int, bool, float) for part in value)):
+                raise ValueError("Invalid field rule")
+            remaining += 1
+        else:
+            raise ValueError("Invalid field rule")
+    fields = [item[0] for item in domain if isinstance(item, (list, tuple))]
+    metadata_requests[0]["fields"] = list(dict.fromkeys(metadata_requests[0]["fields"] + fields))
+    record_requests[0]["domain"] = list(record_requests[0]["domain"]) + list(domain)
+except (ValueError, SyntaxError, RecursionError, TypeError):
+    reject_lookup()
+'''
 
 
 def _json_value(value: Any) -> Any:

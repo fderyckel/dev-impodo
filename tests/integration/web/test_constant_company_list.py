@@ -318,7 +318,9 @@ class ConstantCompanyListTests(ProjectSetupBrowserTestCase):
                 app_icon=lambda *_args: "",
             )
             if shows_parent:
-                self.assertIn('data-target-field="parent_id"', html)
+                self.assertIn('id="relationship-0-parent_id"', html)
             else:
-                self.assertNotIn('data-target-field="parent_id"', html)
+                # The identity editor also names parent_id; only its separate
+                # linked-field card must be absent here.
+                self.assertNotIn('id="relationship-0-parent_id"', html)
                 self.assertIn("This linked field is part of the matching rule", html)

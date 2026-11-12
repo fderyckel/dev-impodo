@@ -627,6 +627,9 @@ stages:
       - src/impodo/web/presenters/mapping_view.py::_build_dataset_catalog_projection
     tests:
       - tests/integration/web/test_linked_matching_fields.py
+      - tests/integration/web/test_linked_matching_company.py
+      - tests/e2e/test_linked_matching_company.py
+      - tests/e2e/mapping-identity-matching-field.test.cjs
       - tests/integration/web/test_update_only_import.py
       - tests/domain/mapping/test_update_only.py
       - tests/e2e/mapping-target-mode.test.cjs
@@ -663,6 +666,10 @@ stages:
       - tests/integration/web/test_odoo_company.py
       - tests/integration/web/test_constant_record_lookup.py
       - tests/e2e/test_constant_record_lookup.py
+      - tests/integration/web/test_company_dependent_lookup.py
+      - tests/integration/odoo/test_linked_lookup_domains.py
+      - tests/e2e/test_company_dependent_lookup.py
+      - tests/e2e/mapping-constant-company.test.cjs
       - tests/integration/web/test_mapping_supporting_recovery.py
       - tests/integration/web/test_supporting_conflict_recovery.py
       - tests/e2e/mapping-supporting-review.test.cjs
@@ -829,6 +836,7 @@ stages:
       - src/impodo/web/routers/summary.py
       - src/impodo/web/routers/preflight.py
       - src/impodo/web/routers/business_expectations.py
+      - src/impodo/web/routers/attention_export.py
     templates:
       - src/impodo/web/templates/workspace_summary.html
       - src/impodo/web/templates/workspace_business_expectations.html
@@ -859,6 +867,12 @@ stages:
       - src/impodo/adapters/duckdb/navigation_repository.py::WorkspaceNavigationRepository
       - src/impodo/adapters/duckdb/foundation_operation_intents.py::FoundationOperationIntents.reserve_preflight_comparison
       - src/impodo/application/preflight_service.py::PreflightService.review_workbook_evidence
+      - src/impodo/application/preflight_service.py::PreflightService.attention_export
+      - src/impodo/application/workspace/review/attention_export.py::capture_attention_export
+      - src/impodo/domain/preflight/attention_projection.py::project_attention_export
+      - src/impodo/domain/preflight/attention.py::AttentionExport
+      - src/impodo/domain/preflight/attention_lineage.py::attention_column_origins
+      - src/impodo/adapters/artifacts/attention_workbook.py::build_attention_workbook
       - src/impodo/domain/preflight/mapping_summary.py::workbook_mapping_rules
       - src/impodo/domain/execution/planner.py::plan_preflight_requirements
       - src/impodo/application/odoo_comparison_service.py::prepare_odoo_comparison
@@ -885,6 +899,14 @@ stages:
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
       - tests/domain/preflight/test_review_workbook.py
+      - tests/integration/web/test_attention_export.py
+      - tests/integration/web/test_attention_recipe_export.py
+      - tests/integration/web/test_attention_join_export.py
+      - tests/e2e/test_attention_export.py
+      - tests/e2e/attention-export.test.cjs
+      - tests/domain/preflight/test_attention_guidance.py
+      - tests/domain/preflight/test_attention_lineage.py
+      - tests/integration/artifacts/test_attention_workbook.py
       - tests/domain/preflight/test_reports.py
       - tests/domain/preflight/test_deferred_scope.py
       - tests/domain/preflight/test_deferred_execution.py

@@ -45,6 +45,93 @@ qualification boundary and its grouped 500-ID reads.
 
 ## Implementation flow
 
+### Correction download before readiness
+
+The [correction export router](../../../src/impodo/web/routers/attention_export.py)
+serves **Download rows needing attention** independently
+of the full review package's readiness checks. Its GET action captures current
+preparation findings before comparison and adds the verified current comparison
+manifest when one exists. It retains `PROTECTED_EVIDENCE_READ` authorization,
+parent-workspace access, source and mapping bindings, schema governance,
+retention context, and exact quality hashes. Resolving the exported findings
+is not an entry condition. Comparison and load eligibility remain unchanged.
+
+The authenticated `/summary/attention/counts` route uses the same capture and
+freshness checks without reading original source values or generating Excel.
+`attention-export.js` requests these counts after the page loads. Its optional
+problem summary renders the same correction advice as the workbook, and a
+failed request offers **Retry export counts** without disabling the download.
+[`AttentionExport`](../../../src/impodo/domain/preflight/attention.py) owns the
+distinct-record count and shared problem summaries.
+
+`PreflightService.attention_export` delegates
+[capture](../../../src/impodo/application/workspace/review/attention_export.py)
+through existing evidence ports.
+[`project_attention_export`](../../../src/impodo/domain/preflight/attention_projection.py)
+builds a complete record-and-finding worklist,
+including saved dependency causes and full duplicate identity and scope. It
+distinguishes the source row identifier from an invalid Odoo matching value.
+It excludes advisory-only effects, informational comparison notes, and explicit
+row-inclusion exclusions. Records excluded by a failed saved data check remain
+in the correction worklist.
+Reviewed effective rows supply values when resolution is active.
+
+[`attention_column_origins`](../../../src/impodo/domain/preflight/attention_lineage.py)
+resolves renamed columns through the saved preparation rules to verified
+physical snapshot headings. It indexes column provenance without executing
+joins or dependency closure. The derived-plan owner is read only when the
+saved preparation uses it, and its hash is checked again before download.
+[Column-origin tests](../../../tests/domain/preflight/test_attention_lineage.py)
+also exercise a chain of saved joins with renamed outputs.
+
+`read_attention_sources` reads only affected physical file rows and mapped
+source columns from hash-verified Parquet snapshots.
+[`build_attention_workbook`](../../../src/impodo/adapters/artifacts/attention_workbook.py)
+creates Overview, Needs attention, affected-data sheets, and Duplicate groups
+when applicable. Duplicate membership is indexed once and large groups use
+cross-references. Source strings remain literal text; missing evidence, actual
+blanks, and restricted values have distinct labels. Odoo-source business values
+are removed before artifact generation.
+
+The complete read and Excel build execute in `run_page_read` on one worker.
+No per-row repository read, dependency-graph reevaluation, or Odoo call occurs.
+Authorization and current bindings are rechecked before completed bytes are
+returned with `Cache-Control: no-store`. The download creates no persisted
+artifact, so a failed generation cannot publish a partial workbook. It splits
+large row sets into numbered sheets and rejects Excel cell or column limits
+explicitly. This synchronous design needs measurement before claiming a live
+latency or maximum-volume guarantee.
+
+The writer streams worksheet rows and shares immutable styles. It retains
+finding indexes and hyperlinks while releasing worksheet XML files after both
+successful and failed generation. A local 10,000-record duplicate-group fixture
+completed in approximately 2.5 seconds with 28 MiB of additional process memory.
+This measurement covers workbook generation and complete output checks; it is
+not a live route latency or maximum-volume guarantee.
+
+[Authenticated export tests](../../../tests/integration/web/test_attention_export.py)
+cover preparation-only and blocked-comparison downloads, duplicate peers,
+inherited rows, value restrictions, authorization, freshness, and bounded
+database access. [Workbook tests](../../../tests/integration/artifacts/test_attention_workbook.py)
+cover literal text, source coordinates, links, highlighting, row splitting,
+and explicit Excel limits.
+[Recipe workspace tests](../../../tests/integration/web/test_attention_recipe_export.py)
+exercise preparation and comparison exports for Odoo 19 and 20.
+[JavaScript interaction tests](../../../tests/e2e/attention-export.test.cjs)
+cover complete counts, shared correction advice, stale evidence, and retry.
+[Guidance tests](../../../tests/domain/preflight/test_attention_guidance.py)
+distinguish missing records from unavailable fields and unverifiable evidence.
+[Combined-source tests](../../../tests/integration/web/test_attention_join_export.py)
+verify original values and both contributing files after saved column aliases
+on Odoo 19 and 20.
+[Browser qualification](../../../tests/e2e/test_attention_export.py) verifies
+that the download is visible without scrolling and downloads a workbook before
+comparison. Set `IMPODO_ATTENTION_SCREENSHOT` to
+`docs/images/user/16k-final-review-attention-export.png` when running that test
+with Playwright to refresh the fictional authenticated screenshot.
+
+### Comparison publication
+
 `summary.py` renders the current local result. `preparation.py` can create the
 prepared review input. In the production launcher, `preflight.py` enqueues
 `PreflightService.compare` through `PreflightJobManager`, redirects immediately

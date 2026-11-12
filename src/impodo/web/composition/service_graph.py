@@ -1097,6 +1097,7 @@ def build_preparation_service_graph(
         resolution_repository,
         schemas,
         odoo_provenance,
+        derived=derived_entities,
     )
     return PreparationServiceGraph(
         quality=quality,
