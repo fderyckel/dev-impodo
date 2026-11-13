@@ -273,15 +273,23 @@ matching rule are separate choices, even when both use **Reference**.
 ![Identify records connects the Reference source column with the Odoo Reference matching rule in one table task.](../../images/user/11s-stage3-identify-records.png)
 
 In **Match tables**, **Check saved identities** tests your saved record choices.
-The detailed **Identity health** results under **Check and resolve** separate
-three facts:
+The detailed **Identity health** results under **Check and resolve** distinguish
+these states:
 
 - **Suggested** means Impodo can propose a governed Odoo matching rule, but
   the current mapping has not saved it.
+- **Incomplete identity** names a missing **Unique row identifier** or the
+  source values still needed for the Odoo matching rule. Use **Review matching
+  rule** to complete and save that choice.
 - **Chosen - not tested** means the source identifier and Odoo rule are saved,
   but they have not been proved against current data.
 - **Tested on current data** means the explicit read-only check examined the
   included source rows and the Odoo records visible to the current read user.
+
+When two source tables use the same Odoo record type, complete **Unique row
+identifier** and the parent lookup for each table. Each table keeps its own
+parent provider. A matching rule confirmed in **Odoo data** does not choose
+which source columns identify the rows in those tables.
 
 After **Save progress**, select **Check saved identities**. One bounded Odoo
 read also updates the relationship-based table-order suggestion. For each
@@ -290,6 +298,10 @@ included rows, unique source identities, blank identity rows, repeated source
 rows and groups, exact and ambiguous Odoo keys, new candidates, existing
 matches, and blocked rows. The card never exposes source key values or numeric Odoo
 record IDs to the browser.
+
+If the check fails, Identity health shows the reason beside **Check saved
+identities**. Review the Odoo connection or read access named in the message,
+then run the check again. A failed check keeps the previous saved result.
 
 If a card says **Tested - needs attention**, use its review action to inspect
 the cause. Blank identities need a source value or a different row rule.

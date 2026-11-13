@@ -18,6 +18,8 @@
     {% endif %}
   </div>
 
+  {% if definition %}<p><a href="/projects/{{ project.project_id }}/odoo-database-bindings?saved_data_id={{ definition.saved_data_id }}">Review a database reset or rebind the source</a></p>{% endif %}
+
   {% if job %}
     {% set job_status = job.status.value if job.status.value is defined else job.status %}
     {% set active_job = job_status in ('QUEUED', 'RUNNING') %}

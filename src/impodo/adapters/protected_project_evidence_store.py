@@ -30,6 +30,8 @@ _ARTIFACT_KINDS = frozenset(
         "correction-confirmations",
         "odoo-source-filters",
         "destination-create-fields",
+        "destination-identity-aliases",
+        "destination-identity-alias-rules",
     }
 )
 

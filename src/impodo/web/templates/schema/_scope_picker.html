@@ -4,13 +4,13 @@
   <input type="hidden" name="scope_fields_{{ scope_index }}" value="{{ view.scope_fields|join(', ') }}" data-combined-scope-fields>
   <div class="key-scope-box">
     <div class="key-scope-current">
-      <div class="key-scope-chips" data-scope-selected>
+      <div class="key-scope-chips" role="group" aria-label="Selected scope fields" data-scope-selected>
         {% for name in view.scope_fields %}
           <span class="key-scope-chip">{{ view.field_labels.get(name, name) }}</span>
         {% endfor %}
       </div>
       <span class="muted" data-scope-none {% if view.scope_fields %}hidden{% endif %}>No additional scope</span>
-      <button type="button" class="key-scope-clear" data-scope-clear hidden>Clear</button>
+      <button type="button" class="key-scope-clear" aria-label="Clear all scope fields" data-scope-clear hidden>Clear</button>
     </div>
     <details data-scope-disclosure>
       <summary class="key-scope-selection" data-key-scope-selection>Choose fields</summary>
@@ -34,7 +34,7 @@
           </label>
         {% endfor %}
       </div>
-      <p class="muted key-scope-empty" data-scope-no-results hidden>No matching fields.</p>
+      <p class="muted key-scope-empty" role="status" data-scope-no-results hidden>No matching fields.</p>
     </details>
   </div>
   <small>Add a parent, company, or another field when values can repeat.</small>

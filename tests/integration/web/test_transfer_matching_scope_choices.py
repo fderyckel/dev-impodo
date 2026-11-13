@@ -200,6 +200,10 @@ class TransferMatchingScopeChoiceTests(unittest.TestCase):
                     "selected": ("code",),
                     "fields": ({"name": "code"},),
                     "scope_fields": ({"name": "parent_id"},),
+                    "identity_alias_prefix": "identity_alias__x.line",
+                    "identity_alias_rows": (
+                        {"index": 0, "source_value": "", "target_value": ""},
+                    ),
                 }
             ],
             "field_rows": [

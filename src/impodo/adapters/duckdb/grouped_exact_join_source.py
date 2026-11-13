@@ -32,14 +32,14 @@ from impodo.domain.structural import JoinKind, structural_dataset_id
 from impodo.domain.workspace.contracts import SourceDataset, SourceSelection
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
-    DerivedEntityRule,
     HierarchyConsumerBinding,
+    LookupRule,
     hierarchy_consumer_values,
 )
 
 from .database import DuckDbWorkspaceDatabase
 from .exact_join_group_evaluator import parsed_join_key_expression
-from .lookup_preparation_source import iter_lookup_batches
+from .lookup_preparation_source import iter_lookup_batches, project_lookup_values
 
 configure_columnar_runtime()
 
@@ -85,7 +85,7 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
         self._connection_factory = database.connection_factory
 
     def iter_lookup_batches(
-        self, *, rule: DerivedEntityRule, link: DerivedDatasetLink,
+        self, *, rule: LookupRule, link: DerivedDatasetLink,
         effective_dataset: SourceDataset, snapshot: SourceSnapshot, path: Path,
         batch_size: int,
     ) -> Iterator[GroupedExactJoinBatch]:
@@ -94,6 +94,17 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
         yield from iter_lookup_batches(self._connection_factory, rule=rule, link=link,
             effective_dataset=effective_dataset, snapshot=snapshot, path=path,
             batch_size=batch_size)
+
+    def project_lookup_values(
+        self, *, rule: LookupRule, link: DerivedDatasetLink,
+        snapshot: SourceSnapshot, path: Path, column_keys: Sequence[str],
+        maximum_values: int | None = None,
+    ) -> pl.DataFrame:
+        """Read generated columns without transporting physical row membership."""
+        return project_lookup_values(
+            self._connection_factory, rule=rule, link=link, snapshot=snapshot,
+            path=path, column_keys=column_keys, maximum_values=maximum_values,
+        )
 
     def project_values(
         self,

@@ -10,6 +10,7 @@ from impodo.domain.matching_order import (
     MatchingIdentityNotCheckableReason,
     MatchingIdentityResult,
     MatchingOrderCheck,
+    MatchingOrderCheckStatus,
 )
 
 _UNCHECKED_MESSAGES = {
@@ -82,6 +83,12 @@ def identity_health_view(
     return {
         "cards": cards,
         "running": running,
+        "failure_message": (
+            check_attempt.failure_message
+            if check_attempt is not None
+            and check_attempt.status is MatchingOrderCheckStatus.FAILED
+            else ""
+        ),
         "can_start": working_draft_is_current and not running,
         "check_url": f"/workspaces/{workspace_id}/mapping/order/check",
         "checked_count": sum(bool(card["checked"]) for card in cards),
@@ -121,6 +128,17 @@ def _identity_card(
     if not rule_label and selected_key is not None:
         rule_label = " + ".join((*selected_key.key_fields, *selected_key.scope_fields))
     chosen = bool(mapping is not None and selected_key is not None)
+    incomplete_message = ""
+    if chosen and mapping is not None and not mapping.source_identity_column_keys:
+        incomplete_message = (
+            "Choose the Unique row identifier, then save your matching choices "
+            "before checking Odoo."
+        )
+    elif chosen and mapping is not None and not mapping.target_identity:
+        incomplete_message = (
+            "Choose the source values for the Odoo matching rule, then save "
+            "your matching choices before checking Odoo."
+        )
     status_label, status_class, message = _identity_state(
         result,
         chosen=chosen,
@@ -128,6 +146,7 @@ def _identity_card(
         live_check_current=live_check_current,
         running=running,
         schema_changed=schema_changed,
+        incomplete_message=incomplete_message,
     )
     result_counts = result if result is not None and result.checked else None
     review_choices_url = ""
@@ -225,6 +244,7 @@ def _identity_state(
     live_check_current: bool,
     running: bool,
     schema_changed: bool,
+    incomplete_message: str,
 ) -> tuple[str, str, str]:
     if running:
         return (
@@ -232,6 +252,8 @@ def _identity_state(
             "review",
             "Impodo is checking the saved identity against current data.",
         )
+    if incomplete_message:
+        return "Incomplete identity", "review", incomplete_message
     if has_check and not live_check_current:
         return (
             "Needs refresh",
@@ -260,7 +282,9 @@ def _identity_state(
         )
     if result is not None:
         return (
-            "Chosen - not tested",
+            "Incomplete identity"
+            if result.not_checkable_reason is MatchingIdentityNotCheckableReason.MAPPING_INCOMPLETE
+            else "Chosen - not tested",
             "review",
             (
                 _UNCHECKED_MESSAGES.get(result.not_checkable_reason)

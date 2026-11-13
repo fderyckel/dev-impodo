@@ -9,6 +9,10 @@ The resulting ``DatasetMapping`` values are a semantic projection.  Protected
 source Odoo identifiers are still resolved through the captured relationship
 crosswalk; ``source_column_keys`` describe the portable business-key values
 produced by that crosswalk, not numeric Odoo IDs.
+
+Reviewed identity aliases remain protected crosswalk evidence. This projection
+describes their effective destination key fields for dependency scheduling; it
+does not independently evaluate the original frozen rows or publish raw aliases.
 """
 
 from __future__ import annotations

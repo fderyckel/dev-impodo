@@ -355,6 +355,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             jobs=job_runtimes,
             infrastructure=WebInfrastructureDependencies(
                 destination_create_fields=_fake("destination_create_fields"),
+                destination_identity_aliases=_fake("destination_identity_aliases"),
                 artifacts=artifacts,
                 authorization=authorization,
                 jobs=_fake("job_dispatcher"),

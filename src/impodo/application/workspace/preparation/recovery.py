@@ -71,6 +71,23 @@ class PreparationRecoveryService:
         """Recover only the requested Recipe mapping over its current frozen data."""
 
         self.mappings.authorization.require(actor, Capability.MAPPING_SUBMIT, workspace_id=workspace_id)
+        return self._read_current(workspace_id, mapping_hash)
+
+    def current_for_review(
+        self, workspace_id: str, mapping_hash: str | None, *, actor: Actor,
+    ) -> RecoveredPreparation | None:
+        """Read a verified navigation result with the workspace's view authority."""
+
+        self.mappings.authorization.require(
+            actor, Capability.PROJECT_VIEW, workspace_id=workspace_id,
+        )
+        return self._read_current(workspace_id, mapping_hash)
+
+    def _read_current(
+        self, workspace_id: str, mapping_hash: str | None,
+    ) -> RecoveredPreparation | None:
+        """Verify current inputs through one shared, metadata-only projection."""
+
         if mapping_hash is None:
             return None
         physical = self.mappings.sources.get_source_selection(workspace_id)

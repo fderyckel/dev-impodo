@@ -12,6 +12,24 @@ from impodo.web.presenters.identity_health import identity_health_view
 
 
 class IdentityHealthPresenterTests(unittest.TestCase):
+    def test_missing_source_or_target_components_are_not_presented_as_chosen(self):
+        for missing, expected in (
+            ("source_identity_column_keys", "Unique row identifier"),
+            ("target_identity", "source values for the Odoo matching rule"),
+        ):
+            with self.subTest(missing=missing):
+                dataset = _dataset_view()
+                setattr(dataset["mapping"], missing, ())
+                view = identity_health_view(
+                    workspace_id="workspace:test", dataset_views=(dataset,),
+                    live_check=None, live_check_current=False,
+                    check_attempt=None, working_draft_is_current=True,
+                )
+                card = view["cards"][0]
+                self.assertEqual(card["status_label"], "Incomplete identity")
+                self.assertIn(expected, card["message"])
+                self.assertFalse(card["checked"])
+
     def test_checked_identity_projects_aggregate_counts_and_safe_action(self) -> None:
         result = MatchingIdentityResult(
             dataset_id="products",
@@ -108,7 +126,7 @@ def _dataset_view():
     return {
         "index": 0,
         "source": SimpleNamespace(dataset_id="products", name="Products"),
-        "mapping": SimpleNamespace(),
+        "mapping": SimpleNamespace(source_identity_column_keys=("row",), target_identity=("ref",)),
         "selected_key": key,
         "matching_rule_labels": {key.key_id: "Internal Reference"},
         "model": SimpleNamespace(label="Product"),

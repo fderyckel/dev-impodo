@@ -23,6 +23,7 @@ from impodo.web.preparation_performance_diagnostics import (
     PERFORMANCE_EVENT,
     sanitize_performance_event,
 )
+from impodo.web.runtime_diagnostics import _static_runtime_metadata
 
 
 def event(
@@ -241,17 +242,21 @@ class PreparationPerformanceBundleTests(unittest.TestCase):
                 recorder.record_performance_event(payload)
             recorder.close()
             with patch(
-                "impodo.web.performance_diagnostics.platform.system",
+                "impodo.web.runtime_diagnostics.platform.system",
                 return_value="Darwin",
             ):
+                _static_runtime_metadata.cache_clear()
+                self.addCleanup(_static_runtime_metadata.cache_clear)
                 data = create_diagnostic_bundle(
                     directory, build_contract=PROCESS_BUILD_CONTRACT
                 )
             with ZipFile(BytesIO(data)) as archive:
                 performance = json.loads(archive.read("performance.json"))
                 summary = archive.read("performance-summary.txt").decode()
+                manifest = json.loads(archive.read("manifest.json"))
         attempt = performance["attempts"][0]
         self.assertEqual(attempt["environment"]["operating_system"], "Windows")
+        self.assertEqual(manifest["runtime"]["operating_system"], "Darwin")
         self.assertEqual(attempt["configuration"]["polars_threads_effective"], 2)
         self.assertFalse(attempt["coverage"]["retained_history_complete"])
         self.assertEqual(attempt["coverage"]["sequence_status"], "partial")

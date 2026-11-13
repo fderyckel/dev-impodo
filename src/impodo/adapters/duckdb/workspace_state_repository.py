@@ -47,6 +47,12 @@ class WorkspaceStateRepository(DuckDbRepository):
         "audit",
     )
 
+    def can_restore_to_declared_database(
+        self, workspace_id: str, *, base_url: str, database: str,
+    ) -> bool:
+        """An isolated engine has no Organization database-declaration authority."""
+        return False
+
     def get_current_odoo_relationship_scope(
         self,
         workspace_id: str,

@@ -68,6 +68,11 @@ field metadata. Operators can select several scope fields without entering
 technical names. `schema-scope-fields.js` keeps the selected labels and ordered
 technical mirror current. It loads before `schema.js`, which owns the draft,
 conflict and confirmation states. Existing rules retain their scope order.
+The `schema/_scope_picker.html` partial groups selected labels, removal actions
+and a searchable disclosure. Scope names are mirrored in a hidden form input
+instead of a second visible editor. Search never changes selected fields, and
+Enter in the search box cannot submit the governance form. Escape closes the
+disclosure and returns focus to its summary.
 
 The governance route reads repeated `scope_choice_*` form values when the
 checkbox-presence marker is submitted. Checked fields are authoritative, so an
@@ -79,7 +84,8 @@ picker reads captured metadata only and adds no Odoo or DuckDB requests.
 The [scope-selection regressions](../../../tests/integration/web/test_stage2_scope_selection.py)
 cover saving, reopening, error recovery and clearing for Odoo 19, Odoo 20 and
 a custom model. The [interaction tests](../../../tests/e2e/schema-scope-fields.test.cjs)
-cover labelled selection, field order and removal of all scopes.
+cover labelled selection, field order, search, keyboard behaviour and removal
+of individual or all scopes.
 
 ### Company selection and protected ownership
 
@@ -218,14 +224,28 @@ Reviewed reuse, checked-default, and Odoo-managed choices take effect before
 candidate expansion. A target-catalog mapping also retains reuse intent when
 no supporting choice was saved. These rules prevent unrelated accepted tables
 from creating spurious ambiguity or missing-metadata errors.
+Relationship intents retain `source_dataset_id`. Two tables mapped to the same
+Odoo model can therefore use independently selected parent providers. Conflicts
+within one table, unknown owners, and unavailable incoming tables remain
+blocking. An inverse child collection can include several incoming tables
+whose parent mappings point to the same table, including that table's own
+hierarchy rows. These providers contribute children; they do not compete to
+supply a single parent. `MAPPING_DEFINED` records multiple fully specified table-owned
+providers on one model-field edge; it does not authorize writes or override a
+reviewed supporting choice. The
+[generic hierarchy regressions](../../../tests/domain/workspace/test_hierarchical_supporting_plan.py)
+cover locations, categories, account groups, and a custom model. The
+[persisted-review regressions](../../../tests/integration/web/test_hierarchical_supporting_review.py)
+exercise authoring and preparation for both majors in LOCAL and REMOTE modes.
 The walk follows uniquely proposed incoming models, preserves repeated uses of
 one related model as separate field edges, and deduplicates cycles. Ambiguous
 tables, unavailable incoming metadata, invalid intent, and limit exhaustion
 produce an explicitly incomplete result. A complete proposal does not prove
 relationship values or authorize reads, writes, or a stage transition.
 
-Contract version 2 binds reviewed choices and actual provider intent into the
-derived proposal hash. Saved reviews, schema hashes, source evidence, and
+Contract version 3 binds reviewed choices, actual provider intent, and source
+table ownership into the derived proposal hash. Saved reviews, schema hashes,
+source evidence, and
 mapping identities retain their existing contracts. The planner permits
 100 reached models, 1,000 relationship edges, five
 dependency expansions from the selected roots, 1,000 dataset descriptors, and
@@ -531,13 +551,43 @@ exclude or keep a different destination value for them.
 The admitted scope is one direct writable stored relationship to a selected
 unscoped parent that already matches exactly one destination record. Null,
 missing, ambiguous or recursively scoped parents, and inbound links to the
-scoped model, remain blocked. This does not remap a source company to a
-differently identified destination company. The
+scoped model, remain blocked. This matching scope does not itself remap source
+companies; explicit reference aliases supply that separate decision. The
 [load workflow](06-load-into-odoo.md#direct-existing-parent-matching-scope)
 owns the shared portable identity, matching, execution and recovery boundary.
 
+**Use different destination values** remembers an explicit alias for an
+unscoped existing-only reference dataset with one scalar key. The shared
+matching engine validates the included source identity, target uniqueness,
+access and non-collapsing population on every restore. This permits a saved
+`Company A` reference to use existing `Company B`, including the admitted native
+`account.account.company_ids` Many2many surface, without changing the source or
+writing Company records. It does not establish a complete accounting backup.
+
+[`saved_identity_alias_rule_owner`](../../../src/impodo/web/composition/saved_odoo_restore.py)
+binds remembered rules to project, saved set, source database/company/major,
+profile, destination company and connection, and chosen keys/scopes.
+`settings_json.identity_alias_rules` stores only a protected reference containing
+`rules_id`, `rules_hash`, `artifact_hash` and `owner_key`. Exact values belong
+to the separately encrypted reusable-rule artifact exposed through
+[`DestinationIdentityAliasStore`](../../../src/impodo/application/transfer_identity_alias_ports.py).
+[`saved_identity_alias_rules`](../../../src/impodo/web/composition/saved_odoo_restore.py)
+authorizes before opening those rules; profile-revision checks reject stale
+forms before decrypting. Unavailable rules require explicit replacement before
+a check can save replacement values or deliberately clear them.
+
+Each fresh restore revalidates the rules against its own data and destination
+and emits new per-read evidence. It carries no prior write approval. The
+[shared alias boundary](06-load-into-odoo.md#reviewed-values-for-existing-reference-records)
+owns review, preflight, compilation and retained recovery semantics. Independent
+fresh-key tests establish controlled rebinding; they are not a complete
+archive-import-and-restore qualification.
+
 The composition continues through destination matching, dependency order,
 exact transfer review, fresh preflight and `TransferExecutionService`.
+Only current matching contract 18 and review contract 9 are admitted. Retired
+runtime checks and reviews require a fresh destination check and newly built
+and approved review; this does not retire or rewrite the retained source data.
 The submitted confirmation authorizes that selected version, destination and
 field policy set. Changed evidence stops execution. The shared writer journals
 attempts and independently reads back the effective policy result. There is
@@ -879,9 +929,11 @@ scope.
 - [Restore policies through transfer matching and execution compilation](../../../tests/application/workspace/test_saved_odoo_transfer.py).
 - [Direct existing-parent matching and execution](../../../tests/application/workspace/test_scoped_odoo_transfer.py) and [ordinary and saved scope-choice protection](../../../tests/integration/web/test_transfer_matching_scope_choices.py).
 - [Saved scoped field policies, fresh preflight, compilation and independent reconciliation](../../../tests/application/workspace/test_scoped_saved_odoo_transfer.py) cover both majors and local/remote fictional metadata. Actual Odoo writes and a complete browser restoration remain separate qualification.
+- [Saved reference aliases, scoped parents, native account company membership, recovery and fresh-key rebinding](../../../tests/application/workspace/test_aliased_saved_odoo_transfer.py), [encrypted rule storage](../../../tests/integration/protected_evidence/test_destination_identity_aliases.py) and [saved-profile forms](../../../tests/integration/web/test_saved_identity_alias_choices.py) cover the bounded alias capability. Raw rules stay out of profile settings and public review evidence.
 - [Encrypted package format and rejection of malformed containers](../../../tests/integration/artifacts/test_odoo_saved_data_package.py).
 - [Independent-installation archive round trips](../../../tests/integration/web/test_saved_odoo_archive_lifecycle.py) cover Odoo 19 and 20 with local and remote source metadata, new keys, filter rebinding, no source access, retry, malformed metadata, and authorization rejection. These are controlled fixtures; they do not qualify live ORM behavior or a complete Chart of Accounts.
 - [Saved-data browser routes and destination review](../../../tests/integration/web/test_saved_odoo_data.py), [initial and repeated source capture](../../../tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py), and [checked restoration through the assembled application](../../../tests/integration/web/test_saved_odoo_restore_flow.py).
+- [Assembled saved-alias restoration](../../../tests/integration/web/test_aliased_saved_restore_flow.py) runs one method with four Odoo 19/20 and local/remote cases. Each captures two models into encrypted provenance and Parquet, retains protected profile choices, disables source access, then restores and independently verifies twice through the shared execution flow and a fictional write adapter. Eight verified restores retain stable destination record IDs without duplicate creates. A repeat may reassert writes. This does not qualify live ORM behavior, independent package import or a same-endpoint database reset.
 
 Fresh saved-data page screenshots were not captured during this implementation:
 the execution sandbox rejected browser Mach registration, and native browser

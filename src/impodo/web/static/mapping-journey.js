@@ -225,6 +225,12 @@
       const url = continuation.url;
       if (url) {
         window.location.assign(traversalUrl(continuation.preserveFilters ? url : tableUrl(url)));
+      } else if (continuation.step === "check") {
+        const destination = traversalUrl(window.location.href);
+        destination.searchParams.set("step", "check");
+        destination.searchParams.delete("task");
+        destination.hash = "";
+        window.location.assign(destination);
       } else {
         show(continuation, { focus: true });
       }

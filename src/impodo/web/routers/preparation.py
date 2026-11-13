@@ -68,19 +68,29 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             workspace_state = context.queries.get(workspace_id)
-            resolution = context.resolution.current_summary(workspace_id)
-            if resolution is not None and resolution.status != "FROZEN":
+            revision = (
+                context.queries.get_mapping_revision(workspace_id)
+                if workspace.mapping_content_hash is None
+                else None
+            )
+            recovered = context.preparation_recovery.current_for_review(
+                workspace_id,
+                workspace.mapping_content_hash
+                or (revision.definition.content_hash if revision is not None else None),
+                actor=actor,
+            )
+            if recovered is not None:
+                destination = (
+                    "resolution"
+                    if recovered.status is PreparationJobStatus.REVIEW_REQUIRED
+                    else "normalization"
+                )
                 return RedirectResponse(
-                    f"/workspaces/{workspace_id}/resolution",
+                    f"/workspaces/{workspace_id}/{destination}",
                     status_code=303,
                 )
-            normalization = context.normalization.current_summary(workspace_id)
-            if normalization is not None:
-                return RedirectResponse(
-                    f"/workspaces/{workspace_id}/normalization",
-                    status_code=303,
-                )
-            revision = context.queries.get_mapping_revision(workspace_id)
+            if workspace.mapping_content_hash is not None:
+                revision = context.queries.get_mapping_revision(workspace_id)
             submission = (
                 context.queries.get_mapping_submission(workspace_id, revision.version)
                 if revision is not None

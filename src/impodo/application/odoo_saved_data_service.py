@@ -17,6 +17,7 @@ from uuid import UUID, uuid4, uuid5
 from impodo.application.odoo_capture_publication_service import (
     OdooCapturePublicationService,
 )
+from impodo.application.odoo_database_binding_service import OdooDatabaseBindingService
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_saved_data_ports import SavedOdooDataRepository
 from impodo.application.odoo_source_capture_service import OdooSourceCapturePort
@@ -34,7 +35,11 @@ from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
 from impodo.domain.odoo.field_capabilities import is_editable_scalar_field
-from impodo.domain.odoo_capture import OdooCaptureSelection
+from impodo.domain.odoo_capture import OdooCaptureRole, OdooCaptureSelection
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBinding,
+    OdooDatabaseBindingRole,
+)
 from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo_saved_data import (
     SavedOdooCaptureOperation,
@@ -51,7 +56,7 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
-from impodo.domain.shared.models import OdooReadIdentity
+from impodo.domain.shared.models import OdooReadIdentity, target_identity_hash
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
@@ -144,6 +149,7 @@ class SavedOdooDataService:
         publication: OdooCapturePublicationService,
         projections: WorkspaceDataVersionSourceService,
         source_companies: SavedOdooSourceCompanyWriter,
+        database_bindings: OdooDatabaseBindingService,
         local_operation: LocalOperation = direct_local_operation,
     ) -> None:
         self.repository = repository
@@ -158,6 +164,7 @@ class SavedOdooDataService:
         self.publication = publication
         self.projections = projections
         self.source_companies = source_companies
+        self.database_bindings = database_bindings
         self.local_operation = local_operation
 
     def configure(
@@ -294,6 +301,38 @@ class SavedOdooDataService:
             actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id
         )
         state, schema, selections = self._configuration(workspace_id)
+        binding = self._reviewed_source_binding(
+            state, actor=actor, capability=Capability.SOURCE_CONFIGURE
+        )
+        return self._create_definition(
+            state,
+            schema,
+            selections,
+            project_id=owner.project_id,
+            label=label,
+            all_fields=all_fields,
+            saved_data_id=saved_data_id,
+            configuration_request_hash=configuration_request_hash,
+            source_binding_hash=binding.content_hash,
+        )
+
+    def _create_definition(
+        self,
+        state: WorkspaceState,
+        schema: OdooSchemaCatalog,
+        selections: tuple[OdooCaptureSelection, ...],
+        *,
+        project_id: str,
+        label: str,
+        all_fields: bool,
+        saved_data_id: str | None,
+        source_binding_hash: str | None,
+        configuration_request_hash: str | None = None,
+        imported_package_hash: str | None = None,
+    ) -> SavedOdooDataDefinition:
+        """Publish authorized configuration meaning with explicit evidence origin."""
+
+        workspace_id = state.workspace_id
         major = assess_odoo_operation(
             schema.odoo_version, OdooOperation.CAPTURE_SOURCE
         ).version.major
@@ -301,26 +340,32 @@ class SavedOdooDataService:
             raise WorkspaceError("Choose a supported Odoo 19 or Odoo 20 source")
         if state.odoo_company is None:
             raise WorkspaceError("Choose the source company before saving Odoo data")
+        if state.odoo_company.target_hash != schema.connection_target_hash:
+            raise WorkspaceError(
+                "The reviewed source company belongs to another database"
+            )
         config = json.loads(
             self._config_json(
-                schema, selections, project_id=owner.project_id, all_fields=all_fields
+                schema, selections, project_id=project_id, all_fields=all_fields
             )
         )
         if configuration_request_hash is not None:
             config["configuration_request_hash"] = require_hash(
                 configuration_request_hash, "configuration_request_hash"
             )
+        if imported_package_hash is not None:
+            config["imported_package_hash"] = require_hash(
+                imported_package_hash, "imported_package_hash"
+            )
         config_json = canonical_json(config)
         if saved_data_id is not None:
             try:
-                existing = self.repository.get_definition(
-                    owner.project_id, saved_data_id
-                )
+                existing = self.repository.get_definition(project_id, saved_data_id)
             except MigrationNotFoundError:
                 pass
             else:
                 initial = self.repository.get_configuration(
-                    owner.project_id, saved_data_id, 1
+                    project_id, saved_data_id, 1
                 )
                 if (
                     initial.source_workspace_id != workspace_id
@@ -337,7 +382,7 @@ class SavedOdooDataService:
         now = datetime.now(UTC)
         definition = SavedOdooDataDefinition(
             saved_data_id=saved_data_id or str(uuid4()),
-            project_id=owner.project_id,
+            project_id=project_id,
             label=label,
             revision=1,
             source_workspace_id=workspace_id,
@@ -349,7 +394,9 @@ class SavedOdooDataService:
             created_at=now,
             updated_at=now,
         )
-        return self.repository.create_definition(definition)
+        return self.repository.create_definition(
+            definition, source_binding_hash=source_binding_hash
+        )
 
     def revise(
         self,
@@ -370,6 +417,9 @@ class SavedOdooDataService:
         )
         if owner.project_id != current.project_id:
             raise WorkspaceError("The capture configuration belongs to another project")
+        previous_binding = self._require_definition_source(
+            current, actor=actor, capability=Capability.SOURCE_CONFIGURE
+        )
         state, schema, selections = self._configuration(workspace_id)
         if state.odoo_company is None or (
             state.odoo_company.binding_hash != current.source_company_hash
@@ -377,6 +427,13 @@ class SavedOdooDataService:
         ):
             raise WorkspaceError(
                 "Save a separate configuration for another database or company"
+            )
+        binding = self._reviewed_source_binding(
+            state, actor=actor, capability=Capability.SOURCE_CONFIGURE
+        )
+        if binding.generation_hash != previous_binding.generation_hash:
+            raise WorkspaceError(
+                "The source database changed; review and rebind its source"
             )
         return self.repository.save_definition(
             replace(
@@ -392,7 +449,136 @@ class SavedOdooDataService:
                 updated_at=datetime.now(UTC),
             ),
             expected_revision=expected_revision,
+            source_binding_hash=binding.content_hash,
         )
+
+    def rebind_source(
+        self,
+        project_id: str,
+        saved_data_id: str,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+        all_fields: bool,
+        label: str | None = None,
+    ) -> SavedOdooDataDefinition:
+        """Review a recreated source without replacing any retained clean version."""
+
+        current = self.get(project_id, saved_data_id, actor=actor)
+        owner = self.access.require(
+            actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id
+        )
+        if owner.project_id != project_id:
+            raise WorkspaceError("The replacement source belongs to another project")
+        if current.revision != expected_revision:
+            raise MigrationConflictError(
+                "The saved configuration changed; reload before rebinding"
+            )
+        if (
+            workspace_id == current.source_workspace_id
+            or self.evidence.get_source_selection(workspace_id) is not None
+        ):
+            raise WorkspaceError(
+                "Review the replacement source in a fresh capture workspace before rebinding"
+            )
+        state, schema, selections = self._configuration(workspace_id)
+        if state.odoo_company is None:
+            raise WorkspaceError("Choose and review the replacement source company")
+        if state.odoo_company.target_hash != schema.connection_target_hash:
+            raise WorkspaceError(
+                "The reviewed replacement company belongs to another database"
+            )
+        major = assess_odoo_operation(
+            schema.odoo_version, OdooOperation.CAPTURE_SOURCE
+        ).version.major
+        if (
+            schema.connection_target_hash != current.source_target_hash
+            or major != current.odoo_major
+        ):
+            raise WorkspaceError(
+                "Source rebind must keep the same database and Odoo major; save a separate configuration for another source"
+            )
+        if schema.connection_target_hash != target_identity_hash(
+            connection_mode=state.odoo_connection_mode.value
+            if state.odoo_connection_mode
+            else "",
+            base_url=state.odoo_base_url,
+            database=state.odoo_database,
+        ):
+            raise WorkspaceError(
+                "The source database connection changed after schema review; check the replacement source again"
+            )
+        binding = self._reviewed_source_binding(
+            state, actor=actor, capability=Capability.SOURCE_CONFIGURE
+        )
+        return self.repository.rebind_source_definition(
+            replace(
+                current,
+                label=current.label if label is None else label,
+                source_workspace_id=workspace_id,
+                source_company_hash=state.odoo_company.binding_hash,
+                config_json=self._config_json(
+                    schema, selections, project_id=project_id, all_fields=all_fields
+                ),
+                updated_at=datetime.now(UTC),
+            ),
+            expected_revision=expected_revision,
+            source_binding_hash=binding.content_hash,
+        )
+
+    def _reviewed_source_binding(
+        self,
+        state: WorkspaceState,
+        *,
+        actor: Actor,
+        capability: Capability,
+    ) -> OdooDatabaseBinding:
+        """Demand immutable current-generation evidence from explicit source review."""
+
+        if state.odoo_base_url is None or state.odoo_database is None:
+            raise WorkspaceError(
+                "Review the source database connection before saving Odoo data"
+            )
+        return self.database_bindings.require_current(
+            state.workspace_id,
+            OdooDatabaseBindingRole.SOURCE,
+            base_url=state.odoo_base_url,
+            database=state.odoo_database,
+            actor=actor,
+            capability=capability,
+        )
+
+    def _require_definition_source(
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        actor: Actor,
+        capability: Capability,
+    ) -> OdooDatabaseBinding:
+        """Pin refresh admission to the reviewed configuration, including its epoch."""
+
+        self.access.require(
+            actor, capability, workspace_id=definition.source_workspace_id
+        )
+        expected = self.repository.get_configuration_source_binding(
+            definition.project_id,
+            definition.saved_data_id,
+            definition.configuration_revision,
+        )
+        if expected is None:
+            raise WorkspaceError(
+                "This saved source has no database-generation review. Review a fresh source workspace and rebind before refreshing; saved versions remain available"
+            )
+        state = self.states.repository.get(definition.source_workspace_id)
+        binding = self._reviewed_source_binding(
+            state, actor=actor, capability=capability
+        )
+        if binding.content_hash != expected:
+            raise WorkspaceError(
+                "The saved source review changed. Review a fresh source workspace and rebind before refreshing; saved versions remain available"
+            )
+        return binding
 
     def get(
         self, project_id: str, saved_data_id: str, *, actor: Actor
@@ -434,6 +620,96 @@ class SavedOdooDataService:
             definition, definition.source_workspace_id, operation_id, actor
         )
 
+    def require_refresh_source(
+        self,
+        project_id: str,
+        saved_data_id: str,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> None:
+        """Fail visibly before dispatch when source review needs an explicit rebind."""
+
+        definition = self.get(project_id, saved_data_id, actor=actor)
+        if definition.revision != expected_revision:
+            raise MigrationConflictError(
+                "The saved configuration changed; reload before updating"
+            )
+        self._require_definition_source(
+            definition, actor=actor, capability=Capability.SOURCE_CAPTURE
+        )
+
+    def retain_imported_version(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        label: str,
+        all_fields: bool,
+        saved_data_id: str,
+        operation_id: str,
+        package_hash: str,
+        expected_source_selection_hash: str,
+        expected_manifest_hashes: tuple[tuple[str, str], ...],
+    ) -> SavedOdooDataDefinition:
+        """Retain a fully validated offline package without claiming a live epoch.
+
+        Archive admission supplies the exact locally re-owned evidence after
+        transport validation. The resulting configuration stays unbound for
+        refresh until an explicit fresh source review and rebind.
+        """
+
+        require_uuid(operation_id, "operation_id")
+        require_hash(package_hash, "package_hash")
+        require_hash(expected_source_selection_hash, "expected_source_selection_hash")
+        owner = self.access.require(
+            actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id
+        )
+        self.access.require(actor, Capability.SOURCE_CAPTURE, workspace_id=workspace_id)
+        state, schema, selections = self._configuration(workspace_id)
+        # Validate the complete accepted source before creating its definition.
+        selection = self.evidence.get_source_selection(workspace_id)
+        manifests = self.provenance.current_manifests(workspace_id, actor=actor)
+        if (
+            selection is None
+            or not manifests
+            or selection.content_hash != expected_source_selection_hash
+            or tuple(sorted((item.model, item.content_hash) for item in manifests))
+            != expected_manifest_hashes
+            or {item.dataset_id for item in manifests}
+            != {item.dataset_id for item in selection.datasets}
+        ):
+            raise WorkspaceError(
+                "The validated imported source evidence changed; validate the archive again"
+            )
+        definition = self._create_definition(
+            state,
+            schema,
+            selections,
+            project_id=owner.project_id,
+            label=label,
+            all_fields=all_fields,
+            saved_data_id=saved_data_id,
+            source_binding_hash=None,
+            imported_package_hash=package_hash,
+        )
+        completed = self.repository.get_version_for_operation(
+            owner.project_id, saved_data_id, operation_id
+        )
+        if completed is not None:
+            if (
+                completed.source_selection_hash != expected_source_selection_hash
+                or completed.manifest_hashes != expected_manifest_hashes
+            ):
+                raise MigrationConflictError(
+                    "The imported archive operation was reused for different evidence"
+                )
+            return definition
+        version = self._captured_version(definition, workspace_id, operation_id, actor)
+        return self.repository.append_version(
+            version, expected_revision=definition.revision, source_binding_hash=None
+        )[0]
+
     def refresh(
         self,
         project_id: str,
@@ -466,6 +742,9 @@ class SavedOdooDataService:
                 actor,
                 Capability.SOURCE_CAPTURE,
                 workspace_id=definition.source_workspace_id,
+            )
+            self._require_definition_source(
+                definition, actor=actor, capability=Capability.SOURCE_CAPTURE
             )
             state, schema, selections = self._configuration(
                 definition.source_workspace_id
@@ -574,6 +853,7 @@ class SavedOdooDataService:
         )
 
         def finish():
+            self._require_capture_generation(definition, fresh.workspace_id, actor)
             self.projections.accept_odoo_capture(
                 fresh.workspace_id,
                 publication.source_selection,
@@ -692,15 +972,6 @@ class SavedOdooDataService:
         selections: tuple[OdooCaptureSelection, ...],
     ) -> bool:
         saved = json.loads(definition.config_json)
-        if saved.get("contract_version") == 1:
-            return saved.get("models") == [
-                {
-                    "model": item.model,
-                    "field_names": list(item.field_names),
-                    "selection_hash": item.content_hash,
-                }
-                for item in selections
-            ]
         if saved.get("contract_version") != 2:
             return False
         current = json.loads(
@@ -752,6 +1023,23 @@ class SavedOdooDataService:
         operation_id: str,
         actor: Actor,
     ):
+        binding = self._require_capture_generation(definition, workspace_id, actor)
+        version = self._captured_version(definition, workspace_id, operation_id, actor)
+        return self.repository.append_version(
+            version,
+            expected_revision=definition.revision,
+            source_binding_hash=binding.content_hash,
+        )
+
+    def _captured_version(
+        self,
+        definition: SavedOdooDataDefinition,
+        workspace_id: str,
+        operation_id: str,
+        actor: Actor,
+    ) -> SavedOdooDataVersion:
+        """Validate complete immutable artifacts for live or imported retention."""
+
         owner = self.access.require(
             actor, Capability.SOURCE_CAPTURE, workspace_id=workspace_id
         )
@@ -786,16 +1074,42 @@ class SavedOdooDataService:
             captured_at=max(item.capture_finished_at for item in manifests),
             operation_id=operation_id,
         )
-        if (
-            definition.latest_version is not None
-            and sum(count for _, count in version.row_counts) == 0
+        roots = {
+            item.model
+            for item in self.evidence.get_current_odoo_capture_selections(workspace_id)
+            if item.capture_role is OdooCaptureRole.ROOT
+        }
+        if definition.latest_version is not None and (
+            sum(count for _, count in version.row_counts) == 0
+            or not roots
+            or any(count == 0 for model, count in version.row_counts if model in roots)
         ):
             raise WorkspaceError(
                 "The refreshed source is empty. Review its database and company before replacing the preferred saved version"
             )
-        return self.repository.append_version(
-            version, expected_revision=definition.revision
+        return version
+
+    def _require_capture_generation(
+        self, definition: SavedOdooDataDefinition, workspace_id: str, actor: Actor
+    ) -> OdooDatabaseBinding:
+        """Recheck the fixed source epoch after remote work, before publication."""
+
+        original = self._require_definition_source(
+            definition, actor=actor, capability=Capability.SOURCE_CAPTURE
         )
+        self.access.require(actor, Capability.SOURCE_CAPTURE, workspace_id=workspace_id)
+        state = self.states.repository.get(workspace_id)
+        capture = self._reviewed_source_binding(
+            state, actor=actor, capability=Capability.SOURCE_CAPTURE
+        )
+        if (
+            capture.project_id != definition.project_id
+            or capture.generation_hash != original.generation_hash
+        ):
+            raise WorkspaceError(
+                "The source database was recreated during capture. Review and rebind its source; the previous saved version remains available"
+            )
+        return original
 
     def _seed_refresh(
         self,

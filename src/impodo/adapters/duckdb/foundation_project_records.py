@@ -456,6 +456,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
             "saved_odoo_restore_profile": "project_id = ?",
             "saved_odoo_restore_binding": "project_id = ?",
             "saved_odoo_data_version": "project_id = ?",
+            "saved_odoo_source_binding": f"saved_data_id IN ({saved_ids})",
             "saved_odoo_data_configuration": f"saved_data_id IN ({saved_ids})",
             "saved_odoo_data_definition": "project_id = ?",
             "migration_project": "project_id = ?",
@@ -463,6 +464,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
             "migration_run": "project_id = ?",
             "migration_run_target_setup": "project_id = ?",
             "migration_workspace": "project_id = ?",
+            "odoo_workspace_database_binding": "project_id = ?",
             "target_binding": "project_id = ?",
             "migration_run_requirement_plan": "project_id = ?",
             "migration_run_target_schema": f"migration_run_id IN ({run_ids})",
@@ -515,6 +517,10 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
             "recipe_application_identity",
             "cutover_plan_identity",
             "saved_odoo_data_identity",
+            # Reset declarations remain Organization-wide authority after a
+            # Project and its workspace bindings have been deliberately removed.
+            "odoo_database_generation",
+            "odoo_database_generation_current",
         }
         registry_tables = {
             str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()

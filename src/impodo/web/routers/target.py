@@ -5,7 +5,7 @@ from __future__ import annotations
 from urllib.parse import unquote, urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.odoo.local_stack import (
@@ -19,6 +19,7 @@ from impodo.application.odoo_source_restart_service import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.data_version.models import DataVersionState
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationIdentifierConfusionError,
@@ -34,6 +35,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStatus,
     workspace_setup_requirements_for_step,
 )
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.composition.target_readers import (
     _refresh_model_catalog,
     _selected_local_profile,
@@ -41,7 +43,7 @@ from impodo.web.composition.target_readers import (
 
 from ...application.odoo_connection_service import OdooConnectionPurpose
 from ...application.odoo_read_failures import OdooReadCredentialMissingError
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text, _texts
 from ..presenters.common import _flash
@@ -781,7 +783,7 @@ def build_target_router(context: WebContext) -> APIRouter:
         )
         actor = request_identity(request, context.identity_resolver).actor
         source_return_token = _source_organization_return_token(request)
-        current = context.queries.get(workspace_id)
+        current = await run_page_read(context.queries.get, workspace_id)
         if current.status is WorkspaceStatus.CLOSED:
             return RedirectResponse(
                 f"/workspaces/{current.workspace_id}/summary",
@@ -805,46 +807,61 @@ def build_target_router(context: WebContext) -> APIRouter:
         shared_test_requested = False
         show_local_results = False
         try:
-            previous_workspace_state = context.queries.get(workspace_id)
-            expected_revision = _revision(form)
-            connection_mode = _text(form, "odoo_connection_mode")
-            base_url = _text(form, "odoo_base_url")
-            database = _text(form, "odoo_database")
-            intended_applications = _texts(form, "intended_applications")
-            intended_models = (
-                context.run_setups.required_models_for_workspace(
-                    workspace_id,
-                    actor=actor,
-                )
-                or None
-            )
-            if (
-                previous_workspace_state.source_mode is SourceMode.ODOO
-                and context.workspace_states.target_update_changes(
-                    workspace_id,
-                    actor=actor,
-                    expected_revision=expected_revision,
-                    odoo_connection_mode=connection_mode,
-                    odoo_base_url=base_url,
-                    odoo_database=database,
-                    intended_applications=intended_applications,
-                    intended_models=intended_models,
-                )
-            ):
-                migration_workspace = context.migration_workspaces.get(
-                    workspace_id,
-                    actor=actor,
-                )
-                data_version = context.data_versions.get(
-                    migration_workspace.data_version_id,
-                    actor=actor,
-                )
-                if data_version.state is DataVersionState.FROZEN:
-                    return RedirectResponse(
-                        f"/projects/{migration_workspace.project_id}/"
-                        f"odoo-source-restarts/{workspace_id}?resume=target",
-                        status_code=307,
+            def prepare_target():
+                """Save target details and credentials in one local operation."""
+
+                nonlocal local_test_requested, remote_test_requested, shared_test_requested
+                previous_workspace_state = context.queries.get(workspace_id)
+                expected_revision = _revision(form)
+                connection_mode = _text(form, "odoo_connection_mode")
+                base_url = _text(form, "odoo_base_url")
+                database = _text(form, "odoo_database")
+                intended_applications = _texts(form, "intended_applications")
+                intended_models = (
+                    context.run_setups.required_models_for_workspace(
+                        workspace_id,
+                        actor=actor,
                     )
+                    or None
+                )
+                if (
+                    previous_workspace_state.source_mode is SourceMode.ODOO
+                    and context.workspace_states.target_update_changes(
+                        workspace_id,
+                        actor=actor,
+                        expected_revision=expected_revision,
+                        odoo_connection_mode=connection_mode,
+                        odoo_base_url=base_url,
+                        odoo_database=database,
+                        intended_applications=intended_applications,
+                        intended_models=intended_models,
+                    )
+                ):
+                    migration_workspace = context.migration_workspaces.get(
+                        workspace_id,
+                        actor=actor,
+                    )
+                    data_version = context.data_versions.get(
+                        migration_workspace.data_version_id,
+                        actor=actor,
+                    )
+                    if data_version.state is DataVersionState.FROZEN:
+                        return RedirectResponse(
+                            f"/projects/{migration_workspace.project_id}/"
+                            f"odoo-source-restarts/{workspace_id}?resume=target",
+                            status_code=307,
+                        )
+                    else:
+                        workspace_state = context.workspace_states.update_target(
+                            workspace_id,
+                            actor=actor,
+                            expected_revision=expected_revision,
+                            odoo_connection_mode=connection_mode,
+                            odoo_base_url=base_url,
+                            odoo_database=database,
+                            intended_applications=intended_applications,
+                            intended_models=intended_models,
+                        )
                 else:
                     workspace_state = context.workspace_states.update_target(
                         workspace_id,
@@ -856,120 +873,124 @@ def build_target_router(context: WebContext) -> APIRouter:
                         intended_applications=intended_applications,
                         intended_models=intended_models,
                     )
-            else:
-                workspace_state = context.workspace_states.update_target(
-                    workspace_id,
-                    actor=actor,
-                    expected_revision=expected_revision,
-                    odoo_connection_mode=connection_mode,
-                    odoo_base_url=base_url,
-                    odoo_database=database,
-                    intended_applications=intended_applications,
-                    intended_models=intended_models,
-                )
-            target_changed = target_read_credential_id(
-                previous_workspace_state
-            ) != target_read_credential_id(
-                workspace_state
-            ) or target_write_credential_id(
-                previous_workspace_state
-            ) != target_write_credential_id(workspace_state)
-            if target_changed:
-                removal_receipts = tuple(
-                    receipt
-                    for role in (
-                        TargetCredentialRole.READ,
-                        TargetCredentialRole.WRITE,
-                    )
-                    if (
-                        receipt := delete_target_credential(
-                            context.secret_store,
-                            previous_workspace_state,
-                            role,
-                            reason=TargetCredentialRemovalReason.TARGET_CHANGED,
+                target_changed = target_read_credential_id(
+                    previous_workspace_state
+                ) != target_read_credential_id(
+                    workspace_state
+                ) or target_write_credential_id(
+                    previous_workspace_state
+                ) != target_write_credential_id(workspace_state)
+                if target_changed:
+                    removal_receipts = tuple(
+                        receipt
+                        for role in (
+                            TargetCredentialRole.READ,
+                            TargetCredentialRole.WRITE,
                         )
+                        if (
+                            receipt := delete_target_credential(
+                                context.secret_store,
+                                previous_workspace_state,
+                                role,
+                                reason=TargetCredentialRemovalReason.TARGET_CHANGED,
+                            )
+                        )
+                        is not None
                     )
-                    is not None
+                    audit_removed_target_credentials(
+                        context.workspace_states,
+                        previous_workspace_state,
+                        removal_receipts,
+                        actor=actor,
+                    )
+                    context.remote_connections.clear(workspace_id)
+                action = _text(form, "action")
+                local_test_requested = (
+                    action == "test"
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
                 )
-                audit_removed_target_credentials(
-                    context.workspace_states,
-                    previous_workspace_state,
-                    removal_receipts,
-                    actor=actor,
+                remote_test_requested = (
+                    action == "test"
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
                 )
-                context.remote_connections.clear(workspace_id)
+                shared_test_requested = action == "test" and (
+                    remote_test_requested or workspace_state.source_mode is SourceMode.ODOO
+                )
+                submitted_key = _text(form, "read_api_key") or _text(
+                    form,
+                    "api_key",
+                )
+                keep_key_for_loading = "keep_api_key_for_loading" in form
+                if keep_key_for_loading:
+                    access_context = context.workspace_access.resolve(
+                        workspace_id,
+                        actor=actor,
+                        capability=Capability.EXPORT_PLAN_EXECUTE,
+                    )
+                    data_version = context.data_versions.get(
+                        access_context.data_version_id,
+                        actor=actor,
+                    )
+                    if data_version.purpose.value == "PRODUCTION":
+                        raise SecretStoreError(
+                            "Production requires a separate limited write key"
+                        )
+                if submitted_key:
+                    context.remote_connections.clear(workspace_id)
+                    read_credential = store_target_credential(
+                        context.secret_store,
+                        workspace_state,
+                        TargetCredentialRole.READ,
+                        submitted_key,
+                        persistent=_target_read_key_persistence(form),
+                    )
+                    audit_stored_target_credential(
+                        context.workspace_states,
+                        workspace_state,
+                        TargetCredentialRole.READ,
+                        read_credential,
+                        actor=actor,
+                    )
+                else:
+                    read_credential = get_target_credential(
+                        context.secret_store,
+                        workspace_state,
+                        TargetCredentialRole.READ,
+                    )
+                if keep_key_for_loading:
+                    if read_credential is None:
+                        raise SecretStoreError(
+                            "Enter or save an Odoo API key before keeping it for loading"
+                        )
+                    write_credential = store_target_credential(
+                        context.secret_store,
+                        workspace_state,
+                        TargetCredentialRole.WRITE,
+                        read_credential.secret,
+                        persistent=read_credential.persistent,
+                    )
+                    audit_stored_target_credential(
+                        context.workspace_states,
+                        workspace_state,
+                        TargetCredentialRole.WRITE,
+                        write_credential,
+                        actor=actor,
+                    )
+                return workspace_state, read_credential
+
+            prepared = await run_local_operation(prepare_target)
+            if isinstance(prepared, RedirectResponse):
+                return prepared
+            workspace_state, read_credential = prepared
+            if workspace_state.source_mode is SourceMode.ODOO:
+                identity = request_identity(request, context.identity_resolver)
+                await run_in_threadpool(
+                    review_database_binding, context, workspace_state,
+                    OdooDatabaseBindingRole.SOURCE,
+                    actor=identity.actor, scope=identity.organization_scope,
+                    authorization_receipt=identity.authorization,
+                )
             action = _text(form, "action")
-            local_test_requested = (
-                action == "test"
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
-            )
-            remote_test_requested = (
-                action == "test"
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            )
-            shared_test_requested = action == "test" and (
-                remote_test_requested or workspace_state.source_mode is SourceMode.ODOO
-            )
-            submitted_key = _text(form, "read_api_key") or _text(
-                form,
-                "api_key",
-            )
-            keep_key_for_loading = "keep_api_key_for_loading" in form
-            if keep_key_for_loading:
-                access_context = context.workspace_access.resolve(
-                    workspace_id,
-                    actor=actor,
-                    capability=Capability.EXPORT_PLAN_EXECUTE,
-                )
-                data_version = context.data_versions.get(
-                    access_context.data_version_id,
-                    actor=actor,
-                )
-                if data_version.purpose.value == "PRODUCTION":
-                    raise SecretStoreError(
-                        "Production requires a separate limited write key"
-                    )
-            if submitted_key:
-                context.remote_connections.clear(workspace_id)
-                read_credential = store_target_credential(
-                    context.secret_store,
-                    workspace_state,
-                    TargetCredentialRole.READ,
-                    submitted_key,
-                    persistent=_target_read_key_persistence(form),
-                )
-                audit_stored_target_credential(
-                    context.workspace_states,
-                    workspace_state,
-                    TargetCredentialRole.READ,
-                    read_credential,
-                    actor=actor,
-                )
-            else:
-                read_credential = get_target_credential(
-                    context.secret_store,
-                    workspace_state,
-                    TargetCredentialRole.READ,
-                )
-            if keep_key_for_loading:
-                if read_credential is None:
-                    raise SecretStoreError(
-                        "Enter or save an Odoo API key before keeping it for loading"
-                    )
-                write_credential = store_target_credential(
-                    context.secret_store,
-                    workspace_state,
-                    TargetCredentialRole.WRITE,
-                    read_credential.secret,
-                    persistent=read_credential.persistent,
-                )
-                audit_stored_target_credential(
-                    context.workspace_states,
-                    workspace_state,
-                    TargetCredentialRole.WRITE,
-                    write_credential,
-                    actor=actor,
-                )
             if action == "test":
                 local_profile = _selected_local_profile(context, workspace_state)
                 if local_profile is not None:
@@ -1049,86 +1070,101 @@ def build_target_router(context: WebContext) -> APIRouter:
             LocalStackError,
             WorkspaceError,
         ) as error:
-            if local_test_requested:
-                context.local_stack.mark_connection_error(
-                    workspace_id,
-                    detail=str(error),
-                )
-            if shared_test_requested:
-                workspace_state = context.queries.get(workspace_id)
-                context.remote_connections.mark_error(
-                    workspace_state,
-                    error,
-                    purpose=purpose,
-                )
-                if remote_test_requested:
-                    target_url = f"/workspaces/{workspace_id}/target"
-                    if source_return_token:
-                        target_url += f"?return_to={source_return_token}"
-                    return RedirectResponse(
-                        f"{target_url}#remote-connection-status",
-                        status_code=303,
+            def recover_target(failure: Exception):
+                """Record check failures and render recovery in one local scope."""
+
+                if local_test_requested:
+                    context.local_stack.mark_connection_error(
+                        workspace_id,
+                        detail=str(failure),
                     )
-            return _render_target(
-                request,
-                context,
-                context.queries.get(workspace_id),
-                error=str(error),
-                status_code=422,
-                open_local_stack=local_test_requested,
-            )
-        if workspace_setup_requirements_for_step(
-            workspace_state,
-            WorkspaceSetupStep.TARGET,
-        ):
-            return _render_target(
-                request,
-                context,
-                workspace_state,
-                setup_attention_requested=True,
-                status_code=422,
-            )
-        local_ready = (
-            workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
-            and context.local_stack.get(workspace_state.workspace_id).metadata_ready
-        )
-        if local_ready and workspace_state.source_mode is SourceMode.ODOO:
-            local_ready = context.remote_connections.get(workspace_state, purpose).ready
-        remote_ready = (
-            workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            and context.remote_connections.get(workspace_state, purpose).ready
-        )
-        if not (local_ready or remote_ready):
-            return _render_target(
-                request,
-                context,
-                workspace_state,
-                error="Check the Odoo connection before continuing. Nothing was changed in Odoo.",
-                status_code=422,
-            )
-        if workspace_state.source_mode is SourceMode.ODOO and read_credential is None:
-            return _render_target(
-                request,
-                context,
-                workspace_state,
-                error="Enter a read-only Odoo API key before continuing.",
-                status_code=422,
-            )
-        if workspace_state.status is WorkspaceStatus.DRAFT:
-            try:
-                workspace_state = context.workspace_states.register(
-                    workspace_state.workspace_id,
-                    actor=actor,
-                    expected_revision=workspace_state.revision,
+                if shared_test_requested:
+                    workspace_state = context.queries.get(workspace_id)
+                    context.remote_connections.mark_error(
+                        workspace_state,
+                        failure,
+                        purpose=purpose,
+                    )
+                    if remote_test_requested:
+                        target_url = f"/workspaces/{workspace_id}/target"
+                        if source_return_token:
+                            target_url += f"?return_to={source_return_token}"
+                        return RedirectResponse(
+                            f"{target_url}#remote-connection-status",
+                            status_code=303,
+                        )
+                return _render_target(
+                    request,
+                    context,
+                    context.queries.get(workspace_id),
+                    error=str(failure),
+                    status_code=422,
+                    open_local_stack=local_test_requested,
                 )
-            except WorkspaceStateError as error:
+            return await run_local_operation(recover_target, error)
+
+        def continue_target():
+            """Check saved readiness and publish registration before remote I/O."""
+
+            nonlocal workspace_state
+            if workspace_setup_requirements_for_step(
+                workspace_state,
+                WorkspaceSetupStep.TARGET,
+            ):
                 return _render_target(
                     request,
                     context,
                     workspace_state,
-                    error=str(error),
+                    setup_attention_requested=True,
                     status_code=422,
                 )
+            local_ready = (
+                workspace_state.odoo_connection_mode is OdooConnectionMode.LOCAL
+                and context.local_stack.get(workspace_state.workspace_id).metadata_ready
+            )
+            if local_ready and workspace_state.source_mode is SourceMode.ODOO:
+                local_ready = context.remote_connections.get(workspace_state, purpose).ready
+            remote_ready = (
+                workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                and context.remote_connections.get(workspace_state, purpose).ready
+            )
+            if not (local_ready or remote_ready):
+                return _render_target(
+                    request,
+                    context,
+                    workspace_state,
+                    error="Check the Odoo connection before continuing. Nothing was changed in Odoo.",
+                    status_code=422,
+                )
+            if workspace_state.source_mode is SourceMode.ODOO and read_credential is None:
+                return _render_target(
+                    request,
+                    context,
+                    workspace_state,
+                    error="Enter a read-only Odoo API key before continuing.",
+                    status_code=422,
+                )
+            if workspace_state.status is WorkspaceStatus.DRAFT:
+                try:
+                    workspace_state = context.workspace_states.register(
+                        workspace_state.workspace_id,
+                        actor=actor,
+                        expected_revision=workspace_state.revision,
+                    )
+                except WorkspaceStateError as error:
+                    return _render_target(
+                        request,
+                        context,
+                        workspace_state,
+                        error=str(error),
+                        status_code=422,
+                    )
+            return workspace_state
+
+        continued = await run_local_operation(continue_target)
+        if isinstance(continued, Response):
+            return continued
+        workspace_state = continued
         if source_return_token:
             try:
                 catalog = await _refresh_model_catalog(
@@ -1143,7 +1179,8 @@ def build_target_router(context: WebContext) -> APIRouter:
                 SecretStoreError,
                 WorkspaceError,
             ) as error:
-                return _render_target(
+                return await run_local_operation(
+                    _render_target,
                     request,
                     context,
                     workspace_state,

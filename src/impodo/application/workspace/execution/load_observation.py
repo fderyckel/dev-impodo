@@ -8,12 +8,14 @@ receipts, exception propagation, or recovery decisions.
 
 from __future__ import annotations
 
+import math
 from collections import Counter
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from threading import RLock
 from time import perf_counter
 from uuid import uuid4
 
@@ -35,6 +37,16 @@ from impodo.domain.odoo.contracts import (
 )
 
 LoadEvidenceSink = Callable[[str, Mapping[str, object]], None]
+LoadStageMetrics = Callable[[bool], AbstractContextManager[dict[str, object]]]
+LOAD_LOCAL_PHASES = frozenset({
+    "journal_before_call", "journal_after_call", "progress_publication",
+    "worker_admission", "execution_checks",
+})
+_LOCAL_METRICS = frozenset({
+    "wall_ms", "thread_cpu_ms", "database_connection_count",
+    "database_schema_check_count", "database_lock_retry_count", "db_connect_ms",
+    "db_schema_ms", "db_lock_wait_ms", "capture_failure_count",
+})
 _OBSERVER: ContextVar[LoadObservation | None] = ContextVar(
     "load_observation", default=None
 )
@@ -58,10 +70,21 @@ class LoadObservation:
     terminal: bool = False
     stage: str = "submission"
     last_error_id: int = 0
+    stage_metrics: LoadStageMetrics | None = None
+    local_phases: dict[str, dict[str, int | float]] = field(default_factory=dict)
+    local_phase_calls: int = 0
+    local_phase_checkpoints: int = 0
+    _metrics_lock: RLock = field(default_factory=RLock, repr=False)
 
     def emit(self, event: str, **facts: object) -> None:
         """Offer bounded evidence without allowing diagnostics to stop work."""
         try:
+            if event in {"stage_finished", "performance_checkpoint", "terminal"}:
+                with self._metrics_lock:
+                    facts["local_phase_metrics"] = {
+                        name: dict(metrics) for name, metrics in self.local_phases.items()
+                    }
+                    facts["local_phase_checkpoint_count"] = self.local_phase_checkpoints
             self.sink(event, {"attempt_id": self.attempt_id, **facts})
         except Exception:  # noqa: BLE001 - optional diagnostic sink boundary
             return
@@ -158,6 +181,69 @@ def record_load_failure(
 
 
 @contextmanager
+def _stage_metric_scope(
+    observer: LoadObservation, *, sample_memory: bool,
+) -> Iterator[dict[str, object]]:
+    """Isolate optional provider entry and exit without swallowing body errors."""
+    manager = None
+    metrics: dict[str, object] = {}
+    if observer.stage_metrics is not None:
+        try:
+            manager = observer.stage_metrics(sample_memory)
+            observed = manager.__enter__()
+            metrics = observed if isinstance(observed, dict) else {"capture_failure_count": 1}
+        except Exception:  # noqa: BLE001 - optional observer setup must not skip work
+            manager = None
+            metrics = {"capture_failure_count": 1}
+    try:
+        yield metrics
+    finally:
+        if manager is not None:
+            try:
+                manager.__exit__(None, None, None)
+            except Exception:  # noqa: BLE001 - telemetry exit cannot replace body errors
+                metrics["capture_failure_count"] = 1
+
+
+@contextmanager
+def observe_load_local_phase(stage: str) -> Iterator[None]:
+    """Aggregate fixed local boundaries without one logging event per row."""
+    observer = _OBSERVER.get()
+    if observer is None or stage not in LOAD_LOCAL_PHASES:
+        yield
+        return
+    started = perf_counter()
+    metrics: dict[str, object] = {}
+    try:
+        with _stage_metric_scope(observer, sample_memory=False) as metrics:
+            yield
+    finally:
+        checkpoint = False
+        try:
+            metrics["wall_ms"] = max(0.0, (perf_counter() - started) * 1000)
+            with observer._metrics_lock:
+                aggregate = observer.local_phases.setdefault(stage, {"calls": 0})
+                aggregate["calls"] += 1
+                for name in _LOCAL_METRICS:
+                    value = metrics.get(name)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        if 0 <= value <= 2**53 - 1 and math.isfinite(value):
+                            aggregate[name] = min(2**53 - 1, aggregate.get(name, 0) + value)
+                        else:
+                            aggregate["capture_failure_count"] = aggregate.get("capture_failure_count", 0) + 1
+                observer.local_phase_calls += 1
+                if observer.local_phase_calls % 128 == 0 and observer.local_phase_checkpoints < 16:
+                    observer.local_phase_checkpoints += 1
+                    checkpoint = True
+            if checkpoint:
+                observer.emit("performance_checkpoint")
+        except Exception:  # noqa: BLE001 - invalid optional metrics cannot replace body exceptions
+            with observer._metrics_lock:
+                aggregate = observer.local_phases.setdefault(stage, {"calls": 0})
+                aggregate["capture_failure_count"] = aggregate.get("capture_failure_count", 0) + 1
+
+
+@contextmanager
 def observe_load_stage(stage: str) -> Iterator[None]:
     """Record both ends of a stage while preserving its original exception."""
     observer = _OBSERVER.get()
@@ -168,25 +254,22 @@ def observe_load_stage(stage: str) -> Iterator[None]:
     observer.stage = stage
     started = perf_counter()
     observer.emit("stage_started", stage=stage)
+    outcome = "COMPLETED"
+    metrics: dict[str, object] = {}
     try:
-        yield
-    except BaseException as error:
-        record_load_failure(error, stage=stage)
-        observer.emit(
-            "stage_finished",
-            stage=stage,
-            outcome="FAILED",
-            duration_ms=(perf_counter() - started) * 1000,
-        )
-        raise
-    else:
-        observer.emit(
-            "stage_finished",
-            stage=stage,
-            outcome="COMPLETED",
-            duration_ms=(perf_counter() - started) * 1000,
-        )
+        with _stage_metric_scope(observer, sample_memory=True) as metrics:
+            try:
+                yield
+            except BaseException as error:
+                outcome = "FAILED"
+                record_load_failure(error, stage=stage)
+                raise
     finally:
+        observer.emit(
+            "stage_finished", stage=stage, outcome=outcome,
+            duration_ms=(perf_counter() - started) * 1000,
+            performance=metrics,
+        )
         observer.stage = previous
 
 

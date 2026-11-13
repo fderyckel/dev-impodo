@@ -92,6 +92,8 @@ from impodo.web.workspace_journeys import (
     workspace_route_is_allowed,
 )
 
+from ..routers.odoo_database_bindings import build_odoo_database_bindings_router
+
 CLIENT_CLOSED_REQUEST_STATUS_CODE = 499
 TransportSecurityInstaller = Callable[[FastAPI], None]
 
@@ -408,6 +410,7 @@ def install_http_application(
         build_workspace_setup_router(context),
         build_target_router(context),
         build_transfer_destination_router(context),
+        build_odoo_database_bindings_router(context),
         build_destination_matching_router(context),
         build_transfer_order_router(context),
         build_transfer_review_router(context),

@@ -82,6 +82,7 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityRule,
     HierarchicalLookupRule,
     HierarchyConsumerBinding,
+    LookupRule,
     derived_dataset_links,
     hierarchy_consumer_bindings,
 )
@@ -140,11 +141,11 @@ class GroupedExactJoinSourcePort(Protocol):
         ...
 
     def iter_lookup_batches(
-        self, *, rule: DerivedEntityRule, link: DerivedDatasetLink,
+        self, *, rule: LookupRule, link: DerivedDatasetLink,
         effective_dataset: SourceDataset, snapshot: SourceSnapshot, path: Path,
         batch_size: int,
     ) -> Iterator[GroupedExactJoinBatch]:
-        """Group one frozen value column with complete physical lineage."""
+        """Group frozen list or hierarchy fields with complete physical lineage."""
         ...
 
 
@@ -330,7 +331,7 @@ class BoundedPreparationProducer:
     group: BoundedExactJoinGroup | None
     primary_dataset_id: str
     participant_dataset_ids: tuple[str, ...]
-    lookup: tuple[DerivedEntityRule, DerivedDatasetLink] | None = None
+    lookup: tuple[LookupRule, DerivedDatasetLink] | None = None
 
 
 def bounded_preparation_producers(
@@ -368,12 +369,13 @@ def bounded_preparation_producers(
             producers.append(BoundedPreparationProducer(
                 dataset, None, dataset.dataset_id, (dataset.dataset_id,),
             ))
-        elif (lookup is not None and isinstance(lookup[0], DerivedEntityRule)
-              and lookup[0].parent_separator is None
+        elif (lookup is not None
               and lookup[0].source_dataset_id in physical
-              and lookup[0].source_column_key in {
+              and set(lookup[0].source_level_column_keys
+                      if isinstance(lookup[0], HierarchicalLookupRule)
+                      else (lookup[0].source_column_key,)).issubset({
                   column.stable_key for column in physical[lookup[0].source_dataset_id].columns
-              }):
+              })):
             rule, link = lookup[0], lookup[1]
             producers.append(BoundedPreparationProducer(
                 dataset, None, rule.source_dataset_id, (rule.source_dataset_id,),
@@ -544,7 +546,7 @@ def iter_bounded_preparation_source_batches(
                 producer, workspace_state, physical_selection, artifacts, snapshots, source, keys,
             ):
                 count += len(batch.rows)
-                if count > producer.dataset.row_count:
+                if producer.lookup is None and count > producer.dataset.row_count:
                     raise ReadinessError("The reviewed logical source row count changed")
                 yield producer.dataset, batch
             if producer.lookup is None and count != producer.dataset.row_count:

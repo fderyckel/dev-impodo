@@ -244,11 +244,15 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
         context.migration_workspaces.close(
             workspace_id, actor=actor, expected_revision=workspace.optimistic_revision
         )
-        for area in ("files", "sources", "schema", "mapping", "summary"):
+        for area, stage in (
+            ("files", 6), ("sources", 1), ("schema", 2),
+            ("mapping", 3), ("summary", 5), ("overview", 6),
+        ):
             response = self.client.get(
                 f"/workspaces/{workspace_id}/{area}", follow_redirects=False
             )
             self.assertEqual(response.status_code, 303)
             self.assertEqual(
-                response.headers["location"], f"/projects/{access.project_id}"
+                response.headers["location"],
+                f"/workspaces/{workspace_id}/history/{stage}",
             )

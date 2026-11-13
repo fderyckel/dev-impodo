@@ -122,6 +122,7 @@ def _supporting_mapping_usage(
             result.add(SupportingRelationshipIntent(
                 dataset.target_model, field_name, incoming,
                 reuse_existing=resolver.origin is ResolverOrigin.TARGET_CATALOG,
+                source_dataset_id=dataset.dataset_id,
             ))
             parent = by_dataset.get(incoming)
             if parent is not None and dataset.mode is not MappingTargetMode.REFERENCE:
@@ -129,7 +130,8 @@ def _supporting_mapping_usage(
                     (parent.target_model, dataset.target_model, field_name), ()
                 ):
                     result.add(SupportingRelationshipIntent(
-                        parent.target_model, inverse, dataset.dataset_id
+                        parent.target_model, inverse, dataset.dataset_id,
+                        source_dataset_id=parent.dataset_id,
                     ))
                     owners.add((parent.dataset_id, inverse, dataset.dataset_id))
     return tuple(sorted(result)), frozenset(owners)

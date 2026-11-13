@@ -11,6 +11,7 @@ import json
 import math
 import tempfile
 from collections import OrderedDict
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlencode
@@ -44,15 +45,29 @@ from impodo.domain.shared.access import Capability
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.transfer_identity_aliases import (
+    DestinationIdentityAliasRule,
+    ProtectedIdentityAliasRulesReference,
+)
 from impodo.web.composition.page_reads import run_local_operation, run_page_read
 from impodo.web.composition.saved_odoo_data import (
     saved_capture_access,
     saved_source_companies,
 )
-from impodo.web.composition.saved_odoo_restore import restore_saved_odoo_data
+from impodo.web.composition.saved_odoo_restore import (
+    restore_saved_odoo_data,
+    saved_identity_alias_rule_owner,
+    saved_identity_alias_rules,
+)
 from impodo.web.context import WebContext
 from impodo.web.forms import _revision, _secure_form, _text
 from impodo.web.presenters.common import _flash, _render
+from impodo.web.presenters.identity_alias_forms import (
+    identity_alias_form_drafts,
+    identity_alias_form_fields,
+    identity_alias_form_rows,
+    parse_identity_alias_drafts,
+)
 from impodo.web.request_identity import request_identity
 from impodo.web.security import require_csrf, require_session
 
@@ -62,6 +77,8 @@ _BASE_RESTORE_FIELDS = {
     "operation_id",
     "version_number",
     "profile_id",
+    "profile_hash",
+    "replace_identity_aliases",
     "odoo_connection_mode",
     "odoo_base_url",
     "odoo_database",
@@ -248,6 +265,11 @@ def _source_rows(context: WebContext, workspace_id: str, settings: dict):
                     for name, label in scopes_by_model.get(model.name, ())
                 ),
                 "selected_scope": matching_scopes[0] if matching_scopes else "",
+                "identity_alias_prefix": f"identity_alias__{model.name}",
+                "identity_alias_eligible": bool(scope is not None and model.name in scope.reference_models)
+                and len(keys) == 1 and not matching_scopes,
+                "identity_alias_rows": identity_alias_form_rows(),
+                "identity_alias_present": False,
             }
         )
     return tuple(rows), tuple(key_rows), types, tuple(coverage)
@@ -263,6 +285,9 @@ def _page_data(
     profile_id=None,
     version_number=None,
     job_id=None,
+    expected_profile_hash=None,
+    alias_command=False,
+    alias_edit=False,
 ):
     project = _visible_project(request, context, project_id)
     actor = request_identity(request, context.identity_resolver).actor
@@ -291,6 +316,31 @@ def _page_data(
         else None
     )
     settings = json.loads(profile.settings_json) if profile else {}
+    if profile is not None and expected_profile_hash is not None and (
+        settings.get("identity_alias_rules") is not None or alias_edit or expected_profile_hash
+    ) and expected_profile_hash != profile.content_hash:
+        raise HTTPException(409, "The saved destination changed in another request. Reload and review its reference mappings before continuing.")
+    alias_rules = ()
+    alias_problem = None
+    alias_rebind_required = False
+    if profile is not None and definition is not None and settings.get("identity_alias_rules") is not None:
+        access = context.workspace_access.resolve(
+            definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        if access.project_id != project.project_id:
+            raise HTTPException(404, "Saved reference mappings not found")
+        if alias_command:
+            context.workspace_access.resolve(
+                definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+            )
+        try:
+            reference = ProtectedIdentityAliasRulesReference.from_dict(settings["identity_alias_rules"])
+            if reference.owner_key != saved_identity_alias_rule_owner(profile, definition):
+                raise WorkspaceError("The source or matching choices changed. Review and replace the saved reference mappings.")
+            alias_rules = saved_identity_alias_rules(context, profile, definition, actor=actor, manage=alias_command)
+        except _SAFE_ERRORS as problem:
+            alias_problem = str(problem)
+            alias_rebind_required = True
     source_id = source_workspace_id or (
         definition.source_workspace_id if definition else None
     )
@@ -321,6 +371,20 @@ def _page_data(
         if evidence_workspace
         else ((), (), {}, ())
     )
+    aliases_by_model = {rule.model: rule for rule in alias_rules}
+    visible_alias_models = {row["model"]: row for row in key_rows}
+    if set(aliases_by_model) - set(visible_alias_models) or any(
+        rule.key_fields != tuple(visible_alias_models[model]["selected"])
+        or not visible_alias_models[model]["identity_alias_eligible"]
+        for model, rule in aliases_by_model.items() if model in visible_alias_models
+    ):
+        alias_problem = "Some saved reference mappings no longer match this version's record types or identifiers. Review the entered values and confirm their replacement."
+        alias_rebind_required = True
+    for row in key_rows:
+        rule = aliases_by_model.get(row["model"])
+        if rule is not None:
+            row["identity_alias_rows"] = identity_alias_form_rows(rule.aliases)
+            row["identity_alias_present"] = True
     job = (
         context.saved_odoo_jobs.get(
             project.project_id, definition.saved_data_id, job_id
@@ -335,6 +399,7 @@ def _page_data(
             "odoo_base_url": profile.base_url,
             "odoo_database": profile.database,
             "destination_company_name": profile.company_name,
+            "profile_hash": profile.content_hash,
         }
         if profile
         else {}
@@ -361,6 +426,9 @@ def _page_data(
         else str(uuid4()),
         "restore_values": values,
         "schema_issues": (),
+        "identity_alias_problem": alias_problem,
+        "identity_alias_count": sum(len(rule.aliases) for rule in alias_rules),
+        "identity_alias_rebind_required": alias_rebind_required,
         "default_rows": (),
         "coverage_rows": coverage[:500],
         "coverage_total": len(coverage),
@@ -371,6 +439,8 @@ def _page_data(
         else {},
         "_field_types": types,
         "_profile_hash": profile.content_hash if profile else "",
+        "_identity_alias_rules": alias_rules,
+        "_actor": actor,
     }
 
 
@@ -441,6 +511,9 @@ def _restore_fields(values: dict) -> tuple[set[str], set[str]]:
         allowed.add(name)
         allowed.add(f"scope__{row['model']}")
         repeated.add(name)
+        allowed.update(identity_alias_form_fields(
+            row["identity_alias_prefix"], len(row["identity_alias_rows"]),
+        ))
     for row in values["default_rows"]:
         suffix = f"{row['model']}__{row['name']}"
         allowed.update({f"default_provider__{suffix}", f"default_value__{suffix}"})
@@ -462,6 +535,27 @@ def _profile_from_form(
         else None
     )
     settings = json.loads(previous.settings_json) if previous else {}
+    alias_edit = any(
+        name.startswith("identity_alias__") and isinstance(value, str) and value.strip()
+        for name, value in form.multi_items()
+    )
+    protected_rules = settings.get("identity_alias_rules")
+    alias_access = None
+    if protected_rules is not None or alias_edit:
+        if previous is not None and _text(form, "profile_hash") != previous.content_hash:
+            raise WorkspaceError("The saved destination changed. Reload and review its reference mappings before continuing.")
+        definition = values["definition"]
+        actor = values["_actor"]
+        alias_access = context.workspace_access.resolve(
+            definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ,
+        )
+        if alias_access.project_id != project_id:
+            raise WorkspaceError("The saved reference mappings belong to another project")
+        context.workspace_access.resolve(
+            definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+        )
+        if values.get("identity_alias_rebind_required") and _text(form, "replace_identity_aliases") != "yes":
+            raise WorkspaceError("Confirm that the entered values replace the unavailable saved reference mappings")
     policy = RestoreValuePolicy(_text(form, "policy_default") or "use_saved")
     keys = dict(settings.get("keys", {}))
     scopes = dict(settings.get("scopes", {}))
@@ -541,7 +635,7 @@ def _profile_from_form(
     company = _text(form, "destination_company_name") or (
         previous.company_name if previous else ""
     )
-    return SavedOdooRestoreProfile(
+    profile = SavedOdooRestoreProfile(
         profile_id=previous.profile_id if previous else str(uuid4()),
         project_id=project_id,
         saved_data_id=saved_data_id,
@@ -560,6 +654,50 @@ def _profile_from_form(
         created_at=previous.created_at if previous else now,
         updated_at=now,
     )
+    rules_by_model = {
+        rule.model: rule for rule in values.get("_identity_alias_rules", ())
+    } if not values.get("identity_alias_rebind_required") else {}
+    for row in values["key_rows"]:
+        prefix = row["identity_alias_prefix"]
+        if row["model"] in rules_by_model and not identity_alias_form_fields(
+            prefix, len(row["identity_alias_rows"])
+        ).issubset(form):
+            raise WorkspaceError(
+                "The saved destination value mapping form is incomplete. Reload and review its matching choices before continuing."
+            )
+        if not any(name.startswith(prefix + "_") for name in form):
+            continue
+        aliases = parse_identity_alias_drafts(identity_alias_form_drafts(
+            form, prefix=prefix, slots=len(row["identity_alias_rows"]),
+        ))
+        if aliases:
+            if not row["identity_alias_eligible"] or len(keys.get(row["model"], ())) != 1 or scopes.get(row["model"]):
+                raise WorkspaceError("Reference mappings require one identifier, no parent scope, and existing destination records only")
+            rules_by_model[row["model"]] = DestinationIdentityAliasRule(
+                row["model"], tuple(keys[row["model"]]), aliases,
+            )
+        else:
+            rules_by_model.pop(row["model"], None)
+    reusable_rules = tuple(rules_by_model[model] for model in sorted(rules_by_model))
+    if reusable_rules:
+        if alias_access is None:
+            raise WorkspaceError("Protected reference mapping access is required")
+        owner_key = saved_identity_alias_rule_owner(profile, values["definition"])
+        old_reference = (
+            ProtectedIdentityAliasRulesReference.from_dict(protected_rules)
+            if protected_rules is not None and not values.get("identity_alias_rebind_required")
+            else None
+        )
+        if old_reference is not None and old_reference.owner_key == owner_key and reusable_rules == values.get("_identity_alias_rules", ()):
+            reference = old_reference
+        else:
+            reference = context.destination_identity_aliases.put_rules(
+                alias_access.project_id, owner_key=owner_key, values=reusable_rules,
+            )
+        revised_settings = json.loads(profile.settings_json)
+        revised_settings["identity_alias_rules"] = reference.to_dict()
+        profile = replace(profile, settings_json=canonical_json(revised_settings))
+    return profile
 
 
 def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
@@ -637,7 +775,8 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                 "revision",
             },
         )
-        actor = request_identity(request, context.identity_resolver).actor
+        identity = request_identity(request, context.identity_resolver)
+        actor = identity.actor
         workspace_id = _text(form, "workspace_id")
         await run_local_operation(_visible_project, request, context, project_id)
         await run_local_operation(
@@ -689,7 +828,9 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                         _text(form, "operation_id"), "operation_id"
                     ),
                     access_factory=lambda fresh, base: saved_capture_access(
-                        context, fresh, base, actor=actor
+                        context, fresh, base, actor=actor,
+                        scope=identity.organization_scope,
+                        authorization_receipt=identity.authorization,
                     ),
                 )
         except _SAFE_ERRORS as error:
@@ -718,7 +859,8 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
     async def update_saved_data(request: Request, project_id: str, saved_data_id: str):
         form = await request.form()
         _singleton_form(request, form, {"csrf_token", "revision", "operation_id"})
-        actor = request_identity(request, context.identity_resolver).actor
+        identity = request_identity(request, context.identity_resolver)
+        actor = identity.actor
 
         def prepare():
             _visible_project(request, context, project_id)
@@ -733,6 +875,10 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                 raise WorkspaceError(
                     "The configuration changed. Reload before updating saved data."
                 )
+            service.require_refresh_source(
+                project_id, saved_data_id, actor=actor,
+                expected_revision=_revision(form),
+            )
             return service
 
         try:
@@ -756,7 +902,9 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                 expected_revision=_revision(form),
                 operation_id=operation_id,
                 access_factory=lambda fresh, base: saved_capture_access(
-                    context, fresh, base, actor=actor
+                    context, fresh, base, actor=actor,
+                    scope=identity.organization_scope,
+                    authorization_receipt=identity.authorization,
                 ),
                 progress=progress,
             )
@@ -796,7 +944,8 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
     async def restore_saved_data(request: Request, project_id: str, saved_data_id: str):
         form = await request.form()
         require_csrf(request, _text(form, "csrf_token"))
-        actor = request_identity(request, context.identity_resolver).actor
+        identity = request_identity(request, context.identity_resolver)
+        actor = identity.actor
         version_number = _positive(_text(form, "version_number"), "saved data version")
         profile_id = _text(form, "profile_id") or None
         values = await run_page_read(
@@ -806,6 +955,12 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
             selected=saved_data_id,
             profile_id=profile_id,
             version_number=version_number,
+            expected_profile_hash=_text(form, "profile_hash") if profile_id else None,
+            alias_command=True,
+            alias_edit=any(
+                name.startswith("identity_alias__") and isinstance(value, str) and value.strip()
+                for name, value in form.multi_items()
+            ),
         )
         allowed, repeated = _restore_fields(values)
         _singleton_form(request, form, allowed, repeated)
@@ -837,6 +992,8 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                     saved_data_id,
                     version_number,
                     actor=actor,
+                    scope=identity.organization_scope,
+                    authorization_receipt=identity.authorization,
                     operation_id=operation_id,
                     profile=profile,
                     api_key=api_key,
@@ -876,6 +1033,8 @@ def build_saved_odoo_data_router(context: WebContext) -> APIRouter:
                     saved_data_id,
                     version_number,
                     actor=actor,
+                    scope=identity.organization_scope,
+                    authorization_receipt=identity.authorization,
                     operation_id=operation_id,
                     profile=profile,
                     api_key=api_key,

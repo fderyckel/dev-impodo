@@ -180,7 +180,7 @@ rather than trusting a historical edge index that may contain the incoming key
 instead of the canonical matching key. Only incoming identity or scope links
 propagate an unsafe child back to its parent; hybrid links remain forward
 dependencies. Other native incoming links reuse the existing direct edges.
-New native projections use
+Native projections require
 [`PreparedCanonicalProjection`](../../../src/impodo/domain/staging/preparation_session.py)
 contract 4. Incoming,
 target, and hybrid references now match the canonical Python serializer's exact
@@ -190,13 +190,13 @@ reads constant choices from the prepared literal columns. This keeps its query
 valid when a linked record is supplied by
 the same business key for every row.
 
-Readers preserve projection contract 3's original reference encoding and verify
-its stored content hash. Existing evidence is not migrated or rewritten. The
-projection version selects serialization independently of the compiled program
-hash. Tests reopen a finalized historical run, verify its complete original
-hash, and reject a changed projection version against that hash. Compiler-v8
-portable programs omit the new resolver metadata and retain their original
-content hashes.
+Readers accept only the exact current integer encoding version, defined by
+`PREPARED_CANONICAL_ENCODING_VERSION`. An unsupported saved projection raises
+`PreparedCanonicalEncodingUnsupported` and reports that the data must be
+prepared again. Impodo preserves the original source and saved rules; it does
+not migrate or reinterpret the old prepared rows. The projection version is
+checked independently of the compiled program hash. Tests verify current
+serialization and reopening, and reject an unsupported saved encoding.
 
 Clean relational identity programs use set-based DuckDB canonical projection.
 Each resolved component becomes one portable logical reference; optional blank
@@ -205,8 +205,7 @@ and native identity-group dependencies. Nonprintable reference labels or rows
 with transformation issues use the bounded canonical-payload route for the
 entire dataset; the clean SQL plan never silently skips a row. Reviewed hybrid
 aliases are applied after incoming-key normalization so their exact target
-bytes survive. Compiler-v8 and projection-contract-3 historical artifacts
-retain their original serialization. Capability diagnostics report
+bytes survive. Capability diagnostics report
 `RELATIONAL_IDENTITY_SCALE_UNQUALIFIED`; admission remains at 50,000 direct
 rows until a larger complete route is measured and qualified.
 
@@ -237,6 +236,16 @@ SQL consistency check, even when effects share an identifier. The adapter
 clears the seed dictionary at each batch boundary. Canonical JSON encoding,
 effect ordering, duplicate handling, transaction rollback, and canonical
 eligible-data hashing retain their existing contracts.
+
+When stored staging provides `CanonicalHashRowSource`, normalization can hash
+verified native canonical JSON without restoring each row again. Current
+JSON-backed rows are restored one at a time after their ordinal is checked,
+before eligibility is tested. Only eligible restored rows are serialized into
+the hash. Both paths preserve the same canonical object framing, row identities,
+membership checks, and staging and quality bindings. Resolved effective
+datasets continue to supply their canonical rows through the existing
+iterator. The hashing capability does not change the exact encoded stream used
+to publish staging evidence.
 
 ### Handoff to the shared Odoo comparison
 
@@ -510,6 +519,13 @@ physical lineage, blocked new choices, and the review connection count.
 | Actionable relationship reason builder | [`_relationship_issue_details`](../../../src/impodo/domain/preparation/quality.py) |
 | Admission and dataset route diagnostics | [`compile_preparation_capability`](../../../src/impodo/application/workspace/preparation/preparation_capability.py) |
 | Canonical publication validation | [`PreparationStoredRunReader`](../../../src/impodo/adapters/duckdb/preparation_stored_run_reader.py) |
+| Canonical publication and format-aware reuse | [`StagingRepository.publish_canonical_staging`](../../../src/impodo/adapters/duckdb/staging_repository.py) |
+| Resolution publication and parent binding | [`AdvancedCoverageRepository.publish_resolution_evaluation`](../../../src/impodo/adapters/duckdb/advanced_coverage_repository.py) |
+| Canonical eligible-data hashing | [`canonical_eligible_dataset_hash`](../../../src/impodo/domain/preparation/normalization.py) and [`CanonicalHashRowSource`](../../../src/impodo/domain/staging/preparation_session.py) |
+| Current prepared-result recovery | [`PreparationRecoveryRepository`](../../../src/impodo/adapters/duckdb/preparation_recovery_repository.py) |
+| Preparation review and command authority | [`PreparationRecoveryService`](../../../src/impodo/application/workspace/preparation/recovery.py) |
+| Recipe preparation admission and recovery | [`enqueue_preparation`](../../../src/impodo/web/run_commands.py) and [`recover_run_preparation`](../../../src/impodo/web/run_commands.py) |
+| Current attempt selection | [`PreparationJobRegistry.invalidate_result`](../../../src/impodo/application/workspace/preparation/preparation_job_registry.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
 | Bounded normalization groups and timing | [`build_bounded_normalization_evaluation`](../../../src/impodo/application/workspace/preparation/bounded_normalization.py) |
@@ -565,6 +581,35 @@ resolution or normalization decisions remain. Completion requires frozen,
 fully accounted prepared evidence for the current bindings.
 
 ## Invalidation and recovery
+
+`PreparationRecoveryRepository` checks each saved projection's encoding version
+in the same bounded query that reads publication headers. A missing, malformed,
+non-integer, or unsupported encoding prevents the saved result from being
+offered as resumable. This check reads projection metadata without restoring
+canonical rows. Fresh preparation publishes a current result from the accepted
+source and saved rules.
+
+Staging publication reuses matching content only while the saved encoding is
+current. Otherwise, fresh preparation publishes a new staging run and retains
+the earlier evidence. Resolution publication requires both the same evaluation
+hash and the same `staging_run_id` before returning an existing result. A new
+parent staging run follows the existing resolution invalidation and publication
+path, even when its canonical values are unchanged.
+
+Authoring and Recipe navigation verify this current result before offering
+duplicate or normalization review. Read-only navigation calls
+`PreparationRecoveryService.current_for_review` with `PROJECT_VIEW` authority.
+Preparation commands use `current`, which still requires `MAPPING_SUBMIT`.
+Both methods use the same compact publication check; viewing the page does not
+start a preparation worker.
+
+If a Recipe's result is unavailable, its earlier terminal attempts remain in
+history but no longer select the current review action. A stale observation
+cannot hide an active or newer attempt. A result can become available again
+only after a fresh publication check. An explicit preparation command may move
+the Recipe from `PREPARED` to `RUNNING` after the existing run, source, review,
+schema, and mapping checks pass. The transition also binds the expected mapping
+hash. Local database owners close before worker dispatch.
 
 Any source, schema, mapping, compilation, derived-plan, resolution, or
 normalization binding change invalidates dependent evidence. A failed or
@@ -754,6 +799,15 @@ operation result; an application request must not reopen worker-owned DuckDB.
 - [`tests/integration/duckdb/test_preparation_session.py`](../../../tests/integration/duckdb/test_preparation_session.py)
 - [`tests/integration/duckdb/test_identity_group_quality.py`](../../../tests/integration/duckdb/test_identity_group_quality.py)
 - [`tests/integration/duckdb/test_native_reference_serialization.py`](../../../tests/integration/duckdb/test_native_reference_serialization.py)
+- [`tests/domain/preparation/test_eligible_hash_stream.py`](../../../tests/domain/preparation/test_eligible_hash_stream.py)
+- [`tests/integration/duckdb/test_eligible_hash_stream.py`](../../../tests/integration/duckdb/test_eligible_hash_stream.py)
+- [`tests/integration/duckdb/test_preparation_recovery_encoding.py`](../../../tests/integration/duckdb/test_preparation_recovery_encoding.py)
+- [`tests/integration/duckdb/test_prepared_encoding_guards.py`](../../../tests/integration/duckdb/test_prepared_encoding_guards.py)
+- [`tests/integration/duckdb/test_resolution_parent_publication.py`](../../../tests/integration/duckdb/test_resolution_parent_publication.py)
+- [`tests/integration/web/test_authoring_preparation_recovery.py`](../../../tests/integration/web/test_authoring_preparation_recovery.py)
+- [`tests/integration/web/test_recipe_preparation_current_result.py`](../../../tests/integration/web/test_recipe_preparation_current_result.py)
+- [`tests/application/workspace/preparation/test_recovery.py`](../../../tests/application/workspace/preparation/test_recovery.py)
+- [`tests/application/run/test_stabilization.py`](../../../tests/application/run/test_stabilization.py)
 - [`tests/domain/preparation/test_quality.py`](../../../tests/domain/preparation/test_quality.py)
 - [`tests/domain/preparation/test_normalization.py`](../../../tests/domain/preparation/test_normalization.py)
 - [`tests/application/workspace/preparation/test_normalization_metadata.py`](../../../tests/application/workspace/preparation/test_normalization_metadata.py)

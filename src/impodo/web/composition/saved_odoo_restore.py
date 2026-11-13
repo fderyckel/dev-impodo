@@ -24,6 +24,11 @@ from impodo.application.transfer_preflight_service import TransferPreflightServi
 from impodo.application.transfer_review_service import TransferReviewService
 from impodo.application.workspace.execution.service import execution_api_scope
 from impodo.domain.execution.models import ExecutionRunStatus
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBinding,
+    OdooDatabaseBindingRole,
+    database_scope_hash,
+)
 from impodo.domain.odoo_relationship_scope import OdooRelationshipCaptureAction
 from impodo.domain.odoo_restore import (
     OdooRestorePlan,
@@ -31,12 +36,20 @@ from impodo.domain.odoo_restore import (
     RestoreFieldRule,
     compile_odoo_restore,
 )
-from impodo.domain.odoo_saved_data import SavedOdooRestoreProfile
+from impodo.domain.odoo_saved_data import (
+    SavedOdooDataDefinition,
+    SavedOdooRestoreProfile,
+)
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability
+from impodo.domain.shared.tenancy import AuthorizationReceipt, RequestOrganizationScope
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.business_keys import recommend_business_key
 from impodo.domain.workspace.contracts import SchemaModel
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.transfer_identity_aliases import (
+    ProtectedIdentityAliasRulesReference,
+)
 from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -50,6 +63,7 @@ from impodo.web.target_credentials import (
     store_target_credential,
 )
 
+from .database_bindings import frozen_database_guard, review_database_binding
 from .page_reads import run_local_operation_sync
 from .target_readers import _company_choice_connector
 
@@ -65,6 +79,51 @@ class SavedRestoreResult:
     issues: tuple[str, ...] = ()
     field_rows: tuple[dict[str, object], ...] = ()
     default_rows: tuple[dict[str, object], ...] = ()
+
+
+def saved_identity_alias_rule_owner(
+    profile: SavedOdooRestoreProfile, definition: SavedOdooDataDefinition
+) -> str:
+    """Bind reusable rules to source meaning and reviewed destination choices."""
+
+    if profile.project_id != definition.project_id or profile.saved_data_id != definition.saved_data_id:
+        raise WorkspaceError("The reference mappings belong to another saved data set")
+    settings = json.loads(profile.settings_json)
+    return content_hash({
+        "project_id": profile.project_id,
+        "saved_data_id": profile.saved_data_id,
+        "profile_id": profile.profile_id,
+        "source_target_hash": definition.source_target_hash,
+        "source_company_hash": definition.source_company_hash,
+        "source_major": definition.odoo_major,
+        "destination": (profile.connection_mode, profile.base_url, profile.database, profile.company_name),
+        "keys": {model: tuple(fields) for model, fields in sorted(settings.get("keys", {}).items())},
+        "scopes": {model: tuple(fields) for model, fields in sorted(settings.get("scopes", {}).items())},
+    })
+
+
+def saved_identity_alias_rules(context: WebContext, profile, definition, *, actor: Actor, manage: bool = False):
+    """Authorize and decrypt reusable rules without carrying old approvals."""
+
+    if profile.project_id != definition.project_id or profile.saved_data_id != definition.saved_data_id:
+        raise WorkspaceError("The reference mappings belong to another saved data set")
+    settings = json.loads(profile.settings_json)
+    raw_reference = settings.get("identity_alias_rules")
+    if raw_reference is None:
+        return ()
+    access = context.workspace_access.resolve(
+        definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ,
+    )
+    if access.project_id != profile.project_id:
+        raise WorkspaceError("The saved reference mappings belong to another project")
+    if manage:
+        context.workspace_access.resolve(
+            definition.source_workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+        )
+    reference = ProtectedIdentityAliasRulesReference.from_dict(raw_reference)
+    return context.destination_identity_aliases.read_rules(
+        access.project_id, reference, owner_key=saved_identity_alias_rule_owner(profile, definition),
+    )
 
 
 def _protected_values(
@@ -106,10 +165,17 @@ def _configure_destination(
     api_key: str,
     *,
     actor: Actor,
+    scope: RequestOrganizationScope,
+    authorization_receipt: AuthorizationReceipt,
 ) -> tuple[WorkspaceState, TargetCredential]:
     """Finish local target admission before any remote request."""
 
     current = context.queries.get(state.workspace_id)
+    review_database_binding(
+        context, current, OdooDatabaseBindingRole.DESTINATION,
+        base_url=profile.base_url, database=profile.database,
+        actor=actor, scope=scope, authorization_receipt=authorization_receipt,
+    )
     current = context.workspace_states.configure_transfer_destination(
         current.workspace_id,
         actor=actor,
@@ -151,11 +217,12 @@ def _configure_destination(
         key,
         persistent=False,
     )
-    return current, credential
+    return context.queries.get(current.workspace_id), credential
 
 
 def _pending_restore(
-    context: WebContext, profile: SavedOdooRestoreProfile, *, actor: Actor
+    context: WebContext, profile: SavedOdooRestoreProfile, *, actor: Actor,
+    current_binding: OdooDatabaseBinding,
 ) -> str | None:
     """Keep a changed operation or profile from bypassing an unresolved journal."""
 
@@ -168,23 +235,30 @@ def _pending_restore(
     )
     offset = 0
     while True:
-        bindings = service.repository.list_restore_bindings(
-            profile.project_id, profile.saved_data_id, limit=100, offset=offset
+        bindings = service.repository.list_project_restore_bindings(
+            profile.project_id, limit=100, offset=offset
         )
         for binding in bindings:
             previous = context.queries.get(binding.workspace_id)
             if (
-                previous.destination_odoo_connection_mode is None
-                or previous.destination_odoo_connection_mode.value
-                != profile.connection_mode
-                or previous.destination_odoo_base_url != profile.base_url
-                or previous.destination_odoo_database != profile.database
-                or previous.destination_company is None
-                or previous.destination_company.name != profile.company_name
+                not previous.destination_configured
+                or database_scope_hash(previous.destination_odoo_base_url, previous.destination_odoo_database)
+                != current_binding.scope_hash
             ):
                 continue
             run = context.execution.current_transfer_run(binding.workspace_id)
             if run is None:
+                continue
+            previous_binding = previous.destination_database_binding
+            generation = context.odoo_database_bindings.repository.current(
+                current_binding.organization_id, current_binding.scope_hash,
+            )
+            if generation.generation > 0 and (
+                (previous_binding is not None and previous_binding.generation_hash != current_binding.generation_hash)
+                or (previous_binding is None and generation.declared_at is not None and run.started_at < generation.declared_at)
+            ):
+                # These receipts belong to a declared predecessor. Keep them as
+                # history and never verify them against replacement records.
                 continue
             verification = context.reconciliation.current(binding.workspace_id)
             if (
@@ -206,6 +280,8 @@ def restore_saved_odoo_data(
     version_number: int,
     *,
     actor: Actor,
+    scope: RequestOrganizationScope,
+    authorization_receipt: AuthorizationReceipt,
     operation_id: str,
     profile: SavedOdooRestoreProfile,
     api_key: str,
@@ -219,15 +295,20 @@ def restore_saved_odoo_data(
         raise WorkspaceError("Saved Odoo data is unavailable in this deployment")
     if profile.project_id != project_id or profile.saved_data_id != saved_data_id:
         raise WorkspaceError("The restore profile belongs to another saved data set")
-    if not check_only:
-        pending = run_local_operation_sync(
-            lambda: _pending_restore(context, profile, actor=actor)
-        )
-        if pending:
-            raise SavedOdooActionError(
-                "An earlier restore to this database and company needs verification. Review that run before starting another restore.",
-                redirect_url=pending,
+    alias_rules = ()
+    if json.loads(profile.settings_json).get("identity_alias_rules") is not None:
+        def historical_definition():
+            service.get(project_id, saved_data_id, actor=actor)
+            version = service.repository.get_version(project_id, saved_data_id, version_number)
+            return service.repository.get_configuration(
+                project_id, saved_data_id, version.configuration_revision
             )
+
+        definition = run_local_operation_sync(historical_definition)
+        alias_rules = run_local_operation_sync(
+            lambda: saved_identity_alias_rules(context, profile, definition, actor=actor, manage=True)
+        )
+    alias_rules_by_model = {item.model: item for item in alias_rules}
     state = run_local_operation_sync(
         lambda: service.prepare_restore(
             project_id,
@@ -261,15 +342,36 @@ def restore_saved_odoo_data(
             and not (verification.unknown_count or verification.fallout_count),
         )
     state, credential = run_local_operation_sync(
-        lambda: _configure_destination(context, state, profile, api_key, actor=actor)
+        lambda: _configure_destination(context, state, profile, api_key, actor=actor,
+            scope=scope, authorization_receipt=authorization_receipt)
     )
+    if not check_only:
+        def unresolved():
+            current_binding = context.odoo_database_bindings.require_current(
+                state.workspace_id, OdooDatabaseBindingRole.DESTINATION,
+                base_url=profile.base_url, database=profile.database,
+                actor=actor, capability=Capability.EXPORT_PLAN_EXECUTE,
+            )
+            return _pending_restore(context, profile, actor=actor, current_binding=current_binding)
+        pending = run_local_operation_sync(unresolved)
+        if pending:
+            raise SavedOdooActionError(
+                "An earlier restore to this database needs verification. Review that run before starting another restore.",
+                redirect_url=pending,
+            )
     progress(5, "Checking the destination database and company")
     destination = transfer_destination_workspace(state)
+    destination_guard = frozen_database_guard(
+        context, destination, actor=actor, role=OdooDatabaseBindingRole.DESTINATION,
+        capability=Capability.EXPORT_PLAN_EXECUTE,
+    )
+    destination_guard()
     companies = (
         _company_choice_connector(destination, credential.secret)
         .get_company_access()
         .choices
     )
+    destination_guard()
     matches = tuple(
         company for company in companies if company.name == profile.company_name
     )
@@ -306,7 +408,7 @@ def restore_saved_odoo_data(
     schema = run_local_operation_sync(
         lambda: context.queries.get_odoo_schema_catalog(state.workspace_id)
     )
-    scope = run_local_operation_sync(
+    relationship_scope = run_local_operation_sync(
         lambda: context.queries.get_current_odoo_relationship_scope(state.workspace_id)
     )
     if selection is None or schema is None:
@@ -315,10 +417,12 @@ def restore_saved_odoo_data(
     plans: dict[str, OdooRestorePlan] = {}
     choices: list[DestinationMatchKeyChoice] = []
     source_by_model = {model.name: model for model in schema.models}
-    scope_candidates = destination_match_scope_candidates(selection, schema, scope)
+    scope_candidates = destination_match_scope_candidates(selection, schema, relationship_scope)
     errors: list[str] = []
     field_rows: list[dict[str, object]] = []
     default_rows: list[dict[str, object]] = []
+    if set(alias_rules_by_model) - set(source_by_model):
+        errors.append("Review reference mappings for record types outside this saved version")
     for dataset in selection.datasets:
         if not isinstance(dataset.source, OdooSourceBinding):
             raise WorkspaceError("Choose an Odoo saved data version")
@@ -334,6 +438,10 @@ def restore_saved_odoo_data(
             else ()
         )
         matching_scopes = tuple(settings.get("scopes", {}).get(source.name, ()))
+        aliases = alias_rules_by_model.get(source.name)
+        if aliases is not None and (aliases.key_fields != keys or matching_scopes):
+            errors.append(f"Review the reference mappings and matching fields for {source.label}")
+            continue
         if matching_scopes and (
             len(matching_scopes) != 1
             or matching_scopes[0] not in {
@@ -400,7 +508,7 @@ def restore_saved_odoo_data(
             field.name
             for field in source.fields
             if field.type in {"many2one", "many2many"}
-            and scope is not None
+            and relationship_scope is not None
             and any(
                 decision.source_model == source.name
                 and decision.field_name == field.name
@@ -411,13 +519,13 @@ def restore_saved_odoo_data(
                     OdooRelationshipCaptureAction.PRESERVE_LINKED,
                     OdooRelationshipCaptureAction.MATCH_EXISTING,
                 }
-                for decision in scope.decisions
+                for decision in relationship_scope.decisions
             )
         )
         relation_names = tuple(dict.fromkeys((*relation_names, *matching_scopes)))
         handling = (
             "reference_only"
-            if scope is not None and source.name in scope.reference_models
+            if relationship_scope is not None and source.name in relationship_scope.reference_models
             else "transfer"
         )
         if handling == "reference_only":
@@ -428,6 +536,7 @@ def restore_saved_odoo_data(
                     tuple(columns[key] for key in keys[1:]),
                     destination_handling=handling,
                     scope_fields=matching_scopes,
+                    identity_aliases=aliases.aliases if aliases is not None else (),
                 )
             )
             continue
@@ -498,6 +607,7 @@ def restore_saved_odoo_data(
                 tuple(columns[key] for key in keys[1:]),
                 destination_handling=handling,
                 scope_fields=matching_scopes,
+                identity_aliases=aliases.aliases if aliases is not None else (),
             )
         )
     profiles = run_local_operation_sync(
@@ -555,7 +665,7 @@ def restore_saved_odoo_data(
             record_snapshot_sink=records.append,
             recorded_by=actor.identity.display_name,
             source_origins=origins,
-            relationship_scope=scope,
+            relationship_scope=relationship_scope,
             restore_plans=plans,
         )
 
@@ -566,7 +676,13 @@ def restore_saved_odoo_data(
         context.workspace_access.require(
             actor, Capability.PROTECTED_EVIDENCE_MANAGE, workspace_id=state.workspace_id
         )
-        return context.destination_create_fields.put(project_id, match)
+        checked = context.destination_create_fields.put(project_id, match)
+        if checked.identity_alias_bindings:
+            context.workspace_access.resolve(
+                state.workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ,
+            )
+            checked = context.destination_identity_aliases.put(project_id, checked)
+        return checked
 
     match = run_local_operation_sync(protect_match)
     if not match.ready or not match.create_field_defaults_complete:
@@ -619,7 +735,7 @@ def restore_saved_odoo_data(
             current,
             match,
             recorded_by=actor.identity.display_name,
-            relationship_scope=scope,
+            relationship_scope=relationship_scope,
         )
         current = context.workspace_states.save_transfer_order_plan(
             current.workspace_id,

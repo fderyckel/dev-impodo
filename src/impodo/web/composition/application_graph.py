@@ -34,6 +34,7 @@ from impodo.application.odoo_capture_publication_service import (
     OdooCapturePublicationService,
 )
 from impodo.application.odoo_connection_service import OdooConnectionTestService
+from impodo.application.odoo_database_binding_service import OdooDatabaseBindingService
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.odoo_source_capture_service import OdooSourceCaptureService
 from impodo.application.project.ports import ScopedMigrationProjectQuery
@@ -57,6 +58,9 @@ from impodo.application.shared.secrets import SecretStore
 from impodo.application.supporting_lookup_service import (
     SupportingLookupRepositoryPort,
     SupportingLookupService,
+)
+from impodo.application.transfer_identity_alias_ports import (
+    DestinationIdentityAliasStore,
 )
 from impodo.application.workspace.derived_entities import (
     DerivedEntityRepository,
@@ -211,6 +215,8 @@ class WebInfrastructureDependencies:
     """Hold cross-cutting storage, authorization, and dispatch adapters."""
 
     destination_create_fields: DestinationCreateFieldStore
+    destination_identity_aliases: DestinationIdentityAliasStore
+    odoo_database_bindings: OdooDatabaseBindingService
     artifacts: WorkspaceArtifactStore
     authorization: AuthorizationPolicy
     jobs: JobDispatcher
@@ -431,6 +437,8 @@ def build_web_context(
         odoo_capture_jobs=jobs.odoo_capture,
         odoo_provenance=support.odoo_provenance,
         destination_create_fields=infrastructure.destination_create_fields,
+        destination_identity_aliases=infrastructure.destination_identity_aliases,
+        odoo_database_bindings=infrastructure.odoo_database_bindings,
         artifacts=infrastructure.artifacts,
         authorization=infrastructure.authorization,
         jobs=infrastructure.jobs,

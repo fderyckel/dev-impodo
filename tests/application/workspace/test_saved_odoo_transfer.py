@@ -348,7 +348,7 @@ def _compile(scenario, *, plans=None):
     )
 
 
-def _coa_scenario(major: int, *, destination_company="Company A"):
+def _coa_scenario(major: int, *, destination_company="Company A", identity_aliases=()):
     """Keep one company-scoped native account surface and explicit setup reuse."""
 
     fixture = fixture_module.TransferExecutionCompilerTests()
@@ -532,7 +532,7 @@ def _coa_scenario(major: int, *, destination_company="Company A"):
             "res.company": (
                 TargetRecord("res.company", 22, {"name": destination_company}),
             )
-            if destination_company == "Company A"
+            if destination_company == "Company A" or identity_aliases
             else (),
         },
         requested_fields={},
@@ -552,6 +552,7 @@ def _coa_scenario(major: int, *, destination_company="Company A"):
             company_dataset.dataset_id,
             "company-name",
             destination_handling="reference_only",
+            identity_aliases=identity_aliases,
         ),
     )
 

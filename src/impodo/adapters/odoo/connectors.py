@@ -1508,7 +1508,7 @@ class Json2ReadConnector:
                     raise ConnectorIncompleteResultError(
                         "JSON-2 response exceeds the safe limit"
                     )
-            except (TimeoutError, URLError) as exc:
+            except (HTTPException, OSError) as exc:
                 if attempt >= self._config.retries:
                     performance_count("rpc_failures")
                     raise _Json2TransportFailure(
@@ -1527,13 +1527,13 @@ class Json2ReadConnector:
 
 
 def _json2_transport_failure_category(
-    error: TimeoutError | socket.timeout | URLError,
+    error: HTTPException | OSError,
 ) -> str:
     """Classify a transport exception without retaining its message or URL."""
 
     if isinstance(error, (TimeoutError, socket.timeout)):
         return "timeout"
-    reason = error.reason
+    reason = error.reason if isinstance(error, URLError) else error
     if isinstance(reason, (TimeoutError, socket.timeout)):
         return "timeout"
     return "unreachable"

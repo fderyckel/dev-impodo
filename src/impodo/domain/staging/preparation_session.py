@@ -19,14 +19,30 @@ from impodo.domain.preparation.staging_contracts import (
 from ..compiler.columnar_transformation import ColumnarTransformationProgram
 from .transformation_impact import TransformationImpactReport, TransformationImpactRow
 
+PREPARED_CANONICAL_ENCODING_VERSION = 4
+
+
+class PreparedCanonicalEncodingUnsupported(ValueError):
+    """Require fresh preparation when saved rows use a retired encoding."""
+
+
+def _require_current_prepared_encoding(value: object) -> int:
+    """Accept only the exact current integer encoding version."""
+
+    if type(value) is not int or value != PREPARED_CANONICAL_ENCODING_VERSION:
+        raise PreparedCanonicalEncodingUnsupported(
+            "Saved prepared data uses an unsupported format. Prepare data again."
+        )
+    return value
+
 
 @runtime_checkable
 class CanonicalHashRowSource(Protocol):
-    """Stream canonical encodings or restored compatibility rows for hashing.
+    """Stream canonical encodings or restored stored rows for hashing.
 
     Providers preserve iteration order, validation, and payload row identities.
     A string must equal the canonical serialization of the restored row.
-    Compatibility rows remain objects so only eligible rows are serialized.
+    Stored rows remain objects so only eligible rows are serialized.
     """
 
     def iter_canonical_hash_rows(self) -> Iterator[tuple[str, str | CanonicalRow]]:
@@ -95,11 +111,7 @@ class CanonicalPreparedSessionRow:
 
 @dataclass(frozen=True, slots=True)
 class PreparedCanonicalProjection:
-    """Reconstruct native rows using their saved reference encoding.
-
-    Contract 3 preserves historical reference bytes. Contract 4 emits the
-    canonical property order and omits empty optional reference metadata.
-    """
+    """Reconstruct current native rows with canonical reference encoding."""
 
     dataset_id: str
     dataset: str
@@ -111,9 +123,10 @@ class PreparedCanonicalProjection:
     field_sources: Mapping[str, tuple[str, ...]]
     program: ColumnarTransformationProgram
     set_based_projection: bool = False
-    contract_version: int = 4
+    contract_version: int = PREPARED_CANONICAL_ENCODING_VERSION
 
     def __post_init__(self) -> None:
+        _require_current_prepared_encoding(self.contract_version)
         if (
             self.dataset_id != self.program.dataset_id
             or self.dataset != self.program.dataset_name
@@ -121,8 +134,6 @@ class PreparedCanonicalProjection:
             or self.physical_dataset_id != self.dataset_id
             or self.ordinal_start < 0
             or self.row_count < 0
-            or type(self.contract_version) is not int
-            or self.contract_version not in {3, 4}
         ):
             raise ValueError("Prepared canonical projection is invalid")
 
@@ -150,6 +161,9 @@ class PreparedCanonicalProjection:
         cls,
         payload: Mapping[str, Any],
     ) -> PreparedCanonicalProjection:
+        contract_version = _require_current_prepared_encoding(
+            payload.get("contract_version")
+        )
         program_payload = payload.get("program")
         if not isinstance(program_payload, Mapping):
             raise TypeError("Prepared canonical projection program is invalid")
@@ -159,9 +173,6 @@ class PreparedCanonicalProjection:
         raw_field_sources = payload.get("field_sources", {})
         if not isinstance(raw_field_sources, Mapping):
             raise TypeError("Prepared canonical field sources are invalid")
-        contract_version = payload.get("contract_version")
-        if type(contract_version) is not int:
-            raise ValueError("Prepared canonical projection is invalid")
         return cls(
             dataset_id=str(payload["dataset_id"]),
             dataset=str(payload["dataset"]),

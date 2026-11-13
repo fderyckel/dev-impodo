@@ -27,6 +27,7 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from ..composition.identity_aliases import read_destination_identity_aliases
 from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
@@ -40,6 +41,7 @@ from ..target_credentials import (
 )
 
 _BLOCKER_LABELS = {
+    "DESTINATION_IDENTITY_ALIAS_DRIFT": "Reviewed destination value mappings changed",
     "ROW_INCLUSION_SCOPE_DRIFT": "The checked rows-to-use rule or decisions changed",
     "ROW_INCLUSION_CANNOT_EVALUATE": "Source values could not be checked safely",
     "ROW_INCLUSION_ZERO_INCLUDED": "The rows-to-use rule includes no source rows",
@@ -247,6 +249,17 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                 source_schema_hash=schema.content_hash,
             ):
                 raise WorkspaceStateError("Approve the current transfer package first")
+            identity_aliases = (
+                await run_in_threadpool(
+                    read_destination_identity_aliases,
+                    context,
+                    workspace_id,
+                    approved_match,
+                    actor=actor,
+                )
+                if approved_match.identity_alias_evidence_id is not None
+                else {}
+            )
             credential = get_target_credential(
                 context.secret_store,
                 workspace_state,
@@ -291,6 +304,7 @@ def build_transfer_preflight_router(context: WebContext) -> APIRouter:
                     destination_handling=item.destination_handling,
                     row_inclusion=item.row_inclusion,
                     scope_fields=item.scope_fields,
+                    identity_aliases=identity_aliases.get(item.dataset_id, ()),
                 )
                 for item in approved_match.model_matches
             )

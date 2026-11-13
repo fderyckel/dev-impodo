@@ -50,6 +50,10 @@ from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPoli
 from tests.support.database_probe import count_duckdb_statements
 
 SAVED_TABLES = (
+    "saved_odoo_source_binding",
+    "odoo_workspace_database_binding",
+    "odoo_database_generation_current",
+    "odoo_database_generation",
     "saved_odoo_capture_operation",
     "saved_odoo_restore_profile",
     "saved_odoo_restore_binding",
@@ -153,8 +157,8 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
     def test_capture_configuration_can_precede_data_and_revision_history_is_immutable(
         self,
     ) -> None:
-        first = self.repository.create_definition(self.definition)
-        self.assertEqual(self.repository.create_definition(self.definition), first)
+        first = self.repository.create_definition(self.definition, source_binding_hash=None)
+        self.assertEqual(self.repository.create_definition(self.definition, source_binding_hash=None), first)
         self.assertEqual(
             self.repository.list_versions(first.project_id, first.saved_data_id), ()
         )
@@ -165,6 +169,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
                 config_json='{"models":["account.account","account.account.tag"]}',
             ),
             expected_revision=first.revision,
+            source_binding_hash=None,
         )
         self.assertEqual((second.revision, second.configuration_revision), (2, 2))
         self.assertEqual(
@@ -181,7 +186,8 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         )
         with self.assertRaises(MigrationConflictError):
             self.repository.save_definition(
-                replace(first, label="Stale choice"), expected_revision=1
+                replace(first, label="Stale choice"), expected_revision=1,
+                source_binding_hash=None,
             )
 
     def test_each_supported_major_round_trips_without_a_default_alias(self) -> None:
@@ -190,7 +196,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
                 definition = replace(
                     self.definition, saved_data_id=str(uuid4()), odoo_major=major
                 )
-                self.repository.create_definition(definition)
+                self.repository.create_definition(definition, source_binding_hash=None)
                 self.assertEqual(
                     self.repository.get_definition(
                         definition.project_id, definition.saved_data_id
@@ -201,23 +207,23 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
     def test_versions_publish_atomically_and_replay_without_duplicates_after_reopen(
         self,
     ) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         self._accept_fixture_data()
         version = self._version()
-        updated, saved = self.repository.append_version(version, expected_revision=1)
+        updated, saved = self.repository.append_version(version, expected_revision=1, source_binding_hash=None)
         self.assertEqual(
             (updated.revision, updated.configuration_revision, updated.latest_version),
             (2, 1, 1),
         )
         self.assertEqual(saved, version)
-        self.assertEqual(self.repository.create_definition(self.definition), updated)
+        self.assertEqual(self.repository.create_definition(self.definition, source_binding_hash=None), updated)
         with self.assertRaises(MigrationOperationReplayError):
-            self.repository.create_definition(replace(self.definition, label="Different creation meaning"))
+            self.repository.create_definition(replace(self.definition, label="Different creation meaning"), source_binding_hash=None)
         reopened = DuckDbSavedOdooDataRepository(
             MigrationFoundationDatabase(self.database.root)
         )
         self.assertEqual(
-            reopened.append_version(version, expected_revision=1), (updated, version)
+            reopened.append_version(version, expected_revision=1, source_binding_hash=None), (updated, version)
         )
         self.assertEqual(
             reopened.list_versions(updated.project_id, updated.saved_data_id),
@@ -239,6 +245,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
             reopened.append_version(
                 replace(version, row_counts=(("account.account", 11),)),
                 expected_revision=updated.revision,
+                source_binding_hash=None,
             )
         self.assertEqual(
             reopened.get_definition(
@@ -248,7 +255,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         )
 
     def test_capture_operation_reopens_exact_workspace_before_capture_acceptance(self) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         operation = SavedOdooCaptureOperation(
             operation_id=str(uuid4()), project_id=self.definition.project_id,
             saved_data_id=self.definition.saved_data_id, expected_revision=1,
@@ -267,9 +274,9 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
     def test_stale_and_incomplete_capture_cannot_replace_last_complete_version(
         self,
     ) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         with self.assertRaises(MigrationFoundationError):
-            self.repository.append_version(self._version(), expected_revision=1)
+            self.repository.append_version(self._version(), expected_revision=1, source_binding_hash=None)
         self.assertIsNone(
             self.repository.get_definition(
                 self.definition.project_id, self.definition.saved_data_id
@@ -277,15 +284,18 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         )
         self._accept_fixture_data()
         updated, first = self.repository.append_version(
-            self._version(), expected_revision=1
+            self._version(), expected_revision=1,
+            source_binding_hash=None,
         )
         changed = self.repository.save_definition(
             replace(updated, label="Changed capture scope"),
             expected_revision=updated.revision,
+            source_binding_hash=None,
         )
         with self.assertRaises(MigrationConflictError):
             self.repository.append_version(
-                self._version(2), expected_revision=changed.revision
+                self._version(2), expected_revision=changed.revision,
+                source_binding_hash=None,
             )
         self.assertEqual(
             self.repository.get_version(first.project_id, first.saved_data_id, 1), first
@@ -298,7 +308,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         )
 
     def test_cross_project_and_source_changes_are_rejected(self) -> None:
-        definition = self.repository.create_definition(self.definition)
+        definition = self.repository.create_definition(self.definition, source_binding_hash=None)
         wrong_project = str(uuid4())
         with self.assertRaises(MigrationNotFoundError):
             self.repository.get_definition(wrong_project, definition.saved_data_id)
@@ -306,20 +316,23 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
             self.repository.save_definition(
                 replace(definition, source_target_hash=content_hash("other-database")),
                 expected_revision=1,
+                source_binding_hash=None,
             )
         self._accept_fixture_data()
         with self.assertRaises(MigrationNotFoundError):
             self.repository.append_version(
-                replace(self._version(), project_id=wrong_project), expected_revision=1
+                replace(self._version(), project_id=wrong_project), expected_revision=1,
+                source_binding_hash=None,
             )
 
     def test_restore_binding_preserves_source_and_requires_fresh_matching_lineage(
         self,
     ) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         self._accept_fixture_data()
         _updated, version = self.repository.append_version(
-            self._version(), expected_revision=1
+            self._version(), expected_revision=1,
+            source_binding_hash=None,
         )
         run = self.runs.create(
             self.project.project_id,
@@ -355,11 +368,14 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         )
         self.assertEqual(self.repository.list_restore_bindings(binding.project_id, binding.saved_data_id), (binding,))
         self.assertEqual(self.repository.list_restore_bindings(binding.project_id, binding.saved_data_id, offset=1), ())
+        self.assertEqual(self.repository.list_project_restore_bindings(binding.project_id), (binding,))
+        self.assertEqual(self.repository.list_project_restore_bindings(binding.project_id, offset=1), ())
+        self.assertEqual(self.repository.list_project_restore_bindings(str(uuid4())), ())
         with self.assertRaises(MigrationOperationReplayError):
             self.repository.bind_restore(replace(binding, generation_id=str(uuid4())))
 
     def test_corrupt_saved_content_is_rejected_instead_of_reused(self) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         with self.database.connect(self.database.registry_path) as connection:
             connection.execute(
                 "UPDATE saved_odoo_data_definition SET content_hash = ?",
@@ -377,7 +393,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
             replace(self.definition, config_json='{"nested":{"api_key":"secret"}}')
         with self.assertRaises(MigrationFoundationError):
             self.repository.list_definitions(self.definition.project_id, limit=501)
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         self.assertEqual(
             self.repository.list_definitions(self.definition.project_id, limit=1),
             (self.definition,),
@@ -396,7 +412,8 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
                     self.definition,
                     saved_data_id=str(uuid4()),
                     label=f"Saved set {index}",
-                )
+                ),
+                source_binding_hash=None,
             )
         with (
             collect_duckdb_request_timings() as timings,
@@ -413,9 +430,9 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         self.assertLessEqual(len(statements), 5)
 
     def test_retained_versions_block_project_deletion_before_artifacts_move(self) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         self._accept_fixture_data()
-        _definition, version = self.repository.append_version(self._version(), expected_revision=1)
+        _definition, version = self.repository.append_version(self._version(), expected_revision=1, source_binding_hash=None)
         source_directory = self.database.workspace_directory(self.project.project_id, self.source.workspace_id)
         self.assertTrue(source_directory.is_dir())
 
@@ -431,7 +448,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         self.assertIsNotNone(self.projects.get(self.project.project_id, actor=LOCAL_ACTOR))
 
     def test_empty_saved_configuration_does_not_block_normal_project_deletion(self) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         self.projects.delete(
             self.project.project_id, actor=LOCAL_ACTOR,
             expected_revision=self._project_revision(),
@@ -442,7 +459,7 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
     def test_restore_profiles_remember_portable_choices_with_cas_and_project_scope(
         self,
     ) -> None:
-        self.repository.create_definition(self.definition)
+        self.repository.create_definition(self.definition, source_binding_hash=None)
         now = datetime.now(UTC)
         profile = SavedOdooRestoreProfile(
             profile_id=str(uuid4()),
@@ -520,6 +537,7 @@ class SavedOdooRegistryUpgradeTests(unittest.TestCase):
                     (1, 2, "saved-odoo-data-and-restore-v2"),
                     (2, 3, "saved-odoo-restore-profile-v3"),
                     (3, 4, "saved-odoo-capture-recovery-v4"),
+                    (4, 5, "odoo-database-generation-authority-v5"),
                 ],
             )
             self.assertEqual(

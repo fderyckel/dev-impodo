@@ -17,7 +17,10 @@ class SavedOdooDataRepository(Protocol):
     """Persist source definitions and atomically promote complete versions."""
 
     def create_definition(
-        self, definition: SavedOdooDataDefinition
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        source_binding_hash: str | None,
     ) -> SavedOdooDataDefinition: ...
 
     def get_definition(
@@ -29,8 +32,24 @@ class SavedOdooDataRepository(Protocol):
     ) -> tuple[SavedOdooDataDefinition, ...]: ...
 
     def save_definition(
-        self, definition: SavedOdooDataDefinition, *, expected_revision: int
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        expected_revision: int,
+        source_binding_hash: str | None,
     ) -> SavedOdooDataDefinition: ...
+
+    def rebind_source_definition(
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        expected_revision: int,
+        source_binding_hash: str,
+    ) -> SavedOdooDataDefinition: ...
+
+    def get_configuration_source_binding(
+        self, project_id: str, saved_data_id: str, configuration_revision: int
+    ) -> str | None: ...
 
     def get_configuration(
         self, project_id: str, saved_data_id: str, configuration_revision: int
@@ -57,7 +76,11 @@ class SavedOdooDataRepository(Protocol):
     ) -> SavedOdooCaptureOperation | None: ...
 
     def append_version(
-        self, version: SavedOdooDataVersion, *, expected_revision: int
+        self,
+        version: SavedOdooDataVersion,
+        *,
+        expected_revision: int,
+        source_binding_hash: str | None,
     ) -> tuple[SavedOdooDataDefinition, SavedOdooDataVersion]: ...
 
     def retained_data_version(self, data_version_id: str) -> bool: ...
@@ -72,6 +95,10 @@ class SavedOdooDataRepository(Protocol):
 
     def list_restore_bindings(
         self, project_id: str, saved_data_id: str, *, limit: int = 100, offset: int = 0
+    ) -> tuple[SavedOdooRestoreBinding, ...]: ...
+
+    def list_project_restore_bindings(
+        self, project_id: str, *, limit: int = 100, offset: int = 0
     ) -> tuple[SavedOdooRestoreBinding, ...]: ...
 
     def save_restore_profile(

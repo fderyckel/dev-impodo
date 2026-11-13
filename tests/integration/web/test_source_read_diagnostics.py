@@ -11,22 +11,27 @@ from zipfile import ZipFile
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.shared.performance import OperationPerformance
 from impodo.web.diagnostics import LocalDiagnosticRecorder, create_diagnostic_bundle
+from impodo.web.runtime_diagnostics import _static_runtime_metadata
 
 
 class SourceReadDiagnosticExportTests(TestCase):
+    def setUp(self):
+        _static_runtime_metadata.cache_clear()
+        self.addCleanup(_static_runtime_metadata.cache_clear)
+
     def test_windows_bundle_retains_local_costs_alongside_odoo_and_workload_costs(self):
         with (
             TemporaryDirectory() as directory,
             patch(
-                "impodo.web.performance_diagnostics.platform.system",
+                "impodo.web.runtime_diagnostics.platform.system",
                 return_value="Windows",
             ),
             patch(
-                "impodo.web.performance_diagnostics.platform.release",
+                "impodo.web.runtime_diagnostics.platform.release",
                 return_value="11",
             ),
             patch(
-                "impodo.web.performance_diagnostics.platform.machine",
+                "impodo.web.runtime_diagnostics.platform.machine",
                 return_value="AMD64",
             ),
         ):

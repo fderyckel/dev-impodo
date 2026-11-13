@@ -1,5 +1,6 @@
 """Prove governed transfer populations through matching, review, and loading."""
 
+import json
 import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
@@ -27,6 +28,7 @@ from impodo.domain.mapping.contracts import (
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.destination_matching import (
     DestinationMatchPlan,
+    RetiredDestinationMatchPlanError,
     confirm_destination_row_inclusion,
 )
 from impodo.domain.workspace.errors import WorkspaceError
@@ -296,14 +298,13 @@ class TransferRowInclusionTests(unittest.TestCase):
         self.assertIn("ROW_INCLUSION_SCOPE_DRIFT", report.blocker_codes)
         self.assertFalse(report.ready)
 
-    def test_legacy_plan_keeps_its_original_payload_and_hash(self):
-        old = replace(self.check(), contract_version=15)
-        original_hash = old.content_hash
-        self.assertNotIn("row_inclusion", old.to_dict()["model_matches"][0])
-        self.assertNotIn("row_inclusion_confirmation_hash", old.to_dict())
-        restored = DestinationMatchPlan.from_json(old.to_json())
-        self.assertEqual(restored, old)
-        self.assertEqual(restored.content_hash, original_hash)
+    def test_retired_plan_requires_fresh_destination_check(self):
+        with self.assertRaises(RetiredDestinationMatchPlanError):
+            replace(self.check(), contract_version=15)
+        with self.assertRaisesRegex(
+            RetiredDestinationMatchPlanError, "Check the destination again"
+        ):
+            DestinationMatchPlan.from_json(json.dumps({"contract_version": 15}))
 
     def test_final_odoo20_pair_accepts_rules_and_cross_major_pair_stays_blocked(self):
         self.fixture.workspace = replace(

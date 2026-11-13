@@ -18,10 +18,23 @@ from .structure import read_table_columns
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-10-31-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 4
+MIGRATION_REGISTRY_VERSION = 5
 
 
 EXPECTED_REGISTRY_COLUMNS = {
+    "odoo_database_generation": (
+        "organization_id", "scope_hash", "generation", "operation_id", "generation_json", "content_hash",
+    ),
+    "odoo_database_generation_current": (
+        "organization_id", "scope_hash", "generation", "generation_hash",
+    ),
+    "odoo_workspace_database_binding": (
+        "workspace_id", "project_id", "organization_id", "role", "scope_hash",
+        "generation_hash", "operation_id", "binding_json", "content_hash",
+    ),
+    "saved_odoo_source_binding": (
+        "saved_data_id", "configuration_revision", "source_binding_hash",
+    ),
     "saved_odoo_capture_operation": (
         "operation_id", "project_id", "saved_data_id", "expected_revision",
         "configuration_revision", "workspace_id", "data_version_id",
@@ -730,12 +743,57 @@ def _create_saved_odoo_capture_operation(connection: duckdb.DuckDBPyConnection) 
     )
 
 
+def _create_odoo_database_bindings(connection: duckdb.DuckDBPyConnection) -> None:
+    """Add explicit Organization database generations without admitting old workspaces."""
+
+    connection.execute("""
+        CREATE TABLE odoo_database_generation (
+            organization_id VARCHAR NOT NULL,
+            scope_hash VARCHAR NOT NULL,
+            generation BIGINT NOT NULL CHECK (generation >= 0),
+            operation_id VARCHAR,
+            generation_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            PRIMARY KEY (organization_id, scope_hash, generation),
+            UNIQUE (organization_id, operation_id)
+        );
+        CREATE TABLE odoo_database_generation_current (
+            organization_id VARCHAR NOT NULL,
+            scope_hash VARCHAR NOT NULL,
+            generation BIGINT NOT NULL CHECK (generation >= 0),
+            generation_hash VARCHAR NOT NULL,
+            PRIMARY KEY (organization_id, scope_hash)
+        );
+        CREATE TABLE odoo_workspace_database_binding (
+            workspace_id VARCHAR NOT NULL REFERENCES migration_workspace_identity(workspace_id),
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            organization_id VARCHAR NOT NULL,
+            role VARCHAR NOT NULL CHECK (role IN ('SOURCE', 'DESTINATION')),
+            scope_hash VARCHAR NOT NULL,
+            generation_hash VARCHAR NOT NULL,
+            operation_id VARCHAR NOT NULL,
+            binding_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            PRIMARY KEY (workspace_id, role, scope_hash)
+        );
+        CREATE TABLE saved_odoo_source_binding (
+            saved_data_id VARCHAR NOT NULL,
+            configuration_revision INTEGER NOT NULL,
+            source_binding_hash VARCHAR NOT NULL,
+            PRIMARY KEY (saved_data_id, configuration_revision),
+            FOREIGN KEY (saved_data_id, configuration_revision) REFERENCES
+                saved_odoo_data_configuration(saved_data_id, configuration_revision)
+        )
+    """)
+
+
 MIGRATION_REGISTRY_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     1: ForwardSchemaUpgrade("saved-odoo-data-and-restore-v2", _create_saved_odoo_data),
     2: ForwardSchemaUpgrade(
         "saved-odoo-restore-profile-v3", _upgrade_saved_odoo_restore_profile
     ),
     3: ForwardSchemaUpgrade("saved-odoo-capture-recovery-v4", _create_saved_odoo_capture_operation),
+    4: ForwardSchemaUpgrade("odoo-database-generation-authority-v5", _create_odoo_database_bindings),
 }
 
 
@@ -1304,6 +1362,7 @@ def _initialize_migration_registry(
         _create_correction_run_binding(connection)
         _create_saved_odoo_data(connection)
         _create_saved_odoo_capture_operation(connection)
+        _create_odoo_database_bindings(connection)
         create_schema_migration_ledger(connection)
         connection.commit()
     except Exception:

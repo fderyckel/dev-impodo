@@ -73,6 +73,9 @@ from impodo.domain.workspace.portable_identity import (
     scoped_identity,
     scoped_record_identity,
 )
+from impodo.domain.workspace.transfer_identity_aliases import (
+    resolve_transfer_identity_aliases,
+)
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import TransferReviewPackage
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
@@ -499,7 +502,48 @@ def compile_transfer_execution_snapshot(
     source_id_to_row: dict[str, dict[int, int]] = {}
     included_rows_by_dataset: dict[str, tuple[SourceRow, ...]] = {}
     relationships_by_owner: dict[str, list] = {}
+    business_components_by_dataset: dict[str, tuple[tuple[str, ...], ...]] = {}
+    alias_destination_by_source: dict[str, dict[str, tuple[str, ...]]] = {}
+    alias_source_by_destination: dict[str, dict[str, str]] = {}
+    alias_evidence = fresh_match.identity_alias_evidence
+    if fresh_match.identity_alias_bindings and (
+        alias_evidence is None
+        or alias_evidence.evidence_id != fresh_match.identity_alias_evidence_id
+        or alias_evidence.content_hash != fresh_match.identity_alias_evidence_hash
+        or alias_evidence.public_bindings != fresh_match.identity_alias_bindings
+    ):
+        raise WorkspaceError("The protected reviewed identity aliases are unavailable or changed")
+    alias_values = {item.dataset_id: item for item in alias_evidence.values} if alias_evidence is not None else {}
+    for reviewed in package.datasets:
+        evidence = alias_values.get(reviewed.dataset_id)
+        expected_hash = evidence.binding.content_hash if evidence is not None else ""
+        expected_count = len(evidence.aliases) if evidence is not None else 0
+        if reviewed.identity_alias_binding_hash != expected_hash or reviewed.identity_alias_count != expected_count:
+            raise WorkspaceError("The reviewed identity aliases changed before execution")
+        if evidence is None:
+            continue
+        match = match_by_id[reviewed.dataset_id]
+        if reviewed.model_policy != "reuse_only" or reviewed.scope_fields or evidence.model != reviewed.model:
+            raise WorkspaceError("Identity aliases cannot authorize writes or scoped reference identities")
+        omitted = set(match.omitted_source_row_numbers)
+        included = tuple(portable_components(tuple(row.values.get(field) for field in reviewed.key_fields)) for row in source_rows[reviewed.dataset_id] if row.number not in omitted)
+        try:
+            resolved = resolve_transfer_identity_aliases(included, key_fields=reviewed.key_fields, destination_handling=match.destination_handling, aliases=evidence.aliases)
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
+        if resolved.binding != evidence.binding:
+            raise WorkspaceError("The source population for the reviewed identity aliases changed")
+        alias_destination_by_source[reviewed.dataset_id] = {
+            portable_identity(original): destination
+            for original, destination in zip(resolved.source_identities, resolved.destination_identities, strict=True)
+        }
+        business_components_by_dataset[reviewed.dataset_id] = resolved.destination_identities
+        alias_source_by_destination[reviewed.dataset_id] = {
+            portable_identity(destination): portable_identity(original)
+            for original, destination in zip(resolved.source_identities, resolved.destination_identities, strict=True)
+        }
     scopes_by_dataset: dict[str, tuple[tuple[BusinessReference, ...], ...]] = {}
+    business_scopes_by_dataset: dict[str, tuple[tuple[BusinessReference, ...], ...]] = {}
     scope_targets_by_dataset: dict[str, dict[int, BusinessReference]] = {}
     for reviewed in package.datasets:
         if not reviewed.scope_fields:
@@ -524,11 +568,20 @@ def compile_transfer_execution_snapshot(
         for scope in scopes:
             if not scope:
                 continue
-            target_ids = targets.get(portable_identity(scope[0].key), ())
+            destination_key = alias_destination_by_source.get(parent.dataset_id, {}).get(portable_identity(scope[0].key), portable_components(scope[0].key))
+            target_ids = targets.get(portable_identity(destination_key), ())
             if len(target_ids) != 1:
                 raise WorkspaceError("The matching-scope parent no longer matches one existing destination record")
             scope_targets[target_ids[0]] = scope[0]
         scopes_by_dataset[reviewed.dataset_id] = scopes
+        if parent.dataset_id in alias_destination_by_source:
+            mapped_references = {
+                reference: replace(reference, key=alias_destination_by_source[parent.dataset_id][portable_identity(reference.key)])
+                for reference in {reference for scope in scopes for reference in scope}
+            }
+            business_scopes_by_dataset[reviewed.dataset_id] = tuple(tuple(mapped_references[reference] for reference in scope) for scope in scopes)
+        else:
+            business_scopes_by_dataset[reviewed.dataset_id] = scopes
         scope_targets_by_dataset[reviewed.dataset_id] = scope_targets
     for relationship in package.relationships:
         relationships_by_owner.setdefault(relationship.owner_dataset_id, []).append(
@@ -584,10 +637,13 @@ def compile_transfer_execution_snapshot(
             )
         keys_by_dataset[dataset_id] = keys
         components_by_dataset[dataset_id] = components
+        business_components_by_dataset.setdefault(dataset_id, components)
 
         matches: dict[str, list[int]] = {value: [] for value in keys}
         for record in destination_records.records.get(reviewed.model, ()):
             value = scoped_record_identity(record.values, reviewed.key_fields, reviewed.scope_fields, scope_targets_by_dataset.get(dataset_id, {}))
+            if dataset_id in alias_source_by_destination:
+                value = alias_source_by_destination[dataset_id].get(value, "")
             if value in matches:
                 matches[value].append(record.odoo_id)
         if any(len(items) > 1 for items in matches.values()):
@@ -695,6 +751,7 @@ def compile_transfer_execution_snapshot(
             for value in candidate.identity
         )
         if target_binding:
+            candidate_key = business_components_by_dataset[related_dataset_id][candidate_rows[0]]
             reference: BusinessReference | LogicalReference = BusinessReference(
                 model=candidate.related_model,
                 key=candidate_key,
@@ -776,10 +833,11 @@ def compile_transfer_execution_snapshot(
             source_origins[dataset_id],
             match_by_id[dataset_id].frozen_source_row_count,
         )
-        for source_row, key, source_identity in zip(
+        for source_row, key, source_identity, business_identity in zip(
             rows,
             keys,
             components_by_dataset[dataset_id],
+            business_components_by_dataset[dataset_id],
             strict=True,
         ):
             target_id = target_ids_by_dataset[dataset_id].get(key)
@@ -825,9 +883,6 @@ def compile_transfer_execution_snapshot(
                 references = []
                 reference_bindings = []
                 related_keys = keys_by_dataset[relationship.related_dataset_id]
-                related_components = components_by_dataset[
-                    relationship.related_dataset_id
-                ]
                 related_rows = source_id_to_row[relationship.related_dataset_id]
                 for source_id in members:
                     related_ordinal = related_rows.get(source_id)
@@ -837,7 +892,7 @@ def compile_transfer_execution_snapshot(
                             f"{relationship.owner_model}.{relationship.field_name}"
                         )
                     related_key = related_keys[related_ordinal - 1]
-                    related_identity = related_components[related_ordinal - 1]
+                    related_identity = business_components_by_dataset[relationship.related_dataset_id][related_ordinal - 1]
                     related_binding = bindings_by_dataset[
                         relationship.related_dataset_id
                     ].get(related_key)
@@ -891,8 +946,8 @@ def compile_transfer_execution_snapshot(
                     source_trace_id=row_id,
                     source_identity=(key,) if reviewed.scope_fields else source_identity,
                     target_model=reviewed.model,
-                    business_identity=source_identity,
-                    business_scope=scopes_by_dataset[dataset_id][source_row.number - 1] if reviewed.scope_fields else (),
+                    business_identity=business_identity,
+                    business_scope=business_scopes_by_dataset[dataset_id][source_row.number - 1] if reviewed.scope_fields else (),
                     disposition=disposition,
                     target_match_count=1 if target_id is not None else 0,
                     target_binding_hash=(

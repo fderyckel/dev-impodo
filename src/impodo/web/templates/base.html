@@ -320,6 +320,18 @@
           {% if flash %}
             <div class="notice success" role="status">{{ flash }}</div>
           {% endif %}
+          {% if workspace_state and workspace_state.transfer_evidence_recovery_step|default(none) %}
+            <section class="notice warning" role="status" data-transfer-evidence-recovery>
+              <strong>Refresh the destination review before loading</strong>
+              <p>Your saved source data is preserved. The earlier destination check or approval uses a retired format.</p>
+              {% if transfer_run is defined and transfer_run %}
+                <p>Inspect this saved load outcome first. Its earlier approval cannot authorize another load or resume an interrupted write.</p>
+              {% else %}
+                <p>If loading already started, <a href="/workspaces/{{ workspace_state.workspace_id }}/transfer-load/outcome">inspect the saved load outcome first</a>. Do not start another load or replay its earlier approval.</p>
+                <p>{% if workspace_state.transfer_evidence_recovery_step == 'destination-matching' %}<a href="/workspaces/{{ workspace_state.workspace_id }}/destination-matching">Check the destination again</a>, then rebuild and approve the transfer review.{% else %}<a href="/workspaces/{{ workspace_state.workspace_id }}/transfer-review">Rebuild and approve the transfer review</a>.{% endif %}</p>
+              {% endif %}
+            </section>
+          {% endif %}
           {% if error %}
             <div class="notice error" role="alert">
               <strong>We could not complete that action.</strong>

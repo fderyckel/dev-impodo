@@ -185,6 +185,7 @@ class TransferReviewService:
                 sorted(relationships_by_owner[item.dataset_id])
             )
         order_by_dataset = {item.dataset_id: item for item in order_plan.datasets}
+        identity_aliases = {item.dataset_id: item.binding for item in match_plan.identity_alias_bindings}
         datasets = tuple(
             TransferReviewDataset(
                 dataset_id=item.dataset_id,
@@ -196,6 +197,8 @@ class TransferReviewService:
                 key_fields=item.key_fields,
                 scope_fields=item.scope_fields,
                 scope_dataset_ids=item.scope_dataset_ids,
+                identity_alias_binding_hash=identity_aliases[item.dataset_id].content_hash if item.dataset_id in identity_aliases else "",
+                identity_alias_count=identity_aliases[item.dataset_id].alias_count if item.dataset_id in identity_aliases else 0,
                 source_row_count=item.source_row_count,
                 destination_existing_record_count=(
                     item.destination_existing_key_count

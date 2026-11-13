@@ -222,7 +222,7 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
             request.method == "GET"
             and request.url.path in {
                 f"/workspaces/{workspace_id}/{area}"
-                for area in ("schema", "mapping", "summary", "files", "sources")
+                for area in ("schema", "mapping", "summary", "files", "sources", "overview")
             }
         ):
             def read_authorized_page(function: Callable[[], Response]) -> Response:

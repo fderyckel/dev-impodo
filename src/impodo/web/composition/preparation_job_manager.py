@@ -157,6 +157,16 @@ class PreparationJobManager:
                 return job
             return self._finish_recovered(job.job_id, result)
 
+    def invalidate_result(
+        self, workspace_id: str, *, expected_job_id: str | None,
+    ) -> PreparationJob | None:
+        """Stop offering an unavailable result while retaining attempt history."""
+
+        with self._lock:
+            return self.registry.invalidate_result(
+                workspace_id, expected_job_id=expected_job_id,
+            )
+
     def _finish_recovered(self, job_id: str, result: RecoveredPreparation) -> PreparationJob:
         job = self.registry.get_by_id(job_id)
         if job.workspace.mapping_content_hash != result.mapping_content_hash:

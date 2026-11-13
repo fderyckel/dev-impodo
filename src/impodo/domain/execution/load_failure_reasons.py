@@ -51,6 +51,7 @@ LOAD_FAILURE_REASONS: dict[str, str] = {
     "LOAD_LOAD_ISOLATION_HAS_NO_DURABLE_JOURNAL": "Load isolation has no durable journal",
     "LOAD_ODOO_CREATE_KEY_VERIFICATION_FAILED_BEFORE_LOADING": "Odoo create-key verification failed before loading",
     "LOAD_ODOO_GENERATED_RECORD_READ_BACK_WAS_INCOMPLETE": "Odoo generated-record read-back was incomplete",
+    "LOAD_ODOO_IDENTITY_LOOKUP_UNAVAILABLE": "The Odoo read-only identity lookup could not finish after its bounded attempts. Check the Odoo connection and review the saved load state before continuing.",
     "LOAD_ODOO_IDENTITY_VERIFICATION_FAILED_BEFORE_LOADING": "Odoo identity verification failed before loading",
     "LOAD_ODOO_RETURNED_AN_INCOMPLETE_CREATE_KEY_CHECK": "Odoo returned an incomplete create-key check",
     "LOAD_ODOO_RETURNED_AN_INCOMPLETE_IDENTITY_CROSSWALK": "Odoo returned an incomplete identity crosswalk",

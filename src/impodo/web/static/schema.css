@@ -33,6 +33,10 @@
   color: var(--impodo-warning);
 }
 
+.catalog-card[data-key-decision] > .page-heading h2 {
+  font-size: 1.25rem;
+}
+
 .catalog-card[data-key-decision] .key-decision-summary {
   padding: .6rem 1rem;
   border: 0;

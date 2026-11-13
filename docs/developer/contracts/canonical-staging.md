@@ -118,16 +118,24 @@ bound evidence. Readers reject an unsupported version or malformed hash. They
 also reject mismatched row lineage, duplicate row IDs, incomplete accounting,
 inconsistent blocking status, numeric Odoo IDs, or a changed content hash.
 
-New native prepared projections use `PreparedCanonicalProjection` contract 4.
+Native prepared projections require `PreparedCanonicalProjection` contract 4.
 Their symbolic references use the same sorted properties and omission of empty
 optional metadata as the canonical Python serializer. Constant references read
 their prepared literal columns in the declared business-key order.
 
-Readers also support projection contract 3 and reconstruct its original
-reference bytes. Historical projected rows may have a different property order
-and retain empty optional metadata. Readers verify the original stored hash
-without rewriting that evidence. Changing a saved projection's version cannot
-authorize a new content hash; unsupported projection versions are rejected.
+Readers accept only the exact current integer encoding version. A saved
+projection with an unsupported encoding requires fresh preparation; Impodo
+does not reinterpret its bytes or rewrite the original evidence. Changing a
+saved projection's version cannot authorize a new content hash.
+Recovery must not offer a saved result whose prepared projections use an
+unsupported encoding.
+
+Eligible-data hashing preserves canonical row order, eligibility decisions,
+and the published staging and quality bindings. Verified native projections
+can supply their canonical JSON directly. Current JSON-backed rows still use
+typed restoration before eligibility is checked, and only eligible restored
+rows are serialized into the hash. A malformed stored row therefore remains
+an error even when it would not be eligible for loading.
 
 Mapping preview and full evaluation must share the same scalar-provider,
 formula, transformation, parsing, and validation semantics. Client-side
@@ -146,9 +154,22 @@ Odoo capability.
 ## Publication
 
 Publication is immutable, atomic, project-scoped, and idempotent when the
-current evidence is identical. The run header, rows, reconciliation,
-current-pointer update, and audit event commit together. If any part fails,
-Impodo rolls back the publication.
+current evidence is identical and its prepared encoding is current. The run
+header, rows, reconciliation, current-pointer update, and audit event commit
+together. If any part fails, Impodo rolls back the publication.
+
+Fresh preparation publishes a new staging run when the saved encoding is
+unsupported, even if the canonical content hash is unchanged. The earlier
+evidence remains intact. Resolution publication reuses evidence only when its
+evaluation hash and parent staging run both match. A new staging publication
+therefore requires resolution evidence bound to that new parent.
+
+Review navigation must verify the current publication before offering saved
+prepared data. A completed worker attempt or an earlier Recipe preparation
+milestone alone does not establish a current result. An unavailable result
+requires the normal preparation action and its existing authorization and
+source checks. Retain attempt history, and never let an outdated observation
+hide active work or replace a newer attempt.
 
 Preparation capability and row limits are selected from the actual compiled
 mapping and snapshot path. Current measured limits and qualification evidence

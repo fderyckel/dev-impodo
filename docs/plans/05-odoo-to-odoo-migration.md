@@ -5,8 +5,8 @@
 **Status (2026-11-13):** The bounded transfer engine is implemented. Recorded
 live Contact qualification covers Odoo 19 relationships. Odoo 20 scalar
 transfers include interruption and recovery in both LOCAL-to-REMOTE and
-REMOTE-to-LOCAL directions. Broader parent/company identities, explicit
-company mapping, Product and bill-of-material transfer qualification, broader
+REMOTE-to-LOCAL directions. Broader parent/company identities,
+Product and bill-of-material transfer qualification, broader
 destination and recovery scenarios, and measured multi-model qualification
 remain open. Cross-major transfer and whole-database upgrade are excluded.
 The [cross-plan roadmap](00-remaining-work.md) owns implementation priority.
@@ -14,8 +14,18 @@ The [cross-plan roadmap](00-remaining-work.md) owns implementation priority.
 The first scoped increment supports one direct captured writable Many2one to
 a selected unscoped parent that already matches uniquely in the destination.
 It is controlled-test verified for Odoo 19 and Odoo 20 with local and remote
-metadata. Broader relational scope and company mapping remain open; this does
-not qualify Product/BOM transfers or a live scoped round trip.
+metadata. A separate bounded alias capability now explicitly maps a source
+reference key to another existing destination key, including Company names.
+It admits one scalar key on an unscoped existing-only reference dataset and
+keeps source data and reference records unchanged. Broader relational scope,
+composite/scoped alias datasets and live qualification remain open. These
+increments do not qualify Product/BOM transfers or a complete accounting backup.
+
+The transfer uses one current design: matching contract 18 and review contract
+9. Retired saved checks and reviews are rejected with an instruction to check
+the destination again and rebuild and approve the review. Original source data
+is preserved. Do not add obsolete readers or parallel serialization paths to
+continue an old approval.
 
 The [shared transfer and restore checklist](32-odoo-transfer-and-restore-checklist.md)
 owns the reconciled remaining work for this plan and
@@ -201,7 +211,7 @@ or read-only relationship is shown as Odoo-managed evidence instead of being
 silently removed. A single normal action records immutable, versioned defaults
 for each current edge, refreshes newly included schema, and repeats within the
 bounded depth until the graph closes. Incompatible model-wide policies,
-unavailable selectable metadata, changed legacy edge meaning, depth or capture
+unavailable selectable metadata, changed saved edge meaning, depth or capture
 bounds, and missing identity or create evidence interrupt that flow with a
 named exception; all defaults remain inspectable and overridable under
 **Advanced**. Once Stage 4
@@ -518,6 +528,12 @@ Plan 31 already remembers capture configurations and destination restore
 choices for saved-data restoration. Verify ordinary migration reuse separately;
 those restore profiles do not establish that every ad hoc transfer can reuse
 the same choices.
+
+Source archives are portable, while destination profiles and protected alias
+rules are currently reused only within their owning installation. Transferring
+those destination choices across installations is unimplemented. After importing
+a source archive elsewhere, create a new destination profile and enter its
+reference aliases again; this is an implementation gap, not only qualification.
 
 ## Phase 5: qualify model breadth, size, and cutover
 

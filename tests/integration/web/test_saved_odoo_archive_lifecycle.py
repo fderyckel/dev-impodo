@@ -22,11 +22,13 @@ from impodo.adapters.odoo_saved_data_package import (
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.application.odoo_saved_data_archive import OdooSavedDataArchiveService
 from impodo.domain.odoo.company import OdooCompanySelection
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.app import create_local_app
+from impodo.web.composition.database_bindings import review_database_binding
 from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
     ProjectWorkspaceBuilder,
@@ -111,6 +113,12 @@ class SavedOdooArchiveLifecycleTests(ProjectSetupBrowserTestCase):
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             state.workspace_id, schema, actor=actor
+        )
+        identity = context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            context, state, OdooDatabaseBindingRole.SOURCE,
+            actor=actor, scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
         )
         response = self._post(
             f"/workspaces/{state.workspace_id}/sources/odoo-selection",
@@ -246,6 +254,17 @@ class SavedOdooArchiveLifecycleTests(ProjectSetupBrowserTestCase):
                 imported_version = saved.repository.get_version(
                     target_project, imported.saved_data_id, 1
                 )
+                self.assertIsNone(saved.repository.get_configuration_source_binding(
+                    target_project, imported.saved_data_id, imported.configuration_revision
+                ))
+                with self.assertRaisesRegex(WorkspaceError, "no database-generation review"):
+                    saved.require_refresh_source(
+                        target_project, imported.saved_data_id, actor=target_actor,
+                        expected_revision=imported.revision,
+                    )
+                self.assertEqual(saved.repository.get_version(
+                    target_project, imported.saved_data_id, 1
+                ), imported_version)
                 self.assertNotEqual(
                     imported_version.data_version_id, version.data_version_id
                 )

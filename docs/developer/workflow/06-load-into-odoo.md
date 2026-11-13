@@ -76,7 +76,7 @@ introduced.
 
 ### Rows to use in a transfer
 
-Destination-matching contract version 16 adds the same guided
+The current destination-matching contract uses the same guided
 `RowInclusionPolicy` used by file mappings. The data manager authors it on
 **Match destination data**, checks the population, reviews protected decisions,
 and confirms exact exclusions before building transfer order or review.
@@ -159,7 +159,7 @@ Odoo capture boundary without one broad first-field query.
 
 ### Direct existing-parent matching scope
 
-Destination-matching contract version 17 and transfer-review contract version 8
+Destination-matching contract version 18 and transfer-review contract version 9
 bind an optional single `scope_fields` entry and its selected parent dataset.
 The **Match within** control uses
 [`destination_match_scope_candidates`](../../../src/impodo/application/destination_matching_service.py)
@@ -183,9 +183,31 @@ Review binds the selected relationship and parent dataset. Fresh preflight and
 load preparation repeat the same scope choice. The execution compiler uses the
 existing `ExecutionDataset.scope_fields` and row `business_scope` contracts;
 canonical target-scope resolvers carry portable parent references through the
-shared writer, read-back and retained recovery snapshot. Historical unscoped
-plan and review serialization keeps its original hash meaning and requires the
-current destination check before readiness.
+shared writer, read-back and retained recovery snapshot. Only matching version
+18 and review version 9 are accepted. Readers reject retired checks and reviews
+with an instruction to check the destination again, then rebuild and approve
+the transfer review. The frozen source remains unchanged. No obsolete reader
+or alternate serialization path is retained for those responsibilities.
+
+The [workspace projection](../../../src/impodo/adapters/duckdb/serialization.py)
+inspects only the version envelope to recognize a retired transfer check or
+review. It exposes a transient `transfer_evidence_recovery_step` without
+rewriting stored rows, source data or journals during a GET. A retired match
+removes matching/order/review/approval from the in-memory projection; a retired
+review keeps current matching and ordering. Malformed, future or corrupt
+current evidence still raises instead of being silently retired.
+
+The shared page notice **Refresh the destination review before loading** keeps
+source access available and points to the fresh check or review action. A
+current preflight report may remain as a non-authorizing journal receipt.
+Direct execute and resume still require the complete current matching, review,
+approval and preflight binding; the receipt alone grants no write authority.
+An interrupted outcome must be inspected first, and a retired approval cannot
+resume its writes. The
+[projection tests](../../../tests/integration/duckdb/test_retired_transfer_projection.py),
+[direct admission tests](../../../tests/application/workspace/execution/test_transfer_approval_admission.py)
+and [notice tests](../../../tests/integration/web/test_transfer_evidence_notice.py)
+cover these boundaries. The notice tests perform no database opens.
 
 A null scope, incomplete source origins, missing or ambiguous parent identity,
 missing destination parent, recursively scoped parent, or inbound relationship
@@ -212,9 +234,73 @@ constructing a writer.
 These are controlled tests, not live ORM or latency qualification. No new
 visual browser capture was produced for this control.
 
+### Reviewed values for existing reference records
+
+**Use different destination values** adds an explicit alias between a captured
+scalar reference key and a different existing destination key. The generic
+boundary admits only `reference_only` or `reuse_only` datasets with one scalar
+key and no identity scope. The target must exist uniquely and be accessible.
+Aliases cannot name an excluded or unknown source, merge retained source
+identities, create a missing reference or enable writes to it. Unmapped source
+keys retain their ordinary matching meaning. An aliased reference can be the
+already existing parent of a scoped child.
+
+[`resolve_transfer_identity_aliases`](../../../src/impodo/domain/workspace/transfer_identity_aliases.py)
+derives effective destination identities while preserving frozen rows, origins,
+ordering and source identities. Destination-matching contract version 18 stores
+only alias counts and bindings to the rule and complete included populations.
+Transfer-review contract version 9 carries `identity_alias_binding_hash` and
+`identity_alias_count` per dataset. Stage 5's **Reviewed destination values**
+notice displays those counts and a return link; it does not display raw rules.
+`DESTINATION_IDENTITY_ALIAS_DRIFT` blocks changed choices even when matching
+record counts and target IDs happen to stay the same.
+
+[`DestinationIdentityAliasStore`](../../../src/impodo/application/transfer_identity_alias_ports.py)
+separates the application from
+[`ProtectedDestinationIdentityAliasStore`](../../../src/impodo/adapters/protected_destination_identity_aliases.py).
+The adapter encrypts exact per-read rules and binds them to workspace, frozen
+source, destination, credential, principal, permissions, context, schema and
+record evidence. Reusable profile rules are a separate encrypted artifact.
+Alias-specific fields in public matching/review payloads and profile settings
+retain hashes, counts and protected references. Authorized execution data retains the original
+`source_identity` and effective mapped business identities and references; this
+is the existing data-plane contract, not a claim that all execution artifacts
+exclude business values. Numeric Odoo IDs remain inside protected evidence or
+runtime lookups.
+
+[`read_destination_identity_aliases`](../../../src/impodo/web/composition/identity_aliases.py)
+requires protected-evidence access inside one bounded local operation before
+the preflight or load-preparation route reads source rows or Odoo. Fresh reads
+reapply the approved rules and compilation requires their exact protected
+evidence. The shared writer, independent reconciliation and recovery consume
+the mapped business references from the frozen execution snapshot.
+[`identity_alias_form_rows`](../../../src/impodo/web/presenters/identity_alias_forms.py)
+and its form helpers bound the editable draft and preserve invalid submissions
+without accepting them. Unavailable saved rules require an explicit replacement
+decision; blank replacement choices clear them. No new record-level query or
+DuckDB connection loop is introduced by these controls.
+
+Controlled coverage includes
+[ordinary aliases and Many2many links](../../../tests/application/workspace/test_aliased_odoo_transfer.py),
+[saved policies, scoped parents, native account company membership and read-back](../../../tests/application/workspace/test_aliased_saved_odoo_transfer.py),
+[domain rules](../../../tests/domain/workspace/test_transfer_identity_aliases.py),
+[encrypted evidence](../../../tests/integration/protected_evidence/test_destination_identity_aliases.py),
+[matching forms](../../../tests/integration/web/test_destination_identity_alias_routes.py),
+[saved-profile choices](../../../tests/integration/web/test_saved_identity_alias_choices.py)
+and [encrypted replay through preflight and load preparation](../../../tests/integration/web/test_aliased_transfer_load.py).
+[Assembled source-off restoration](../../../tests/integration/web/test_aliased_saved_restore_flow.py)
+also covers real capture publication, Parquet and protected origins, encrypted
+saved-profile rules, fresh matching/review/preflight, shared execution with a
+fictional write adapter, and independent read-back. Four Odoo 19/20 and
+local/remote cases each restore twice without source reconnect, preserving
+target IDs and creating no duplicates. Repeated restoration may reassert
+writes; this is not a zero-write-repeat guarantee.
+These checks do not qualify a live Odoo round trip, a complete independent
+package import and restore, browser screenshots or platform latency.
+
 ### Destination matching and transfer review
 
-Destination matching contract version 15 separates four Stage 4 handling
+The current destination-matching contract separates four Stage 4 handling
 modes. `transfer` permits reviewed creates and updates according to the later
 model policy. `reuse_or_create` reuses exact matches unchanged and permits only
 minimum creation for missing identities.
@@ -293,8 +379,8 @@ are used without changing their fields. `reuse_only` requires every selected
 source key to have exactly one destination match. The load compiler represents matched
 rows under either reuse policy as `UNCHANGED` with no write intents; their
 binding can still resolve selected relationships. The policy is part of the
-review action hash and changing it requires new approval. Legacy version 1
-review packages retain the earlier upsert meaning when read.
+review action hash and changing it requires new approval. A retired review
+package cannot supply a model policy or preserve an earlier approval.
 Field compatibility findings remain visible during destination matching, but
 block package creation only when the selected model policy would create or
 update records. This lets an existing record be reused even when a captured
@@ -768,6 +854,9 @@ recorded outcome.
 | Odoo-to-Odoo destination matching | [`DestinationMatchingService`](../../../src/impodo/application/destination_matching_service.py) |
 | Direct existing-parent scope choices | [`destination_match_scope_candidates`](../../../src/impodo/application/destination_matching_service.py) |
 | Portable captured scope and exact scoped identities | [`captured_scope_references`, `scoped_identity` and `scoped_record_identity`](../../../src/impodo/domain/workspace/portable_identity.py) |
+| Generic no-write reference aliases | [`resolve_transfer_identity_aliases`](../../../src/impodo/domain/workspace/transfer_identity_aliases.py) |
+| Alias storage port and encrypted evidence | [`DestinationIdentityAliasStore`](../../../src/impodo/application/transfer_identity_alias_ports.py) and [`ProtectedDestinationIdentityAliasStore`](../../../src/impodo/adapters/protected_destination_identity_aliases.py) |
+| Authorized alias replay and bounded form projection | [`read_destination_identity_aliases`](../../../src/impodo/web/composition/identity_aliases.py) and [`identity_alias_form_rows`](../../../src/impodo/web/presenters/identity_alias_forms.py) |
 | Canonical resolver meaning for transfer handling | [`resolver_origin_for_destination_handling`](../../../src/impodo/domain/workspace/destination_matching.py) |
 | Canonical Odoo relationship projection | [`compile_odoo_relationship_datasets`](../../../src/impodo/domain/workspace/odoo_relationship_compilation.py) |
 | Frozen destination-identity counts | [`CategoricalCoverageService.source_identity_counts`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |
@@ -1051,13 +1140,48 @@ resume reuses the direct journal receipt and repeats only the exact projection
 read. It never sends the source create again. A missing or changed projection
 blocks the dependent component.
 
+## Load performance evidence
+
+Load submission bounds its local workspace, credential-lineage, authorization,
+preview, and final intent checks inside worker callbacks. Odoo identity probes
+and job dispatch run after those database owners close. The target connection
+command follows the same separation for saving target details, checking Odoo,
+continuation, and rejected-form recovery. Overview navigation and rendering
+reuse owners within one local page read. These scopes preserve independent
+repository transactions and do not cache owners across requests.
+
+`web/load_performance.py` observes existing DuckDB timing collectors without
+opening databases or retaining owners. `observe_load_local_phase` aggregates
+journal-start, saved-outcome, and progress callback costs without writing a
+diagnostic event per row. Saved-outcome costs also include locally blocked rows;
+their count does not imply an Odoo write occurred. Coarse stages keep inclusive
+elapsed time and database counters separately. CPU observations label their
+owning thread; a submission stage spanning awaits does not measure all worker
+CPU.
+
+`web/runtime_diagnostics.py` captures bounded runtime versions, system CPU and
+memory capacity, and process architecture. Windows uses a non-privileged
+machine-type API to distinguish native execution from emulation when available.
+Runtime capacity memory is system-wide; sampled phase RSS is process-wide.
+Unsupported or failed probes remain explicitly unavailable. Security scanning,
+storage and power attribution are not inferred from elapsed time.
+
+The existing `load-attempts.json` and `load-events.jsonl` members retain these
+observations. Terminal summaries preserve coarse stage totals and local-phase
+aggregates even when ordinary event retention reaches its limit. Bounded
+checkpoints preserve partial aggregates for an interrupted attempt. Each attempt
+reports performance coverage; older or uncaptured fields remain unavailable. The
+observations never replace journal evidence, authorize a retry, or change
+exception propagation.
+
 ## Odoo compatibility and performance
 
-Destination matching contract version 11 binds the exact chunked-read,
-Product Category path, explicit source-field exclusion, and explicit
-identity-issue row exclusion semantics. Older matching plans remain readable as
-historical evidence but are not current readiness evidence; the data manager
-must run the read-only destination check again.
+Only destination-matching contract 18 and transfer-review contract 9 are
+accepted. They bind exact chunked reads, Product Category paths, reviewed
+source-field and source-row exclusions, row rules, direct existing-parent scope
+and reference aliases. Retired checks and reviews are rejected with a fresh
+destination-check and review-approval instruction. Original source data remains
+unchanged; no obsolete matching or review reader is retained.
 
 Remote writes use the Odoo 19 or final Odoo 20 JSON-2 boundary with named,
 scoped operations.
@@ -1119,6 +1243,18 @@ uncertain write.
 This evidence qualifies the current literal-loopback and hosted Odoo Online
 19 Product boundary. It does not expand the Authoring-only correction scope or
 qualify another remote topology.
+
+The JSON-2 read, identity-lookup, and verification adapters include dropped
+HTTP connections, reset sockets, and incomplete HTTP reads in their existing
+bounded retry policy. A write uses one attempt and retains an unknown outcome
+when its response is lost. Before the execution journal is created,
+`OdooIdentityLookupUnavailable` supplies a safe reason and attempt count;
+execution reports that this attempt sent no records and directs the operator
+to **Check changes**. The diagnostic reason is
+`LOAD_ODOO_IDENTITY_LOOKUP_UNAVAILABLE`. Controlled
+[adapter regressions](../../../tests/integration/odoo/test_disconnection_recovery.py)
+and [load-job regressions](../../../tests/integration/web/test_disconnection_messages.py)
+cover Odoo 19 and 20, LOCAL and REMOTE modes, and Authoring and Recipe jobs.
 
 ## Verification
 

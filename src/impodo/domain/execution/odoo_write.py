@@ -25,6 +25,12 @@ class OdooWriteRejected(OdooWriteError):
     """Odoo definitively rejected a request, so it did not commit."""
 
 
+class OdooIdentityLookupUnavailable(OdooWriteRejected):
+    """A read-only identity lookup exhausted its bounded transport retries."""
+
+    load_failure_code = "LOAD_ODOO_IDENTITY_LOOKUP_UNAVAILABLE"
+
+
 class OdooWriteOutcomeUnknown(OdooWriteError):
     """The connection failed after send and commit cannot be inferred."""
 

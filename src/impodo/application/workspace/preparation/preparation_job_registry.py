@@ -33,6 +33,7 @@ class PreparationJobRegistry:
     def __init__(self) -> None:
         self._lock = RLock()
         self._jobs: dict[str, PreparationJob] = {}
+        self._unavailable_results: dict[str, str] = {}
 
     def enqueue(
         self,
@@ -83,6 +84,7 @@ class PreparationJobRegistry:
                 failure_code="",
                 failure_message="",
             )
+            self._unavailable_results.pop(workspace_id, None)
             self._jobs[job.job_id] = job
             return job, True
 
@@ -129,7 +131,32 @@ class PreparationJobRegistry:
                     current.attempt,
                 ):
                     latest[job.workspace_id] = job
-            return latest
+            return {
+                workspace_id: job
+                for workspace_id, job in latest.items()
+                if self._unavailable_results.get(workspace_id) != job.job_id
+            }
+
+    def invalidate_result(
+        self,
+        workspace_id: str,
+        *,
+        expected_job_id: str | None,
+    ) -> PreparationJob | None:
+        """Exclude an unavailable result without changing its attempt history."""
+
+        with self._lock:
+            latest = self.latest_many((workspace_id,)).get(workspace_id)
+            if (latest.job_id if latest else None) != expected_job_id:
+                return latest
+            if latest is not None and latest.active:
+                return latest
+            if latest is not None and latest.status in {
+                PreparationJobStatus.SUCCEEDED,
+                PreparationJobStatus.REVIEW_REQUIRED,
+            }:
+                self._unavailable_results[workspace_id] = latest.job_id
+            return None
 
     def delete_workspace_history(self, workspace_id: str) -> None:
         """Forget terminal session history after refusing to disrupt active work."""
@@ -143,6 +170,7 @@ class PreparationJobRegistry:
                 for job_id, job in self._jobs.items()
                 if job.workspace_id != workspace_id
             }
+            self._unavailable_results.pop(workspace_id, None)
 
     def mark_running(self, job_id: str) -> PreparationJob:
         """Advance a queued job when the worker begins governed preparation."""

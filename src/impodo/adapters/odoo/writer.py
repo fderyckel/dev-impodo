@@ -16,6 +16,7 @@ import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from functools import partial
+from http.client import HTTPException
 from typing import Any
 from urllib.error import URLError
 from urllib.parse import quote
@@ -37,6 +38,7 @@ from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
     MAX_PROJECTED_RECEIPT_IDS,
+    OdooIdentityLookupUnavailable,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
@@ -510,14 +512,24 @@ class Json2WriteExecutor:
                     self.config.timeout_seconds,
                     "POST",
                 )
-            except (TimeoutError, URLError, ValueError) as error:
+            except (HTTPException, OSError, ValueError) as error:
                 if write:
                     raise OdooWriteOutcomeUnknown(
                         "The Odoo response was lost; the outcome is unknown"
                     ) from error
                 if attempt + 1 == attempts:
-                    raise OdooWriteRejected(
-                        "Odoo could not be reached for identity lookup"
+                    reason = error.reason if isinstance(error, URLError) else error
+                    if isinstance(reason, TimeoutError):
+                        message = "Odoo timed out while checking existing records"
+                    elif isinstance(reason, HTTPException | ConnectionError):
+                        message = "The connection to Odoo was interrupted while checking existing records"
+                    elif isinstance(reason, ValueError):
+                        message = "Odoo returned an unreadable response while checking existing records"
+                    else:
+                        message = "Odoo could not be reached while checking existing records"
+                    label = "attempt" if attempts == 1 else "attempts"
+                    raise OdooIdentityLookupUnavailable(
+                        f"{message} after {attempts} {label}."
                     ) from error
                 time.sleep(2**attempt)
                 continue

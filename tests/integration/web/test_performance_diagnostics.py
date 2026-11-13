@@ -74,7 +74,7 @@ class PerformanceDiagnosticTests(unittest.TestCase):
         self.assertEqual(attempt["configured_workers"], 2)
         self.assertEqual(attempt["observed_workers"], 2)
         self.assertIsNone(attempt["phases"]["manifest_serialization"]["thread_cpu_ms"])
-        self.assertEqual(manifest["runtime"]["memory_scope"], "process_wide")
+        self.assertEqual(manifest["runtime"]["memory_scope"], "system_wide")
         self.assertIn("logical_cpu_count", manifest["runtime"])
         self.assertIn(operation_id, exported)
         self.assertNotIn("private", exported)

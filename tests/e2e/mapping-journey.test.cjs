@@ -308,15 +308,28 @@ test("pinned tables skip absent identity and linked-record tasks", () => {
   assert.match(view.journey.continuationFor(button).url, /mapping_dataset=1/);
 });
 
-test("the final task uses the actual next table and never a recommendation that skips work", () => {
-  const view = page();
+test("the final task opens the saved checks and clears the table location", () => {
+  const view = page({
+    url: "https://impodo.test/workspaces/one/mapping?mapping_dataset=0&step=tables&task=rows#rows-to-use-0",
+  });
   view.journey.show({ task: "links" });
   const button = new Element({ mappingContinue: "", mappingContinuationUrl: "" });
   const continuation = view.journey.continuationFor(button);
-  view.journey.committed({ action: "save_progress", journeyContinuation: continuation },
-    { next_recommended_url: "/workspaces/one/mapping?mapping_dataset=0" });
-  assert.equal(view.root.dataset.step, "check");
-  assert.deepEqual(view.navigations, []);
+  const operation = { action: "save_progress", journeyContinuation: continuation };
+  const payload = { next_recommended_url: "/workspaces/one/mapping?mapping_dataset=0" };
+  view.journey.committed(operation, payload);
+  assert.equal(view.navigations.length, 1);
+  const destination = new URL(view.navigations[0]);
+  assert.equal(destination.searchParams.get("step"), "check");
+  assert.equal(destination.searchParams.get("mapping_dataset"), "0");
+  assert.equal(destination.searchParams.has("task"), false);
+  assert.equal(destination.hash, "");
+  const returned = page({ url: destination.href });
+  assert.equal(returned.root.dataset.step, "check");
+  assert.equal(returned.panels.check.hidden, false);
+  assert.equal(returned.panels.tables.hidden, true);
+  view.journey.committed(operation, payload);
+  assert.equal(view.navigations.length, 1, "a repeated receipt keeps the current destination");
 });
 
 test("native validation reveals a hidden task before focusing its invalid control", () => {
@@ -453,8 +466,8 @@ test("successful final-task saves survive reload and reordered tables without re
   second.recovery().recover.applyMutationOutcome({ status: "committed" }, {
     action: "save_progress", journeyContinuation: second.journey.continuationFor(second.continueButton),
   });
-  assert.equal(second.root.dataset.step, "check");
-  assert.deepEqual(second.navigations, []);
+  assert.equal(second.navigations.length, 1);
+  assert.equal(new URL(second.navigations[0]).searchParams.get("step"), "check");
   assert.deepEqual(JSON.parse(storage.get(reviewedKey)).reviewed.sort(), ["products", "suppliers"]);
   const reloaded = page({ tableIds: ["products", "suppliers"], activeId: "products", storage });
   reloaded.journey.show({ task: "links" });
@@ -526,9 +539,9 @@ test("a full two-table journey terminates after reload when browser storage is d
   second.recovery().recover.applyMutationOutcome({ status: "committed" }, {
     action: "save_progress", journeyContinuation: second.journey.continuationFor(second.continueButton),
   });
-  assert.equal(second.root.dataset.step, "check");
-  assert.deepEqual(second.navigations, []);
-  const reloaded = page({ url: second.window.location.href, tableIds: ["products", "suppliers"], activeId: "suppliers", storage });
+  assert.equal(second.navigations.length, 1);
+  assert.equal(new URL(second.navigations[0]).searchParams.get("step"), "check");
+  const reloaded = page({ url: second.navigations[0], tableIds: ["products", "suppliers"], activeId: "suppliers", storage });
   reloaded.journey.show({ step: "tables", task: "links" });
   assert.equal(reloaded.journey.continuationFor(reloaded.continueButton).step, "check");
 });

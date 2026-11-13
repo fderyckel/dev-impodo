@@ -41,7 +41,10 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
 from ...domain.serialization import CanonicalJsonObjectHasher
-from ...domain.staging.preparation_session import StoredCanonicalStagingRun
+from ...domain.staging.preparation_session import (
+    PREPARED_CANONICAL_ENCODING_VERSION,
+    StoredCanonicalStagingRun,
+)
 from .constants import (
     DUCKDB_JSON_BATCH_MAX_BYTES,
     STAGING_ROW_BATCH_SIZE,
@@ -303,12 +306,24 @@ class StagingRepository(DuckDbRepository):
                            run.evaluator_version, run.status, run.published_at,
                            run.published_by, run.reconciliation_json,
                            run.dataset_reconciliation_json,
-                           run.control_totals_json
+                           run.control_totals_json,
+                           NOT EXISTS (
+                               SELECT 1 FROM canonical_prepared_projection projection
+                                WHERE projection.run_id = run.run_id
+                                  AND CASE WHEN json_valid(projection.projection_json) THEN
+                                      json_type(projection.projection_json, '$.contract_version')
+                                          IS DISTINCT FROM 'UBIGINT'
+                                      OR json_extract_string(projection.projection_json, '$.contract_version')
+                                          IS DISTINCT FROM CAST(? AS VARCHAR)
+                                      ELSE TRUE
+                                  END
+                           ) AS current_prepared_encoding
                       FROM canonical_staging_current AS active
                       JOIN canonical_staging_run AS run
                         ON run.run_id = active.run_id
                      WHERE active.singleton_id = 1
-                    """
+                    """,
+                    [PREPARED_CANONICAL_ENCODING_VERSION],
                 ).fetchone()
                 run_content_hash = (
                     self._pending_canonical_content_hash(
@@ -329,6 +344,7 @@ class StagingRepository(DuckDbRepository):
                     and str(current[1]) == run_content_hash
                     and str(current[2]) == run.mapping_id
                     and int(current[3]) == mapping_version
+                    and current[12] is True
                 ):
                     connection.rollback()
                     return self._staging_summary(workspace_id, current)

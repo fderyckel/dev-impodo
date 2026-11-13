@@ -28,6 +28,11 @@ restore policies, reset admission, archives and retention. Shared engine
 changes need acceptance coverage through both ordinary transfer and saved-data
 restoration.
 
+Current restoration admits matching contract 18 and review contract 9 only.
+Retired transfer evidence requires fresh destination checks and a rebuilt,
+approved review. This preserves the retained data version and does not add a
+compatibility reader for an obsolete runtime format.
+
 The remaining design sections record the complete accepted target. Future-tense
 requirements in those sections must be checked against the shared checklist
 before being treated as another implementation task.
@@ -41,6 +46,11 @@ one explicitly confirmed **Restore all** action checks and restores its selected
 version. Saved destination profiles retain field policies and reviewed defaults.
 Encrypted package download and independent-installation import preserve source
 data with new local ownership and keys.
+
+The package excludes destination profiles and protected identity-alias rules.
+Their reuse works locally; transferring them across installations is
+unimplemented. An independent import currently requires a new destination
+profile and re-entered reference aliases before checking and restoring.
 
 The delivered field surface remains bounded by the qualified capture policy.
 Company-dependent property fields, translations, binary content and attachments
@@ -327,9 +337,9 @@ instead of silently deleting the last usable version.
 | Responsibility | Delivered behavior | Remaining boundary |
 | --- | --- | --- |
 | Capture configuration and refresh | [Saved-data service](../../src/impodo/application/odoo_saved_data_service.py) creates configuration revisions and publishes complete immutable versions with durable retry evidence. | Added, changed and removed record comparisons are still required. Reviewed source rebind after a reset needs an explicit contract and acceptance coverage. |
-| Immutable ownership and portability | [Saved workspaces](../../src/impodo/application/odoo_saved_data_workspaces.py) project retained source data into fresh runs. Protected package export/import assigns new local ownership and keys. | Qualify one joined independent-installation import, complete destination restore, read-back and repeated restore without source access. |
+| Immutable ownership and portability | [Saved workspaces](../../src/impodo/application/odoo_saved_data_workspaces.py) project retained source data into fresh runs. Source package export/import assigns new local ownership and keys. | Destination-profile and protected-alias-rule transfer across installations is unimplemented. Today create a new profile and re-enter aliases after import. Implement that transfer before qualifying a joined import with remembered choices, restore, read-back and repeat without source access. |
 | Capture eligibility | The qualified capture policy exposes excluded coverage and supports admitted fields. | Company-dependent properties, translations, binary content and attachments remain excluded capability extensions. The first version does not establish a complete Chart of Accounts backup. |
-| Destination policies | [Restore compilation](../../src/impodo/domain/odoo_restore.py) and [restore composition](../../src/impodo/web/composition/saved_odoo_restore.py) apply field policies, schema decisions and effective verification through the shared transfer engine. Profiles also retain one admitted direct existing-parent matching scope. | Broader parent/company identities and explicit source-to-destination company mapping remain shared engine work. The parent must currently be unscoped and uniquely present in the destination. |
+| Destination policies | [Restore compilation](../../src/impodo/domain/odoo_restore.py) and [restore composition](../../src/impodo/web/composition/saved_odoo_restore.py) apply field policies, schema decisions and effective verification through the shared transfer engine. Profiles retain one admitted direct existing-parent matching scope and protected scalar aliases for existing-only references, including Company A to Company B. | Broader parent/company identities and composite/scoped alias datasets remain unsupported. The matching-scope parent must currently be unscoped and uniquely present in the destination. Live qualification and the full package-import/restore journey remain separate. |
 | Database reset and recovery | Restores use fresh workspaces, destination evidence and journals. Retained data can be opened without source access. | A local restore operation identity does not prove database generation. Qualify explicit reset declaration, stale-journal rejection, reused numeric IDs and source rebind at the same endpoint. |
 | Retention | Complete saved versions are pinned against ordinary expiry and successful-load cleanup. Retained versions currently block project deletion. | Add deliberate saved-version removal, affected-run disclosure and visible storage-budget resolution. |
 | Operator and release qualification | Controlled route and application tests cover both majors and local/remote fixtures. | Complete fresh browser visual review, live ORM round trips, joined restart/recovery cases and applicable platform/performance evidence. |

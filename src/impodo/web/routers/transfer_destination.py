@@ -10,6 +10,8 @@ from impodo.application.odoo_connection_service import OdooConnectionPurpose
 from impodo.application.odoo_read_failures import OdooReadCredentialMissingError
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
+from impodo.domain.shared.access import Capability
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -18,6 +20,10 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from ..composition.database_bindings import (
+    frozen_database_guard,
+    review_database_binding,
+)
 from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
@@ -138,7 +144,8 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                 "read_api_key_storage",
             },
         )
-        actor = request_identity(request, context.identity_resolver).actor
+        identity = request_identity(request, context.identity_resolver)
+        actor = identity.actor
         current = context.queries.get(workspace_id)
         if (
             current.source_mode is not SourceMode.ODOO
@@ -150,6 +157,13 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
             )
         destination_target = None
         try:
+            await run_in_threadpool(
+                review_database_binding, context, current,
+                OdooDatabaseBindingRole.DESTINATION,
+                actor=actor, scope=identity.organization_scope,
+                authorization_receipt=identity.authorization,
+                base_url=_text(form, "odoo_base_url"), database=_text(form, "odoo_database"),
+            )
             previous_target_hash = transfer_destination_identity_hash(current)
             workspace_state = context.workspace_states.configure_transfer_destination(
                 workspace_id,
@@ -209,12 +223,19 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                 )
 
             destination_target = transfer_destination_workspace(workspace_state)
+            guard = await run_in_threadpool(
+                frozen_database_guard, context, destination_target,
+                actor=actor, role=OdooDatabaseBindingRole.DESTINATION,
+                capability=Capability.EXPORT_PLAN_APPROVE,
+            )
+            await run_in_threadpool(guard)
             result = await run_in_threadpool(
                 context.odoo_connection_tests.test_read,
                 destination_target,
                 credential.secret,
                 purpose=OdooConnectionPurpose.TARGET_READ,
             )
+            await run_in_threadpool(guard)
             checked = context.remote_connections.mark_checked(
                 destination_target,
                 result.fingerprint,

@@ -6,8 +6,8 @@ import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from http.client import HTTPException
 from typing import Any
-from urllib.error import URLError
 from urllib.parse import quote
 
 from impodo.adapters.odoo.connectors import (
@@ -309,7 +309,7 @@ class Json2ReadbackReader:
                     self.config.timeout_seconds,
                     "POST",
                 )
-            except (TimeoutError, URLError, ValueError) as error:
+            except (HTTPException, OSError, ValueError) as error:
                 if attempt >= self.config.retries:
                     raise OdooReadbackError(
                         "Odoo could not be reached for verification"

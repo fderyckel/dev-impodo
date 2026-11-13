@@ -101,7 +101,13 @@ class SupportingPlanIncompleteError(WorkspaceError):
         )
         if len(self.issues) > 5:
             details += f"; and {len(self.issues) - 5} more issues"
-        super().__init__(
-            "Review the incomplete supporting-data plan in Odoo data before checking Match data. "
-            + details
+        guidance = (
+            "Review the selected related table and lookup rule for the field below "
+            "in Match data, then check matches again. "
+            if any(
+                item.reason is SupportingPlanGap.INVALID_INTENT and item.used_by_mapping
+                for item in self.issues
+            )
+            else "Review the incomplete supporting-data plan in Odoo data before checking Match data. "
         )
+        super().__init__(guidance + details)

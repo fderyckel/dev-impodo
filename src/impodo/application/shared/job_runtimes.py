@@ -66,6 +66,13 @@ class RecipeRunJobRuntime(Protocol):
 class PreparationJobRuntime(Protocol):
     """Schedule, recover, and inspect preparation work for browser routes."""
 
+    def invalidate_result(
+        self,
+        workspace_id: str,
+        *,
+        expected_job_id: str | None,
+    ) -> PreparationJob | None: ...
+
     def restore_result(
         self,
         workspace: PreparationWorkspace,

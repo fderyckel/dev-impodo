@@ -249,7 +249,7 @@ class EligibleHashStreamTests(unittest.TestCase):
             canonical_eligible_dataset_hash(staging, quality)
         self.assertIs(raised.exception, failure)
 
-    def test_ordinary_rows_and_explicit_publication_hashes_keep_the_old_contract(
+    def test_ordinary_rows_and_explicit_publication_hashes_keep_the_current_contract(
         self,
     ) -> None:
         staging = self.staging

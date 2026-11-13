@@ -31,6 +31,12 @@ Windows performance or release qualification. Record implementation, controlled
 coverage and live evidence separately. Keep failed, interrupted and unavailable
 checks visible. Update an item only after its owning behavior is verified.
 
+The transfer admits matching contract 18 and review contract 9 only. Reject
+retired checks/reviews with actionable fresh-check and review-approval guidance.
+Preserve the original source data and do not retain obsolete readers or a
+parallel old design. Odoo 19, Odoo 20 and currently used storage routes remain
+active requirements.
+
 ## Implemented baseline
 
 The following capabilities should be reused. Their remaining breadth and
@@ -41,10 +47,11 @@ qualification work belongs to the next section.
 | Bounded immutable source capture | [Capture publication tests](../../tests/application/data_version/test_odoo_capture_publication.py) exercise complete publication and rejection of incomplete selected links. [Capture policy](../../src/impodo/domain/odoo_source_policy.py) retains the 10,000-row limit per model. | The recorded Contact trials establish selected scenarios, not every model, field surface or dependency graph. |
 | Exact destination matching in batches | [Destination matching](../../src/impodo/application/destination_matching_service.py) uses at most 500 exact keys per request and a 501-result truncation sentinel. The [matching tests](../../tests/application/workspace/test_destination_matching.py) cover 1,205 identities split into 500, 500 and 205. | The former 1,000-total-key restriction is obsolete. The interactive 1,000-choice value control is separate. End-to-end measurements at the current source boundary remain required. |
 | Direct existing-parent scope | **Match within** carries one captured writable stored Many2one to a selected unscoped parent through matching, review and the existing execution scope. [Backend tests](../../tests/application/workspace/test_scoped_odoo_transfer.py) cover Odoo 19/20 with local/remote metadata; [route tests](../../tests/integration/web/test_transfer_matching_scope_choices.py) cover ordinary choices and saved profiles. [Saved-policy tests](../../tests/application/workspace/test_scoped_saved_odoo_transfer.py) also exercise fresh preflight, compilation and independent reconciliation with wrong-parent detection. | Controlled existing-parent evidence only. Broader relational scope, actual scoped writes and a complete browser saved-restore round trip, live ORM behavior, fresh visual capture and latency qualification remain pending. |
+| Explicit reference aliases | **Use different destination values** maps one included scalar source key to a unique existing target key on an unscoped `reference_only` or `reuse_only` dataset. [Ordinary transfer](../../tests/application/workspace/test_aliased_odoo_transfer.py), [saved transfer and native account company membership](../../tests/application/workspace/test_aliased_saved_odoo_transfer.py), [encrypted evidence](../../tests/integration/protected_evidence/test_destination_identity_aliases.py), [ordinary forms](../../tests/integration/web/test_destination_identity_alias_routes.py), [saved forms](../../tests/integration/web/test_saved_identity_alias_choices.py) and [protected load replay](../../tests/integration/web/test_aliased_transfer_load.py) cover the bounded capability. | Initial capability implemented with controlled Odoo 19/20 evidence. Composite/scoped alias datasets remain unsupported. Profile/rule transfer across installations is unimplemented; source import requires a new profile and re-entered aliases. Live ORM, visual and platform qualification remain pending. |
 | Required create-field providers | Shared matching and [transfer compilation tests](../../tests/application/workspace/test_transfer_execution.py) cover reviewed defaults, fixed values, source fields and governed existing or incoming references. Create-only providers do not update reused rows. | The Odoo 19 Contact vertical covered its exact reviewed defaults. It does not qualify every create hook or generated record. |
 | Journalled execution, read-back and recovery | [Execution](../../src/impodo/application/transfer_execution_service.py) compiles approved rows into the shared writer and recovery contracts. [Preflight tests](../../tests/application/workspace/test_transfer_preflight.py) cover fresh read-only checks. | The [load workflow](../developer/workflow/06-load-into-odoo.md) records Odoo 19 Contact relationship qualification and Odoo 20 scalar Contact qualification on 2026-10-31 in both LOCAL-to-REMOTE and REMOTE-to-LOCAL directions, including accepted-batch interruption, durable reopen and original-journal recovery. |
 | Saved configurations, versions and field policies | [Saved registry tests](../../tests/integration/duckdb/test_odoo_saved_data_repository.py), [restore policy tests](../../tests/domain/test_odoo_restore.py) and [shared transfer tests](../../tests/application/workspace/test_saved_odoo_transfer.py) cover immutable versions, profiles, overwrite/keep/fill policies and effective verification. | The [saved-data workflow](../developer/workflow/02-odoo-data.md#saved-odoo-data-and-repeat-restoration) records controlled Odoo 19/20 and local/remote fixture coverage. It does not claim a complete configuration backup or live ORM qualification. |
-| Offline projection, repeat refresh and protected packages | [Source projection](../../tests/integration/web/test_saved_odoo_workspace_projection.py), [refresh lifecycle](../../tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py), [archive lifecycle](../../tests/integration/web/test_saved_odoo_archive_lifecycle.py) and [restore flow](../../tests/integration/web/test_saved_odoo_restore_flow.py) tests cover the admitted operations. | Independent-installation import proves new local ownership and keys. Join that import to actual restore execution, repeat restoration and reset recovery before claiming the complete acceptance scenario. |
+| Offline projection, repeat refresh and protected packages | [Source projection](../../tests/integration/web/test_saved_odoo_workspace_projection.py), [refresh lifecycle](../../tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py), [archive lifecycle](../../tests/integration/web/test_saved_odoo_archive_lifecycle.py) and [restore flow](../../tests/integration/web/test_saved_odoo_restore_flow.py) tests cover the admitted operations. [Assembled alias restoration](../../tests/integration/web/test_aliased_saved_restore_flow.py) also captures two models into Parquet/protected origins, retains encrypted profile rules, disables source access and verifies two restores in each of four Odoo 19/20 local/remote cases. | The eight verified fixture restores keep target IDs stable without duplicate creates; repeats may reassert writes. Independent-installation import separately proves new local ownership and keys. Join that import to restoration and reset/restart recovery before claiming the complete acceptance scenario. |
 | Retained restore points | Saved versions are pinned against ordinary expiry and successful-load cleanup. The [registry tests](../../tests/integration/duckdb/test_odoo_saved_data_repository.py) deliberately block project deletion while saved data remains. | This establishes preservation. It does not supply deliberate version removal or a storage-management journey. |
 
 ## Remaining work in delivery order
@@ -56,37 +63,51 @@ recorded. Missing tests and unimplemented behavior are different findings.
 | Order and item | Owner | Current state | Completion action |
 | --- | --- | --- | --- |
 | 1. Match records within their parent or company. | Plan 05; verify both journeys. | Partially implemented: one direct captured writable stored Many2one to an unscoped parent already uniquely present in the destination. Null, missing/new, ambiguous or recursively scoped parents and inbound links to a scoped model are blocked. Product Category retains its governed complete-path behavior. | Qualify the complete saved-restore and recovery journeys for this slice. Extend portable scope deliberately for newly created or nested parents and inbound references. Retain ambiguity checks and legitimate repeated business values. |
-| 2. Map source companies to destination companies explicitly. | Plan 05 engine; Plan 31 saved choices. | Choosing the operating company does not remap saved company relationships. The current [company regression](../../tests/application/workspace/test_saved_odoo_transfer.py) deliberately blocks a differently named destination company. | Add a reviewed mapping bound to exact source and destination evidence. Preserve shared membership, block unauthorized or ambiguous mappings and invalidate stale choices. Apply it through both entry points. |
+| 2. Map source companies to destination companies explicitly. | Plan 05 engine; Plan 31 saved choices. | Bounded initial capability implemented: explicit single-scalar aliases for unscoped existing-only references. Source Company A can use existing Company B without Company writes; unrelated model, scoped-child parent and Many2many regressions use the same engine. Choosing the operating company alone still supplies no mapping. | Close live and full independent-package restoration qualification. Preserve exact source/target/access and no-collapse checks. Composite/scoped aliases require a separately reviewed extension. |
 | 3. Complete reset admission and source rebind. | Plan 31, with shared recovery regression. | Fresh restore workspaces exist. The local generation derived from an operation identity is not proof that the actual Odoo database was recreated. Explicit reset declaration and reviewed source rebind remain open. | Define a trusted generation marker or explicit recreated-database declaration. Prove that old approvals and journals cannot resume against a replacement database, even when the endpoint, database name and numeric IDs are reused. Require reviewed source rebind before refreshing from a recreated source. |
 | 4. Qualify Product and BOM transfer breadth. | Plan 05; reuse scenarios in Plan 31. | Shared file/prepared-data execution has Product/BOM evidence. Complete Odoo-source Product/BOM transfer and multi-model recovery remain unqualified. | Exercise variants generated by Odoo, lines, operations, required dependencies, empty and partly populated destinations, rejected writes, lost replies and repeated runs. Include an unrelated model to prove generic behavior. Unsupported workflows must block before writes. |
-| 5. Join offline portability and recovery acceptance. | Plan 31. | Separate controlled tests cover archive import, source-free projection, checked restoration and retry. The complete joined sequence still needs evidence. | Import on an independent installation, remove source access, restore, read back, repeat without duplicate creates, interrupt, reopen and recover the original journal. Repeat after a destination reset at the same endpoint. Check conflicting target scope across saved configurations. |
+| 5. Complete destination-choice portability and joined recovery. | Plan 31. | Source archives are portable and local profile/alias reuse works. Transferring destination profiles and protected alias rules across installations is unimplemented; independent import requires a new profile and re-entered aliases. The four assembled source-off fixture cases do not close this implementation gap. | Implement profile/rule transfer with new local ownership and keys and fresh destination checks. Then qualify independent import, source-off restore/read-back/repeat, interrupted restart recovery, same-endpoint reset and conflicting target scope across saved configurations. |
 | 6. Finish saved-version management. | Plan 31. | Added/changed/removed comparisons and deliberate saved-version removal are open. The version table currently shows dates, configuration revisions, model counts and package download. | Compare stable identities between immutable versions, report unavailable comparisons, and preserve both versions. Provide authorized removal with affected-run disclosure and visible storage-budget resolution. Never silently delete the last usable version. |
 | 7. Finish capture and rule-reuse decisions. | Plan 05; Plan 31 consumes capture choices. | The filter domain has more operators than the normal one-field equality browser form. Saved capture and restore settings exist; ordinary ad hoc transfer reuse needs separate verification. | Expose the accepted bounded filter choices and qualify their source binding. Check what ordinary transfer can reuse before adding another settings store. Preserve separate source data, reusable rules and destination approvals. |
 | 8. Close visual, live and platform qualification. | Both plans, within existing release ownership. | Fresh saved-data screenshots, broader live ORM cases, realistic multi-model measurements and applicable platform evidence remain pending. | Run authenticated fictional browser journeys, independent same-major live trials and controlled Python 3.12 measurements. Retain separate macOS and real Windows evidence. Run the complete repository gate and applicable portable, Linux-server and Windows qualification before the corresponding delivery or release claim. |
 
 The first engineering increment admits direct existing-parent scope. Its
 controlled checks do not complete item 1's broader relational contract or live
-qualification. Explicit company mapping in item 2 remains unimplemented. Keep
-each remaining item open until its complete affected contract and focused
-tests pass.
+qualification. Item 2's bounded initial reference-alias capability is implemented;
+its remaining qualification stays explicit. Keep each remaining item open until
+its complete affected contract and focused tests pass.
 
-### Planned first company-mapping increment
+### Delivered first company-mapping increment and qualification boundary
 
-This increment is **not implemented**. A data manager will explicitly match a
-source company to a differently named existing destination company. Implement
-that choice as a generic alias for a record identified by one scalar field in
-a `reference_only` or `reuse_only` dataset. An unrelated reference model must
-pass the same checks. Reject missing or ambiguous targets, unavailable source
-choices, and mappings that merge distinct source records. Preserve the frozen
-source identities and prohibit writes to the aliased reference records.
+The bounded implementation lets a data manager explicitly match a source
+company to a differently named existing destination company. It uses a generic
+alias for a record identified by one scalar field in an unscoped
+`reference_only` or `reuse_only` dataset. The same engine admits unrelated
+reference models and a scoped child's existing parent. It rejects missing or
+ambiguous targets, unavailable source choices and mappings that merge distinct
+source records, including collisions with an unmapped key. Frozen source
+identities remain unchanged; aliased reference records receive no writes.
 
-Store raw choices in encrypted, authorized evidence; public plans retain only
-their bindings and counts. Carry the exact reviewed choice through ordinary
-transfer and saved restoration, matching, approval, preflight, execution,
-independent read-back and recovery after restart. Remember portable choices
-separately from numeric destination IDs and previous write authorization.
-Complete those paths and their Odoo 19/20 regressions together before admitting
-the feature; a standalone mapping helper does not complete this increment.
+Raw rules are encrypted. Public matching/review/profile alias facts retain
+bindings, counts and protected references. Authorized execution data retains
+source identities and effective mapped business identities and references;
+this is not a promise that all execution artifacts omit business values.
+Numeric Odoo IDs remain protected or runtime values.
+
+Source packages do not include destination profiles or the protected alias
+rules owned by the original installation. Their transfer is unimplemented;
+after an independent import, the operator creates a new profile and enters the
+aliases again. Existing local-profile reuse and fresh-key tests do not supply
+that missing export/import capability.
+
+Controlled Odoo 19/20 cases cover ordinary and saved transfer, changed-rule
+preflight rejection, compilation, independent read-back, interrupted recovery
+and fresh local keys/generations. Native account `company_ids` compile to
+Company B's reviewed destination binding while source Company A and Company
+records remain unchanged. A live ORM round trip, actual independent package
+import followed by restoration, fresh visual captures and platform measurements
+are still required for their respective qualification claims. No row limit or
+concurrency default changes with this capability.
 
 ## Shared acceptance sequence
 

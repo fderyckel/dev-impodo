@@ -3,9 +3,12 @@ from __future__ import annotations
 from dataclasses import replace
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from jinja2 import ChoiceLoader, DictLoader, Environment, FileSystemLoader
 
+from impodo.web.routers import transfer_review
+from tests.application.workspace.test_aliased_odoo_transfer import AliasedTransferFixture
 from tests.application.workspace.test_transfer_order import _model
 from tests.support.paths import REPOSITORY_ROOT
 
@@ -23,6 +26,40 @@ class TransferReviewPresenterTests(unittest.TestCase):
             ),
             autoescape=True,
         )
+
+    def test_review_shows_bound_alias_count_and_link_without_raw_mapping_values(self):
+        fixture = AliasedTransferFixture(scoped=True)
+        fixture.approve()
+        for step in ("contents", "approve"):
+            with (
+                self.subTest(step=step),
+                patch.object(
+                    transfer_review,
+                    "_render",
+                    side_effect=lambda _request, _template, **values: values,
+                ),
+            ):
+                values = transfer_review._render_review(
+                    SimpleNamespace(query_params={"step": step}),
+                    fixture.workspace,
+                    fixture.selection,
+                    fixture.schema,
+                )
+            self.assertEqual(
+                values["transfer_identity_alias_rows"],
+                ({"label": "Fictional parent", "count": 2},),
+            )
+            html = self.templates.get_template("workspace_transfer_review.html").render(
+                migration_project=SimpleNamespace(display_name="Test project"),
+                workspace_id=fixture.workspace.workspace_id,
+                csrf_token="csrf",
+                **values,
+            )
+            self.assertIn("2 source values mapped to existing destination records", html)
+            self.assertIn("/destination-matching#destination-value-mappings", html)
+            self.assertIn("Review destination value mappings", html)
+            self.assertNotIn("Reviewed parent A", html)
+            self.assertNotIn("Parent B", html)
 
     def test_reference_only_model_is_locked_and_names_ignored_records(self) -> None:
         company = replace(

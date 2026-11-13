@@ -1284,7 +1284,7 @@ def build_execution_router(
             diagnostic_recorder,
             "submission_context",
         ):
-            workspace_state = await run_in_threadpool(
+            workspace_state = await run_page_read(
                 context.queries.get,
                 workspace_id,
             )
@@ -1294,7 +1294,7 @@ def build_execution_router(
                     _load_progress_url(workspace_id, active_job.job_id),
                     status_code=303,
                 )
-            credential_owner = await run_in_threadpool(
+            credential_owner = await run_page_read(
                 context.target_credential_workspace,
                 workspace_id,
                 workspace_state=workspace_state,
@@ -1305,17 +1305,19 @@ def build_execution_router(
                 diagnostic_recorder,
                 "submission_authorization",
             ):
-                access_context = await run_in_threadpool(
-                    context.workspace_access.resolve,
-                    workspace_id,
-                    actor=actor,
-                    capability=Capability.EXPORT_PLAN_EXECUTE,
-                )
-                await run_in_threadpool(
-                    context.cutover_plans.assert_application_can_execute,
-                    workspace_id,
-                    actor=actor,
-                )
+                def authorize_submission() -> WorkspaceAccessContext:
+                    access = context.workspace_access.resolve(
+                        workspace_id,
+                        actor=actor,
+                        capability=Capability.EXPORT_PLAN_EXECUTE,
+                    )
+                    context.cutover_plans.assert_application_can_execute(
+                        workspace_id,
+                        actor=actor,
+                    )
+                    return access
+
+                access_context = await run_page_read(authorize_submission)
             batch_rows = (
                 None if recovering
                 else validated_create_batch_rows(_text(form, "batch_rows"))
@@ -1336,7 +1338,7 @@ def build_execution_router(
                 diagnostic_recorder,
                 "submission_preview",
             ):
-                preview = await run_in_threadpool(
+                preview = await run_page_read(
                     context.execution.current_preview,
                     workspace_id,
                     actor=actor,
@@ -1748,17 +1750,22 @@ def build_execution_router(
                 )
 
             with _diagnostic_load_stage(diagnostic_recorder, "submission_enqueue"):
-                await run_local_operation(
-                    context.execution.require_business_intent, workspace_id,
-                    expected_snapshot_hash=snapshot_hash,
-                    expected_assessment_hash=intent_assessment_hash,
-                    recovery_run_id=recovery_run_id, actor=actor,
-                )
-                migration_project_name, target_environment = await run_in_threadpool(
-                    _load_job_display_context,
-                    context,
-                    workspace_id,
-                    actor=actor,
+                def prepare_enqueue() -> tuple[str, str]:
+                    context.execution.require_business_intent(
+                        workspace_id,
+                        expected_snapshot_hash=snapshot_hash,
+                        expected_assessment_hash=intent_assessment_hash,
+                        recovery_run_id=recovery_run_id,
+                        actor=actor,
+                    )
+                    return _load_job_display_context(
+                        context,
+                        workspace_id,
+                        actor=actor,
+                    )
+
+                migration_project_name, target_environment = await run_local_operation(
+                    prepare_enqueue,
                 )
                 job = _manager(context).enqueue(
                     workspace_id,
@@ -1794,7 +1801,7 @@ def build_execution_router(
             WorkspaceError,
         ) as error:
             record_load_failure(error)
-            return await run_in_threadpool(
+            return await run_page_read(
                 render,
                 request,
                 workspace_id,

@@ -52,7 +52,10 @@
     <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching" data-matching-builder data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-      <div class="matching-model-list">
+      {% if identity_alias_evidence_error %}
+        <div class="notice warning"><strong>Review the saved reference mappings</strong><p>{{ identity_alias_evidence_error }}</p><label class="checkbox"><input type="checkbox" name="replace_identity_aliases" value="yes" {% if identity_alias_replace_confirmed %}checked{% endif %}><span>Replace all saved reference mappings with the values entered below. Leaving them empty clears the mappings.</span></label></div>
+      {% endif %}
+      <div class="matching-model-list" id="destination-value-mappings">
         {% for row in matching_rows %}
           {% set row_index = loop.index %}
           {% set row_ready = row.result and row.result.ready and not row.result.write_blocking_reasons %}
@@ -156,6 +159,19 @@
                 </select>
                 <small>Each linked parent or company must already have one matching destination record.</small>
               </div>
+            {% endif %}
+            {% if (row.destination_handling in ['reference_only', 'reuse_only'] and row.selected_keys|length == 1 and not row.selected_scopes) or row.identity_alias_present %}
+              <details class="matching-technical-details" {% if row.identity_alias_present or identity_alias_evidence_error %}open{% endif %}>
+                <summary>Use different destination values</summary>
+                <p>Use an exact destination value when a linked record has a different name or code. This record type must use one identifier and existing destination records only. Impodo checks each destination value before accepting the mapping.</p>
+                  {% for alias in row.identity_alias_rows %}
+                    <div class="form-grid">
+                      <label>Source value<input name="{{ row.identity_alias_prefix }}_source_{{ alias.index }}" value="{{ alias.source_value }}" maxlength="10000" autocomplete="off"></label>
+                      <label>Destination value<input name="{{ row.identity_alias_prefix }}_target_{{ alias.index }}" value="{{ alias.target_value }}" maxlength="10000" autocomplete="off"></label>
+                    </div>
+                  {% endfor %}
+                  <small>Choose Check destination matches to check and save these mappings. Clear both values to remove a mapping. Linked destination records remain unchanged.</small>
+              </details>
             {% endif %}
             <details class="matching-technical-details">
               <summary>Support details</summary>

@@ -22,7 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
-from typing import Protocol
+from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
 from impodo.domain.odoo.company import OdooCompanySelection
@@ -32,6 +32,11 @@ from impodo.domain.odoo_capture import (
     OdooCaptureRole,
     OdooCaptureSelection,
     require_consistent_odoo_capture_selection_set,
+)
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBinding,
+    OdooDatabaseBindingRole,
+    database_scope_hash,
 )
 from impodo.domain.odoo_relationship_scope import (
     ODOO_RELATIONSHIP_SCOPE_CONTRACT_VERSION,
@@ -188,6 +193,46 @@ class WorkspaceState:
     odoo_company: OdooCompanySelection | None = None
     destination_company: OdooCompanySelection | None = None
     saved_restore_generation_id: str | None = None
+    transfer_evidence_recovery_step: Literal[
+        "destination-matching", "transfer-review"
+    ] | None = None
+    source_database_binding: OdooDatabaseBinding | None = None
+    source_database_generation_hash: str = ""
+    destination_database_binding: OdooDatabaseBinding | None = None
+    destination_database_generation_hash: str = ""
+    saved_restore_database_reset_admitted: bool = False
+
+    @property
+    def source_database_binding_current(self) -> bool:
+        """Whether a reviewed live source still names its admitted database."""
+
+        binding = self.source_database_binding
+        return bool(
+            binding is not None
+            and binding.workspace_id == self.workspace_id
+            and binding.role is OdooDatabaseBindingRole.SOURCE
+            and self.odoo_base_url
+            and self.odoo_database
+            and binding.scope_hash == database_scope_hash(self.odoo_base_url, self.odoo_database)
+            and binding.generation_hash == self.source_database_generation_hash
+        )
+
+    @property
+    def destination_database_binding_current(self) -> bool:
+        """Whether transfer authority belongs to the current declared database."""
+
+        binding = self.destination_database_binding
+        return bool(
+            binding is not None
+            and binding.workspace_id == self.workspace_id
+            and binding.role is OdooDatabaseBindingRole.DESTINATION
+            and self.destination_odoo_base_url
+            and self.destination_odoo_database
+            and binding.scope_hash == database_scope_hash(
+                self.destination_odoo_base_url, self.destination_odoo_database
+            )
+            and binding.generation_hash == self.destination_database_generation_hash
+        )
 
     @property
     def odoo_operation_context(self) -> dict[str, object]:
@@ -201,6 +246,10 @@ class WorkspaceState:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_mode", SourceMode(self.source_mode))
+        if self.transfer_evidence_recovery_step not in {
+            None, "destination-matching", "transfer-review"
+        }:
+            raise WorkspaceStateError("The transfer evidence recovery step is invalid")
         if self.saved_restore_generation_id is not None:
             try:
                 UUID(self.saved_restore_generation_id)
@@ -234,7 +283,8 @@ class WorkspaceState:
 
         return bool(
             self.destination_configured
-            and (not transfer_destination_matches_source(self) or self.saved_restore_generation_id is not None)
+            and self.destination_database_binding_current
+            and (not transfer_destination_matches_source(self) or self.saved_restore_database_reset_admitted)
             and self.destination_verified_target_hash
             == transfer_destination_identity_hash(self)
             and self.destination_verified_credential_binding_hash
@@ -441,6 +491,12 @@ class WorkspaceState:
 
 class WorkspaceStateRepository(Protocol):
     """Persistence port used by the workspace-state service."""
+
+    def can_restore_to_declared_database(
+        self, workspace_id: str, *, base_url: str, database: str,
+    ) -> bool:
+        """Prove a fresh destination declaration postdates retained source data."""
+        ...
 
     def initialize_workbench(
         self,
@@ -795,9 +851,16 @@ class WorkspaceStateService:
             destination_odoo_database=database,
         )
         same_database = transfer_destination_matches_source(candidate)
-        if (destination_hash == source_hash or same_database) and workspace.saved_restore_generation_id is None:
+        reset_admitted = bool(
+            workspace.saved_restore_generation_id is not None
+            and (destination_hash == source_hash or same_database)
+            and self.repository.can_restore_to_declared_database(
+                workspace_id, base_url=base_url, database=database,
+            )
+        )
+        if (destination_hash == source_hash or same_database) and not reset_admitted:
             raise WorkspaceStateError(
-                "Choose a different Odoo database for the destination"
+                "Choose a different Odoo database, or declare that this database was recreated after the saved source was captured and start a fresh restore"
             )
         changed = (
             workspace.destination_odoo_connection_mode is not connection_mode
@@ -809,6 +872,7 @@ class WorkspaceStateService:
             destination_odoo_connection_mode=connection_mode,
             destination_odoo_base_url=base_url,
             destination_odoo_database=database,
+            saved_restore_database_reset_admitted=reset_admitted,
             destination_company=None if changed else workspace.destination_company,
             destination_verified_target_hash=(
                 "" if changed else workspace.destination_verified_target_hash

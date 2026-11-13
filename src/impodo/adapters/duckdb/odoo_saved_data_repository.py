@@ -28,6 +28,7 @@ from impodo.domain.project.foundation import (
     MigrationNotFoundError,
     MigrationOperationReplayError,
     MigrationStorageCompatibilityError,
+    require_hash,
     require_revision,
     require_uuid,
 )
@@ -74,10 +75,15 @@ class DuckDbSavedOdooDataRepository:
                 raise
 
     def create_definition(
-        self, definition: SavedOdooDataDefinition
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        source_binding_hash: str | None,
     ) -> SavedOdooDataDefinition:
         """Create initial capture meaning; an exact replay returns its existing row."""
 
+        if source_binding_hash is not None:
+            require_hash(source_binding_hash, "source_binding_hash")
         if (
             definition.revision != 1
             or definition.configuration_revision != 1
@@ -106,6 +112,14 @@ class DuckDbSavedOdooDataRepository:
                     raise MigrationOperationReplayError(
                         "Saved configuration identity is already used"
                     )
+                if (
+                    source_binding_hash is not None
+                    and self._source_binding(connection, definition.saved_data_id, 1)
+                    != source_binding_hash
+                ):
+                    raise MigrationOperationReplayError(
+                        "Saved configuration source review differs; rebind its source"
+                    )
                 return current
             self._workspace(
                 connection, definition.project_id, definition.source_workspace_id
@@ -119,6 +133,7 @@ class DuckDbSavedOdooDataRepository:
                 self._definition_values(definition),
             )
             self._insert_configuration(connection, definition)
+            self._insert_source_binding(connection, definition, source_binding_hash)
         return definition
 
     def get_definition(
@@ -146,11 +161,17 @@ class DuckDbSavedOdooDataRepository:
         return tuple(self._definition(row) for row in rows)
 
     def save_definition(
-        self, definition: SavedOdooDataDefinition, *, expected_revision: int
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        expected_revision: int,
+        source_binding_hash: str | None,
     ) -> SavedOdooDataDefinition:
         """Append configuration meaning with an optimistic current-pointer update."""
 
         require_revision(expected_revision)
+        if source_binding_hash is not None:
+            require_hash(source_binding_hash, "source_binding_hash")
         if definition.revision != expected_revision:
             raise MigrationConflictError("Saved configuration revision is stale")
         with self._connect(write=True) as connection:
@@ -193,8 +214,122 @@ class DuckDbSavedOdooDataRepository:
                 configuration_revision=current.configuration_revision + 1,
             )
             self._insert_configuration(connection, updated)
+            self._insert_source_binding(connection, updated, source_binding_hash)
             self._update_definition(connection, updated, expected_revision)
         return updated
+
+    def rebind_source_definition(
+        self,
+        definition: SavedOdooDataDefinition,
+        *,
+        expected_revision: int,
+        source_binding_hash: str,
+    ) -> SavedOdooDataDefinition:
+        """Accept reviewed replacement source meaning without moving saved data."""
+
+        require_revision(expected_revision)
+        require_hash(source_binding_hash, "source_binding_hash")
+        if definition.revision != expected_revision:
+            raise MigrationConflictError("Saved configuration revision is stale")
+        with self._connect(write=True) as connection:
+            current = self._get_definition(
+                connection, definition.project_id, definition.saved_data_id
+            )
+            if current.revision != expected_revision:
+                raise MigrationConflictError("Saved configuration revision is stale")
+            if any(
+                getattr(current, name) != getattr(definition, name)
+                for name in (
+                    "project_id",
+                    "source_target_hash",
+                    "odoo_major",
+                    "created_at",
+                )
+            ):
+                raise MigrationFoundationError(
+                    "Source rebind must keep the same database and Odoo major"
+                )
+            if (
+                current.latest_version != definition.latest_version
+                or current.configuration_revision != definition.configuration_revision
+            ):
+                raise MigrationConflictError("Saved configuration pointers changed")
+            if current.source_workspace_id == definition.source_workspace_id:
+                raise MigrationFoundationError(
+                    "Review the replacement source in a fresh workspace before rebinding"
+                )
+            self._workspace(
+                connection, definition.project_id, definition.source_workspace_id
+            )
+            updated = replace(
+                definition,
+                revision=expected_revision + 1,
+                configuration_revision=current.configuration_revision + 1,
+            )
+            self._insert_configuration(connection, updated)
+            self._insert_source_binding(connection, updated, source_binding_hash)
+            self._update_definition(connection, updated, expected_revision)
+        return updated
+
+    def get_configuration_source_binding(
+        self, project_id: str, saved_data_id: str, configuration_revision: int
+    ) -> str | None:
+        """Read exact source-generation review without rewriting version JSON."""
+
+        self._identifiers(project_id, saved_data_id)
+        require_revision(configuration_revision, "configuration_revision")
+        with self._connect() as connection:
+            self._get_definition(connection, project_id, saved_data_id)
+            return self._source_binding(
+                connection, saved_data_id, configuration_revision
+            )
+
+    @staticmethod
+    def _source_binding(
+        connection: duckdb.DuckDBPyConnection,
+        saved_data_id: str,
+        configuration_revision: int,
+    ) -> str | None:
+        row = connection.execute(
+            """SELECT source_binding_hash FROM saved_odoo_source_binding
+               WHERE saved_data_id = ? AND configuration_revision = ?""",
+            [saved_data_id, configuration_revision],
+        ).fetchone()
+        return require_hash(str(row[0]), "source_binding_hash") if row else None
+
+    @staticmethod
+    def _insert_source_binding(
+        connection: duckdb.DuckDBPyConnection,
+        definition: SavedOdooDataDefinition,
+        source_binding_hash: str | None,
+    ) -> None:
+        if source_binding_hash is not None:
+            reviewed = connection.execute(
+                """SELECT 1 FROM odoo_workspace_database_binding b
+                   JOIN odoo_database_generation_current c
+                     ON c.organization_id = b.organization_id
+                    AND c.scope_hash = b.scope_hash
+                    AND c.generation_hash = b.generation_hash
+                   WHERE b.content_hash = ? AND b.project_id = ?
+                     AND b.workspace_id = ? AND b.role = 'SOURCE'""",
+                [
+                    source_binding_hash,
+                    definition.project_id,
+                    definition.source_workspace_id,
+                ],
+            ).fetchone()
+            if reviewed is None:
+                raise MigrationConflictError(
+                    "The source database generation changed before saving its review; review and rebind the source again"
+                )
+            connection.execute(
+                "INSERT INTO saved_odoo_source_binding VALUES (?, ?, ?)",
+                [
+                    definition.saved_data_id,
+                    definition.configuration_revision,
+                    source_binding_hash,
+                ],
+            )
 
     def get_configuration(
         self, project_id: str, saved_data_id: str, configuration_revision: int
@@ -260,11 +395,17 @@ class DuckDbSavedOdooDataRepository:
             )
 
     def append_version(
-        self, version: SavedOdooDataVersion, *, expected_revision: int
+        self,
+        version: SavedOdooDataVersion,
+        *,
+        expected_revision: int,
+        source_binding_hash: str | None,
     ) -> tuple[SavedOdooDataDefinition, SavedOdooDataVersion]:
         """Publish one complete version and advance its pointer in one transaction."""
 
         require_revision(expected_revision)
+        if source_binding_hash is not None:
+            require_hash(source_binding_hash, "source_binding_hash")
         with self._connect(write=True) as connection:
             current = self._get_definition(
                 connection, version.project_id, version.saved_data_id
@@ -290,6 +431,30 @@ class DuckDbSavedOdooDataRepository:
                 )
             if version.version_number != (current.latest_version or 0) + 1:
                 raise MigrationConflictError("Saved data version number is stale")
+            if source_binding_hash is not None:
+                reviewed = connection.execute(
+                    """SELECT 1 FROM saved_odoo_source_binding s
+                       JOIN odoo_workspace_database_binding b
+                         ON b.content_hash = s.source_binding_hash
+                       JOIN odoo_database_generation_current c
+                         ON c.organization_id = b.organization_id
+                        AND c.scope_hash = b.scope_hash
+                        AND c.generation_hash = b.generation_hash
+                       WHERE s.saved_data_id = ? AND s.configuration_revision = ?
+                         AND s.source_binding_hash = ? AND b.project_id = ?
+                         AND b.workspace_id = ? AND b.role = 'SOURCE'""",
+                    [
+                        version.saved_data_id,
+                        version.configuration_revision,
+                        source_binding_hash,
+                        version.project_id,
+                        current.source_workspace_id,
+                    ],
+                ).fetchone()
+                if reviewed is None:
+                    raise MigrationConflictError(
+                        "The source database generation changed during capture. Review and rebind its source; the previous saved version remains available"
+                    )
             self._workspace(
                 connection,
                 version.project_id,
@@ -540,6 +705,26 @@ class DuckDbSavedOdooDataRepository:
             item.project_id != project_id or item.saved_data_id != saved_data_id
             for item in bindings
         ):
+            raise self._corruption()
+        return bindings
+
+    def list_project_restore_bindings(
+        self, project_id: str, *, limit: int = 100, offset: int = 0
+    ) -> tuple[SavedOdooRestoreBinding, ...]:
+        """Page journals across saved configurations in an authorized Project."""
+
+        require_uuid(project_id, "project_id")
+        self._page(limit, offset)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT binding_json, content_hash, workspace_id FROM saved_odoo_restore_binding
+                   WHERE project_id = ? ORDER BY workspace_id LIMIT ? OFFSET ?""",
+                [project_id, limit, offset],
+            ).fetchall()
+        bindings = tuple(
+            self._decode_binding(str(row[0]), str(row[1]), str(row[2])) for row in rows
+        )
+        if any(item.project_id != project_id for item in bindings):
             raise self._corruption()
         return bindings
 

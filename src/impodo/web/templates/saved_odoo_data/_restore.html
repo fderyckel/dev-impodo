@@ -9,6 +9,7 @@
   <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/restore" data-saved-odoo-restore data-profile-selection-url="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}" data-single-submit>
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="operation_id" value="{{ operation_id }}">
+    <input type="hidden" name="profile_hash" value="{{ values.get('profile_hash', '') }}">
     <div class="form-grid">
       <label>
         Saved data version
@@ -41,9 +42,12 @@
     </fieldset>
 
     {% if key_rows|default(()) %}
-      <details>
-        <summary>How matching records are found</summary>
+      <details {% if identity_alias_problem|default(none) %}open{% endif %}>
+        <summary>How matching records are found{% if identity_alias_count|default(0) %} · {{ identity_alias_count }} destination value{% if identity_alias_count != 1 %}s{% endif %} mapped{% endif %}</summary>
         <p>Select up to three captured fields that identify one record. When an identifier repeats under different parents or companies, choose the relationship under Match within. Impodo checks the complete combination before loading.</p>
+        {% if identity_alias_problem|default(none) %}
+          <div class="notice warning"><strong>Review the saved reference mappings</strong><p>{{ identity_alias_problem }}</p><label class="checkbox"><input type="checkbox" name="replace_identity_aliases" value="yes" {% if values.get('replace_identity_aliases') == 'yes' %}checked{% endif %}><span>Replace the unavailable saved mappings with the values entered below. Leaving them empty clears the mappings.</span></label></div>
+        {% endif %}
         <div class="form-grid">
           {% for row in key_rows %}
             <div>
@@ -55,6 +59,18 @@
               </label>
               {% if row.scope_fields %}
                 <label>Match within<select name="scope__{{ row.model }}"><option value="">All records</option>{% for field in row.scope_fields %}<option value="{{ field.name }}" {% if field.name == values.get('scope__' ~ row.model, row.selected_scope) %}selected{% endif %}>{{ field.label }}</option>{% endfor %}</select><small>Each linked parent or company must already match one destination record.</small></label>
+              {% endif %}
+              {% if row.identity_alias_eligible or row.identity_alias_present %}
+                <details {% if row.identity_alias_present or identity_alias_problem|default(none) or values.get(row.identity_alias_prefix ~ '_source_0', '') or values.get(row.identity_alias_prefix ~ '_target_0', '') %}open{% endif %}>
+                  <summary>Use different destination values</summary>
+                  <p>Match linked setup records by an exact destination name or code. This applies only to existing destination records using one identifier. It does not rename or update those records.</p>
+                  {% for alias in row.identity_alias_rows %}
+                    {% set alias_source = row.identity_alias_prefix ~ '_source_' ~ alias.index %}
+                    {% set alias_target = row.identity_alias_prefix ~ '_target_' ~ alias.index %}
+                    <div class="form-grid"><label>Source value<input name="{{ alias_source }}" value="{{ values.get(alias_source, alias.source_value) }}" maxlength="10000" autocomplete="off"></label><label>Destination value<input name="{{ alias_target }}" value="{{ values.get(alias_target, alias.target_value) }}" maxlength="10000" autocomplete="off"></label></div>
+                  {% endfor %}
+                  <small>Check the destination to validate and remember these choices. Clear both values to remove a mapping.</small>
+                </details>
               {% endif %}
             </div>
           {% endfor %}

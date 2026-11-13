@@ -12,11 +12,16 @@ import json
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Literal
 
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import (
+    DESTINATION_MATCH_CONTRACT_VERSION,
+    DestinationMatchPlan,
+)
 from impodo.domain.workspace.transfer_order import TransferOrderPlan
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import (
+    TRANSFER_REVIEW_CONTRACT_VERSION,
     TransferReviewApproval,
     TransferReviewPackage,
 )
@@ -27,8 +32,46 @@ from impodo.domain.workspace.workbench import (
     SourceFile,
     SourceMode,
     WorkspaceState,
+    WorkspaceStateCompatibilityError,
     WorkspaceStatus,
 )
+
+
+def _retired_transfer_envelope(
+    value: object,
+    *,
+    current_version: int,
+    label: str,
+) -> bool:
+    """Recognize retired derived evidence without decoding its business body.
+
+    Old checks are not source data or an execution journal. Their version
+    envelope only decides which current operation must be repeated. Current
+    bodies still pass their strict domain decoder; malformed or newer
+    envelopes are never treated as safely retired checks.
+    """
+
+    if value is None or value == "":
+        return False
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, ValueError) as error:
+        raise WorkspaceStateCompatibilityError(
+            f"Saved {label} evidence is invalid. Its captured source data was "
+            "left unchanged; review the stored evidence before checking again."
+        ) from error
+    version = payload.get("contract_version") if isinstance(payload, dict) else None
+    if type(version) is not int or version < 1:
+        raise WorkspaceStateCompatibilityError(
+            f"Saved {label} evidence has an invalid version envelope. Its "
+            "captured source data was left unchanged; review the stored evidence."
+        )
+    if version > current_version:
+        raise WorkspaceStateCompatibilityError(
+            f"Saved {label} evidence needs a newer Impodo release. Update Impodo "
+            "before reopening it; its captured source data was left unchanged."
+        )
+    return version < current_version
 
 
 def _stored_int(value: object, label: str) -> int:
@@ -121,6 +164,24 @@ def _workspace_from_rows(
 ) -> WorkspaceState:
     """Rebuild one workbench projection and its immutable source-file children."""
 
+    retired_match = _retired_transfer_envelope(
+        data.get("destination_match_plan_json"),
+        current_version=DESTINATION_MATCH_CONTRACT_VERSION,
+        label="destination matching",
+    )
+    retired_review = _retired_transfer_envelope(
+        data.get("transfer_review_package_json"),
+        current_version=TRANSFER_REVIEW_CONTRACT_VERSION,
+        label="transfer review",
+    )
+    recovery_step: Literal["destination-matching", "transfer-review"] | None = (
+        "destination-matching"
+        if retired_match
+        else "transfer-review"
+        if retired_review
+        else None
+    )
+
     registered_at = str(data["registered_at"]) if data["registered_at"] else None
     connection_mode = (
         OdooConnectionMode(str(data["odoo_connection_mode"]))
@@ -162,22 +223,22 @@ def _workspace_from_rows(
         ),
         destination_match_plan=(
             DestinationMatchPlan.from_json(str(data["destination_match_plan_json"]))
-            if data.get("destination_match_plan_json")
+            if data.get("destination_match_plan_json") and not retired_match
             else None
         ),
         transfer_order_plan=(
             TransferOrderPlan.from_json(str(data["transfer_order_plan_json"]))
-            if data.get("transfer_order_plan_json")
+            if data.get("transfer_order_plan_json") and not retired_match
             else None
         ),
         transfer_review_package=(
             TransferReviewPackage.from_json(str(data["transfer_review_package_json"]))
-            if data.get("transfer_review_package_json")
+            if data.get("transfer_review_package_json") and recovery_step is None
             else None
         ),
         transfer_review_approval=(
             TransferReviewApproval.from_json(str(data["transfer_review_approval_json"]))
-            if data.get("transfer_review_approval_json")
+            if data.get("transfer_review_approval_json") and recovery_step is None
             else None
         ),
         transfer_preflight_report=(
@@ -187,6 +248,7 @@ def _workspace_from_rows(
             if data.get("transfer_preflight_report_json")
             else None
         ),
+        transfer_evidence_recovery_step=recovery_step,
         intended_applications=tuple(json.loads(str(data["intended_applications"]))),
         intended_models=tuple(json.loads(str(data["intended_models"]))),
         source_files=tuple(

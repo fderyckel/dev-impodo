@@ -23,6 +23,9 @@ from impodo.domain.resolution import (
     RESOLUTION_EVALUATION_CONTRACT_VERSION,
     RESOLUTION_SCORER_VERSION,
 )
+from impodo.domain.staging.preparation_session import (
+    PREPARED_CANONICAL_ENCODING_VERSION,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 
 from .repository import DuckDbRepository
@@ -50,6 +53,7 @@ class PreparationRecoveryRepository(DuckDbRepository):
                     "normalization_evaluator": NORMALIZATION_EVALUATOR_VERSION,
                     "resolution_contract": RESOLUTION_EVALUATION_CONTRACT_VERSION,
                     "resolution_scorer": RESOLUTION_SCORER_VERSION,
+                    "prepared_encoding": PREPARED_CANONICAL_ENCODING_VERSION,
                 }).fetchone()
         except duckdb.IOException as error:
             raise WorkspaceError("Saved preparation is temporarily unavailable. Return to the run and try again.") from error
@@ -75,6 +79,17 @@ WITH staging AS (
        AND s.source_selection_hash = $source_hash AND m.source_selection_hash = $source_hash
        AND s.schema_hash = $schema_hash AND m.schema_hash = $schema_hash
        AND s.contract_version = $staging_contract AND s.evaluator_version = $staging_evaluator
+       AND NOT EXISTS (
+           SELECT 1 FROM canonical_prepared_projection projection
+            WHERE projection.run_id = s.run_id
+              AND CASE WHEN json_valid(projection.projection_json) THEN
+                  json_type(projection.projection_json, '$.contract_version')
+                      IS DISTINCT FROM 'UBIGINT'
+                  OR json_extract_string(projection.projection_json, '$.contract_version')
+                      IS DISTINCT FROM CAST($prepared_encoding AS VARCHAR)
+                  ELSE TRUE
+              END
+       )
        AND s.derived_plan_hash IS NOT DISTINCT FROM (
            SELECT plan.content_hash FROM derived_entity_plan_current pc
            JOIN derived_entity_plan_revision plan ON plan.plan_id = pc.plan_id AND plan.version = pc.version

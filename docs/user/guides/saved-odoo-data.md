@@ -126,7 +126,27 @@ restoring the scoped records. Other restored record types cannot yet link to
 a record type matched within a parent. The selected matching relationship is
 part of the identity, so ordinary field policies cannot rename, exclude or
 preserve another destination value for it. This choice does not remap source
-companies to differently identified destination companies.
+companies by itself; use the separate destination-value mapping below.
+
+For an existing linked record with a different name or code, expand **Use
+different destination values** under **How matching records are found**. Enter
+the captured identifier as **Source value** and the exact existing identifier
+as **Destination value**, then select **Check destination**. For example,
+`Company A` can explicitly use existing destination `Company B`.
+
+This choice is available for existing-only reference record types that use one
+matching field and no additional matching scope. The destination value must
+have one accessible match. A missing or ambiguous target, unknown source value,
+or choice that combines distinct source records stops the check. Impodo keeps
+the saved source unchanged and does not rename or update the reference record.
+An aliased existing parent can still be the matching scope for its children.
+
+Saved destinations remember the protected mapping choices. Each restore
+checks them against the selected data and current destination; earlier approval
+does not carry over. Clear both inputs and check again to remove a mapping.
+If **Review the saved reference mappings** appears, explicitly confirm the
+replacement values before continuing. Leaving those replacement values empty
+clears the unavailable mappings.
 
 | Field choice | Existing destination record | Missing destination record |
 | --- | --- | --- |
@@ -160,6 +180,12 @@ The package includes the preserved records and the information needed to
 rebuild their links. It does not include Odoo API keys or earlier permission
 to write into a destination. You need destination access when restoring.
 The package password is required when importing.
+
+The package does not include saved destinations or their reference mappings.
+After importing on another Impodo installation, create a new destination profile
+and enter any **Use different destination values** mappings again before checking
+and restoring the data. Existing saved destinations and mappings can be reused
+in their original local project; the package does not carry them elsewhere.
 
 ## What to check
 
@@ -213,6 +239,13 @@ destination fields, access, company context, matching records, or field
 policies require fresh destination checks. A recreated source database also
 needs fresh source review; reused addresses or numeric record IDs do not
 prove that its records are the old clean data.
+
+A saved destination check or transfer review in a retired format cannot
+authorize restoration. Select **Check destination** again, resolve the current
+decisions and explicitly confirm **Restore all** for a fresh checked run. The
+retained data version stays unchanged. An interrupted restore still needs its
+recorded outcome reviewed before another load starts. Its retired approval
+cannot authorize another load or resume an interrupted write.
 
 ## Next stage
 

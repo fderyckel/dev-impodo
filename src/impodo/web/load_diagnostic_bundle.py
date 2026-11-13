@@ -340,9 +340,28 @@ def load_bundle_members(
                 "verification",
             }:
                 attempt[item["event"]] = item
+            if terminal is None:
+                for name in ("runtime", "local_phase_metrics", "stage_performance", "local_phase_checkpoint_count"):
+                    if name in item:
+                        attempt[name] = item[name]
         if terminal is None:
             attempt.pop("outcome", None)
             attempt["transport_observation"] = "UNKNOWN"
+        runtime = attempt.get("runtime")
+        runtime_coverage = runtime.get("coverage", {}) if isinstance(runtime, dict) else {}
+        attempt["performance_coverage"] = {
+            "runtime": "available" if runtime_coverage.get("available_fields") else "unavailable",
+            "local_phase_metrics": "available" if attempt.get("local_phase_metrics") else "unavailable",
+            "stage_performance": "available" if attempt.get("stage_performance") else "unavailable",
+            "terminal_aggregate_present": terminal is not None and ("local_phase_metrics" in attempt or "stage_performance" in attempt),
+            "local_phase_checkpoint_limit": 16,
+            "local_phase_checkpoint_interval_calls": 128,
+            "interrupted_aggregate": "last retained checkpoint only; later local work is unavailable" if terminal is None else "terminal aggregate",
+            "phase_timings": "inclusive; parent and child measurements overlap",
+            "thread_cpu": "coarse stages observe non-exclusive context-thread CPU and exclude worker-thread CPU; local phases observe their owning thread",
+            "outcome_persistence": "journal_after_call can include locally blocked rows without a remote call",
+            "security_storage_power_attribution": "unavailable",
+        }
         actual_events = sum(item["attempt_id"] == key for item in selected_events)
         attempt["omitted_recorded_event_count"] = max(
             0, attempt.get("recorded_event_count", actual_events) - actual_events

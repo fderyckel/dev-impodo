@@ -16,10 +16,24 @@ from threading import RLock
 from uuid import UUID, uuid4
 
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
-from impodo.application.workspace.execution.load_observation import LoadObservation
+from impodo.application.workspace.execution.load_observation import (
+    LOAD_LOCAL_PHASES,
+    LoadObservation,
+)
 from impodo.domain.execution.load_failure_reasons import LOAD_FAILURE_REASONS
 from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic
+from impodo.web.load_performance import (
+    LOAD_COST_COUNTS,
+    LOAD_COST_TIMINGS,
+    collect_load_stage_metrics,
+    sanitize_load_costs,
+    sanitize_load_phase_metrics,
+)
+from impodo.web.runtime_diagnostics import (
+    runtime_performance_metadata,
+    sanitize_runtime_metadata,
+)
 
 LOAD_EVENT_LOG = "impodo.loads.jsonl"
 LOAD_SUMMARY_LOG = "impodo.load-summaries.jsonl"
@@ -31,6 +45,7 @@ LOAD_EVENTS = frozenset(
         "worker_started",
         "stage_started",
         "stage_finished",
+        "performance_checkpoint",
         "failure",
         "journal",
         "journal_batch",
@@ -70,7 +85,7 @@ LOAD_STAGES = frozenset(
         "execution_checks",
         "prepare_write_values",
     }
-)
+) | LOAD_LOCAL_PHASES
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]{0,127}")
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 MAX_ATTEMPT_EVENTS = 2_000
@@ -173,6 +188,7 @@ def sanitize_load_facts(value: object) -> dict[str, object]:
         "workspace_revision",
         "snapshot_contract_version",
         "load_policy_version",
+        "local_phase_checkpoint_count",
     ):
         if _integer(value.get(key)):
             result[key] = value[key]
@@ -273,6 +289,19 @@ def sanitize_load_facts(value: object) -> dict[str, object]:
         "CAPTURE_FAILED",
     }:
         result["reason"] = value["reason"]
+    runtime = value.get("runtime")
+    if isinstance(runtime, Mapping):
+        result["runtime"] = sanitize_runtime_metadata(runtime)
+    if isinstance(value.get("performance"), Mapping):
+        result["performance"] = sanitize_load_costs(value["performance"])
+    if isinstance(value.get("local_phase_metrics"), Mapping):
+        result["local_phase_metrics"] = sanitize_load_phase_metrics(value["local_phase_metrics"])
+    stage_costs = value.get("stage_performance")
+    if isinstance(stage_costs, Mapping):
+        result["stage_performance"] = {
+            stage: sanitize_load_costs(stage_costs[stage])
+            for stage in sorted(LOAD_STAGES) if stage in stage_costs
+        }
     duration = value.get("duration_ms")
     if (
         isinstance(duration, (float, int))
@@ -341,6 +370,7 @@ def new_load_observation(
         "process_id": os.getpid(),
     }
     retained: dict[str, object] = {"transport_observation": "NOT_STARTED"}
+    stage_performance: dict[str, dict[str, object]] = {}
     lock = RLock()
     event_count = 0
     omitted = 0
@@ -348,6 +378,13 @@ def new_load_observation(
     def sink(event: str, facts: Mapping[str, object]) -> None:
         nonlocal event_count, omitted
         with lock:
+            if event in {"attempt_started", "worker_started"}:
+                try:
+                    runtime = runtime_performance_metadata()
+                except Exception:  # noqa: BLE001 - optional runtime capture cannot stop load evidence
+                    runtime = sanitize_runtime_metadata({})
+                facts = {**facts, "runtime": runtime}
+                retained["runtime"] = runtime
             safe = sanitize_load_facts(
                 {
                     **common,
@@ -356,6 +393,25 @@ def new_load_observation(
                     "recorded_at": datetime.now(UTC).isoformat(),
                 }
             )
+            if event == "stage_finished" and isinstance(stage := safe.get("stage"), str):
+                costs = sanitize_load_costs(safe.get("performance"))
+                previous = stage_performance.setdefault(stage, {"calls": 0})
+                costs["calls"] = 1
+                costs["wall_ms"] = safe.get("duration_ms")
+                costs["failed_calls"] = int(safe.get("outcome") == "FAILED")
+                for name in LOAD_COST_COUNTS | LOAD_COST_TIMINGS:
+                    current, prior = costs.get(name), previous.get(name, 0)
+                    if isinstance(current, (int, float)) and isinstance(prior, (int, float)):
+                        previous[name] = min(2**53 - 1, prior + current)
+                memory, prior_memory = costs.get("process_rss_bytes"), previous.get("process_rss_bytes", 0)
+                if isinstance(memory, int) and isinstance(prior_memory, int):
+                    previous["process_rss_bytes"] = max(prior_memory, memory)
+                previous["cpu_scope"] = costs.get("cpu_scope", "unavailable")
+                retained["stage_performance"] = {
+                    name: dict(values) for name, values in stage_performance.items()
+                }
+            if event == "performance_checkpoint" and stage_performance:
+                safe["stage_performance"] = retained["stage_performance"]
             record = {"event": event, **safe}
             for key in (
                 "job_id",
@@ -390,6 +446,7 @@ def new_load_observation(
                 "failure",
                 "terminal",
                 "capture_failed",
+                "performance_checkpoint",
             }:
                 write_event(record)
                 event_count += 1
@@ -405,6 +462,6 @@ def new_load_observation(
                     }
                 )
 
-    observer = LoadObservation(attempt_id, sink)
+    observer = LoadObservation(attempt_id, sink, stage_metrics=collect_load_stage_metrics)
     observer.emit("attempt_started")
     return observer

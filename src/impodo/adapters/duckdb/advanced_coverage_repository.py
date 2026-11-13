@@ -458,8 +458,9 @@ class AdvancedCoverageRepository(DuckDbRepository):
                       JOIN resolution_run AS run ON run.run_id = current.run_id
                      WHERE current.singleton_id = 1
                        AND run.evaluation_hash = ?
+                       AND run.staging_run_id = ?
                     """,
-                    [evaluation.content_hash],
+                    [evaluation.content_hash, staging_run_id],
                 ).fetchone()
                 if existing is not None:
                     connection.rollback()

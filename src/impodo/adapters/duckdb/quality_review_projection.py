@@ -18,7 +18,10 @@ from impodo.domain.preparation.staging_contracts import (
 )
 from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.staging.canonical_projection import canonical_prepared_session_row
-from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
+from impodo.domain.staging.preparation_session import (
+    PreparedCanonicalEncodingUnsupported,
+    PreparedCanonicalProjection,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 
 from .constants import PREPARED_VALUE_PROJECTOR_MEMORY_LIMIT
@@ -69,9 +72,12 @@ def read_projected_review_rows(
     ).fetchall()
     result = {}
     for projection_json, snapshot_json, members in bindings:
-        projection = PreparedCanonicalProjection.from_portable_dict(
-            json.loads(str(projection_json))
-        )
+        try:
+            projection = PreparedCanonicalProjection.from_portable_dict(
+                json.loads(str(projection_json))
+            )
+        except PreparedCanonicalEncodingUnsupported as error:
+            raise WorkspaceError(str(error)) from error
         snapshot = PreparedSnapshot.from_json(str(snapshot_json))
         _require_review_projection_binding(workspace_id, projection, snapshot)
         coordinates = {int(member["ordinal"]): member for member in members}
@@ -137,7 +143,12 @@ def read_category_parent_paths(
     if len(bindings) != 1:
         return {}
     projection_json, snapshot_json = bindings[0]
-    projection = PreparedCanonicalProjection.from_portable_dict(json.loads(str(projection_json)))
+    try:
+        projection = PreparedCanonicalProjection.from_portable_dict(
+            json.loads(str(projection_json))
+        )
+    except PreparedCanonicalEncodingUnsupported as error:
+        raise WorkspaceError(str(error)) from error
     snapshot = PreparedSnapshot.from_json(str(snapshot_json))
     _require_review_projection_binding(workspace_id, projection, snapshot)
     with (

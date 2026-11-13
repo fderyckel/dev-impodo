@@ -17,6 +17,14 @@ from impodo.adapters.duckdb.schema.migration_registry import (
 from impodo.adapters.duckdb.schema.structure import read_table_columns
 from impodo.domain.project.foundation import MigrationStorageCompatibilityError
 
+_POST_V2_TABLES = (
+    "saved_odoo_source_binding",
+    "odoo_workspace_database_binding",
+    "odoo_database_generation_current",
+    "odoo_database_generation",
+    "saved_odoo_capture_operation",
+)
+
 
 def _rows(connection: duckdb.DuckDBPyConnection) -> dict[str, list[tuple]]:
     """Compare every stored value independently of physical row order."""
@@ -61,6 +69,8 @@ def _historical_registry(
             )
             """
         )
+    for table in _POST_V2_TABLES:
+        connection.execute(f'DROP TABLE "{table}"')
     expected = _rows(connection)
     if missing_profile:
         connection.execute("DROP TABLE saved_odoo_restore_profile")
@@ -112,6 +122,8 @@ class RegistryRestoreProfileUpgradeTests(unittest.TestCase):
                         self.assertEqual(
                             {table: rows[table] for table in expected}, expected
                         )
+                        for table in _POST_V2_TABLES:
+                            self.assertEqual(rows[table], [])
                         ledger = (
                             [(1, 2, "saved-odoo-data-and-restore-v2")]
                             if upgraded_from_v1
@@ -119,7 +131,12 @@ class RegistryRestoreProfileUpgradeTests(unittest.TestCase):
                         )
                         self.assertEqual(
                             sorted(rows["schema_migration"]),
-                            [*ledger, (2, 3, "saved-odoo-restore-profile-v3")],
+                            [
+                                *ledger,
+                                (2, 3, "saved-odoo-restore-profile-v3"),
+                                (3, 4, "saved-odoo-capture-recovery-v4"),
+                                (4, 5, "odoo-database-generation-authority-v5"),
+                            ],
                         )
 
     def test_other_v2_layout_changes_are_rejected_without_mutation(self) -> None:

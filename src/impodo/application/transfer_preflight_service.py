@@ -97,6 +97,8 @@ class TransferPreflightService:
         approved_models = {item.dataset_id: item for item in package.datasets}
         prior_matches = {item.dataset_id: item for item in approved_match.model_matches}
         fresh_matches = {item.dataset_id: item for item in fresh_match.model_matches}
+        prior_aliases = {item.dataset_id: item.binding for item in approved_match.identity_alias_bindings}
+        fresh_aliases = {item.dataset_id: item.binding for item in fresh_match.identity_alias_bindings}
         prior_create_fields: dict[str, tuple] = {}
         fresh_create_fields: dict[str, tuple] = {}
         for decision in approved_match.create_field_decisions:
@@ -120,6 +122,13 @@ class TransferPreflightService:
                 blockers.add("DESTINATION_MODEL_SCOPE_DRIFT")
             else:
                 blockers.update(fresh.blocking_reasons)
+                alias = fresh_aliases.get(item.dataset_id)
+                if (
+                    alias != prior_aliases.get(item.dataset_id)
+                    or item.identity_alias_binding_hash != (alias.content_hash if alias is not None else "")
+                    or item.identity_alias_count != (alias.alias_count if alias is not None else 0)
+                ):
+                    blockers.add("DESTINATION_IDENTITY_ALIAS_DRIFT")
                 if (
                     fresh.model != item.model
                     or fresh.key_field != item.key_field

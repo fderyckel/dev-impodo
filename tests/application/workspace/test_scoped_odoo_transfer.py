@@ -3,6 +3,7 @@
 from collections import Counter
 from dataclasses import replace
 from datetime import UTC, datetime
+import json
 from types import SimpleNamespace
 from unittest import TestCase
 from uuid import uuid4
@@ -47,7 +48,7 @@ from impodo.domain.shared.models import (
     target_identity_hash,
 )
 from impodo.domain.workspace.contracts import SchemaModel
-from impodo.domain.workspace.destination_matching import DestinationMatchPlan
+from impodo.domain.workspace.destination_matching import DestinationMatchPlan, RetiredDestinationMatchPlanError
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.odoo_relationship_compilation import (
     compile_odoo_relationship_datasets,
@@ -587,21 +588,17 @@ class ScopedOdooTransferTests(TestCase):
                         fixture.match()
                     self.assertEqual(fixture.captured, [])
 
-    def test_legacy_scalar_contracts_preserve_their_serialized_shape(self):
+    def test_retired_scalar_contracts_require_new_destination_check(self):
         fixture = ScopedTransferFixture()
         match = fixture.match()
-        legacy = replace(
-            match,
-            contract_version=16,
-            model_matches=tuple(
-                replace(item, scope_fields=(), scope_dataset_ids=())
-                for item in match.model_matches
-            ),
-        )
-        self.assertNotIn('"scope_fields"', legacy.to_json())
-        self.assertEqual(DestinationMatchPlan.from_json(legacy.to_json()), legacy)
-        with self.assertRaisesRegex(ValueError, "Legacy destination matching"):
-            replace(match, contract_version=16)
+        for retired_version in (16, 17):
+            with self.subTest(retired_version=retired_version):
+                with self.assertRaisesRegex(RetiredDestinationMatchPlanError, "Check the destination again"):
+                    replace(match, contract_version=retired_version)
+                with self.assertRaisesRegex(RetiredDestinationMatchPlanError, "frozen source data is unchanged"):
+                    DestinationMatchPlan.from_json(json.dumps({"contract_version": retired_version}))
+        self.assertEqual(DestinationMatchPlan.from_json(match.to_json()), match)
+
 
     def test_interrupted_child_create_is_recovered_by_exact_parent_scope(self):
         fixture = ScopedTransferFixture()

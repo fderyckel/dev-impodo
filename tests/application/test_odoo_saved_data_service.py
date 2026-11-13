@@ -27,6 +27,7 @@ from impodo.domain.project.foundation import (
 )
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.contracts import (
     OdooSchemaCatalog,
     SchemaField,
@@ -49,7 +50,10 @@ class SavedOdooDataServiceTests(unittest.TestCase):
     def _setup(self, major):
         self.major = major
         self.project = str(uuid4())
-        self.target = content_hash("fictional source database")
+        self.target = target_identity_hash(
+            connection_mode="REMOTE", base_url="https://source.example.test",
+            database="odoo-dev",
+        )
         self.company = OdooCompanySelection(self.target, 1, "Company A")
         self.source_id = str(uuid4())
         self.now = datetime.now(UTC)
@@ -106,6 +110,12 @@ class SavedOdooDataServiceTests(unittest.TestCase):
         self.versions = {}
         self.operations = {}
         self.capture_calls = 0
+        self.generation_hash = content_hash("source generation 1")
+        self.binding_rows = {}
+        self.configuration_bindings = {}
+        self.database_bindings = Mock()
+        self.database_bindings.require_current.side_effect = self._require_binding
+        self._bind_source(self.source_id)
         self.accepted = set()
         self.local_depth = 0
         self.repository = Mock()
@@ -115,6 +125,10 @@ class SavedOdooDataServiceTests(unittest.TestCase):
         )
         self.repository.create_definition.side_effect = self._create_definition
         self.repository.save_definition.side_effect = self._save_definition
+        self.repository.rebind_source_definition.side_effect = self._save_definition
+        self.repository.get_configuration_source_binding.side_effect = (
+            lambda project, identity, revision: self.configuration_bindings.get((identity, revision))
+        )
         self.repository.get_version_for_operation.side_effect = (
             lambda project, identity, operation: self.versions.get(operation)
         )
@@ -184,6 +198,7 @@ class SavedOdooDataServiceTests(unittest.TestCase):
             publication=self.publication,
             projections=self.projections,
             source_companies=self.companies,
+            database_bindings=self.database_bindings,
             local_operation=self._local,
         )
 
@@ -200,7 +215,7 @@ class SavedOdooDataServiceTests(unittest.TestCase):
             policy_hash=odoo_source_policy_hash(self.major),
             captured_at=self.now,
             captured_by="Fixture",
-            connection_mode="REMOTE",
+            connection_mode=state.odoo_connection_mode.value,
             database="odoo-dev",
             odoo_version=f"{self.major}.0",
             models=(SchemaModel("res.partner", "Contact", self.fields),),
@@ -242,12 +257,13 @@ class SavedOdooDataServiceTests(unittest.TestCase):
             raise MigrationNotFoundError("Definition missing")
         return result
 
-    def _create_definition(self, definition):
+    def _create_definition(self, definition, *, source_binding_hash):
         self.definitions[definition.saved_data_id] = definition
         self.history[(definition.saved_data_id, 1)] = definition
+        self.configuration_bindings[(definition.saved_data_id, 1)] = source_binding_hash
         return definition
 
-    def _save_definition(self, definition, *, expected_revision):
+    def _save_definition(self, definition, *, expected_revision, source_binding_hash):
         current = self.definitions[definition.saved_data_id]
         if current.revision != expected_revision:
             raise MigrationConflictError("Stale fixture revision")
@@ -258,13 +274,15 @@ class SavedOdooDataServiceTests(unittest.TestCase):
         )
         self.definitions[definition.saved_data_id] = updated
         self.history[(updated.saved_data_id, updated.configuration_revision)] = updated
+        self.configuration_bindings[(updated.saved_data_id, updated.configuration_revision)] = source_binding_hash
         return updated
 
-    def _append_version(self, version, *, expected_revision):
+    def _append_version(self, version, *, expected_revision, source_binding_hash):
         current = self.definitions[version.saved_data_id]
         if current.revision != expected_revision:
             raise MigrationConflictError("Stale fixture revision")
         self.assertIn(version.workspace_id, self.accepted)
+        self.assertEqual(source_binding_hash, self.configuration_bindings.get((version.saved_data_id, version.configuration_revision)))
         updated = replace(
             current,
             revision=current.revision + 1,
@@ -297,9 +315,23 @@ class SavedOdooDataServiceTests(unittest.TestCase):
 
     def _live(self, state, credential_owner):
         self.assertEqual(self.local_depth, 0)
+        self._bind_source(state.workspace_id)
         return SavedOdooCaptureAccess(
             Mock(), None, content_hash("credential"), Mock(), model_catalog=Mock()
         )
+
+    def _bind_source(self, identity):
+        self.binding_rows[identity] = SimpleNamespace(
+            content_hash=content_hash((identity, self.generation_hash)),
+            generation_hash=self.generation_hash,
+            project_id=self.project,
+        )
+
+    def _require_binding(self, identity, role, **kwargs):
+        binding = self.binding_rows.get(identity)
+        if binding is None or binding.generation_hash != self.generation_hash:
+            raise WorkspaceError("The source database generation changed; review and rebind its source")
+        return binding
 
     def _publish(self, identity, gateway, *, actor):
         self.assertEqual(self.local_depth, 0)

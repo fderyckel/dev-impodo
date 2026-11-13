@@ -18,6 +18,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from ...domain.prepared_snapshot import PreparedSnapshot
 from ...domain.staging.preparation_session import (
     PreparationSessionStatus,
+    PreparedCanonicalEncodingUnsupported,
     PreparedCanonicalProjection,
 )
 from ...domain.target_numeric_precision import PreparedNumericField
@@ -657,7 +658,12 @@ class PreparationQualityIndex:
              ) ORDER BY projection.ordinal_start
         """, [session_id]).fetchall()
         for projection_json, snapshot_json in raw:
-            projection = PreparedCanonicalProjection.from_portable_dict(json.loads(str(projection_json)))
+            try:
+                projection = PreparedCanonicalProjection.from_portable_dict(
+                    json.loads(str(projection_json))
+                )
+            except PreparedCanonicalEncodingUnsupported as error:
+                raise WorkspaceError(str(error)) from error
             if not (
                 any(resolver.parent_dataset_name
                     for resolver in projection.program.identity_resolvers)

@@ -380,7 +380,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         )
 
     def iter_canonical_hash_rows(self) -> Iterator[tuple[str, str | CanonicalRow]]:
-        """Keep current native encodings and restore compatibility payloads."""
+        """Keep native encodings and validate current stored-row payloads."""
 
         yield from self._repository._iter_canonical_hash_rows(
             self._workspace_id,

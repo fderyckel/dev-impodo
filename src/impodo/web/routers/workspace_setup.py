@@ -38,7 +38,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}")
     async def open_workspace(request: Request, workspace_id: str):
         require_session(request)
-        workspace = context.queries.get(workspace_id)
+        workspace = await run_page_read(context.queries.get, workspace_id)
         destination = (
             "overview"
             if workspace.status is WorkspaceStatus.REGISTERED
@@ -53,10 +53,9 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
     async def workspace_overview(request: Request, workspace_id: str):
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        queued_at = perf_counter()
 
         def render_overview():
-            queue_wait_ms = (perf_counter() - queued_at) * 1000
+            queue_wait_ms = request.state.workspace_page_queue_wait_ms
             navigation_started = perf_counter()
             snapshot = context.navigation.get_for_workspace(
                 workspace_id,
@@ -86,7 +85,7 @@ def build_workspace_setup_router(context: WebContext) -> APIRouter:
             )
             return response
 
-        return await run_in_threadpool(render_overview)
+        return await run_workspace_page_read(request, render_overview)
 
     @router.get("/workspaces/{workspace_id}/files", response_class=HTMLResponse)
     async def workspace_files_form(request: Request, workspace_id: str):

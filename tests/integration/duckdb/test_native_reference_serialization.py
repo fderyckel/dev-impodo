@@ -12,6 +12,7 @@ from decimal import Decimal
 from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import duckdb
 
@@ -47,7 +48,10 @@ from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.staging.canonical_projection import canonical_prepared_session_row
-from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
+from impodo.domain.staging.preparation_session import (
+    PreparedCanonicalEncodingUnsupported,
+    PreparedCanonicalProjection,
+)
 from impodo.domain.staging.transformation_impact import _TransformationImpactCollector
 from impodo.domain.workspace.errors import WorkspaceError
 from tests.integration.columnar import test_polars_transformation as fixtures
@@ -104,45 +108,42 @@ class NativeReferenceSerializationTests(unittest.TestCase):
                 )
         return tuple(rows)
 
-    def test_historical_projection_keeps_exact_captured_bytes_and_hashes(self):
+    def test_retired_projection_is_rejected_and_current_bytes_match_domain(self):
         cases = json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))["cases"]
         for case in cases:
             with self.subTest(origin=case["origin"]):
+                with self.assertRaises(PreparedCanonicalEncodingUnsupported):
+                    PreparedCanonicalProjection.from_portable_dict(case["projection"])
                 projection = PreparedCanonicalProjection.from_portable_dict(
-                    case["projection"]
+                    {**case["projection"], "contract_version": 4}
                 )
-                self.assertEqual(projection.contract_version, 3)
-                self.assertEqual(projection.to_portable_dict(), case["projection"])
+                with self.assertRaises(PreparedCanonicalEncodingUnsupported):
+                    replace(projection, contract_version=3)
+                self.assertEqual(projection.contract_version, 4)
                 _, _, path, _ = self._prepare(
                     projection.program, (fixtures._rows()[0],)
                 )
                 encoded = self._project(projection, path)[0][-1]
-                self.assertEqual(encoded, case["encoded_row"])
-                self.assertEqual(
-                    "sha256:" + sha256(encoded.encode("utf-8")).hexdigest(),
-                    case["encoded_row_sha256"],
-                )
-
-                current = replace(projection, contract_version=4)
-                current_encoded = self._project(current, path)[0][-1]
                 canonical = CanonicalRow.from_dict(json.loads(case["encoded_row"]))
                 self.assertEqual(
-                    current_encoded.encode("utf-8"),
+                    encoded.encode("utf-8"),
                     canonical_json_bytes(canonical.to_portable_dict()),
                 )
-                self.assertNotEqual(current_encoded, encoded)
-                self.assertEqual(
-                    current.program.content_hash, projection.program.content_hash
-                )
+                self.assertNotEqual(encoded, case["encoded_row"])
 
     def test_unknown_projection_versions_and_changed_programs_are_rejected(self):
-        payload = json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))["cases"][0][
-            "projection"
-        ]
-        for version in (0, 2, 5, 99, None, False, 3.5, "3", "4"):
+        payload = {
+            **json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))["cases"][0][
+                "projection"
+            ],
+            "contract_version": 4,
+        }
+        for version in (0, 2, 3, 5, 99, None, False, True, 3.5, 4.0, "3", "4"):
             with self.subTest(version=version):
                 changed = {**payload, "contract_version": version}
-                with self.assertRaisesRegex(ValueError, "projection is invalid"):
+                with self.assertRaisesRegex(
+                    PreparedCanonicalEncodingUnsupported, "Prepare data again"
+                ):
                     PreparedCanonicalProjection.from_portable_dict(changed)
         changed = deepcopy(payload)
         changed["program"]["relationships"][0]["related_model"] = "x_other.category"
@@ -547,13 +548,15 @@ class NativeReferenceSerializationTests(unittest.TestCase):
             ).hexdigest(),
         )
 
-    def test_saved_historical_run_reopens_and_verifies_its_original_hash(self):
+    def test_current_saved_run_reopens_and_retired_projection_requires_preparation(self):
         harness = session_fixtures.PreparationSessionRepositoryTests()
-        harness.setUp()
+        with patch.object(session_fixtures, "ROOT", self.root):
+            harness.setUp()
         self.addCleanup(harness.tearDown)
         workspace_id = harness.workspace_state.workspace_id
         case = json.loads(LEGACY_FIXTURE.read_text(encoding="utf-8"))["cases"][1]
-        projection = PreparedCanonicalProjection.from_portable_dict(case["projection"])
+        projection_payload = {**case["projection"], "contract_version": 4}
+        projection = PreparedCanonicalProjection.from_portable_dict(projection_payload)
         _, source, path, original = self._prepare(
             projection.program, (fixtures._rows()[0],)
         )
@@ -640,7 +643,11 @@ class NativeReferenceSerializationTests(unittest.TestCase):
                 batch_size=1,
             )
         )
-        self.assertEqual(batches[0][0][-1], case["encoded_row"])
+        expected_row = CanonicalRow.from_dict(json.loads(case["encoded_row"]))
+        self.assertEqual(
+            batches[0][0][-1].encode(),
+            canonical_json_bytes(expected_row.to_portable_dict()),
+        )
         replay_hash, count = reopened._hash_direct_run(
             workspace_id=workspace_id,
             run_id=session.session_id,
@@ -673,14 +680,14 @@ class NativeReferenceSerializationTests(unittest.TestCase):
                 [session.session_id],
             ).fetchone()
         assert persisted is not None
-        self.assertEqual(json.loads(persisted[0]), case["projection"])
-        changed = {**case["projection"], "contract_version": 4}
+        self.assertEqual(json.loads(persisted[0]), projection_payload)
+        changed = {**projection_payload, "contract_version": 3}
         with reopened._connect(database_path) as connection:
             connection.execute(
                 "UPDATE canonical_prepared_projection SET projection_json = ? WHERE run_id = ?",
                 [json.dumps(changed), session.session_id],
             )
-        with self.assertRaisesRegex(WorkspaceError, "content hash is invalid"):
+        with self.assertRaisesRegex(WorkspaceError, "[Pp]repare"):
             staging.get_canonical_staging_run(
                 workspace_id,
                 session.session_id,

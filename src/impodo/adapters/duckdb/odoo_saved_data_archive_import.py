@@ -190,25 +190,21 @@ class OdooSavedDataArchiveImporter:
                 state.workspace_id, selection, snapshots, manifests, actor=actor
             )
         )
-        definition = existing or self.saved_data.local_operation(
-            lambda: self.saved_data.create(
+        return self.saved_data.local_operation(
+            lambda: self.saved_data.retain_imported_version(
                 state.workspace_id,
                 actor=actor,
                 label=payload.label,
                 all_fields=payload.all_fields,
                 saved_data_id=saved_id,
-            )
-        )
-        result, _version = self.saved_data.local_operation(
-            lambda: self.saved_data.retain_current(
-                project_id,
-                saved_id,
-                actor=actor,
-                expected_revision=definition.revision,
                 operation_id=self._child(operation_id, "retain"),
+                package_hash=package_hash,
+                expected_source_selection_hash=selection.content_hash,
+                expected_manifest_hashes=tuple(
+                    sorted((item.model, item.content_hash) for item in manifests)
+                ),
             )
         )
-        return result
 
     def _provision(self, project_id, payload, operation_id, actor):
         project = self.factory.projects.get(project_id, actor=actor)

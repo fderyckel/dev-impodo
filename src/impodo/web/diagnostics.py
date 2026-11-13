@@ -71,13 +71,13 @@ from impodo.web.performance_bundle import performance_bundle_members
 from impodo.web.performance_diagnostics import (
     PERFORMANCE_EVENTS,
     performance_summary,
-    runtime_performance_metadata,
     sanitize_performance_record,
 )
 from impodo.web.preparation_performance_diagnostics import (
     PERFORMANCE_EVENT,
     sanitize_performance_event,
 )
+from impodo.web.runtime_diagnostics import runtime_performance_metadata
 from impodo.web.supporting_access_diagnostics import sanitize_supporting_access
 from impodo.web.supporting_diagnostics import sanitize_supporting_failure
 

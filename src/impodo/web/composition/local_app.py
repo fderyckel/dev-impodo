@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import secrets
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -24,6 +25,9 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from impodo.adapters.duckdb.business_intent_repository import BusinessIntentRepository
+from impodo.adapters.duckdb.odoo_database_binding_repository import (
+    DuckDbOdooDatabaseBindingRepository,
+)
 from impodo.adapters.duckdb.odoo_saved_data_archive import OdooSavedDataArchiveBackend
 from impodo.adapters.duckdb.odoo_saved_data_projection import (
     OdooSavedDataProjectionRepository,
@@ -44,6 +48,7 @@ from impodo.adapters.jobs.inline import InlineJobDispatcher
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
 from impodo.adapters.odoo.local_stack import LocalStackService
+from impodo.application.odoo_database_binding_service import OdooDatabaseBindingService
 from impodo.application.odoo_saved_data_archive import OdooSavedDataArchiveService
 from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
 from impodo.application.odoo_saved_data_service import SavedOdooDataService
@@ -56,11 +61,17 @@ from impodo.application.shared.build_contract import (
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from impodo.application.supporting_mapping_guard import SupportingMappingGuard
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBindingError,
+    OdooDatabaseBindingRole,
+    database_scope_hash,
+)
 from impodo.domain.shared.access import (
     LOCAL_ACTOR,
     Actor,
     AuthorizationPolicy,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     WorkspaceState,
@@ -151,6 +162,9 @@ from ...adapters.protected_correction_store import ProtectedCorrectionStore
 from ...adapters.protected_destination_create_fields import (
     ProtectedDestinationCreateFieldStore,
 )
+from ...adapters.protected_destination_identity_aliases import (
+    ProtectedDestinationIdentityAliasStore,
+)
 from ...adapters.protected_odoo_capture_filters import ProtectedOdooCaptureFilterStore
 from ...adapters.protected_odoo_comparison import ProtectedOdooComparisonCodec
 from ...adapters.protected_odoo_provenance import ProtectedOdooProvenanceCodec
@@ -219,6 +233,7 @@ from .local_identity import (
     LOCAL_ORGANIZATION_ID,
     LocalRequestIdentityResolver,
 )
+from .odoo_database_fences import install_odoo_database_fences
 from .odoo_source_graph import (
     OdooSourcePorts,
     build_odoo_source_service_graph,
@@ -328,10 +343,12 @@ def create_local_app(
     database = foundation.workspace_database
     artifacts = foundation.artifacts
     saved_odoo_repository = DuckDbSavedOdooDataRepository(foundation_database)
+    database_binding_repository = DuckDbOdooDatabaseBindingRepository(foundation_database)
     workspace_state_repository = MigrationWorkspaceStateRepository(
         database,
         foundation_repository,
         saved_odoo_data=saved_odoo_repository,
+        database_bindings=database_binding_repository,
     )
     recipe_compilation_repository = RecipeCompilationRepository(database)
     workspace_physical_sources = WorkspaceMappingSourceProjection(
@@ -403,6 +420,9 @@ def create_local_app(
         resolved_authorization,
     )
     workspace_access = foundation_services.workspace_access
+    database_bindings = OdooDatabaseBindingService(
+        workspace_access, resolved_authorization, database_binding_repository,
+    )
     request_workspace_access = LocalScopedWorkspaceAccessQuery(
         workspace_access,
         organization_id=LOCAL_ORGANIZATION_ID,
@@ -429,6 +449,9 @@ def create_local_app(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
     destination_create_fields = ProtectedDestinationCreateFieldStore(
+        ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
+    )
+    destination_identity_aliases = ProtectedDestinationIdentityAliasStore(
         ProtectedProjectEvidenceStore(project_root, resolved_secret_store)
     )
     odoo_sources = build_odoo_source_service_graph(
@@ -741,6 +764,8 @@ def create_local_app(
         jobs=job_runtimes,
         infrastructure=WebInfrastructureDependencies(
             destination_create_fields=destination_create_fields,
+            destination_identity_aliases=destination_identity_aliases,
+            odoo_database_bindings=database_bindings,
             artifacts=artifacts,
             authorization=resolved_authorization,
             jobs=job_dispatcher or InlineJobDispatcher(),
@@ -770,8 +795,41 @@ def create_local_app(
         ),
     )
     context.preflight_read_workers = configured_read_workers
+
+    def database_guard(workspace: WorkspaceState, role: OdooDatabaseBindingRole) -> Callable[[], None]:
+        """Capture verified lineage once; fence each later remote phase locally."""
+        def admit():
+            owner = foundation_repository.get_migration_workspace(workspace.workspace_id)
+            return owner.project_id, database_binding_repository.assert_current(
+                workspace.workspace_id, role,
+                database_scope_hash(workspace.odoo_base_url, workspace.odoo_database),
+                project_id=owner.project_id,
+            )
+
+        try:
+            project_id, expected = run_local_operation_sync(admit)
+        except OdooDatabaseBindingError as error:
+            raise WorkspaceError(str(error)) from error
+
+        def check() -> None:
+            def read():
+                return database_binding_repository.assert_current(
+                    workspace.workspace_id, role,
+                    database_scope_hash(workspace.odoo_base_url, workspace.odoo_database),
+                    project_id=project_id,
+                )
+            try:
+                actual = run_local_operation_sync(read)
+            except OdooDatabaseBindingError as error:
+                raise WorkspaceError(str(error)) from error
+            if actual.content_hash != expected.content_hash:
+                raise WorkspaceError("The database binding changed. Start a fresh restore or source workspace.")
+        return check
+
+    install_odoo_database_fences(context, database_guard)
     context.saved_odoo_data = SavedOdooDataService(
         repository=saved_odoo_repository,
+        database_bindings=database_bindings,
         access=context.workspace_access, authorization=context.authorization,
         states=context.workspace_states, evidence=context.queries,
         workspaces=OdooSavedDataWorkspaceService(

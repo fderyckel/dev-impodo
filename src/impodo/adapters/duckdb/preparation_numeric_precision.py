@@ -23,7 +23,10 @@ from impodo.domain.preparation.quality_budget import (
     QualityFindingBudgetExceeded,
 )
 from impodo.domain.prepared_snapshot import PreparedSnapshot
-from impodo.domain.staging.preparation_session import PreparedCanonicalProjection
+from impodo.domain.staging.preparation_session import (
+    PreparedCanonicalEncodingUnsupported,
+    PreparedCanonicalProjection,
+)
 from impodo.domain.target_numeric_precision import (
     PreparedNumericField,
     PreparedNumericPrecisionFinding,
@@ -217,9 +220,12 @@ def _iter_failures(
             [session_id],
         )
         while raw_projection := projections.fetchone():
-            projection = PreparedCanonicalProjection.from_portable_dict(
-                json.loads(str(raw_projection[0]))
-            )
+            try:
+                projection = PreparedCanonicalProjection.from_portable_dict(
+                    json.loads(str(raw_projection[0]))
+                )
+            except PreparedCanonicalEncodingUnsupported as error:
+                raise WorkspaceError(str(error)) from error
             fields = tuple(
                 sorted(
                     item.field_name

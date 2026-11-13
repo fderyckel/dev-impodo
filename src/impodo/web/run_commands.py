@@ -28,7 +28,7 @@ from impodo.domain.run.contracts import (
 )
 from impodo.domain.run.models import MigrationRunPurpose
 from impodo.domain.schema.governance import SchemaGovernance
-from impodo.domain.shared.access import Actor
+from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
 
@@ -74,6 +74,9 @@ def _prepare_enqueue(
 ) -> PreparationJob | tuple[PreparationWorkspace, int, str]:
     """Resolve current safe preparation inputs inside the caller's local scope."""
 
+    context.mapping_workspace.authorization.require(
+        actor, Capability.MAPPING_SUBMIT, workspace_id=workspace_id,
+    )
     source_readiness = context.navigation.get_source_readiness(workspace_id)
     if not source_readiness.ready:
         if source_readiness.issue is SourceStageIssue.CAPTURE_PLANS_INCOMPLETE:
@@ -90,6 +93,7 @@ def _prepare_enqueue(
             context,
             workspace.migration_run_id,
             actor=actor,
+            for_review=False,
         )
         if restored is not None and restored.workspace_id == workspace_id:
             return restored
@@ -100,9 +104,22 @@ def _prepare_enqueue(
     )
     workspace = _with_target_float_precision(context, workspace)
     total_rows = _preparation_row_count(context, workspace_id)
-    return workspace, total_rows, _migration_project_name(
+    project_name = _migration_project_name(
         context, workspace.project_id, actor=actor,
     )
+    if workspace.recipe_application_id is not None:
+        application = context.run_planning.repository.get_application(
+            workspace.recipe_application_id
+        )
+        if application.status is RecipeApplicationStatus.PREPARED:
+            context.run_planning.repository.transition_application_status(
+                application.application_id,
+                expected_statuses=(RecipeApplicationStatus.PREPARED,),
+                status=RecipeApplicationStatus.RUNNING,
+                expected_mapping_content_hash=workspace.mapping_content_hash,
+                actor=actor,
+            )
+    return workspace, total_rows, project_name
 
 
 def _with_target_float_precision(
@@ -184,6 +201,7 @@ def _assert_recipe_application_can_prepare(
         RecipeApplicationStatus.READY,
         RecipeApplicationStatus.RUNNING,
         RecipeApplicationStatus.FAILED,
+        RecipeApplicationStatus.PREPARED,
     }:
         raise WorkspaceError(
             "Continue this Recipe from its current Review and load step"
@@ -291,6 +309,7 @@ def start_next_preparation(
         RecipeApplicationStatus.READY,
         RecipeApplicationStatus.RUNNING,
         RecipeApplicationStatus.FAILED,
+        RecipeApplicationStatus.PREPARED,
     }:
         raise WorkspaceError(
             "Finish the current Recipe review and load before preparing the next one"
@@ -302,14 +321,10 @@ def start_next_preparation(
     if latest is not None:
         if latest.active:
             return latest
-        if latest.status in {
+        if latest.status not in {
             PreparationJobStatus.SUCCEEDED,
             PreparationJobStatus.REVIEW_REQUIRED,
-        }:
-            raise WorkspaceError(
-                "Prepared data is waiting for review in this Recipe"
-            )
-        if not latest.retry_allowed:
+        } and not latest.retry_allowed:
             raise WorkspaceError(
                 "Restart Impodo before preparing this saved work again"
             )
@@ -325,8 +340,27 @@ def recover_run_preparation(
     migration_run_id: str,
     *,
     actor: Actor,
+    for_review: bool = True,
 ) -> PreparationJob | None:
     """Inspect only the current Recipe when entering or resuming a run."""
+
+    return run_local_operation_sync(
+        _recover_run_preparation,
+        context,
+        migration_run_id,
+        actor=actor,
+        for_review=for_review,
+    )
+
+
+def _recover_run_preparation(
+    context: WebContext,
+    migration_run_id: str,
+    *,
+    actor: Actor,
+    for_review: bool,
+) -> PreparationJob | None:
+    """Verify one publication and update session progress in one local scope."""
 
     manager = context.preparation_jobs
     if manager is None:
@@ -334,7 +368,8 @@ def recover_run_preparation(
     bundle = context.run_planning.repository.get_bundle(migration_run_id)
     application = next_unverified_application(bundle)
     if application is None or application.status not in {
-        RecipeApplicationStatus.READY, RecipeApplicationStatus.RUNNING, RecipeApplicationStatus.FAILED,
+        RecipeApplicationStatus.READY, RecipeApplicationStatus.RUNNING,
+        RecipeApplicationStatus.FAILED, RecipeApplicationStatus.PREPARED,
     }:
         return None
     observed = manager.latest_many((application.workspace_id,)).get(application.workspace_id)
@@ -353,13 +388,21 @@ def recover_run_preparation(
         for issue in context.run_planning.repository.list_issues(application.application_id)
     ):
         return None
-    result = context.preparation_recovery.current(
+    reader = (
+        context.preparation_recovery.current_for_review
+        if for_review
+        else context.preparation_recovery.current
+    )
+    result = reader(
         application.workspace_id,
         application.mapping_content_hash,
         actor=actor,
     )
     if result is None:
-        return None
+        return manager.invalidate_result(
+            application.workspace_id,
+            expected_job_id=observed.job_id if observed else None,
+        )
     workspace = replace(
         _preparation_workspace(
             context,
@@ -379,7 +422,7 @@ def recover_run_preparation(
         ),
         expected_job_id=observed.job_id if observed else None,
     )
-    if restored is not None:
+    if restored is not None and actor.has(Capability.MAPPING_SUBMIT):
         publish_preparation_progress(context, restored, actor=actor)
     return restored
 

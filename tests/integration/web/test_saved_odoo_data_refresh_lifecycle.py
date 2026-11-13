@@ -8,8 +8,10 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from impodo.domain.odoo.company import OdooCompanySelection
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.shared.models import OdooReadIdentity
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.composition.saved_odoo_data import saved_capture_access
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.browser_scenarios import (
@@ -51,6 +53,12 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
         )
         context.schema_workspace.schemas.save_odoo_schema_catalog(
             state.workspace_id, schema, actor=actor
+        )
+        request_identity = context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            context, state, OdooDatabaseBindingRole.SOURCE,
+            actor=actor, scope=request_identity.organization_scope,
+            authorization_receipt=request_identity.authorization,
         )
         response = self._post(
             f"/workspaces/{state.workspace_id}/sources/odoo-selection",
@@ -112,7 +120,9 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
                 ),
             ):
                 access = saved_capture_access(
-                    context, fresh, credential_owner, actor=actor
+                    context, fresh, credential_owner, actor=actor,
+                    scope=request_identity.organization_scope,
+                    authorization_receipt=request_identity.authorization,
                 )
                 self.assertEqual(
                     [call.args[2] for call in identities.call_args_list],

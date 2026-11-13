@@ -187,11 +187,13 @@ Impodo proposes:
 - **Sequence**, within **Parent BoM**, for a Bill of Material Line; and
 - **Operation**, within **Bill of Material**, for a Work Center Usage.
 
-Open **Within (optional)** and tick each field that limits the match. You can
+Under **Within (optional)**, select **Choose fields** and tick each field that
+limits the match. Use the search box to find a field. You can
 select several fields. For example, choose **Parent Location** and **Company**
 when a location name can repeat under different parents or in different
-companies. The selected labels remain visible when you close the list. Clear
-all checkboxes when the matching value needs no additional scope, then select
+companies. The selected labels remain visible when you close the list. Select
+a label's remove button to remove that field, or **Clear** to remove all scope
+fields. When the rule is ready, select
 **Confirm matching rules**.
 
 This parent scope means that the child value needs to identify one line only

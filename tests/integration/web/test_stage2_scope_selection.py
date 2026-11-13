@@ -16,16 +16,32 @@ class ScopeCheckboxes(HTMLParser):
     def __init__(self, html):
         super().__init__()
         self.selected = []
+        self.chip_labels = []
+        self.scope_input_types = []
+        self._chip_text = None
         self.feed(html)
 
     def handle_starttag(self, tag, attrs):
         attributes = dict(attrs)
+        if tag == "span" and "key-scope-chip" in attributes.get("class", "").split():
+            self._chip_text = ""
+        if tag == "input" and attributes.get("name", "").startswith("scope_fields_"):
+            self.scope_input_types.append(attributes.get("type"))
         if (
             tag == "input"
             and "data-scope-field" in attributes
             and "checked" in attributes
         ):
             self.selected.append(attributes["value"])
+
+    def handle_data(self, data):
+        if self._chip_text is not None:
+            self._chip_text += data
+
+    def handle_endtag(self, tag):
+        if tag == "span" and self._chip_text is not None:
+            self.chip_labels.append(self._chip_text.strip())
+            self._chip_text = None
 
 
 class Stage2ScopeSelectionTests(ProjectSetupBrowserTestCase):
@@ -83,8 +99,12 @@ class Stage2ScopeSelectionTests(ProjectSetupBrowserTestCase):
         governance = self.app.state.context.queries.get_schema_governance(workspace)
         self.assertEqual(governance.business_keys[0].scope_fields, scopes)
         reopened = self.client.get(f"/workspaces/{workspace}/schema")
-        self.assertEqual(set(ScopeCheckboxes(reopened.text).selected), set(scopes))
-        self.assertIn("Parent Location, Company", reopened.text)
+        rendered = ScopeCheckboxes(reopened.text)
+        self.assertEqual(set(rendered.selected), set(scopes))
+        self.assertEqual(rendered.chip_labels, ["Parent Location", "Company"])
+        self.assertEqual(rendered.scope_input_types, ["hidden"])
+        self.assertIn("data-scope-selected", reopened.text)
+        self.assertIn("Search scope fields", reopened.text)
         prior_hash = governance.content_hash
 
         invalid = dict(form)

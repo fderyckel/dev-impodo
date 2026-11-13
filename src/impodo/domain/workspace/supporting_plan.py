@@ -2,7 +2,8 @@
 
 This pure query retains each model/field edge and its evidence. Incoming
 candidates are proposals, never write scope or permission for an Odoo read.
-The older direct-model derivation remains the browser's current contract.
+Explicit relationship uses retain their owning source table when several
+tables target the same model. Model-level proposals remain bounded metadata.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from impodo.domain.workspace.supporting_review import (
     SupportingChoiceAction,
 )
 
-SUPPORTING_PLAN_VERSION = 2
+SUPPORTING_PLAN_VERSION = 3
 MAX_SUPPORTING_MODELS = 100
 MAX_SUPPORTING_EDGES = 1_000
 MAX_SUPPORTING_DEPTH = 5
@@ -37,6 +38,7 @@ class SupportingPlanRole(StrEnum):
     REUSE_EXISTING = "REUSE_EXISTING"
     CHECKED_DEFAULT = "CHECKED_DEFAULT"
     ODOO_MANAGED = "ODOO_MANAGED"
+    MAPPING_DEFINED = "MAPPING_DEFINED"
     UNRESOLVED = "UNRESOLVED"
 
 
@@ -80,6 +82,7 @@ class SupportingRelationshipIntent:
     field_name: str
     incoming_dataset_id: str = ""
     reuse_existing: bool = False
+    source_dataset_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +241,10 @@ def _walk(
     )
     for intent in intents:
         by_edge[(intent.source_model, intent.field_name)].append(intent)
+        if intent.source_dataset_id and bound_models.get(intent.source_dataset_id) != {intent.source_model}:
+            issues.add(SupportingPlanIssue(
+                SupportingPlanGap.INVALID_INTENT, intent.source_model, intent.field_name
+            ))
     by_choice: dict[tuple[str, str], SupportingChoice] = {}
     for choice in choices:
         key = (choice.source_model, choice.field_name)
@@ -291,6 +298,7 @@ def _walk(
             available = tuple(
                 sorted(candidates.get(related, ()), key=lambda item: item.dataset_id)
             )
+            available_ids = {item.dataset_id for item in available}
             direct_role = supporting_model_role(
                 field, source_model=name, odoo_version=odoo_version
             )
@@ -299,7 +307,7 @@ def _walk(
                 if choice
                 else explicit[0].incoming_dataset_id if explicit else ""
             )
-            if incoming:
+            if incoming or any(item.incoming_dataset_id for item in explicit):
                 direct_role = supporting_model_role(field)
             role = (
                 SupportingPlanRole.UNRESOLVED
@@ -334,8 +342,12 @@ def _walk(
                             SupportingPlanGap.INVALID_INTENT, name, field.name, related
                         )
                     )
-            elif len(explicit) > 1 or (
-                explicit and explicit[0].reuse_existing and incoming
+            elif _conflicting_relationship_intents(
+                explicit, collection=field.type == "one2many"
+            ) or any(
+                item.incoming_dataset_id
+                and item.incoming_dataset_id not in available_ids
+                for item in explicit
             ):
                 role = SupportingPlanRole.UNRESOLVED
                 issues.add(
@@ -343,6 +355,12 @@ def _walk(
                         SupportingPlanGap.INVALID_INTENT, name, field.name, related
                     )
                 )
+            elif not choice and len({(item.incoming_dataset_id, item.reuse_existing) for item in explicit}) > 1:
+                # Each named source table has one complete provider. Different
+                # tables can legitimately use different parents or Odoo reuse.
+                role = SupportingPlanRole.MAPPING_DEFINED
+                incoming_ids = {item.incoming_dataset_id for item in explicit if item.incoming_dataset_id}
+                available = tuple(item for item in available if item.dataset_id in incoming_ids)
             elif explicit and explicit[0].reuse_existing and not choice:
                 role = SupportingPlanRole.REUSE_EXISTING
                 available = ()
@@ -402,7 +420,7 @@ def _walk(
                     depth,
                 )
             )
-            if role is SupportingPlanRole.INCOMING_CANDIDATE and related not in visited:
+            if role in {SupportingPlanRole.INCOMING_CANDIDATE, SupportingPlanRole.MAPPING_DEFINED} and available and related not in visited:
                 if depth >= MAX_SUPPORTING_DEPTH:
                     issues.add(
                         SupportingPlanIssue(
@@ -413,3 +431,28 @@ def _walk(
                     pending.append((related, depth + 1))
     for key in (by_edge.keys() | by_choice.keys()) - used_intents:
         issues.add(SupportingPlanIssue(SupportingPlanGap.INVALID_INTENT, *key))
+
+
+def _conflicting_relationship_intents(
+    intents: list[SupportingRelationshipIntent], *, collection: bool
+) -> bool:
+    """Reject conflicts within one owner without merging distinct table rules."""
+    if collection and intents and all(
+        item.source_dataset_id and item.incoming_dataset_id and not item.reuse_existing
+        for item in intents
+    ):
+        # A parent collection includes children from every incoming table whose
+        # many2one points to it, including children in its own hierarchy table.
+        return False
+    by_owner: dict[str, set[tuple[str, bool]]] = defaultdict(set)
+    for intent in intents:
+        if intent.incoming_dataset_id and intent.reuse_existing:
+            return True
+        by_owner[intent.source_dataset_id].add((intent.incoming_dataset_id, intent.reuse_existing))
+    if any(len(providers) > 1 for providers in by_owner.values()):
+        return True
+    distinct = {(item.incoming_dataset_id, item.reuse_existing) for item in intents}
+    return len(distinct) > 1 and any(
+        not item.source_dataset_id or not (item.incoming_dataset_id or item.reuse_existing)
+        for item in intents
+    )

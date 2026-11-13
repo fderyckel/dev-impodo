@@ -188,9 +188,20 @@
         <p>The durable journal prevents this approved transfer from being loaded twice. Verification reads the actual destination records with the same transfer key.</p>
       </div>
       <span class="status {% if reconciliation and reconciliation.status.value == 'VERIFIED' %}ready{% else %}review{% endif %}">
-        {% if not reconciliation and transfer_run.status.value == 'RUNNING' %}Recovery required{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs review{% else %}Verified with fallout{% endif %}
+        {% if workspace_state.transfer_evidence_recovery_step|default(none) and not reconciliation %}Saved outcome needs review{% elif not reconciliation and transfer_run.status.value == 'RUNNING' %}Recovery required{% elif not reconciliation %}Verification required{% elif reconciliation.status.value == 'VERIFIED' %}Verified in Odoo{% elif reconciliation.status.value == 'OUTCOME_UNKNOWN' %}Outcome needs review{% else %}Verified with fallout{% endif %}
       </span>
     </div>
+
+    {% if workspace_state.transfer_evidence_recovery_step|default(none) %}
+      <section class="next-action-card review" data-retired-transfer-outcome>
+        <div>
+          <p class="eyebrow">Saved journal preserved</p>
+          <h2>Inspect the saved outcome before preparing another load</h2>
+          <p>The original journal and saved source remain available. This earlier approval cannot be replayed or used to resume writes. Review committed, partial and unknown outcomes before checking the destination again and approving a current transfer.</p>
+          {% if not reconciliation %}<p>Verification uses the original saved load and its reviewed creation values. If a required saved value is unavailable, the result must remain unresolved.</p>{% endif %}
+        </div>
+      </section>
+    {% endif %}
 
     {% if reconciliation %}
       <section class="readiness-cards" aria-label="Destination verification totals">
@@ -213,7 +224,7 @@
           <h2>Assess the saved journal before continuing</h2>
           <p>Impodo first reads the destination with the same transfer key. It resumes only operations proven safe, keeps the same journal and idempotency key, and never blindly retries an uncertain write.</p>
         </div>
-        {% if transfer_snapshot and transfer_preflight_report and transfer_preflight_current %}
+        {% if not workspace_state.transfer_evidence_recovery_step|default(none) and transfer_snapshot and transfer_preflight_report and transfer_preflight_current %}
           <form method="post" action="/workspaces/{{ workspace_id }}/transfer-load/recover">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="revision" value="{{ workspace_state.revision }}">

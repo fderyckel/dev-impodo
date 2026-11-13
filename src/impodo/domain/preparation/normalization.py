@@ -34,7 +34,10 @@ from impodo.domain.preparation.quality import (
     StoredQualityRun,
     retention_context_hash,
 )
-from impodo.domain.preparation.staging_contracts import CanonicalRow, CanonicalStagingRun
+from impodo.domain.preparation.staging_contracts import (
+    CanonicalRow,
+    CanonicalStagingRun,
+)
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.serialization import CanonicalJsonObjectHasher
 from impodo.domain.shared.models import canonical_json_bytes

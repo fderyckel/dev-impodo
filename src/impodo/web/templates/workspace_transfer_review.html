@@ -37,6 +37,18 @@
     </div>
   {% endif %}
 
+  {% if transfer_identity_alias_rows|default(()) %}
+    <section class="notice" aria-label="Destination value mappings">
+      <strong>Reviewed destination values</strong>
+      <ul>
+        {% for item in transfer_identity_alias_rows %}
+          <li>{{ item.label }}: {{ item.count }} source {{ 'value' if item.count == 1 else 'values' }} mapped to existing destination records.</li>
+        {% endfor %}
+      </ul>
+      <p><a href="/workspaces/{{ workspace_id }}/destination-matching#destination-value-mappings">Review destination value mappings</a></p>
+    </section>
+  {% endif %}
+
   {% if transfer_review_step != 'approve' %}
     {% include "transfer/_review_policies.html" %}
   {% endif %}

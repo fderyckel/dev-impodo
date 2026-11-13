@@ -63,6 +63,9 @@ from impodo.domain.matching_order import (
 )
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.contracts import (
+    ConnectorAuthenticationError,
+    ConnectorAuthorizationError,
+    ConnectorTransportError,
     MetadataRequest,
     MetadataSnapshot,
     RecordRequest,
@@ -3324,9 +3327,26 @@ def _not_checkable_identity_result(
     )
 
 
-def _safe_matching_order_failure(_error: Exception) -> str:
+def _safe_matching_order_failure(error: Exception) -> str:
     """Keep credentials, rows, and implementation details out of status."""
 
+    if isinstance(error, ConnectorAuthenticationError):
+        return (
+            "Odoo did not accept the read key. Review the Odoo read connection, "
+            "then run Check saved identities again. The previous result is unchanged."
+        )
+    if isinstance(error, ConnectorAuthorizationError):
+        return (
+            "The read key cannot read the Odoo records needed for this check. "
+            "Review the Odoo read access, then run Check saved identities again. "
+            "The previous result is unchanged."
+        )
+    if isinstance(error, ConnectorTransportError):
+        return (
+            "The connection to Odoo failed during the read-only identity check. "
+            "Check that Odoo is available, then run Check saved identities again. "
+            "The previous result is unchanged."
+        )
     return (
         "Impodo stopped before publishing a new suggestion. The previous "
         "result is unchanged; review the Odoo read connection and try again."

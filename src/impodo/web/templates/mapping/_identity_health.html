@@ -20,6 +20,10 @@
       </div>
     </div>
 
+    {% if identity_health.failure_message %}
+      <p class="notice error" role="alert">{{ identity_health.failure_message }}</p>
+    {% endif %}
+
     <div class="identity-health-list">
       {% for item in identity_health.cards %}
         <article class="identity-health-card">

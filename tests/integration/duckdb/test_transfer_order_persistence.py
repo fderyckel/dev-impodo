@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from dataclasses import replace
-from datetime import UTC, datetime
 import tempfile
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
-from impodo.application.transfer_review_service import TransferReviewService
 from impodo.application.transfer_preflight_service import TransferPreflightService
+from impodo.application.transfer_review_service import TransferReviewService
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_order import (
     TransferOrderDataset,
@@ -22,14 +22,12 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStatus,
 )
-from tests.support.paths import REPOSITORY_ROOT
 from tests.application.workspace.test_transfer_order import (
     _build,
     _match_plan,
     _model,
     _workspace,
 )
-
 
 HASHES = tuple("sha256:" + character * 64 for character in "abcde")
 
@@ -72,8 +70,7 @@ class TransferOrderPersistenceTests(unittest.TestCase):
             transfer_order_plan=plan,
         )
 
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             repository = WorkspaceStateRepository(
                 DuckDbWorkspaceDatabase(directory)
             )
@@ -126,8 +123,7 @@ class TransferOrderPersistenceTests(unittest.TestCase):
         )
         workspace = replace(workspace, transfer_preflight_report=report)
 
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        with tempfile.TemporaryDirectory(dir=REPOSITORY_ROOT / ".tmp") as directory:
+        with tempfile.TemporaryDirectory() as directory:
             repository = WorkspaceStateRepository(
                 DuckDbWorkspaceDatabase(directory)
             )

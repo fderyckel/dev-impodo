@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime
+import json
 import unittest
 from uuid import uuid4
 
@@ -35,7 +36,10 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.destination_matching import (
+    DestinationCreateFieldEvidence,
+    DestinationCreateFieldEvidenceValue,
     DestinationMatchPlan,
+    RetiredDestinationMatchPlanError,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
     confirm_destination_create_field_defaults,
@@ -49,6 +53,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStatus,
 )
+from tests.support.odoo_database_bindings import reviewed_destination
 
 
 HASH = "sha256:" + "a" * 64
@@ -90,6 +95,41 @@ class _SourceValues:
 
 
 class DestinationMatchingTests(unittest.TestCase):
+    def test_current_saved_matching_requires_its_complete_field_shape(self) -> None:
+        plan = DestinationMatchingService(self.source_values).check(
+            self.workspace, self.selection, self.schema,
+            (DestinationMatchKeyChoice(self.product.dataset_id, "product-code"), DestinationMatchKeyChoice(self.uom.dataset_id, "uom-name")),
+            api_key="destination-secret", credential_binding_hash=BINDING_HASH,
+            read_identity=_identity(self.workspace), reader=_destination_reader(self.workspace), recorded_by="Data manager",
+        )
+        for name in ("destination_key_binding_hash", "source_column_keys", "key_fields", "destination_handling", "scope_fields", "row_inclusion"):
+            with self.subTest(name=name):
+                payload = json.loads(plan.to_json())
+                del payload["model_matches"][0][name]
+                with self.assertRaisesRegex(ValueError, "Stored destination matching plan is invalid"):
+                    DestinationMatchPlan.from_json(json.dumps(payload))
+
+    def test_current_create_provider_evidence_requires_explicit_provider_metadata(self) -> None:
+        evidence = DestinationCreateFieldEvidence(
+            evidence_id=str(uuid4()), workspace_id=self.workspace.workspace_id,
+            source_selection_hash=self.selection.content_hash, source_schema_hash=self.schema.content_hash,
+            destination_target_hash=self.workspace.destination_verified_target_hash,
+            destination_read_principal_hash=PRINCIPAL_HASH, destination_read_context_hash=CONTEXT_HASH,
+            destination_schema_snapshot_hash=HASH, recorded_at=self.now,
+            values=(DestinationCreateFieldEvidenceValue(
+                dataset_id=self.product.dataset_id, model="product.template", field_name="active", field_type="boolean",
+                value=True, display_value="Yes", field_label="Active", provider_kind="fixed_value",
+                field_contract_hash=HASH, value_hash=HASH,
+            ),),
+        )
+        self.assertEqual(DestinationCreateFieldEvidence.from_json(evidence.to_json()), evidence)
+        for name in ("provider_kind", "field_label", "source_candidates", "incoming_reference_candidates"):
+            with self.subTest(name=name):
+                payload = json.loads(evidence.to_json())
+                del payload["values"][0][name]
+                with self.assertRaisesRegex(ValueError, "Stored destination create-field evidence is invalid"):
+                    DestinationCreateFieldEvidence.from_json(json.dumps(payload))
+
     def test_destination_handling_uses_canonical_relationship_origins(self) -> None:
         self.assertIs(
             resolver_origin_for_destination_handling("transfer"),
@@ -189,40 +229,18 @@ class DestinationMatchingTests(unittest.TestCase):
                 source_schema_hash=self.schema.content_hash,
             )
         )
-        legacy = replace(plan, contract_version=1, relationship_matches=())
-        self.assertFalse(legacy.ready)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(legacy.to_json()).to_json(),
-            legacy.to_json(),
-        )
-        previous = replace(plan, contract_version=3)
-        self.assertEqual(DestinationMatchPlan.from_json(previous.to_json()), previous)
-        previous_full_fields = replace(plan, contract_version=4)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(previous_full_fields.to_json()),
-            previous_full_fields,
-        )
-        previous_chunked_identity = replace(plan, contract_version=9)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(previous_chunked_identity.to_json()),
-            previous_chunked_identity,
-        )
-        previous_field_exclusions = replace(plan, contract_version=10)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(previous_field_exclusions.to_json()),
-            previous_field_exclusions,
-        )
-        previous_record_exclusions = replace(plan, contract_version=11)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(previous_record_exclusions.to_json()),
-            previous_record_exclusions,
-        )
-        previous_matching_contract = replace(plan, contract_version=8)
-        self.assertEqual(
-            DestinationMatchPlan.from_json(previous_matching_contract.to_json()),
-            previous_matching_contract,
-        )
-        self.assertFalse(previous_matching_contract.ready)
+        for retired_version in range(1, 18):
+            with self.subTest(retired_version=retired_version):
+                with self.assertRaisesRegex(RetiredDestinationMatchPlanError, "Check the destination again"):
+                    replace(plan, contract_version=retired_version)
+                with self.assertRaisesRegex(RetiredDestinationMatchPlanError, "frozen source data is unchanged"):
+                    DestinationMatchPlan.from_json(json.dumps({"contract_version": retired_version}))
+        for invalid_version in (0, -1, 19, True, "18", None):
+            with self.subTest(invalid_version=invalid_version):
+                with self.assertRaises(ValueError) as caught:
+                    DestinationMatchPlan.from_json(json.dumps({"contract_version": invalid_version}))
+                self.assertNotIsInstance(caught.exception, RetiredDestinationMatchPlanError)
+
 
     def test_reuse_only_blocks_missing_records_without_create_decisions(self) -> None:
         plan = DestinationMatchingService(self.source_values).check(
@@ -2106,7 +2124,7 @@ def _workspace(now: datetime) -> WorkspaceState:
         base_url="https://destination.example.test",
         database="destination",
     )
-    return WorkspaceState(
+    return reviewed_destination(WorkspaceState(
         workspace_id=str(uuid4()),
         name="Product and UoM transfer",
         source_system="Odoo",
@@ -2123,7 +2141,7 @@ def _workspace(now: datetime) -> WorkspaceState:
         destination_verified_read_principal_hash=PRINCIPAL_HASH,
         destination_verified_odoo_version="19.0",
         destination_verified_at=now,
-    )
+    ))
 
 
 def _selection(now: datetime) -> SourceSelection:

@@ -57,7 +57,9 @@ def supports_bounded_join_review(
 ) -> bool:
     """Qualify reviewed joins and their independently bounded sibling outputs."""
     producers = bounded_preparation_producers(physical, effective, plan)
-    return producers is not None and any(item.group is not None for item in producers)
+    return producers is not None and any(
+        item.group is not None or item.lookup is not None for item in producers
+    )
 
 
 def joined_row_inclusion_review(

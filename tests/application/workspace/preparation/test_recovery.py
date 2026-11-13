@@ -8,16 +8,21 @@ from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
-from impodo.application.workspace.preparation.job_models import PreparationJobStatus, PreparationWorkspace
+from impodo.application.workspace.preparation.job_models import (
+    PreparationJobStatus,
+    PreparationWorkspace,
+)
+from impodo.application.workspace.preparation.preparation_job_registry import (
+    PreparationJobNotFoundError,
+)
 from impodo.application.workspace.preparation.recovery import RecoveredPreparation
 from impodo.application.workspace.source_readiness import SourceStageIssue
 from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
-from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.access import LOCAL_ACTOR, AuthorizationError, Capability
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.preparation_job_manager import PreparationJobManager
 from impodo.web.run_commands import enqueue_preparation, recover_run_preparation
-from impodo.application.workspace.preparation.preparation_job_registry import PreparationJobNotFoundError
 
 
 class PreparationResultRecoveryTests(TestCase):
@@ -123,10 +128,14 @@ class PreparationResultRecoveryTests(TestCase):
         context = NS(
             preparation_jobs=self.manager,
             actor=LOCAL_ACTOR,
+            mapping_workspace=NS(authorization=Mock()),
             queries=NS(get_odoo_schema_catalog=Mock(return_value=None)),
             navigation=NS(
                 get_source_readiness=Mock(return_value=NS(ready=True))
             ),
+            run_planning=NS(repository=Mock(
+                get_application=Mock(return_value=NS(status=RecipeApplicationStatus.READY)),
+            )),
         )
         with patch("impodo.web.run_commands._preparation_workspace", return_value=replace(self.workspace, mapping_content_hash=None)), \
              patch("impodo.web.run_commands._assert_recipe_application_can_prepare", return_value=self.workspace), \
@@ -146,6 +155,7 @@ class PreparationResultRecoveryTests(TestCase):
     def test_incomplete_source_is_rejected_before_preparation_is_resolved(self):
         context = NS(
             preparation_jobs=self.manager,
+            mapping_workspace=NS(authorization=Mock()),
             navigation=NS(
                 get_source_readiness=Mock(
                     return_value=NS(
@@ -155,26 +165,143 @@ class PreparationResultRecoveryTests(TestCase):
                 )
             ),
         )
-        with patch("impodo.web.run_commands._preparation_workspace") as workspace:
-            with self.assertRaisesRegex(
+        with (
+            patch("impodo.web.run_commands._preparation_workspace") as workspace,
+            self.assertRaisesRegex(
                 WorkspaceError,
                 "Complete every Odoo capture plan",
-            ):
-                enqueue_preparation(
-                    context, self.workspace.workspace_id, actor=LOCAL_ACTOR,
-                )
+            ),
+        ):
+            enqueue_preparation(
+                context, self.workspace.workspace_id, actor=LOCAL_ACTOR,
+            )
         workspace.assert_not_called()
 
+    def test_command_permission_is_checked_before_admission_or_job_dispatch(self):
+        denial = AuthorizationError("Preparation is not permitted")
+        authorization = Mock(require=Mock(side_effect=denial))
+        readiness = Mock()
+        context = NS(
+            preparation_jobs=self.manager,
+            mapping_workspace=NS(authorization=authorization),
+            navigation=NS(get_source_readiness=readiness),
+        )
+        with self.assertRaises(AuthorizationError) as raised:
+            enqueue_preparation(context, self.workspace.workspace_id, actor=LOCAL_ACTOR)
+        self.assertIs(raised.exception, denial)
+        authorization.require.assert_called_once_with(
+            LOCAL_ACTOR, Capability.MAPPING_SUBMIT,
+            workspace_id=self.workspace.workspace_id,
+        )
+        readiness.assert_not_called()
+        self.assertEqual(self.manager.latest_many((self.workspace.workspace_id,)), {})
+
     def test_unknown_retry_does_not_read_or_restore_saved_work(self):
-        with patch("impodo.web.run_commands.recover_run_preparation") as recovery:
-            with self.assertRaises(PreparationJobNotFoundError):
-                enqueue_preparation(
-                    NS(preparation_jobs=self.manager),
-                    self.workspace.workspace_id,
-                    actor=LOCAL_ACTOR,
-                    retry_job_id="missing",
-                )
+        with (
+            patch("impodo.web.run_commands.recover_run_preparation") as recovery,
+            self.assertRaises(PreparationJobNotFoundError),
+        ):
+            enqueue_preparation(
+                NS(preparation_jobs=self.manager),
+                self.workspace.workspace_id,
+                actor=LOCAL_ACTOR,
+                retry_job_id="missing",
+            )
         recovery.assert_not_called()
+
+    def test_unavailable_result_retains_history_without_reviving_an_older_result(self):
+        first = self.job()
+        self.manager.registry.mark_succeeded(first.job_id, self.result.result_run_id)
+        second = self.job()
+        saved = self.manager.registry.mark_succeeded(second.job_id, "later-result")
+        self.assertIsNone(self.manager.invalidate_result(
+            self.workspace.workspace_id, expected_job_id=second.job_id,
+        ))
+        self.assertEqual(self.manager.latest_many((self.workspace.workspace_id,)), {})
+        self.assertEqual(self.manager.get(self.workspace.workspace_id, second.job_id), saved)
+        self.assertEqual(
+            self.manager.get(self.workspace.workspace_id, first.job_id).result_run_id,
+            self.result.result_run_id,
+        )
+
+    def test_unavailable_result_read_cannot_hide_an_active_or_newer_attempt(self):
+        first = self.job()
+        self.assertEqual(self.manager.invalidate_result(
+            self.workspace.workspace_id, expected_job_id=first.job_id,
+        ).job_id, first.job_id)
+        self.manager.registry.mark_succeeded(first.job_id, self.result.result_run_id)
+        second = self.job()
+        self.assertEqual(self.manager.invalidate_result(
+            self.workspace.workspace_id, expected_job_id=first.job_id,
+        ).job_id, second.job_id)
+        self.assertTrue(self.manager.latest_many((self.workspace.workspace_id,))[
+            self.workspace.workspace_id
+        ].active)
+
+    def test_revalidated_result_becomes_visible_and_prunes_the_unavailable_marker(self):
+        first = self.job()
+        self.manager.registry.mark_succeeded(first.job_id, self.result.result_run_id)
+        self.manager.invalidate_result(
+            self.workspace.workspace_id, expected_job_id=first.job_id,
+        )
+        restored = self.manager.restore_result(
+            self.workspace, self.result, actor=LOCAL_ACTOR,
+            migration_project_name="Customers", expected_job_id=None,
+        )
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.result_run_id, self.result.result_run_id)
+        self.assertEqual(self.manager.latest_many((self.workspace.workspace_id,))[
+            self.workspace.workspace_id
+        ], restored)
+        self.assertEqual(self.manager.registry._unavailable_results, {})
+        self.assertEqual(
+            self.manager.get(self.workspace.workspace_id, first.job_id).result_run_id,
+            self.result.result_run_id,
+        )
+
+    def test_workspace_history_cleanup_prunes_unavailable_result_markers(self):
+        first = self.job()
+        self.manager.registry.mark_review_required(
+            first.job_id, result_run_id=self.result.result_run_id,
+        )
+        self.manager.invalidate_result(
+            self.workspace.workspace_id, expected_job_id=first.job_id,
+        )
+        self.manager.registry.delete_workspace_history(self.workspace.workspace_id)
+        self.assertEqual(self.manager.registry._unavailable_results, {})
+        self.assertEqual(self.manager.latest_many((self.workspace.workspace_id,)), {})
+
+    def test_read_only_resume_restores_presentation_without_writing_a_milestone(self):
+        actor = replace(LOCAL_ACTOR, capabilities=frozenset({Capability.PROJECT_VIEW}))
+        application = NS(
+            application_id=self.workspace.recipe_application_id,
+            project_id=self.workspace.project_id,
+            recipe_id="recipe",
+            workspace_id=self.workspace.workspace_id,
+            mapping_content_hash=self.workspace.mapping_content_hash,
+            status=RecipeApplicationStatus.PREPARED,
+        )
+        bundle = NS(
+            applications=(application,),
+            requirement_plan=NS(application_order=("recipe",)),
+        )
+        repository = Mock(get_bundle=Mock(return_value=bundle), list_issues=Mock(return_value=()))
+        context = NS(
+            preparation_jobs=self.manager,
+            load_jobs=None,
+            run_planning=NS(repository=repository),
+            preparation_recovery=NS(current_for_review=Mock(return_value=self.result)),
+        )
+        with (
+            patch("impodo.web.run_commands._preparation_workspace", return_value=self.workspace),
+            patch("impodo.web.run_commands._migration_project_name", return_value="Customers"),
+            patch("impodo.web.run_commands.publish_preparation_progress") as publish,
+        ):
+            restored = recover_run_preparation(context, self.workspace.migration_run_id, actor=actor)
+        self.assertIsNotNone(restored)
+        self.assertEqual(restored.result_run_id, self.result.result_run_id)
+        publish.assert_not_called()
+        repository.transition_application_status.assert_not_called()
 
 
 class RunRecoveryBoundaryTests(TestCase):
@@ -187,41 +314,72 @@ class RunRecoveryBoundaryTests(TestCase):
                     requirement_plan=NS(application_order=("recipe", "later-recipe")))
         return NS(
             actor=LOCAL_ACTOR, load_jobs=None,
-            preparation_jobs=Mock(latest_many=Mock(return_value={"workspace": job} if job else {})),
+            preparation_jobs=Mock(
+                latest_many=Mock(return_value={"workspace": job} if job else {}),
+                invalidate_result=Mock(return_value=None),
+            ),
             run_planning=NS(repository=Mock(get_bundle=Mock(return_value=bundle), list_issues=Mock(return_value=()))),
-            preparation_recovery=Mock(current=Mock(return_value=None)),
+            preparation_recovery=Mock(
+                current=Mock(return_value=None),
+                current_for_review=Mock(return_value=None),
+            ),
         )
 
     def test_missing_session_reads_only_the_first_unverified_recipe(self):
         context = self.context()
         recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
-        context.preparation_recovery.current.assert_called_once_with("workspace", "mapping", actor=LOCAL_ACTOR)
+        context.preparation_recovery.current_for_review.assert_called_once_with("workspace", "mapping", actor=LOCAL_ACTOR)
 
     def test_active_or_later_progress_does_not_open_workspace_evidence(self):
         cases = ((RecipeApplicationStatus.RUNNING, NS(active=True)),
-                 (RecipeApplicationStatus.PREPARED, None), (RecipeApplicationStatus.COMPARED, None),
+                 (RecipeApplicationStatus.COMPARED, None),
                  (RecipeApplicationStatus.EXECUTED, None), (RecipeApplicationStatus.BLOCKED, None))
         for status, job in cases:
             with self.subTest(status=status):
                 context = self.context(status=status, job=job)
                 recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
-                context.preparation_recovery.current.assert_not_called()
+                context.preparation_recovery.current_for_review.assert_not_called()
+
+    def test_prepared_milestone_requires_current_published_evidence(self):
+        context = self.context(status=RecipeApplicationStatus.PREPARED)
+        self.assertIsNone(recover_run_preparation(context, "run", actor=LOCAL_ACTOR))
+        context.preparation_recovery.current_for_review.assert_called_once_with(
+            "workspace", "mapping", actor=LOCAL_ACTOR,
+        )
+        context.preparation_jobs.invalidate_result.assert_called_once_with(
+            "workspace", expected_job_id=None,
+        )
 
     def test_retained_failure_is_not_silently_replaced_by_older_success(self):
         context = self.context(job=NS(active=False, status=PreparationJobStatus.FAILED, failure_code="BAD_SOURCE"))
         recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
-        context.preparation_recovery.current.assert_not_called()
+        context.preparation_recovery.current_for_review.assert_not_called()
 
     def test_load_progress_prevents_preparation_recovery(self):
         context = self.context()
         context.load_jobs = Mock(latest_many=Mock(return_value={"workspace": NS(active=True)}))
         recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
-        context.preparation_recovery.current.assert_not_called()
+        context.preparation_recovery.current_for_review.assert_not_called()
 
     def test_terminal_snapshot_is_rechecked_after_duplicate_review_changes(self):
-        context = self.context(job=NS(active=False, status=PreparationJobStatus.REVIEW_REQUIRED))
+        context = self.context(job=NS(
+            job_id="completed-job", active=False,
+            status=PreparationJobStatus.REVIEW_REQUIRED,
+        ))
         self.assertIsNone(
             recover_run_preparation(context, "run", actor=LOCAL_ACTOR)
         )
-        context.preparation_recovery.current.assert_called_once()
+        context.preparation_recovery.current_for_review.assert_called_once()
+        context.preparation_jobs.restore_result.assert_not_called()
+        context.preparation_jobs.invalidate_result.assert_called_once_with(
+            "workspace", expected_job_id="completed-job",
+        )
+
+    def test_preparation_commands_keep_submission_authorization(self):
+        context = self.context()
+        recover_run_preparation(context, "run", actor=LOCAL_ACTOR, for_review=False)
+        context.preparation_recovery.current.assert_called_once_with(
+            "workspace", "mapping", actor=LOCAL_ACTOR,
+        )
+        context.preparation_recovery.current_for_review.assert_not_called()
         context.preparation_jobs.restore_result.assert_not_called()

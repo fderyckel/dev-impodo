@@ -68,6 +68,22 @@ def _render_review(
         source_schema_hash=schema.content_hash,
     )
     package = workspace_state.transfer_review_package
+    match_plan = workspace_state.destination_match_plan
+    alias_counts = (
+        {item.dataset_id: item.identity_alias_count for item in package.datasets}
+        if current and package is not None
+        else {
+            item.dataset_id: item.binding.alias_count
+            for item in match_plan.identity_alias_bindings
+        }
+        if match_plan is not None
+        else {}
+    )
+    alias_rows = tuple(
+        {"label": item.model_label, "count": alias_counts[item.dataset_id]}
+        for item in (match_plan.model_matches if match_plan is not None else ())
+        if alias_counts.get(item.dataset_id, 0)
+    )
     selected_step = step or request.query_params.get("step", "contents")
     if selected_step not in {"contents", "approve"}:
         selected_step = "contents"
@@ -86,6 +102,7 @@ def _render_review(
             workspace_state.transfer_review_approval if approved else None
         ),
         transfer_review_dataset_rows=_dataset_rows(package if current else None),
+        transfer_identity_alias_rows=alias_rows,
         transfer_match_models=(
             workspace_state.destination_match_plan.model_matches
             if workspace_state.destination_match_plan is not None else ()

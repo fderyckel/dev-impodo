@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+import json
 import unittest
 from uuid import uuid4
 
@@ -16,6 +17,7 @@ from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_review import (
     TransferReviewApproval,
     TransferReviewPackage,
+    RetiredTransferReviewPackageError,
     transfer_review_actions_hash,
 )
 from impodo.domain.workspace.workbench import WorkspaceStateService
@@ -338,91 +340,32 @@ class TransferReviewTests(unittest.TestCase):
             )
         )
 
-    def test_legacy_review_package_remains_readable(self) -> None:
+    def test_retired_review_formats_require_fresh_review(self) -> None:
         product = _model("product.template", "Product", create=1)
         current = _package(_match_plan((product,), ()))
-        legacy = replace(
-            current,
-            export_plan=replace(
-                current.export_plan,
-                actions_hash=transfer_review_actions_hash(
-                    current.datasets, current.relationships, current.totals,
-                    contract_version=1,
-                ),
-            ),
-            matched_record_policy="update_selected_fields",
-            missing_record_policy="create",
-            contract_version=1,
-        )
+        current_json = current.to_json()
+        for retired_version in range(1, 9):
+            with self.subTest(retired_version=retired_version):
+                with self.assertRaisesRegex(RetiredTransferReviewPackageError, "rebuild and approve the transfer review"):
+                    replace(current, contract_version=retired_version)
+                with self.assertRaisesRegex(RetiredTransferReviewPackageError, "frozen source data is unchanged"):
+                    TransferReviewPackage.from_json(json.dumps({"contract_version": retired_version}))
+                with self.assertRaises(RetiredTransferReviewPackageError):
+                    transfer_review_actions_hash(current.datasets, current.relationships, current.totals, contract_version=retired_version)
+        self.assertEqual(current.to_json(), current_json)
+        self.assertEqual(TransferReviewPackage.from_json(current_json), current)
+        for invalid_version in (0, -1, 10, True, "9", None):
+            with self.subTest(invalid_version=invalid_version):
+                with self.assertRaises(ValueError) as caught:
+                    TransferReviewPackage.from_json(json.dumps({"contract_version": invalid_version}))
+                self.assertNotIsInstance(caught.exception, RetiredTransferReviewPackageError)
+        for name in ("model_policy", "key_fields", "scope_fields", "identity_alias_count"):
+            with self.subTest(missing_current_field=name):
+                payload = json.loads(current_json)
+                del payload["datasets"][0][name]
+                with self.assertRaisesRegex(ValueError, "Stored transfer-review package is invalid"):
+                    TransferReviewPackage.from_json(json.dumps(payload))
 
-        self.assertEqual(TransferReviewPackage.from_json(legacy.to_json()), legacy)
-
-        previous = replace(
-            current,
-            export_plan=replace(
-                current.export_plan,
-                actions_hash=transfer_review_actions_hash(
-                    current.datasets, current.relationships, current.totals,
-                    contract_version=2,
-                ),
-            ),
-            contract_version=2,
-        )
-        self.assertEqual(TransferReviewPackage.from_json(previous.to_json()), previous)
-
-        previous_composite = replace(
-            current,
-            export_plan=replace(
-                current.export_plan,
-                actions_hash=transfer_review_actions_hash(
-                    current.datasets,
-                    current.relationships,
-                    current.totals,
-                    contract_version=3,
-                ),
-            ),
-            contract_version=3,
-        )
-        self.assertEqual(
-            TransferReviewPackage.from_json(previous_composite.to_json()),
-            previous_composite,
-        )
-
-        previous_create_fields = replace(
-            current,
-            export_plan=replace(
-                current.export_plan,
-                actions_hash=transfer_review_actions_hash(
-                    current.datasets,
-                    current.relationships,
-                    current.totals,
-                    contract_version=4,
-                ),
-            ),
-            contract_version=4,
-        )
-        self.assertEqual(
-            TransferReviewPackage.from_json(previous_create_fields.to_json()),
-            previous_create_fields,
-        )
-
-        previous_field_exclusions = replace(
-            current,
-            export_plan=replace(
-                current.export_plan,
-                actions_hash=transfer_review_actions_hash(
-                    current.datasets,
-                    current.relationships,
-                    current.totals,
-                    contract_version=5,
-                ),
-            ),
-            contract_version=5,
-        )
-        self.assertEqual(
-            TransferReviewPackage.from_json(previous_field_exclusions.to_json()),
-            previous_field_exclusions,
-        )
 
     def test_read_only_destination_field_allows_reuse_but_blocks_updates(self) -> None:
         contact = replace(

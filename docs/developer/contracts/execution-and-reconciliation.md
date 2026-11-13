@@ -50,15 +50,15 @@ that read and stages an exact execution snapshot without constructing a writer.
 Only a separate confirmation, bound to the current workspace revision,
 preflight hash, and snapshot hash, may enter execution.
 
-The preceding destination-matching plan is also fail-closed. Contract version
-11 binds exact destination identity reads in 500-key chunks, the governed
+The preceding destination-matching plan is also fail-closed. Current contract
+version 18 binds exact destination identity reads in 500-key chunks, the governed
 Product Category path identity, every explicit source field that the data
 manager puts outside the destination write scope, and every blank or duplicate
-source-identity row that the data manager puts outside the transfer. Earlier
-plan versions remain readable but cannot satisfy current readiness. This
-prevents an approved execution snapshot from inheriting the former
-1,000-choice interactive ceiling, a leaf-only category identity, an unrecorded
-field omission, or a source-record omission that was not explicitly reviewed.
+source-identity row that the data manager puts outside the transfer. Only
+destination-matching version 18 and transfer-review version 9 are admitted.
+Retired versions are rejected before their fields are decoded; they cannot
+supply readiness or approval. Keep the original source data, check the
+destination again, then rebuild and approve the current transfer review.
 
 An excluded source row remains part of immutable frozen source evidence. The
 matching plan records its physical row number without persisting the row's
@@ -68,7 +68,7 @@ supporting row remains blocking. Before execution compilation omits a row, it
 must prove that the full frozen row count and the approved exclusion count
 still match the current plan and review package.
 
-Destination-matching contract version 16 also stores the shared
+The current destination-matching contract also stores the shared
 `RowInclusionPolicy`, ordered rule-excluded and cannot-evaluate row numbers,
 and an exact population-confirmation hash. Rule decisions remain separate
 from manual source-record omissions and unreferenced setup rows. Their union
@@ -81,10 +81,11 @@ source, rule meaning, counts, and ordered decisions. A changed population
 invalidates downstream transfer evidence. Fresh preflight re-evaluates the
 rule against frozen source values, and execution compilation checks those
 values again before constructing the journal's exact row set. Recovery uses
-that same bound snapshot and cannot reintroduce an excluded row. Earlier plan
-payloads retain their original hashes and require a new destination check.
+that same bound snapshot and cannot reintroduce an excluded row. Retired saved
+checks and reviews require fresh current evidence; they are not translated by
+obsolete readers.
 
-Destination-matching contract version 17 and transfer-review contract version 8
+Destination-matching contract version 18 and transfer-review contract version 9
 also bind one optional direct Many2one identity scope and its selected parent
 dataset. The parent uses an unscoped scalar identity and must already resolve
 uniquely in the destination. Protected captured origins are translated into a
@@ -103,8 +104,35 @@ parent identities, parents that need creation or their own relational scope,
 and inbound relationships to the scoped model. Equal child keys inside the
 same parent remain ambiguous. A selected destination operating company does
 not remap saved company references, and a matching scope supplies no company
-alias. Historical unscoped payloads retain their original serialization and
-hashes; current readiness still requires fresh admitted evidence.
+alias. Source hashes and immutable data remain authoritative while retired
+matching/review evidence is replaced through fresh explicit checks and approval.
+
+Destination-matching contract version 18 and transfer-review contract version 9
+admit explicit aliases for an unscoped `reference_only` or `reuse_only` dataset
+with one scalar business key. A retained source key may use a different
+existing target key. Each target must be accessible and unique. The complete
+mapped and unmapped population must remain one-to-one; aliases cannot merge
+two retained source records, including a collision with an unmapped key.
+Missing targets cannot become create intents, and reference aliases cannot
+authorize updates or an identity scope on their own dataset.
+
+Exact choices are encrypted in source-, target- and access-bound evidence.
+Public match/review alias fields carry only protected references, counts and
+rule and population bindings. Saved profile settings contain an encrypted-rule
+reference bound to stable source and destination meaning; fresh restores must
+revalidate rather than inherit earlier approval. Changed rules invalidate
+preflight even when record counts and target IDs are unchanged. Unavailable
+rules require an explicit replacement or clear decision and cannot silently
+fall back to original source values.
+
+Frozen rows, origins and `source_identity` remain unchanged. The authorized
+execution data uses the effective mapped `business_identity` and
+`BusinessReference` keys, including Many2many membership and an existing scoped
+child's parent reference. Those business values remain part of the established
+execution data-plane contract. The rule-storage boundary does not assert that
+all execution artifacts exclude alias values. Numeric Odoo IDs remain runtime
+or protected evidence, and read-back/recovery resolve the same mapped keys and
+opaque target bindings from the retained snapshot.
 
 ## Authorization and binding
 
@@ -114,6 +142,18 @@ Odoo-to-Odoo transfer instead requires a current ready
 staged execution snapshot. Both paths require a matching target fingerprint,
 mapping or transfer plan, prepared evidence, writable-field scope, dependency
 order, explicitly permitted target, and verified actor.
+
+Direct transfer execution and resume require the complete current
+`transfer_preflight_ready` chain, including admitted matching/review evidence
+and approval. A ready report alone cannot authorize transport. A retained
+preflight report may remain a non-authorizing journal receipt after retired
+matching or review evidence is removed from the workspace projection. It does
+not make an earlier approval or interrupted journal resumable.
+The [direct admission tests](../../../tests/application/workspace/execution/test_transfer_approval_admission.py)
+verify rejection before journal or executor I/O even when a ready receipt
+remains. [Workspace projection tests](../../../tests/integration/duckdb/test_retired_transfer_projection.py)
+and [notice tests](../../../tests/integration/web/test_transfer_evidence_notice.py)
+verify source-preserving retirement and the absence of a retired resume action.
 
 Before a write, the service revalidates every binding and records the
 credential generation, write principal, observed permissions, and context as
@@ -350,6 +390,14 @@ its explanation and next action from validated evidence and references the
 retained event IDs. Unknown conditions remain unknown. Recording and export
 both enforce the closed diagnostic schema. Exact source values and arbitrary
 Odoo server messages remain outside routine diagnostics.
+
+Load performance evidence is optional and value-free. It may retain runtime
+capacity, coarse stage costs, and fixed-name aggregates for durable journal and
+progress operations. Capture must not add journal reads, hold database owners
+across Odoo calls, add a performance event for each row, suppress business work, or replace
+its exception. Local and parent stage timings can overlap. Missing performance
+evidence remains unavailable and cannot establish the absence of work or a
+successful load.
 
 Load events and terminal summaries use independent rotating local histories.
 The exporter selects up to 100 attempts and 10,000 events from the last

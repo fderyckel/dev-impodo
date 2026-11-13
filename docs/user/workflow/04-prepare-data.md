@@ -137,10 +137,13 @@ current file data version. Prepare data offers **Compare with Odoo** so that
 target-only relationship and numeric-precision problems can be discovered
 immediately after approval. Final review opens that same saved comparison.
 
-This preparation update preserves complete saved results. You can review a
-current saved preparation in the same workspace without creating a replacement
-project or selecting your source again. Changed source data, schema, or field
-matches still require a fresh preparation.
+You can review a saved preparation when its source data, schema, field matches,
+and saved format are still current. You can do this in the same workspace
+without creating a replacement project or selecting your source again.
+Changed evidence or an unsupported saved format requires fresh preparation.
+When you return to **Prepare data**, Impodo checks the saved result before
+opening its review. If that result is no longer current, the page offers
+preparation again.
 
 ## What changes and what does not
 
@@ -162,6 +165,11 @@ may be retried only after its recorded outcome is understood.
 cause has been corrected, return to **Prepare data** in the same workspace
 and start a fresh attempt. You can keep your accepted source data and saved
 field matches.
+
+If Impodo reports **Saved prepared data uses an unsupported format. Prepare
+data again.**, return to **Prepare data** in the same workspace and start a new
+attempt. Keep your accepted source data and saved field matches. The new
+attempt creates a current prepared result instead of converting the old one.
 
 Direct tables with verified saved source data can use the qualified preparation
 route for up to 100,000 source rows across the selection. This includes
@@ -214,7 +222,11 @@ saved field matches remain available.
 
 For a Recipe run, return to **Review and load** after preparation stops or you
 reopen Impodo. If the Recipe already has a complete, current saved result,
-Impodo offers its review without preparing the rows again. See
+Impodo offers its review without preparing the rows again. A completed earlier
+attempt alone does not open prepared review when its result is unavailable.
+For a Test run, choose **Start preparation** when it is offered; Impodo checks
+the current Recipe and source choices before starting a new attempt. Opening
+the page keeps the earlier attempts in history and does not start work. See
 [returning to a Recipe run](../guides/integrated-test-runs.md#needs-attention).
 
 If Impodo reports that it was updated while preparation was starting, restart

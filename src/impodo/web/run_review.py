@@ -572,10 +572,7 @@ def _application_card(
             issues,
             current,
         )
-    if application.status is RecipeApplicationStatus.PREPARED or (
-        preparation is not None
-        and preparation.status is PreparationJobStatus.SUCCEEDED
-    ):
+    if preparation is not None and preparation.status is PreparationJobStatus.SUCCEEDED:
         return RunApplicationCard(
             application,
             recipe_name,

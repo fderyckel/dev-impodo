@@ -687,6 +687,20 @@ class _CrashDuringProjection(_Executor):
         raise RuntimeError("simulated generated-receipt interruption")
 
 
+class _AdmittedWriterWorkspace(WorkspaceState):
+    """Isolate writer/journal tests behind an already admitted approval boundary.
+
+    Tests of real current-chain admission use the complete transfer fixtures.
+    These transport tests deliberately supply a preflight receipt double.
+    """
+
+    def transfer_preflight_ready(self, *, source_selection_hash, source_schema_hash):
+        report = self.transfer_preflight_report
+        return bool(report and report.ready
+            and report.source_selection_hash == source_selection_hash
+            and report.source_schema_hash == source_schema_hash)
+
+
 class ExecutionServiceTests(unittest.TestCase):
     def _service(self, snapshot, *, mode=OdooConnectionMode.LOCAL):
         planned = _with_plan(snapshot)
@@ -734,8 +748,9 @@ class ExecutionServiceTests(unittest.TestCase):
                 sorted(item.target_model for item in snapshot.datasets)
             ),
         )
-        report = SimpleNamespace(ready=True, content_hash=HASH)
-        workspace = WorkspaceState(
+        report = SimpleNamespace(ready=True, content_hash=HASH,
+            source_selection_hash=HASH, source_schema_hash=HASH)
+        workspace = _AdmittedWriterWorkspace(
             workspace_id=transfer_snapshot.workspace_id,
             name="Odoo transfer",
             source_system="Odoo",

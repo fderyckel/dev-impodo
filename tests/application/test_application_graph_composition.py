@@ -314,6 +314,7 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
         )
         infrastructure = WebInfrastructureDependencies(
             destination_create_fields=Mock(),
+            destination_identity_aliases=Mock(),
             artifacts=Mock(),
             authorization=Mock(),
             jobs=Mock(),

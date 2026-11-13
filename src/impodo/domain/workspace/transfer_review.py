@@ -23,7 +23,7 @@ from impodo.domain.cutover.approvals import (
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 8
+TRANSFER_REVIEW_CONTRACT_VERSION = 9
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
 TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v5"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
@@ -52,6 +52,25 @@ _SOURCE_HASH_NAMES = frozenset(
 )
 
 
+class RetiredTransferReviewPackageError(ValueError):
+    """Require a current review without changing the retained frozen source."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This saved transfer review uses a retired format. Check the destination "
+            "again, then rebuild and approve the transfer review. The frozen source data is unchanged."
+        )
+
+
+def _require_current_review_format(version: object) -> None:
+    """Reject unsupported and invalid versions without marking them retired."""
+
+    if type(version) is int and 0 < version < TRANSFER_REVIEW_CONTRACT_VERSION:
+        raise RetiredTransferReviewPackageError()
+    if type(version) is not int or version != TRANSFER_REVIEW_CONTRACT_VERSION:
+        raise ValueError("Transfer-review format is unsupported or invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class TransferReviewDataset:
     """One record type and the exact fields proposed for destination writes."""
@@ -75,8 +94,16 @@ class TransferReviewDataset:
     excluded_source_record_count: int = 0
     scope_fields: tuple[str, ...] = ()
     scope_dataset_ids: tuple[str, ...] = ()
+    identity_alias_binding_hash: str = ""
+    identity_alias_count: int = 0
 
     def __post_init__(self) -> None:
+        if (
+            type(self.identity_alias_count) is not int or self.identity_alias_count < 0
+            or (self.identity_alias_count == 0 and self.identity_alias_binding_hash != "")
+            or (self.identity_alias_count > 0 and (_HASH.fullmatch(self.identity_alias_binding_hash) is None or self.model_policy != "reuse_only" or self.scope_fields))
+        ):
+            raise ValueError("Transfer-review identity alias binding is invalid")
         if (
             len(self.scope_fields) > 1
             or len(self.scope_fields) != len(self.scope_dataset_ids)
@@ -296,29 +323,16 @@ class TransferReviewPackage:
     contract_version: int = TRANSFER_REVIEW_CONTRACT_VERSION
 
     def __post_init__(self) -> None:
-        if self.contract_version not in {
-            1, 2, 3, 4, 5, 6, 7, TRANSFER_REVIEW_CONTRACT_VERSION
-        }:
-            raise ValueError("Transfer-review contract version is unsupported")
-        if self.contract_version < 8 and any(item.scope_fields for item in self.datasets):
-            raise ValueError("Legacy transfer review cannot contain relational scope")
-        matched_policy = (
-            "update_selected_fields" if self.contract_version == 1 else "per_model"
-        )
-        missing_policy = "create" if self.contract_version == 1 else "per_model"
-        if self.matched_record_policy != matched_policy:
+        _require_current_review_format(self.contract_version)
+        if self.matched_record_policy != "per_model":
             raise ValueError("Transfer-review matched-record policy is invalid")
-        if self.missing_record_policy != missing_policy:
+        if self.missing_record_policy != "per_model":
             raise ValueError("Transfer-review missing-record policy is invalid")
-        if self.contract_version == 1 and any(
-            item.model_policy != "upsert" for item in self.datasets
-        ):
-            raise ValueError("Legacy transfer-review models must use upsert")
         if self.unmatched_destination_policy != "leave_unchanged":
             raise ValueError("Transfer-review unmatched-record policy is invalid")
         expected_hashes = set(_SOURCE_HASH_NAMES)
         if self.restore_policy_hash is not None:
-            if self.contract_version < 7 or _HASH.fullmatch(self.restore_policy_hash) is None:
+            if _HASH.fullmatch(self.restore_policy_hash) is None:
                 raise ValueError("Transfer-review restore policy binding is invalid")
             expected_hashes.add("restore_policy")
         if set(self.export_plan.source_hashes) != expected_hashes:
@@ -416,11 +430,11 @@ class TransferReviewPackage:
             "contract_version": self.contract_version,
             "export_plan": _export_plan_dict(self.export_plan),
             "datasets": [
-                _dataset_dict(item, contract_version=self.contract_version)
+                asdict(item)
                 for item in self.datasets
             ],
             "relationships": [
-                _relationship_dict(item, contract_version=self.contract_version)
+                asdict(item)
                 for item in self.relationships
             ],
             "totals": asdict(self.totals),
@@ -440,6 +454,8 @@ class TransferReviewPackage:
     def from_json(cls, value: str) -> TransferReviewPackage:
         try:
             payload = json.loads(value)
+            contract_version = payload["contract_version"]
+            _require_current_review_format(contract_version)
             result = cls(
                 export_plan=_export_plan_from_dict(payload["export_plan"]),
                 datasets=tuple(
@@ -462,19 +478,21 @@ class TransferReviewPackage:
                         relationship_write_fields=tuple(
                             item["relationship_write_fields"]
                         ),
-                        model_policy=str(item.get("model_policy", "upsert")),
-                        key_fields=tuple(item.get("key_fields", ())),
-                        scope_fields=tuple(item.get("scope_fields", ())),
-                        scope_dataset_ids=tuple(item.get("scope_dataset_ids", ())),
+                        model_policy=str(item["model_policy"]),
+                        key_fields=tuple(item["key_fields"]),
+                        scope_fields=tuple(item["scope_fields"]),
+                        scope_dataset_ids=tuple(item["scope_dataset_ids"]),
+                        identity_alias_binding_hash=str(item["identity_alias_binding_hash"]),
+                        identity_alias_count=int(item["identity_alias_count"]),
                         create_field_providers=tuple(
                             (str(choice[0]), str(choice[1]))
-                            for choice in item.get("create_field_providers", ())
+                            for choice in item["create_field_providers"]
                         ),
                         excluded_source_fields=tuple(
-                            item.get("excluded_source_fields", ())
+                            item["excluded_source_fields"]
                         ),
                         excluded_source_record_count=int(
-                            item.get("excluded_source_record_count", 0)
+                            item["excluded_source_record_count"]
                         ),
                     )
                     for item in payload["datasets"]
@@ -494,7 +512,7 @@ class TransferReviewPackage:
                         operation=str(item["operation"]),
                         inverse_field=(
                             str(item["inverse_field"])
-                            if item.get("inverse_field") is not None
+                            if item["inverse_field"] is not None
                             else None
                         ),
                         required=bool(item["required"]),
@@ -504,7 +522,7 @@ class TransferReviewPackage:
                         ),
                         incoming_link_count=int(item["incoming_link_count"]),
                         phase=str(item["phase"]),
-                        related_key_fields=tuple(item.get("related_key_fields", ())),
+                        related_key_fields=tuple(item["related_key_fields"]),
                     )
                     for item in payload["relationships"]
                 ),
@@ -520,8 +538,10 @@ class TransferReviewPackage:
                 unmatched_destination_policy=str(
                     payload["unmatched_destination_policy"]
                 ),
-                contract_version=int(payload["contract_version"]),
+                contract_version=contract_version,
             )
+        except RetiredTransferReviewPackageError:
+            raise
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError("Stored transfer-review package is invalid") from error
         if payload.get("content_hash") != result.content_hash:
@@ -672,56 +692,24 @@ def transfer_review_actions_hash(
 ) -> str:
     """Bind every execution-relevant action and fixed transfer policy."""
 
+    _require_current_review_format(contract_version)
     return content_hash(
         {
             "contract_version": contract_version,
             "datasets": [
-                _dataset_dict(item, contract_version=contract_version)
+                asdict(item)
                 for item in datasets
             ],
             "relationships": [
-                _relationship_dict(item, contract_version=contract_version)
+                asdict(item)
                 for item in relationships
             ],
             "totals": asdict(totals),
-            "matched_record_policy": (
-                "update_selected_fields" if contract_version == 1 else "per_model"
-            ),
-            "missing_record_policy": (
-                "create" if contract_version == 1 else "per_model"
-            ),
+            "matched_record_policy": "per_model",
+            "missing_record_policy": "per_model",
             "unmatched_destination_policy": "leave_unchanged",
         }
     )
-
-
-def _dataset_dict(
-    item: TransferReviewDataset, *, contract_version: int
-) -> dict[str, Any]:
-    payload = asdict(item)
-    if contract_version < 8:
-        payload.pop("scope_fields")
-        payload.pop("scope_dataset_ids")
-    if contract_version < 6:
-        payload.pop("excluded_source_record_count")
-    if contract_version < 5:
-        payload.pop("excluded_source_fields")
-    if contract_version < 4:
-        payload.pop("create_field_providers")
-    if contract_version < 3:
-        payload.pop("key_fields")
-    if contract_version == 1:
-        payload.pop("model_policy")
-    return payload
-
-
-def _relationship_dict(
-    item: TransferReviewRelationship, *, contract_version: int
-) -> dict[str, Any]:
-    payload = asdict(item)
-    if contract_version < 3:
-        payload.pop("related_key_fields")
-    return payload
 
 
 def _totals(

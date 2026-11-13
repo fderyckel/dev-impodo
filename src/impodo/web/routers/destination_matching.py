@@ -21,8 +21,10 @@ from impodo.application.destination_matching_service import (
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.contracts import (
     MAX_ROW_INCLUSION_CONDITIONS,
+    MAX_VALUE_MAPPINGS,
     RowInclusionMode,
     RowInclusionPolicy,
+    ValueMapping,
 )
 from impodo.domain.mapping.create_field_policy import CREATE_FIXED_VALUE_TYPES
 from impodo.domain.odoo.contracts import ConnectorError
@@ -35,7 +37,6 @@ from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.source_binding import OdooSourceBinding
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_HANDLINGS,
-    DESTINATION_MATCH_CONTRACT_VERSION,
     DestinationCreateFieldDecision,
     carry_destination_create_field_reviews,
     choose_destination_create_field_provider,
@@ -54,6 +55,13 @@ from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _revision, _secure_form
 from ..presenters.common import _flash, _render
+from ..presenters.identity_alias_forms import (
+    identity_alias_form_drafts,
+    identity_alias_form_fields,
+    identity_alias_form_rows,
+    identity_alias_slot_count,
+    parse_identity_alias_drafts,
+)
 from ..presenters.mapping_forms import _row_inclusion_from_form
 from ..presenters.mapping_view import _row_inclusion_slots
 from ..request_identity import request_identity
@@ -65,6 +73,10 @@ from ..target_credentials import (
 )
 
 
+class _IdentityAliasEvidenceUnavailable(WorkspaceError):
+    """Keep missing protected rules on their owning matching decision page."""
+
+
 def _matching_evidence(context: WebContext, workspace_id: str):
     selection = context.queries.get_source_selection(workspace_id)
     schema = context.queries.get_odoo_schema_catalog(workspace_id)
@@ -73,11 +85,57 @@ def _matching_evidence(context: WebContext, workspace_id: str):
     return selection, schema
 
 
-def _matching_command_evidence(context: WebContext, workspace_id: str):
+def _identity_alias_access(context: WebContext, workspace_id: str, *, actor: Actor, manage: bool = False):
+    """Authorize protected reference rules before reading or checking raw keys."""
+
+    access = context.workspace_access.resolve(
+        workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_READ,
+    )
+    if manage:
+        context.workspace_access.resolve(
+            workspace_id, actor=actor, capability=Capability.PROTECTED_EVIDENCE_MANAGE,
+        )
+    return access
+
+
+def _identity_aliases(context: WebContext, state, *, actor: Actor, access=None):
+    """Open exact reference rules only inside the authorized local operation."""
+
+    plan = state.destination_match_plan
+    if plan is None or not plan.identity_alias_bindings:
+        return {}
+    owner = access or _identity_alias_access(context, state.workspace_id, actor=actor)
+    try:
+        evidence = context.destination_identity_aliases.read(owner.project_id, plan)
+    except (WorkspaceError, ValueError) as error:
+        raise _IdentityAliasEvidenceUnavailable("The saved reference mappings are unavailable. Enter replacement values or explicitly clear them.") from error
+    if evidence is None:
+        raise _IdentityAliasEvidenceUnavailable("The saved reference mappings are unavailable. Enter replacement values or explicitly clear them.")
+    return {item.dataset_id: item.aliases for item in evidence.values}
+
+
+def _replayed_identity_aliases(context: WebContext, state, *, actor: Actor):
+    """Admit protected rules before a command rechecks source or target keys."""
+
+    if state.destination_match_plan is None or not state.destination_match_plan.identity_alias_bindings:
+        return {}
+    access = _identity_alias_access(context, state.workspace_id, actor=actor, manage=True)
+    return _identity_aliases(context, state, actor=actor, access=access)
+
+
+def _matching_command_evidence(context: WebContext, workspace_id: str, *, actor: Actor, alias_edit: bool = False, replace_aliases: bool = False):
     """Read current command admission and source evidence in one local scope."""
 
     selection, schema = _matching_evidence(context, workspace_id)
-    return context.queries.get(workspace_id), selection, schema
+    state = context.queries.get(workspace_id)
+    previous = state.destination_match_plan
+    access = (
+        _identity_alias_access(context, workspace_id, actor=actor, manage=True)
+        if alias_edit or previous is not None and previous.identity_alias_bindings
+        else None
+    )
+    aliases = {} if replace_aliases else _identity_aliases(context, state, actor=actor, access=access)
+    return state, selection, schema, aliases
 
 
 def _choice_value(dataset_id: str, source_column_key: str) -> str:
@@ -246,6 +304,8 @@ def _matching_rows(
     schema,
     relationship_scope: OdooRelationshipScope | None = None,
     submitted_choices: tuple[DestinationMatchKeyChoice, ...] = (),
+    identity_aliases_by_dataset: dict[str, tuple[ValueMapping, ...]] | None = None,
+    identity_alias_drafts=None,
 ):
     candidates = destination_match_key_candidates(selection, schema)
     scope_candidates = destination_match_scope_candidates(selection, schema, relationship_scope)
@@ -253,7 +313,7 @@ def _matching_rows(
     model_labels = {item.name: item.label for item in schema.models}
     # An unsuccessful check has no result for the submitted choices. Keep any
     # saved evidence unchanged, but do not present it as the failed check's result.
-    plan = None if submitted_choices else workspace_state.destination_match_plan
+    plan = None if submitted_choices or identity_alias_drafts is not None else workspace_state.destination_match_plan
     submitted_by_dataset = {item.dataset_id: item for item in submitted_choices}
     selected_by_dataset = (
         {item.dataset_id: item.source_column_keys for item in plan.model_matches}
@@ -290,7 +350,7 @@ def _matching_rows(
                 relation.field_name
             )
     rows = []
-    for dataset in selection.datasets:
+    for dataset_index, dataset in enumerate(selection.datasets):
         model = (
             dataset.source.model
             if isinstance(dataset.source, OdooSourceBinding)
@@ -417,6 +477,13 @@ def _matching_rows(
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
                 "identity_scope_guidance": None,
+                "identity_alias_prefix": f"identity_alias_{dataset_index}",
+                "identity_alias_present": bool((identity_aliases_by_dataset or {}).get(dataset.dataset_id))
+                or any(source or target for source, target in (identity_alias_drafts or {}).get(dataset.dataset_id, ())),
+                "identity_alias_rows": identity_alias_form_rows(
+                    (identity_aliases_by_dataset or {}).get(dataset.dataset_id, ()),
+                    drafts=(identity_alias_drafts or {}).get(dataset.dataset_id),
+                ),
                 "relationship_fields": relationship_fields_by_model.get(model, set()),
                 "destination_handling_locked": (
                     model in reference_models or model in create_if_missing_models
@@ -437,11 +504,6 @@ def _matching_rows(
                     if submitted is not None
                     else result_by_dataset[dataset.dataset_id].destination_handling
                     if dataset.dataset_id in result_by_dataset
-                    and (
-                        model not in reuse_destination_models
-                        or plan is not None
-                        and plan.contract_version >= DESTINATION_MATCH_CONTRACT_VERSION
-                    )
                     else (
                         "reference_only"
                         if model in reuse_destination_models
@@ -465,15 +527,26 @@ def _render_matching(
     status_code: int = 200,
     company_access=None,
     submitted_choices: tuple[DestinationMatchKeyChoice, ...] = (),
+    identity_alias_drafts=None,
+    identity_alias_replace_confirmed=False,
 ):
-    current = not submitted_choices and workspace_state.destination_match_current(
+    unchecked = bool(submitted_choices) or identity_alias_drafts is not None
+    current = not unchecked and workspace_state.destination_match_current(
         source_selection_hash=selection.content_hash,
         source_schema_hash=schema.content_hash,
     )
-    ready = not submitted_choices and workspace_state.destination_match_ready(
+    ready = not unchecked and workspace_state.destination_match_ready(
         source_selection_hash=selection.content_hash,
         source_schema_hash=schema.content_hash,
     )
+    alias_error = None
+    aliases = {}
+    try:
+        aliases = _identity_aliases(context, workspace_state, actor=actor)
+    except PermissionError as alias_problem:
+        raise HTTPException(403, "Protected reference mapping access is required") from alias_problem
+    except (WorkspaceError, ValueError) as alias_problem:
+        alias_error = str(alias_problem)
     rows = _matching_rows(
         workspace_state,
         selection,
@@ -482,6 +555,8 @@ def _render_matching(
             workspace_state.workspace_id
         ),
         submitted_choices=submitted_choices,
+        identity_aliases_by_dataset=aliases,
+        identity_alias_drafts=identity_alias_drafts,
     )
     for row in rows:
         result = row["result"]
@@ -521,7 +596,7 @@ def _render_matching(
             row["identity_issue_error"] = str(identity_error)
     create_field_rows: dict[str, list[dict[str, object]]] = {}
     create_field_evidence_error = None
-    plan = None if submitted_choices else workspace_state.destination_match_plan
+    plan = None if unchecked else workspace_state.destination_match_plan
     if plan is not None and plan.create_field_evidence_id is not None:
         try:
             access = context.workspace_access.resolve(
@@ -582,7 +657,7 @@ def _render_matching(
             for row in rows
         ),
         match_plan=plan,
-        matching_choices_retained=bool(submitted_choices),
+        matching_choices_retained=unchecked,
         match_plan_current=current,
         match_plan_ready=ready,
         match_plan_create_defaults_pending=bool(
@@ -604,6 +679,8 @@ def _render_matching(
             if any(_uses_odoo_default(item) for item in items)
         },
         create_default_evidence_error=create_field_evidence_error,
+        identity_alias_evidence_error=alias_error,
+        identity_alias_replace_confirmed=identity_alias_replace_confirmed,
         error=error,
         status_code=status_code,
     )
@@ -687,12 +764,50 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
     async def check_destination_matching(request: Request, workspace_id: str):
         form = await request.form()
         require_session(request)
+        actor = request_identity(request, context.identity_resolver).actor
+        alias_edit = any(
+            name.startswith("identity_alias_") and isinstance(value, str) and value.strip()
+            for name, value in form.multi_items()
+        )
+        replace_aliases = str(form.get("replace_identity_aliases", "")) == "yes"
         try:
-            workspace_state, selection, schema = await run_page_read(
-                _matching_command_evidence, context, workspace_id
+            workspace_state, selection, schema, aliases = await run_page_read(
+                _matching_command_evidence, context, workspace_id, actor=actor,
+                alias_edit=alias_edit or replace_aliases, replace_aliases=replace_aliases,
             )
+        except PermissionError as error:
+            raise HTTPException(403, "Protected reference mapping access is required") from error
+        except _IdentityAliasEvidenceUnavailable as error:
+            message = str(error)
+            def render_alias_repair():
+                state = context.queries.get(workspace_id)
+                selected, source_schema = _matching_evidence(context, workspace_id)
+                previous_plan = state.destination_match_plan
+                counts = {
+                    item.dataset_id: min(item.binding.alias_count + 1, MAX_VALUE_MAPPINGS)
+                    for item in (previous_plan.identity_alias_bindings if previous_plan is not None else ())
+                }
+                try:
+                    drafts = {
+                        dataset.dataset_id: identity_alias_form_drafts(
+                            form, prefix=f"identity_alias_{index}", slots=counts.get(dataset.dataset_id, 1),
+                        )
+                        for index, dataset in enumerate(selected.datasets)
+                    }
+                except ValueError:
+                    drafts = {}
+                return _render_matching(request, context, state, selected, source_schema,
+                    actor=actor, error=message, status_code=422, identity_alias_drafts=drafts)
+            return await run_page_read(render_alias_repair)
         except WorkspaceError:
             return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
+        alias_slots = {
+            dataset.dataset_id: identity_alias_slot_count(aliases.get(dataset.dataset_id, ()))
+            for dataset in selection.datasets
+        }
+        if replace_aliases and workspace_state.destination_match_plan is not None:
+            for binding in workspace_state.destination_match_plan.identity_alias_bindings:
+                alias_slots[binding.dataset_id] = min(binding.binding.alias_count + 1, MAX_VALUE_MAPPINGS)
         _secure_form(
             request,
             form,
@@ -703,9 +818,12 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "match_key_extra",
                 "match_scope",
                 "destination_handling",
-            } | _row_rule_fields(selection),
+                "replace_identity_aliases",
+            } | _row_rule_fields(selection) | {
+                name for index, dataset in enumerate(selection.datasets)
+                for name in identity_alias_form_fields(f"identity_alias_{index}", alias_slots[dataset.dataset_id])
+            },
         )
-        actor = request_identity(request, context.identity_resolver).actor
         if (
             workspace_state.source_mode is not SourceMode.ODOO
             or not workspace_state.destination_verified
@@ -715,13 +833,28 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 status_code=303,
             )
         choices: tuple[DestinationMatchKeyChoice, ...] = ()
+        alias_drafts = {}
         try:
             expected_revision = _revision(form)
             if expected_revision != workspace_state.revision:
                 raise WorkspaceStateError(
                     "The workspace changed in another request; reload before continuing"
                 )
+            for index, dataset in enumerate(selection.datasets):
+                prefix = f"identity_alias_{index}"
+                if aliases.get(dataset.dataset_id) and not identity_alias_form_fields(
+                    prefix, alias_slots[dataset.dataset_id]
+                ).issubset(form):
+                    raise WorkspaceStateError(
+                        "The destination value mapping form is incomplete. Reload this page and review its mapping values before checking again."
+                    )
+                alias_drafts[dataset.dataset_id] = identity_alias_form_drafts(
+                    form, prefix=prefix, slots=alias_slots[dataset.dataset_id],
+                )
             choices = _parse_choices(form, selection)
+            choices = tuple(replace(item, identity_aliases=parse_identity_alias_drafts(
+                alias_drafts.get(item.dataset_id, ()),
+            )) for item in choices)
             previous = workspace_state.destination_match_plan
             choice_keys = {item.dataset_id: item.source_column_keys for item in choices}
             choice_scopes = {item.dataset_id: item.scope_fields for item in choices}
@@ -818,12 +951,18 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 access.project_id if access is not None else "",
                 plan,
             )
-            workspace_state = context.workspace_states.save_destination_match_plan(
-                workspace_id,
-                actor=actor,
-                expected_revision=expected_revision,
-                plan=plan,
-            )
+            def save_checked_match():
+                """Protect exact reference choices before publishing their public binding."""
+
+                checked = plan
+                if checked.identity_alias_bindings:
+                    owner = _identity_alias_access(context, workspace_id, actor=actor, manage=True)
+                    checked = context.destination_identity_aliases.put(owner.project_id, checked)
+                return context.workspace_states.save_destination_match_plan(
+                    workspace_id, actor=actor, expected_revision=expected_revision, plan=checked,
+                )
+
+            workspace_state = await run_local_operation(save_checked_match)
         except (
             ConnectorError,
             SecretStoreError,
@@ -847,6 +986,8 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                     error=error_message,
                     status_code=422,
                     submitted_choices=choices,
+                    identity_alias_drafts=alias_drafts,
+                    identity_alias_replace_confirmed=replace_aliases,
                 )
 
             return await run_page_read(render_check_error)
@@ -1260,6 +1401,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 for key, numbers in exclusions.items()
                 if numbers
             }
+            aliases = await run_page_read(_replayed_identity_aliases, context, workspace_state, actor=actor)
             choices = tuple(
                 DestinationMatchKeyChoice(
                     dataset_id=item.dataset_id,
@@ -1268,6 +1410,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                     destination_handling=item.destination_handling,
                     row_inclusion=item.row_inclusion,
                     scope_fields=item.scope_fields,
+                    identity_aliases=aliases.get(item.dataset_id, ()),
                 )
                 for item in previous.model_matches
             )
@@ -1345,6 +1488,11 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 access.project_id if access is not None else "",
                 plan,
             )
+            if plan.identity_alias_bindings:
+                def protect_identity_aliases():
+                    owner = _identity_alias_access(context, workspace_id, actor=actor, manage=True)
+                    return context.destination_identity_aliases.put(owner.project_id, plan)
+                plan = await run_local_operation(protect_identity_aliases)
             context.workspace_states.save_destination_match_plan(
                 workspace_id,
                 actor=actor,

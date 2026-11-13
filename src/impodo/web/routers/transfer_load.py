@@ -44,6 +44,7 @@ from impodo.domain.workspace.workbench import (
     transfer_destination_workspace,
 )
 
+from ..composition.identity_aliases import read_destination_identity_aliases
 from ..context import WebContext
 from ..forms import _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
@@ -407,6 +408,17 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     "This transfer already has a load journal. Verify its outcome.",
                     load_failure_code="LOAD_THIS_TRANSFER_ALREADY_HAS_A_LOAD_JOURNAL_VERIFY_ITS_OUTCOME",
                 )
+            identity_aliases = (
+                await run_in_threadpool(
+                    read_destination_identity_aliases,
+                    context,
+                    workspace_id,
+                    approved_match,
+                    actor=actor,
+                )
+                if approved_match.identity_alias_evidence_id is not None
+                else {}
+            )
             credential = get_target_credential(
                 context.secret_store,
                 workspace,
@@ -445,6 +457,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     destination_handling=item.destination_handling,
                     row_inclusion=item.row_inclusion,
                     scope_fields=item.scope_fields,
+                    identity_aliases=identity_aliases.get(item.dataset_id, ()),
                 )
                 for item in approved_match.model_matches
             )

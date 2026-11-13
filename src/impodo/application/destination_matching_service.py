@@ -13,7 +13,11 @@ from uuid import uuid4
 
 from impodo.application.transfer_row_inclusion import evaluate_transfer_row_inclusion
 from impodo.domain.execution.planner import MAX_KEYS_PER_RECORD_REQUEST
-from impodo.domain.mapping.contracts import ResolverOrigin, RowInclusionPolicy
+from impodo.domain.mapping.contracts import (
+    ResolverOrigin,
+    RowInclusionPolicy,
+    ValueMapping,
+)
 from impodo.domain.mapping.create_field_policy import (
     CreateFieldCoverage,
     VerifiedCreateDefaultAction,
@@ -86,6 +90,12 @@ from impodo.domain.workspace.portable_identity import (
     record_identity,
     scoped_identity,
     scoped_record_identity,
+)
+from impodo.domain.workspace.transfer_identity_aliases import (
+    DestinationIdentityAliasEvidence,
+    DestinationIdentityAliasEvidenceValue,
+    TransferIdentityAliasBinding,
+    resolve_transfer_identity_aliases,
 )
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -167,6 +177,7 @@ class DestinationMatchKeyChoice:
     destination_handling: str = "transfer"
     row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
     scope_fields: tuple[str, ...] = ()
+    identity_aliases: tuple[ValueMapping, ...] = ()
 
     def __post_init__(self) -> None:
         if self.destination_handling not in DESTINATION_HANDLINGS:
@@ -235,6 +246,10 @@ class _PreparedModel:
     source_scope_values: tuple[tuple[BusinessReference, ...], ...] = ()
     destination_scope_references: Mapping[int, BusinessReference] = dataclass_field(default_factory=dict)
     source_query_keys: tuple[str, ...] = ()
+    identity_aliases: tuple[ValueMapping, ...] = ()
+    identity_alias_binding: TransferIdentityAliasBinding | None = None
+    destination_identity_by_source: Mapping[str, tuple[str, ...]] = dataclass_field(default_factory=dict)
+    source_token_by_destination: Mapping[str, str] = dataclass_field(default_factory=dict)
 
     @property
     def included_source_row_count(self) -> int:
@@ -258,6 +273,13 @@ class _PreparedRelationship:
     field: SchemaField
     related: _PreparedModel
     inverse_field: str | None
+
+
+def _prepared_record_identity(item: _PreparedModel, values: Mapping[str, object]) -> str:
+    """Translate a target lookup key back to its unchanged source classification."""
+
+    key = scoped_record_identity(values, item.key_fields, item.scope_fields, item.destination_scope_references)
+    return item.source_token_by_destination.get(key, "") if item.identity_aliases else key
 
 
 _ODOO_DESTINATION_MANAGED_SCALAR_FIELDS = frozenset({"parent_path"})
@@ -394,7 +416,7 @@ def _destination_chunk_limit_reached(
     }
     counts: Counter[int] = Counter()
     for row in target_rows:
-        value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
+        value = _prepared_record_identity(item, row.values)
         chunk = chunk_by_key.get(value)
         if chunk is not None:
             counts[chunk] += 1
@@ -440,6 +462,7 @@ class DestinationMatchingService:
         }
         row_policies = {item.dataset_id: item.row_inclusion for item in choices}
         chosen_scopes = {item.dataset_id: item.scope_fields for item in choices}
+        chosen_aliases = {item.dataset_id: item.identity_aliases for item in choices}
         scope_candidates = destination_match_scope_candidates(selection, source_schema, relationship_scope)
         if len(selected) != len(choices):
             raise WorkspaceError("Choose one matching field for each source table")
@@ -740,6 +763,7 @@ class DestinationMatchingService:
                     rule_blocked_source_row_numbers=rule_blocked,
                     restore_plan=restore_plan,
                     scope_fields=chosen_scopes[dataset.dataset_id],
+                    identity_aliases=chosen_aliases[dataset.dataset_id],
                 )
             )
 
@@ -751,6 +775,7 @@ class DestinationMatchingService:
                 source_origins or {},
             )
         )
+        prepared = self._prepare_identity_aliases(workspace.workspace_id, prepared)
         models_by_name = {item.model: item for item in prepared}
         for index, item in enumerate(prepared):
             if not item.scope_fields:
@@ -893,6 +918,25 @@ class DestinationMatchingService:
         )
         recorded_at = datetime.now(UTC)
         schema_snapshot_hash = content_hash(metadata_snapshot_payload(metadata))
+        record_snapshot_hash = content_hash(record_snapshot_payload(records))
+        identity_alias_values = tuple(
+            DestinationIdentityAliasEvidenceValue(item.dataset_id, item.model, item.identity_aliases, item.identity_alias_binding)
+            for item in sorted(prepared, key=lambda item: (item.model, item.dataset_id))
+            if item.identity_alias_binding is not None
+        )
+        identity_alias_evidence = (
+            DestinationIdentityAliasEvidence(
+                evidence_id=str(uuid4()), workspace_id=workspace.workspace_id,
+                source_selection_hash=selection.content_hash, source_schema_hash=source_schema.content_hash,
+                destination_target_hash=expected_target_hash, destination_credential_binding_hash=credential_binding_hash,
+                destination_read_principal_hash=read_identity.principal_hash,
+                destination_read_permission_hash=read_identity.permission_hash,
+                destination_read_context_hash=read_identity.context_hash,
+                destination_schema_snapshot_hash=schema_snapshot_hash,
+                destination_record_snapshot_hash=record_snapshot_hash,
+                values=identity_alias_values, recorded_at=recorded_at,
+            ) if identity_alias_values else None
+        )
         create_field_evidence = (
             DestinationCreateFieldEvidence(
                 evidence_id=str(uuid4()),
@@ -921,9 +965,7 @@ class DestinationMatchingService:
             destination_read_permission_hash=read_identity.permission_hash,
             destination_read_context_hash=read_identity.context_hash,
             destination_schema_snapshot_hash=schema_snapshot_hash,
-            destination_record_snapshot_hash=content_hash(
-                record_snapshot_payload(records)
-            ),
+            destination_record_snapshot_hash=record_snapshot_hash,
             model_matches=tuple(model_results),
             recorded_at=recorded_at,
             recorded_by=recorded_by,
@@ -938,6 +980,10 @@ class DestinationMatchingService:
                 create_field_evidence.content_hash if create_field_evidence else None
             ),
             create_field_evidence=create_field_evidence,
+            identity_alias_bindings=identity_alias_evidence.public_bindings if identity_alias_evidence else (),
+            identity_alias_evidence_id=identity_alias_evidence.evidence_id if identity_alias_evidence else None,
+            identity_alias_evidence_hash=identity_alias_evidence.content_hash if identity_alias_evidence else None,
+            identity_alias_evidence=identity_alias_evidence,
         )
         if (
             row_inclusion_confirmation_hash == plan.row_inclusion_scope_hash
@@ -954,6 +1000,41 @@ class DestinationMatchingService:
         if record_snapshot_sink is not None:
             record_snapshot_sink(records)
         return plan
+
+    def _prepare_identity_aliases(
+        self, workspace_id: str, prepared: list[_PreparedModel],
+    ) -> list[_PreparedModel]:
+        """Keep frozen source keys while deriving reviewed no-write lookup keys."""
+
+        result: list[_PreparedModel] = []
+        for item in prepared:
+            if not item.identity_aliases:
+                result.append(item)
+                continue
+            if item.scope_fields:
+                raise WorkspaceError("Identity aliases currently require an unscoped reference record type")
+            rows = self._source_values.source_key_tuples(workspace_id, item.dataset_id, item.source_column_keys)
+            if len(rows) != item.source_row_count:
+                raise WorkspaceError("The source rows for the reviewed identity aliases changed")
+            omitted = set(item.omitted_source_row_numbers)
+            source = tuple(portable_components(row) for number, row in enumerate(rows, 1) if number not in omitted)
+            try:
+                resolved = resolve_transfer_identity_aliases(source, key_fields=item.key_fields, destination_handling=item.destination_handling, aliases=item.identity_aliases)
+            except ValueError as error:
+                raise WorkspaceError(str(error)) from error
+            destination_by_source = {
+                portable_identity(original): destination
+                for original, destination in zip(resolved.source_identities, resolved.destination_identities, strict=True)
+            }
+            source_by_destination = {portable_identity(destination): source for source, destination in destination_by_source.items()}
+            keys = tuple(sorted(item.source_counts))
+            result.append(replace(
+                item, identity_aliases=resolved.aliases, identity_alias_binding=resolved.binding,
+                destination_identity_by_source=destination_by_source,
+                source_token_by_destination=source_by_destination, source_query_keys=keys,
+                source_query_values=tuple(destination_by_source[key] for key in keys),
+            ))
+        return result
 
     def _prepare_scoped_models(
         self, workspace_id: str, prepared: list[_PreparedModel], records: RecordSnapshot,
@@ -995,7 +1076,8 @@ class DestinationMatchingService:
                     continue
                 reference = scope[0]
                 token = portable_identity(reference.key)
-                matches = parent_targets.get(token, ())
+                destination_key = parent.destination_identity_by_source.get(token, portable_components(reference.key))
+                matches = parent_targets.get(portable_identity(destination_key), ())
                 if len(matches) != 1:
                     raise WorkspaceError("The matching-scope parent must already match exactly one destination record; create missing parents in a separate transfer first")
                 references[matches[0]] = reference
@@ -1211,12 +1293,14 @@ class DestinationMatchingService:
         destination_counts: Counter[str] = Counter()
         source_keys = set(item.source_counts)
         for row in target_rows:
-            value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
+            value = _prepared_record_identity(item, row.values)
             if value in source_keys:
                 destination_counts[value] += 1
         matched_keys = set(destination_counts)
         source_value_rows = sum(item.source_counts.values())
         create_count = len(source_keys - matched_keys)
+        if item.identity_aliases and any(destination_counts.get(key, 0) != 1 for key in source_keys):
+            raise WorkspaceError("Each reviewed identity alias must resolve to exactly one existing destination record")
         unwritable_identity_fields = (
             set(item.minimum_identity_fields)
             | set(item.minimum_identity_relationship_fields)
@@ -1904,7 +1988,7 @@ def _create_incoming_reference_candidates(
         portable_identity(identity): [] for identity in related.source_identity_values
     }
     for row in records.records.get(related.model, ()):
-        identity = record_identity(row.values, related.key_fields)
+        identity = _prepared_record_identity(related, row.values)
         if identity in target_by_identity:
             target_by_identity[identity].append(row.odoo_id)
     candidates = []
@@ -2285,7 +2369,7 @@ def _destination_key_binding_hash(
 
     bindings: dict[str, list[str]] = {value: [] for value in sorted(item.source_counts)}
     for row in target_rows:
-        value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
+        value = _prepared_record_identity(item, row.values)
         if value in bindings:
             bindings[value].append(target_record_binding_hash(item.model, row.odoo_id))
     return content_hash(

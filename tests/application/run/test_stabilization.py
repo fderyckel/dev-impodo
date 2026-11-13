@@ -1,32 +1,40 @@
 """Regression evidence for Recipe activation recovery and resume decisions."""
 
+import shutil
 from dataclasses import replace
 from pathlib import Path
-import shutil
 from types import SimpleNamespace as NS
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
+from impodo.adapters.duckdb.test_run_repository import TestRunRepository
 from impodo.application.run.progress import (
-    ApplicationResumeStep, application_is_verified, application_resume_step,
+    ApplicationResumeStep,
+    application_is_verified,
+    application_resume_step,
     current_preparation,
 )
 from impodo.application.run.test_setup_service import TestRunSetupService
-from impodo.adapters.duckdb.test_run_repository import TestRunRepository
 from impodo.domain.project.foundation import MigrationOperationState
 from impodo.domain.run.contracts import RecipeApplicationStatus, RecipeDependency
 from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.web.run_review import build_integrated_run_review
 from impodo.web.run_commands import publish_preparation_progress
+from impodo.web.run_review import build_integrated_run_review
 from tests.application.run import test_integrated_recipe_runs as fixtures
 
 
 class RecipeCompositionTests(TestCase):
     def test_web_and_spawned_worker_require_recipe_quality_evidence(self):
-        from impodo.adapters.duckdb.recipe_quality_seed_repository import RecipeQualitySeedRepository
-        from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
-        from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+        from impodo.adapters.duckdb.recipe_quality_seed_repository import (
+            RecipeQualitySeedRepository,
+        )
+        from impodo.adapters.protected_evidence.credential_vault import (
+            MemorySecretStore,
+        )
+        from impodo.application.workspace.preparation.job_models import (
+            PreparationWorkspace,
+        )
         from impodo.web.app import create_local_app
         from impodo.web.composition.preparation_worker import create_preparation_worker
 
@@ -55,7 +63,9 @@ class RecipeCompositionTests(TestCase):
 
 class RecipeResumeTests(TestCase):
     def test_reconfirming_identical_mapping_preserves_later_milestones(self):
-        from impodo.application.run.application_recovery import RunApplicationRecoveryUseCase
+        from impodo.application.run.application_recovery import (
+            RunApplicationRecoveryUseCase,
+        )
 
         application = NS(
             application_id="app", project_id="project", workspace_id="workspace",
@@ -79,7 +89,9 @@ class RecipeResumeTests(TestCase):
         repository.save_application_materialization.assert_not_called()
 
     def test_stale_preparation_request_stops_before_reading_source_rows(self):
-        from impodo.application.workspace.preparation.preparation_service import PreparationService
+        from impodo.application.workspace.preparation.preparation_service import (
+            PreparationService,
+        )
         from impodo.domain.errors import ReadinessError
 
         sources, mappings = MagicMock(), MagicMock()
@@ -124,6 +136,10 @@ class RecipeResumeTests(TestCase):
         )
         self.assertIsNone(current_preparation(application, job))
         self.assertEqual(application_resume_step(application, job), ApplicationResumeStep.PREPARE)
+
+    def test_prepared_milestone_without_a_current_result_returns_to_preparation(self):
+        application = NS(status=RecipeApplicationStatus.PREPARED)
+        self.assertEqual(application_resume_step(application), ApplicationResumeStep.PREPARE)
 
     def test_live_load_success_does_not_release_an_unrecorded_dependency(self):
         application = NS(status=RecipeApplicationStatus.EXECUTED)
@@ -204,9 +220,11 @@ class RecipeActivationRecoveryTests(TestCase):
                     setup.binding, "2026-08-24", actor=LOCAL_ACTOR,
                 ).parameters, operation_id=operation_id, actor=LOCAL_ACTOR, fault=crash,
             )
-        with patch.object(fixture.cutover_repository, "ensure_for_run", side_effect=fixtures.SimulatedCrash("plan")):
-            with self.assertRaises(fixtures.SimulatedCrash):
-                service.resume_activation_if_needed(setup.run.migration_run_id, actor=LOCAL_ACTOR)
+        with (
+            patch.object(fixture.cutover_repository, "ensure_for_run", side_effect=fixtures.SimulatedCrash("plan")),
+            self.assertRaises(fixtures.SimulatedCrash),
+        ):
+            service.resume_activation_if_needed(setup.run.migration_run_id, actor=LOCAL_ACTOR)
         self.assertEqual(fixture.foundation.get_operation_intent(operation_id).state, MigrationOperationState.PENDING)
         before = fixture.planning_repository.get_bundle(setup.run.migration_run_id)
         self.assertTrue(all(item.mapping_id for item in before.applications))

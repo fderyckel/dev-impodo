@@ -25,6 +25,7 @@ from impodo.application.data_version.intake import SourceIntakeService
 from impodo.application.destination_matching_service import (
     DestinationCreateFieldStore,
 )
+from impodo.application.odoo_database_binding_service import OdooDatabaseBindingService
 from impodo.application.odoo_saved_data_archive import OdooSavedDataArchiveService
 from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
 from impodo.application.odoo_saved_data_service import SavedOdooDataService
@@ -40,6 +41,9 @@ from impodo.application.shared.job_runtimes import (
 )
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore
+from impodo.application.transfer_identity_alias_ports import (
+    DestinationIdentityAliasStore,
+)
 from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace.derived_entities import DerivedEntityWorkspaceService
 from impodo.application.workspace.mapping.required_values_query import (
@@ -316,6 +320,8 @@ class WebContext:
     odoo_capture_jobs: OdooCaptureJobRuntime | None
     odoo_provenance: OdooProvenanceService
     destination_create_fields: DestinationCreateFieldStore
+    destination_identity_aliases: DestinationIdentityAliasStore
+    odoo_database_bindings: OdooDatabaseBindingService
     artifacts: WorkspaceArtifactStore
     authorization: AuthorizationPolicy
     jobs: JobDispatcher

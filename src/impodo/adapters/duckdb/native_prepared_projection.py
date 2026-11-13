@@ -377,7 +377,6 @@ def projected_hybrid_dependency_rows_sql(projection: PreparedCanonicalProjection
         reference = _reference_json(
             resolver,
             component,
-            contract_version=projection.contract_version,
         )
         all_null = " AND ".join(
             f"{_identifier(item.alias)} IS NULL" for item in component.values
@@ -445,9 +444,9 @@ def projected_review_identity_sql(projection: PreparedCanonicalProjection) -> st
     layout = _layout(projection.program)
     return f"""
         SELECT {_identity_json(layout.source_identity)} AS source_identity,
-               {_target_identity_json(projection.program, layout, projection.contract_version)}
+               {_target_identity_json(projection.program, layout)}
                    AS target_identity,
-               {_identity_json(layout.target_scope, contract_version=projection.contract_version)}
+               {_identity_json(layout.target_scope)}
                    AS target_scope
           FROM read_parquet(?)
     """
@@ -531,10 +530,8 @@ def _projected_relation_sql(
 ) -> str:
     program = projection.program
     source_identity = _identity_json(layout.source_identity)
-    target_identity = _target_identity_json(program, layout, projection.contract_version)
-    target_scope = _identity_json(
-        layout.target_scope, contract_version=projection.contract_version,
-    )
+    target_identity = _target_identity_json(program, layout)
+    target_scope = _identity_json(layout.target_scope)
     proposed = _object_json(
         tuple(
             (field.target_field, _portable_json(value.alias, value.value_type))
@@ -757,20 +754,16 @@ def _references_json(
                         ("incoming_key", incoming_key),
                     )
                 )
-            if projection.contract_version >= 4:
-                # Contract 3 retains its historical insertion order and empty
-                # metadata arrays. New rows match portable_value followed by
-                # canonical_json_bytes without re-encoding complete records.
-                omitted = set()
-                if not relationship.target_key_fields:
-                    omitted.add("target_fields")
-                if not relationship.target_scope_fields:
-                    omitted.add("target_scope_fields")
-                properties = [
-                    (name, value)
-                    for name, value in sorted(properties)
-                    if name not in omitted
-                ]
+            omitted = set()
+            if not relationship.target_key_fields:
+                omitted.add("target_fields")
+            if not relationship.target_scope_fields:
+                omitted.add("target_scope_fields")
+            properties = [
+                (name, value)
+                for name, value in sorted(properties)
+                if name not in omitted
+            ]
             arguments = [f"{_literal(name)}, {value}" for name, value in properties]
             reference = f"json_object({', '.join(arguments)})"
         value = f"CASE WHEN {all_null} THEN NULL ELSE {reference} END"
@@ -781,8 +774,6 @@ def _references_json(
 def _reference_json(
     resolver: ColumnarIdentityResolverProgram,
     component: _IdentityComponent,
-    *,
-    contract_version: int = 4,
 ) -> str:
     """Serialize one resolved identity with the portable reference property order."""
 
@@ -818,16 +809,15 @@ def _reference_json(
             ("dataset", _literal(resolver.parent_dataset_name)),
             ("incoming_key", incoming_key),
         ))
-    if contract_version >= 4:
-        omitted = set()
-        if not resolver.target_key_fields:
-            omitted.add("target_fields")
-        if not resolver.target_scope_fields:
-            omitted.add("target_scope_fields")
-        properties = [
-            (name, value) for name, value in sorted(properties)
-            if name not in omitted
-        ]
+    omitted = set()
+    if not resolver.target_key_fields:
+        omitted.add("target_fields")
+    if not resolver.target_scope_fields:
+        omitted.add("target_scope_fields")
+    properties = [
+        (name, value) for name, value in sorted(properties)
+        if name not in omitted
+    ]
     return "json_object(" + ", ".join(
         f"{_literal(name)}, {value}" for name, value in properties
     ) + ")"
@@ -1256,11 +1246,11 @@ def _source_external_id_compatibility(program: ColumnarTransformationProgram) ->
     return f"({value} = '' OR (length({value}) <= 255 AND regexp_full_match({value}, '[A-Za-z_][A-Za-z0-9_]*\\.[A-Za-z0-9_][A-Za-z0-9_.-]*')))"
 
 
-def _target_identity_json(program: ColumnarTransformationProgram, layout: _ProjectionLayout, contract_version: int) -> str:
+def _target_identity_json(program: ColumnarTransformationProgram, layout: _ProjectionLayout) -> str:
     """Derive source IDs in the native set projection with Python-oracle parity."""
     policy = program.source_record_identity
     if policy is None:
-        return _identity_json(layout.target_identity, contract_version=contract_version)
+        return _identity_json(layout.target_identity)
     source = _identity_json(layout.source_identity)
     token = re.sub(r"[^a-z0-9_]+", "_", program.target_model.casefold())[:36]
     prefix = f"impodo_source_{policy.namespace}.{token}_"
@@ -1271,16 +1261,14 @@ def _target_identity_json(program: ColumnarTransformationProgram, layout: _Proje
 
 
 def _identity_json(
-    components: tuple[_IdentityComponent, ...], *, contract_version: int = 4,
+    components: tuple[_IdentityComponent, ...],
 ) -> str:
     values = tuple(
         (
             f"CASE WHEN {' AND '.join(f'{_identifier(item.alias)} IS NULL' for item in component.values)} "
-            f"THEN NULL ELSE {_reference_json(component.resolver, component, contract_version=contract_version)} END"
+            f"THEN NULL ELSE {_reference_json(component.resolver, component)} END"
             if component.resolver is not None and not component.program.required
-            else _reference_json(
-                component.resolver, component, contract_version=contract_version,
-            )
+            else _reference_json(component.resolver, component)
             if component.resolver is not None
             else _portable_json(item.alias, item.value_type)
         )

@@ -27,6 +27,7 @@ from ...domain.staging.canonical_projection import canonical_prepared_session_ro
 from ...domain.staging.preparation_session import (
     PreparationSessionBindings,
     PreparationSessionStatus,
+    PreparedCanonicalEncodingUnsupported,
     PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
 )
@@ -57,8 +58,8 @@ def _stored_integer(value: object, field_name: str) -> int:
 
 
 @dataclass(frozen=True, slots=True)
-class _CanonicalHashCompatibilityText:
-    """Defer compatibility decoding until its ordinal has been checked."""
+class _CanonicalHashStoredText:
+    """Defer stored-row decoding until its ordinal has been checked."""
 
     row_text: str
 
@@ -353,7 +354,12 @@ class PreparationStoredRunReader:
         connection: duckdb.DuckDBPyConnection | None = None,
         canonical_for_hash: bool = False,
     ) -> Iterator[Sequence[Sequence[object]]]:
-        """Yield stored or prepared-backed canonical JSON in ordinal order."""
+        """Yield bounded row batches in ordinal order.
+
+        Publication receives exact stored JSON. The hash-row consumer opts in
+        to current native encodings, restored rows, or deferred stored text;
+        it checks each ordinal before decoding stored text.
+        """
 
         if connection is None:
             database_path = (
@@ -392,6 +398,8 @@ class PreparationStoredRunReader:
                     json.loads(str(projection_text))
                 )
                 snapshot = PreparedSnapshot.from_json(str(manifest_text))
+            except PreparedCanonicalEncodingUnsupported as error:
+                raise WorkspaceError(str(error)) from error
             except (TypeError, ValueError) as error:
                 raise WorkspaceError(
                     "Prepared canonical projection is invalid"
@@ -514,10 +522,10 @@ class PreparationStoredRunReader:
     def _canonical_hash_payload_batch(
         batch: Sequence[Sequence[object]],
     ) -> Sequence[Sequence[object]]:
-        """Mark compatibility text without retaining restored rows per batch."""
+        """Mark stored text without retaining restored rows per batch."""
 
         return tuple(
-            (*row[:6], _CanonicalHashCompatibilityText(str(row[6])))
+            (*row[:6], _CanonicalHashStoredText(str(row[6])))
             for row in batch
         )
 
@@ -611,14 +619,7 @@ class PreparationStoredRunReader:
                                     raise WorkspaceError(
                                         "Prepared canonical row index changed"
                                     )
-                                yield (
-                                    PreparationStoredRunReader._canonical_hash_payload_batch(
-                                        batch
-                                    )
-                                    if canonical_for_hash
-                                    and projection.contract_version != 4
-                                    else batch
-                                )
+                                yield batch
                                 local_offset = local_stop
                             return
                         finally:
@@ -856,7 +857,7 @@ class PreparationStoredRunReader:
                     raise WorkspaceError(
                         "Stored preparation canonical rows are not contiguous"
                     )
-                if isinstance(payload, _CanonicalHashCompatibilityText):
+                if isinstance(payload, _CanonicalHashStoredText):
                     payload = PreparationStoredRunReader._canonical_row(
                         payload.row_text
                     )

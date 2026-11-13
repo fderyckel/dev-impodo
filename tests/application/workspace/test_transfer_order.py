@@ -20,6 +20,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStatus,
 )
+from tests.support.odoo_database_bindings import reviewed_destination
 
 
 HASHES = tuple("sha256:" + character * 64 for character in "abcdef123")
@@ -275,7 +276,7 @@ def _build(match: DestinationMatchPlan) -> TransferOrderPlan:
 
 
 def _workspace(match: DestinationMatchPlan) -> WorkspaceState:
-    return WorkspaceState(
+    return reviewed_destination(WorkspaceState(
         workspace_id=match.workspace_id,
         name="Odoo transfer",
         source_system="Odoo",
@@ -294,7 +295,7 @@ def _workspace(match: DestinationMatchPlan) -> WorkspaceState:
         destination_verified_odoo_version="19.0",
         destination_verified_at=match.recorded_at,
         destination_match_plan=match,
-    )
+    ))
 
 
 if __name__ == "__main__":

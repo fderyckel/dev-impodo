@@ -66,6 +66,9 @@ class SchemaFieldView(Protocol):
     def name(self) -> str: ...
 
     @property
+    def label(self) -> str: ...
+
+    @property
     def type(self) -> str: ...
 
     @property

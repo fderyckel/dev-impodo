@@ -296,6 +296,13 @@ application. False markers are omitted from serialized mappings, preserving
 historical evidence hashes. The existing metadata eligibility and exact-match
 checks remain authoritative; choosing a field does not assert global uniqueness.
 
+When a scalar matching field has no source column, validation names the Odoo
+field and asks the operator to select its source column. The finding retains
+the target field so recovery opens the relevant editor. This does not reject a
+separate source row identifier that combines several columns. The
+[identity message regression](../../../tests/domain/mapping/test_identity_validation_messages.py)
+checks both supported Odoo majors.
+
 The identity editor reuses the existing `linked-matching-fields` command and
 the linked-value JavaScript loader. Regression fixtures compare the complete
 SQL sequence, physical connections and schema checks before and after adding a
@@ -780,6 +787,17 @@ semantic invalidation callbacks.
 working draft and constructs one immutable `PreflightRequirementPlan` before
 any connector call. The same plan owns early direct identity proof and table
 ordering; Stage 3 does not add a second Odoo comparison or connector path.
+
+Identity health distinguishes an incomplete source identifier or target
+identity mapping from a saved rule awaiting its first check. A failed check's
+safe message appears beside **Check saved identities**, including separate
+guidance for a rejected read key, missing read access, and an unavailable Odoo
+connection. The previous evidence remains unchanged. The
+[failure-message route tests](../../../tests/integration/web/test_disconnection_messages.py)
+cover the rendered recovery action and preservation of the saved mapping.
+The [generated-hierarchy identity tests](../../../tests/integration/web/test_hierarchy_identity_reads.py)
+exercise source identity and parent-value reads for both Odoo majors in LOCAL
+and REMOTE workspaces.
 
 For each saved file-source dataset, the service first requires the exact
 confirmed governance key and scope. A direct component maps one frozen source
@@ -2008,6 +2026,13 @@ cover nested sanitization, bounds, and retention. The
 [mapping browser tests](../../../tests/integration/web/test_supporting_mapping_intent.py)
 cover the handled HTTP 422 path, support-reference correlation, and draft
 preservation.
+
+Supporting validation keeps the owning source table on each parent provider,
+so two tables using the same Odoo model retain their separate lookup rules.
+An invalid explicit provider directs the operator to **Match data** for the
+named field. The [hierarchical supporting-review tests](../../../tests/integration/web/test_hierarchical_supporting_review.py)
+verify that authoring and preparation consume the same saved review without
+rewriting it or opening an Odoo connection.
 
 The complete synchronous mapping-page build runs in the bounded thread pool,
 not on the asynchronous event loop. It reports thread-pool queue wait,

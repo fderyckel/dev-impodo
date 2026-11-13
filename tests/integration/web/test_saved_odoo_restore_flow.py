@@ -19,7 +19,6 @@ from impodo.domain.workspace.workbench import OdooConnectionMode, target_identit
 from impodo.web.composition.saved_odoo_restore import restore_saved_odoo_data
 from tests.integration.web import test_saved_odoo_archive_lifecycle as archive_fixture
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase, _browser_schema
-from tests.support.identity import resolve_local_actor
 from tests.support.recipe_lifecycle import FictionalOdoo
 
 
@@ -191,6 +190,7 @@ class SavedOdooRestoreFlowTests(ProjectSetupBrowserTestCase):
         operation_id=None,
     ):
         context = self.app.state.context
+        identity = context.identity_resolver.resolve({"authenticated": True})
         target_hash = target_identity_hash(
             connection_mode=profile.connection_mode,
             base_url=profile.base_url,
@@ -211,7 +211,9 @@ class SavedOdooRestoreFlowTests(ProjectSetupBrowserTestCase):
                 definition.project_id,
                 definition.saved_data_id,
                 version.version_number,
-                actor=resolve_local_actor(context),
+                actor=identity.actor,
+                scope=identity.organization_scope,
+                authorization_receipt=identity.authorization,
                 operation_id=operation_id or str(uuid4()),
                 profile=profile,
                 api_key="destination-only-key",

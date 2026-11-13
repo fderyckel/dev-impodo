@@ -23,11 +23,12 @@ from impodo.domain.mapping.contracts import (
     row_inclusion_policy_from_dict,
 )
 from impodo.domain.serialization import canonical_json, content_hash
-
-DESTINATION_MATCH_CONTRACT_VERSION = 17
-_SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
+from impodo.domain.workspace.transfer_identity_aliases import (
+    DestinationIdentityAliasBinding,
+    DestinationIdentityAliasEvidence,
 )
+
+DESTINATION_MATCH_CONTRACT_VERSION = 18
 DESTINATION_HANDLINGS = frozenset(
     {"transfer", "reuse_or_create", "reuse_only", "reference_only"}
 )
@@ -42,6 +43,25 @@ _TECHNICAL_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_.]*")
 # so the domain contract keeps both explicit even though static typing subsumes
 # ``int`` under ``float``.
 type _FixedCreateValue = bool | int | float | str | None
+
+
+class RetiredDestinationMatchPlanError(ValueError):
+    """Require fresh derived matching while retaining the immutable source."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "This saved destination check uses a retired format. Check the destination "
+            "again, then rebuild and approve the transfer review. The frozen source data is unchanged."
+        )
+
+
+def _require_current_match_format(version: object) -> None:
+    """Distinguish retired derived evidence from unsupported or invalid input."""
+
+    if type(version) is int and 0 < version < DESTINATION_MATCH_CONTRACT_VERSION:
+        raise RetiredDestinationMatchPlanError()
+    if type(version) is not int or version != DESTINATION_MATCH_CONTRACT_VERSION:
+        raise ValueError("Destination matching format is unsupported or invalid")
 
 
 def resolver_origin_for_destination_handling(
@@ -452,20 +472,20 @@ class DestinationCreateFieldEvidence:
                         display_value=str(item["display_value"]),
                         field_contract_hash=str(item["field_contract_hash"]),
                         value_hash=str(item["value_hash"]),
-                        field_label=str(item.get("field_label", item["field_name"])),
-                        provider_kind=str(item.get("provider_kind", "odoo_default")),
+                        field_label=str(item['field_label']),
+                        provider_kind=str(item['provider_kind']),
                         source_field_name=(
                             str(item["source_field_name"])
-                            if item.get("source_field_name") is not None
+                            if item['source_field_name'] is not None
                             else None
                         ),
                         source_candidates=tuple(
                             (str(choice[0]), str(choice[1]))
-                            for choice in item.get("source_candidates", ())
+                            for choice in item['source_candidates']
                         ),
                         selection=tuple(
                             (str(choice[0]), str(choice[1]))
-                            for choice in item.get("selection", ())
+                            for choice in item['selection']
                         ),
                         reference_candidates=tuple(
                             DestinationCreateReferenceCandidate(
@@ -477,7 +497,7 @@ class DestinationCreateFieldEvidence:
                                 odoo_id=int(choice["odoo_id"]),
                                 target_binding_hash=str(choice["target_binding_hash"]),
                             )
-                            for choice in item.get("reference_candidates", ())
+                            for choice in item['reference_candidates']
                         ),
                         incoming_reference_candidates=tuple(
                             DestinationCreateIncomingReferenceCandidate(
@@ -494,16 +514,14 @@ class DestinationCreateFieldEvidence:
                                 display_value=str(choice["display_value"]),
                                 requires_create=bool(choice["requires_create"]),
                                 target_binding_hash=str(
-                                    choice.get("target_binding_hash", "")
+                                    choice['target_binding_hash']
                                 ),
                             )
-                            for choice in item.get(
-                                "incoming_reference_candidates", ()
-                            )
+                            for choice in item['incoming_reference_candidates']
                         ),
                         incoming_reference_choice_hash=(
                             str(item["incoming_reference_choice_hash"])
-                            if item.get("incoming_reference_choice_hash") is not None
+                            if item['incoming_reference_choice_hash'] is not None
                             else None
                         ),
                     )
@@ -944,39 +962,54 @@ class DestinationMatchPlan:
         compare=False,
         repr=False,
     )
+    identity_alias_bindings: tuple[DestinationIdentityAliasBinding, ...] = ()
+    identity_alias_evidence_id: str | None = None
+    identity_alias_evidence_hash: str | None = None
+    protected_identity_alias_artifact_hash: str | None = None
+    identity_alias_evidence: DestinationIdentityAliasEvidence | None = dataclass_field(
+        default=None, compare=False, repr=False,
+    )
 
     def __post_init__(self) -> None:
-        if self.contract_version not in _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS:
-            raise ValueError("Destination matching contract version is unsupported")
-        if self.contract_version < 17 and any(item.scope_fields for item in self.model_matches):
-            raise ValueError("Legacy destination matching cannot contain relational scope")
-        if self.contract_version < 16 and (
-            self.row_inclusion_confirmation_hash is not None
-            or any(item.row_inclusion != RowInclusionPolicy() for item in self.model_matches)
-        ):
-            raise ValueError("Legacy destination matching cannot contain row rules")
+        _require_current_match_format(self.contract_version)
+        alias_references = (
+            self.identity_alias_evidence_id, self.identity_alias_evidence_hash,
+            self.protected_identity_alias_artifact_hash,
+        )
+        if self.identity_alias_bindings:
+            if self.identity_alias_bindings != tuple(sorted(self.identity_alias_bindings, key=lambda item: item.key)):
+                raise ValueError("Destination identity alias bindings must be ordered")
+            if len({item.dataset_id for item in self.identity_alias_bindings}) != len(self.identity_alias_bindings):
+                raise ValueError("Destination identity alias bindings must be unique")
+            if alias_references[0] is None or alias_references[1] is None:
+                raise ValueError("Destination identity alias evidence reference is missing")
+            try:
+                UUID(alias_references[0])
+            except (TypeError, ValueError, AttributeError) as error:
+                raise ValueError("Destination identity alias evidence reference is invalid") from error
+            if _HASH.fullmatch(alias_references[1]) is None or (
+                alias_references[2] is not None and _HASH.fullmatch(alias_references[2]) is None
+            ):
+                raise ValueError("Destination identity alias evidence hash is invalid")
+            matched = {item.dataset_id: item for item in self.model_matches}
+            for alias in self.identity_alias_bindings:
+                model = matched.get(alias.dataset_id)
+                if model is None or (
+                    model.model != alias.model or model.key_fields != alias.binding.key_fields
+                    or model.destination_handling != alias.binding.destination_handling
+                    or model.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
+                    or model.scope_fields
+                ):
+                    raise ValueError("Destination identity aliases require an unscoped existing-record-only dataset")
+        elif any(value is not None for value in alias_references) or self.identity_alias_evidence is not None:
+            raise ValueError("Destination identity alias evidence requires reviewed bindings")
+        if self.identity_alias_evidence is not None:
+            validate_destination_identity_alias_evidence(self, self.identity_alias_evidence)
         if self.row_inclusion_confirmation_hash is not None and (
             self.row_inclusion_confirmation_hash != self.row_inclusion_scope_hash
             or not self.row_inclusion_confirmable
         ):
             raise ValueError("Destination row confirmation does not match checked rows")
-        if self.contract_version < 15 and any(
-            item.minimum_create_fields
-            or item.minimum_create_relationship_fields
-            for item in self.model_matches
-        ):
-            object.__setattr__(
-                self,
-                "model_matches",
-                tuple(
-                    replace(
-                        item,
-                        minimum_create_fields=(),
-                        minimum_create_relationship_fields=(),
-                    )
-                    for item in self.model_matches
-                ),
-            )
         if not self.workspace_id.strip() or not self.recorded_by.strip():
             raise ValueError("Destination matching provenance is incomplete")
         hashes = (
@@ -1030,35 +1063,25 @@ class DestinationMatchPlan:
             self.create_field_decisions
         ):
             raise ValueError("Destination create-field decisions must be unique")
-        reuse_dataset_ids: set[str] = set()
-        if self.contract_version >= 13:
-            reuse_dataset_ids = {
-                item.dataset_id
-                for item in self.model_matches
-                if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
-            }
-            if any(
-                item.dataset_id in reuse_dataset_ids
-                for item in self.create_field_decisions
-            ) or any(
-                item.related_dataset_id in reuse_dataset_ids
-                and item.incoming_link_count
-                for item in self.relationship_matches
-            ):
-                raise ValueError(
-                    "Reuse-only destination records cannot contain incoming writes"
-                )
+        reuse_dataset_ids = {
+            item.dataset_id
+            for item in self.model_matches
+            if item.destination_handling in DESTINATION_NO_WRITE_HANDLINGS
+        }
+        if any(
+            item.dataset_id in reuse_dataset_ids
+            for item in self.create_field_decisions
+        ) or any(
+            item.related_dataset_id in reuse_dataset_ids
+            and item.incoming_link_count
+            for item in self.relationship_matches
+        ):
+            raise ValueError("Reuse-only destination records cannot contain incoming writes")
         references = (
             self.create_field_evidence_id,
             self.create_field_evidence_hash,
             self.protected_create_field_artifact_hash,
         )
-        if self.contract_version < 6 and (
-            self.create_field_decisions or any(value is not None for value in references)
-        ):
-            raise ValueError(
-                "Legacy destination matching cannot contain create-field decisions"
-            )
         if any(value is not None for value in references):
             if references[0] is None or references[1] is None:
                 raise ValueError("Destination create-field evidence reference is missing")
@@ -1093,8 +1116,7 @@ class DestinationMatchPlan:
                     {item.key for item in evidence.values}
                 )
                 or (
-                    self.contract_version >= 13
-                    and any(
+                    any(
                         item.dataset_id in reuse_dataset_ids
                         for item in evidence.values
                     )
@@ -1105,8 +1127,7 @@ class DestinationMatchPlan:
     @property
     def ready(self) -> bool:
         return (
-            self.contract_version == DESTINATION_MATCH_CONTRACT_VERSION
-            and bool(self.model_matches)
+            bool(self.model_matches)
             and all(item.ready for item in self.model_matches)
             and all(item.ready for item in self.relationship_matches)
             and self.row_inclusion_confirmed
@@ -1179,103 +1200,33 @@ class DestinationMatchPlan:
             "source_selection_hash": self.source_selection_hash,
             "source_schema_hash": self.source_schema_hash,
             "destination_target_hash": self.destination_target_hash,
-            "destination_credential_binding_hash": (
-                self.destination_credential_binding_hash
-            ),
-            "destination_read_principal_hash": (
-                self.destination_read_principal_hash
-            ),
-            "destination_read_permission_hash": (
-                self.destination_read_permission_hash
-            ),
+            "destination_credential_binding_hash": self.destination_credential_binding_hash,
+            "destination_read_principal_hash": self.destination_read_principal_hash,
+            "destination_read_permission_hash": self.destination_read_permission_hash,
             "destination_read_context_hash": self.destination_read_context_hash,
-            "destination_schema_snapshot_hash": (
-                self.destination_schema_snapshot_hash
-            ),
-            "destination_record_snapshot_hash": (
-                self.destination_record_snapshot_hash
-            ),
+            "destination_schema_snapshot_hash": self.destination_schema_snapshot_hash,
+            "destination_record_snapshot_hash": self.destination_record_snapshot_hash,
             "model_matches": [
                 {
-                    name: (
-                        _transfer_row_inclusion_payload(item.row_inclusion)
-                        if name == "row_inclusion" else value
-                    )
+                    name: _transfer_row_inclusion_payload(item.row_inclusion)
+                    if name == "row_inclusion" else value
                     for name, value in asdict(item).items()
-                    if (self.contract_version >= 3 or name != "destination_key_binding_hash")
-                    and (
-                        self.contract_version >= 4
-                        or name not in {"source_column_keys", "key_fields"}
-                    )
-                    and (
-                        self.contract_version >= 5
-                        or name not in {
-                            "unresolved_create_fields", "requires_workflow_handler"
-                        }
-                    )
-                    and (
-                        self.contract_version >= 10
-                        or name not in {
-                            "excluded_missing_fields",
-                            "excluded_incompatible_fields",
-                        }
-                    )
-                    and (
-                        self.contract_version >= 11
-                        or name != "excluded_source_row_numbers"
-                    )
-                    and (
-                        self.contract_version >= 12
-                        or name != "destination_managed_fields"
-                    )
-                    and (
-                        self.contract_version >= 13
-                        or name != "destination_handling"
-                    )
-                    and (
-                        self.contract_version >= 14
-                        or name != "unreferenced_source_row_numbers"
-                    )
-                    and (
-                        self.contract_version >= 15
-                        or name not in {
-                            "minimum_create_fields",
-                            "minimum_create_relationship_fields",
-                        }
-                    )
-                    and (
-                        self.contract_version >= 16
-                        or name not in {
-                            "row_inclusion", "rule_excluded_source_row_numbers",
-                            "rule_blocked_source_row_numbers",
-                        }
-                    )
-                    and (self.contract_version >= 17 or name not in {"scope_fields", "scope_dataset_ids"})
                 }
                 for item in self.model_matches
             ],
             "recorded_at": self.recorded_at.isoformat(),
             "recorded_by": self.recorded_by,
+            "relationship_matches": [asdict(item) for item in self.relationship_matches],
+            "create_field_decisions": [asdict(item) for item in self.create_field_decisions],
+            "create_field_evidence_id": self.create_field_evidence_id,
+            "create_field_evidence_hash": self.create_field_evidence_hash,
+            "protected_create_field_artifact_hash": self.protected_create_field_artifact_hash,
+            "row_inclusion_confirmation_hash": self.row_inclusion_confirmation_hash,
+            "identity_alias_bindings": [item.to_dict() for item in self.identity_alias_bindings],
+            "identity_alias_evidence_id": self.identity_alias_evidence_id,
+            "identity_alias_evidence_hash": self.identity_alias_evidence_hash,
+            "protected_identity_alias_artifact_hash": self.protected_identity_alias_artifact_hash,
         }
-        if self.contract_version >= 2:
-            payload["relationship_matches"] = [
-                {
-                    name: value for name, value in asdict(item).items()
-                    if self.contract_version >= 4 or name != "related_key_fields"
-                }
-                for item in self.relationship_matches
-            ]
-        if self.contract_version >= 6:
-            payload["create_field_decisions"] = [
-                asdict(item) for item in self.create_field_decisions
-            ]
-            payload["create_field_evidence_id"] = self.create_field_evidence_id
-            payload["create_field_evidence_hash"] = self.create_field_evidence_hash
-            payload["protected_create_field_artifact_hash"] = (
-                self.protected_create_field_artifact_hash
-            )
-        if self.contract_version >= 16:
-            payload["row_inclusion_confirmation_hash"] = self.row_inclusion_confirmation_hash
         if include_hash:
             payload["content_hash"] = self.content_hash
         return payload
@@ -1287,9 +1238,8 @@ class DestinationMatchPlan:
     def from_json(cls, value: str) -> DestinationMatchPlan:
         try:
             payload = json.loads(value)
-            contract_version = int(payload.get("contract_version"))
-            if contract_version not in _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS:
-                raise ValueError("unsupported contract")
+            contract_version = payload["contract_version"]
+            _require_current_match_format(contract_version)
             result = cls(
                 workspace_id=str(payload["workspace_id"]),
                 source_selection_hash=str(payload["source_selection_hash"]),
@@ -1340,10 +1290,7 @@ class DestinationMatchPlan:
                             item["destination_create_key_count"]
                         ),
                         destination_key_binding_hash=str(
-                            item.get(
-                                "destination_key_binding_hash",
-                                payload["destination_record_snapshot_hash"],
-                            )
+                            item['destination_key_binding_hash']
                         ),
                         compatible_fields=tuple(item["compatible_fields"]),
                         missing_fields=tuple(item["missing_fields"]),
@@ -1351,54 +1298,50 @@ class DestinationMatchPlan:
                         destination_limit_reached=bool(
                             item["destination_limit_reached"]
                         ),
-                        source_column_keys=tuple(item.get("source_column_keys", ())),
-                        key_fields=tuple(item.get("key_fields", ())),
-                        scope_fields=tuple(item.get("scope_fields", ())),
-                        scope_dataset_ids=tuple(item.get("scope_dataset_ids", ())),
+                        source_column_keys=tuple(item['source_column_keys']),
+                        key_fields=tuple(item['key_fields']),
+                        scope_fields=tuple(item['scope_fields']),
+                        scope_dataset_ids=tuple(item['scope_dataset_ids']),
                         destination_managed_fields=tuple(
-                            item.get("destination_managed_fields", ())
+                            item['destination_managed_fields']
                         ),
                         unresolved_create_fields=tuple(
-                            item.get("unresolved_create_fields", ())
+                            item['unresolved_create_fields']
                         ),
                         requires_workflow_handler=bool(
-                            item.get("requires_workflow_handler", False)
+                            item['requires_workflow_handler']
                         ),
                         excluded_missing_fields=tuple(
-                            item.get("excluded_missing_fields", ())
+                            item['excluded_missing_fields']
                         ),
                         excluded_incompatible_fields=tuple(
-                            item.get("excluded_incompatible_fields", ())
+                            item['excluded_incompatible_fields']
                         ),
                         excluded_source_row_numbers=tuple(
                             int(number)
-                            for number in item.get(
-                                "excluded_source_row_numbers", ()
-                            )
+                            for number in item['excluded_source_row_numbers']
                         ),
                         unreferenced_source_row_numbers=tuple(
                             int(number)
-                            for number in item.get(
-                                "unreferenced_source_row_numbers", ()
-                            )
+                            for number in item['unreferenced_source_row_numbers']
                         ),
                         destination_handling=str(
-                            item.get("destination_handling", "transfer")
+                            item['destination_handling']
                         ),
                         minimum_create_fields=tuple(
-                            item.get("minimum_create_fields", ())
+                            item['minimum_create_fields']
                         ),
                         minimum_create_relationship_fields=tuple(
-                            item.get("minimum_create_relationship_fields", ())
+                            item['minimum_create_relationship_fields']
                         ),
                         row_inclusion=row_inclusion_policy_from_dict(
-                            item.get("row_inclusion", _transfer_row_inclusion_payload(RowInclusionPolicy()))
+                            item['row_inclusion']
                         ),
                         rule_excluded_source_row_numbers=tuple(
-                            item.get("rule_excluded_source_row_numbers", ())
+                            item['rule_excluded_source_row_numbers']
                         ),
                         rule_blocked_source_row_numbers=tuple(
-                            item.get("rule_blocked_source_row_numbers", ())
+                            item['rule_blocked_source_row_numbers']
                         ),
                     )
                     for item in payload["model_matches"]
@@ -1422,7 +1365,7 @@ class DestinationMatchPlan:
                         operation=str(item["operation"]),
                         inverse_field=(
                             str(item["inverse_field"])
-                            if item.get("inverse_field") is not None
+                            if item['inverse_field'] is not None
                             else None
                         ),
                         source_owner_count=int(item["source_owner_count"]),
@@ -1444,9 +1387,9 @@ class DestinationMatchPlan:
                             item["source_evidence_available"]
                         ),
                         required=bool(item["required"]),
-                        related_key_fields=tuple(item.get("related_key_fields", ())),
+                        related_key_fields=tuple(item['related_key_fields']),
                     )
-                    for item in payload.get("relationship_matches", ())
+                    for item in payload['relationship_matches']
                 ),
                 create_field_decisions=tuple(
                     DestinationCreateFieldDecision(
@@ -1464,54 +1407,86 @@ class DestinationMatchPlan:
                         reviewed=bool(item["reviewed"]),
                         source_field_name=(
                             str(item["source_field_name"])
-                            if item.get("source_field_name") is not None
+                            if item['source_field_name'] is not None
                             else None
                         ),
                         related_model=(
                             str(item["related_model"])
-                            if item.get("related_model") is not None
+                            if item['related_model'] is not None
                             else None
                         ),
                         related_identity_fields=tuple(
-                            item.get("related_identity_fields", ())
+                            item['related_identity_fields']
                         ),
                         source_dataset_id=(
                             str(item["source_dataset_id"])
-                            if item.get("source_dataset_id") is not None
+                            if item['source_dataset_id'] is not None
                             else None
                         ),
                         source_reference_requires_create=(
                             bool(item["source_reference_requires_create"])
-                            if item.get("source_reference_requires_create")
+                            if item['source_reference_requires_create']
                             is not None
                             else None
                         ),
                     )
-                    for item in payload.get("create_field_decisions", ())
+                    for item in payload['create_field_decisions']
                 ),
                 create_field_evidence_id=(
                     str(payload["create_field_evidence_id"])
-                    if payload.get("create_field_evidence_id") is not None
+                    if payload['create_field_evidence_id'] is not None
                     else None
                 ),
                 create_field_evidence_hash=(
                     str(payload["create_field_evidence_hash"])
-                    if payload.get("create_field_evidence_hash") is not None
+                    if payload['create_field_evidence_hash'] is not None
                     else None
                 ),
                 protected_create_field_artifact_hash=(
                     str(payload["protected_create_field_artifact_hash"])
-                    if payload.get("protected_create_field_artifact_hash") is not None
+                    if payload['protected_create_field_artifact_hash'] is not None
                     else None
                 ),
                 contract_version=contract_version,
-                row_inclusion_confirmation_hash=payload.get("row_inclusion_confirmation_hash"),
+                row_inclusion_confirmation_hash=payload['row_inclusion_confirmation_hash'],
+                identity_alias_bindings=tuple(
+                    DestinationIdentityAliasBinding.from_dict(item)
+                    for item in payload['identity_alias_bindings']
+                ),
+                identity_alias_evidence_id=payload['identity_alias_evidence_id'],
+                identity_alias_evidence_hash=payload['identity_alias_evidence_hash'],
+                protected_identity_alias_artifact_hash=payload['protected_identity_alias_artifact_hash'],
             )
+        except RetiredDestinationMatchPlanError:
+            raise
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
             raise ValueError("Stored destination matching plan is invalid") from error
         if payload.get("content_hash") != result.content_hash:
             raise ValueError("Stored destination matching plan hash is invalid")
         return result
+
+
+def validate_destination_identity_alias_evidence(
+    plan: DestinationMatchPlan, evidence: DestinationIdentityAliasEvidence,
+) -> None:
+    """Reject decrypted aliases from any other source, target, access or read."""
+
+    if (
+        evidence.evidence_id != plan.identity_alias_evidence_id
+        or evidence.content_hash != plan.identity_alias_evidence_hash
+        or evidence.public_bindings != plan.identity_alias_bindings
+        or any(
+            getattr(evidence, name) != getattr(plan, name)
+            for name in (
+                "workspace_id", "source_selection_hash", "source_schema_hash",
+                "destination_target_hash", "destination_credential_binding_hash",
+                "destination_read_principal_hash", "destination_read_permission_hash",
+                "destination_read_context_hash", "destination_schema_snapshot_hash",
+                "destination_record_snapshot_hash",
+            )
+        )
+    ):
+        raise ValueError("Protected destination identity aliases do not match the plan")
 
 
 def _transfer_row_inclusion_payload(policy: RowInclusionPolicy) -> dict[str, Any]:

@@ -107,8 +107,6 @@ def application_resume_step(
         return ApplicationResumeStep.PREPARATION_PROGRESS
     if preparation is not None and preparation.status.value == "REVIEW_REQUIRED":
         return ApplicationResumeStep.RESOLVE
-    if application.status is RecipeApplicationStatus.PREPARED or (
-        preparation is not None and preparation.status.value == "SUCCEEDED"
-    ):
+    if preparation is not None and preparation.status.value == "SUCCEEDED":
         return ApplicationResumeStep.PREPARED_REVIEW
     return ApplicationResumeStep.PREPARE

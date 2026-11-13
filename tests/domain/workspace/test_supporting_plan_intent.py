@@ -12,7 +12,7 @@ from impodo.domain.workspace.supporting_closure import (
     supporting_mapping_conflicts,
 )
 from impodo.domain.workspace.supporting_errors import SupportingPlanIncompleteError
-from impodo.domain.workspace.supporting_plan import SupportingPlanGap
+from impodo.domain.workspace.supporting_plan import SUPPORTING_PLAN_VERSION, SupportingPlanGap
 from impodo.domain.workspace.supporting_review import SupportingChoice
 from tests.domain.workspace.test_supporting_closure import relationship
 from tests.domain.workspace.test_supporting_plan import dataset, model, relation
@@ -191,7 +191,7 @@ class SupportingPlanIntentTests(unittest.TestCase):
                 result, _, _ = self.close(version, (inverse,), choices=rebound)
                 self.assertTrue(result.proposal.complete)
                 self.assertEqual(result.choices, choices)
-                self.assertEqual(result.proposal.contract_version, 2)
+                self.assertEqual(result.proposal.contract_version, SUPPORTING_PLAN_VERSION)
                 self.assertEqual(result.proposal.source_selection_hash, "source")
 
 

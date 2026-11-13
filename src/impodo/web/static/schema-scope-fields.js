@@ -1,4 +1,4 @@
-/* Labelled scope selection, search and removal; saved matching semantics stay in schema.js. */
+/* Labelled scope selection, search and removal; schema.js owns the matching-rule draft. */
 (() => {
   const bind = (decision, input, changed) => {
     const controls = [...decision.querySelectorAll("[data-scope-field]")];
@@ -78,6 +78,9 @@
       summary?.focus();
     });
     search?.addEventListener("input", filter);
+    search?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") event.preventDefault();
+    });
     disclosure?.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
       disclosure.open = false;

@@ -7,14 +7,9 @@ summary remains useful when rotation retained a phase but no terminal event.
 from __future__ import annotations
 
 import math
-import platform
 import re
-import sys
 from collections.abc import Mapping, Sequence
-from importlib.metadata import PackageNotFoundError, version
 from uuid import UUID
-
-import psutil
 
 from impodo.application.shared.performance import (
     PERFORMANCE_COUNTERS,
@@ -31,6 +26,7 @@ from impodo.web.preparation_performance_diagnostics import (
     PERFORMANCE_EVENT,
     sanitize_performance_event,
 )
+from impodo.web.runtime_diagnostics import sanitize_runtime_metadata
 
 PERFORMANCE_EVENTS = frozenset(
     {
@@ -41,35 +37,6 @@ PERFORMANCE_EVENTS = frozenset(
     }
 )
 MAX_PERFORMANCE_ATTEMPTS = 30
-
-
-def runtime_performance_metadata() -> dict[str, object]:
-    """Observe hardware/runtime facts without machine names or paths."""
-    runtime: dict[str, object] = {
-        "operating_system": platform.system()
-        if platform.system() in {"Windows", "Darwin", "Linux"}
-        else "Unknown",
-        "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
-        "memory_scope": "process_wide",
-    }
-    release = platform.release()
-    if re.fullmatch(r"[0-9][0-9A-Za-z.+_-]{0,79}", release):
-        runtime["operating_system_release"] = release
-    architecture = platform.machine().lower()
-    if architecture in {"arm64", "aarch64", "x86_64", "amd64", "i386", "i686"}:
-        runtime["architecture"] = architecture
-    try:
-        runtime["logical_cpu_count"] = psutil.cpu_count(logical=True)
-        memory = psutil.virtual_memory()
-        runtime["total_memory_bytes"] = memory.total
-        runtime["available_memory_bytes"] = memory.available
-    except Exception:  # noqa: BLE001 - optional platform probes must not reject telemetry
-        runtime["resource_observation"] = "unavailable"
-    try:
-        runtime["duckdb_version"] = version("duckdb")
-    except PackageNotFoundError:
-        runtime["duckdb_version"] = "unavailable"
-    return _runtime(runtime)
 
 
 def sanitize_performance_record(
@@ -147,7 +114,7 @@ def sanitize_performance_record(
         }
     runtime = value.get("runtime")
     if isinstance(runtime, dict):
-        result["runtime"] = _runtime(runtime)
+        result["runtime"] = sanitize_runtime_metadata(runtime)
     coverage = value.get("coverage")
     if isinstance(coverage, dict):
         result["coverage"] = {
@@ -309,29 +276,6 @@ def _phase(value: dict[str, object]) -> dict[str, object]:
         "thread_cpu_ms": _numeric(value.get("thread_cpu_ms"), 86_400_000),
         "calls": _numeric(value.get("calls"), 1_000_000),
     }
-
-
-def _runtime(value: Mapping[str, object]) -> dict[str, object]:
-    result: dict[str, object] = {}
-    for name, allowed in (
-        ("operating_system", {"Windows", "Darwin", "Linux", "Unknown"}),
-        ("architecture", {"arm64", "aarch64", "x86_64", "amd64", "i386", "i686"}),
-    ):
-        if isinstance(candidate := value.get(name), str) and candidate in allowed:
-            result[name] = candidate
-    for name in ("operating_system_release", "python_version", "duckdb_version"):
-        item = value.get(name)
-        if isinstance(item, str) and re.fullmatch(
-            r"[0-9]{1,4}(?:\.[0-9]{1,4}){0,3}(?:[a-zA-Z][a-zA-Z0-9.+-]{0,20})?(?:[-+][a-zA-Z0-9.-]{1,24})?",
-            item,
-        ):
-            result[name] = item
-    for name in ("logical_cpu_count", "total_memory_bytes", "available_memory_bytes"):
-        result[name] = _numeric(value.get(name), 2**53 - 1)
-    result["memory_scope"] = "process_wide"
-    if value.get("resource_observation") == "unavailable":
-        result["resource_observation"] = "unavailable"
-    return result
 
 
 def _numeric(value: object, maximum: int) -> float | None:

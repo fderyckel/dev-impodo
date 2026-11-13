@@ -97,13 +97,26 @@ def _validate_identity_component(
         if len(component.source_column_keys) != len(
             component.target_fields
         ):
+            target_field = (
+                component.target_fields[0]
+                if len(component.target_fields) == 1
+                else None
+            )
+            metadata = fields.get(target_field) if target_field else None
+            label = metadata.label if metadata else target_field
+            missing_source = not component.source_column_keys and label is not None
             issues.append(
                 _issue(
                     "MAPPING_IDENTITY_ARITY_INVALID",
                     path,
-                    "Scalar identity source and target arity differ.",
-                    "Map one source column to each target component.",
+                    f"{label} has no source column selected."
+                    if missing_source
+                    else "The number of selected source columns does not match the Odoo matching fields.",
+                    f"Choose a source column for {label} in the Odoo matching rule."
+                    if missing_source
+                    else "Select one source column for each Odoo matching field.",
                     dataset=dataset,
+                    target_field=target_field,
                 )
             )
         for target_field in component.target_fields:

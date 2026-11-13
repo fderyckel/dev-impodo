@@ -78,7 +78,7 @@ class RecipePreparationRecoveryBrowserTests(TestCase):
         route = f"/projects/{application.project_id}/runs/{application.migration_run_id}"
         with patch.object(restarted, "_start", side_effect=AssertionError("Recovery spawned another worker")), \
              patch.object(context.preparation, "prepare", side_effect=AssertionError("Recovery rescanned source rows")), \
-             patch.object(context.preparation_recovery, "current", wraps=context.preparation_recovery.current) as read:
+             patch.object(context.preparation_recovery, "current_for_review", wraps=context.preparation_recovery.current_for_review) as read:
             resumed = self.client.get(route + f"/applications/{application.application_id}", follow_redirects=False)
             self.assertEqual(resumed.status_code, 303, resumed.text)
             self.assertTrue(resumed.headers["location"].endswith("/normalization"))

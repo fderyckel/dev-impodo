@@ -93,6 +93,17 @@ applies them through destination matching, transfer order, review, preflight,
 execution and read-back. It keeps the ordinary transfer path's identity and
 authorization boundaries.
 
+The transfer runtime admits matching contract 18 and review contract 9 only.
+Their domain readers reject retired formats with instructions to check the
+destination again, rebuild the review and approve it. Original source data is
+preserved; retired transfer evidence is not interpreted by compatibility readers.
+`adapters/duckdb/serialization.py` recognizes a retired version envelope and
+projects the affected transfer evidence away with a transient
+`transfer_evidence_recovery_step`. A GET preserves stored source and journal
+facts. The shared page notice directs a fresh check/review and outcome
+inspection; `ExecutionService` independently requires complete current transfer
+authority before execute or resume. A retained preflight receipt is insufficient.
+
 `application/destination_matching_service.py` owns both entry points' direct
 existing-parent scope. `destination_match_scope_candidates` offers admitted
 captured relationships; `domain/workspace/portable_identity.py` translates
@@ -101,7 +112,22 @@ Saved profiles retain the selected scope under `settings_json.scopes`.
 `application/transfer_execution_service.py` uses the existing execution dataset
 scope and row business-scope contracts. This slice requires one selected,
 unscoped parent already matched uniquely at the destination. Broader scope
-shapes and explicit company aliases remain outside this implementation.
+shapes remain outside this implementation.
+
+`domain/workspace/transfer_identity_aliases.py` derives reviewed destination
+keys for generic, unscoped, single-key reference datasets that cannot write.
+`application/transfer_identity_alias_ports.py` declares their protected store;
+`adapters/protected_destination_identity_aliases.py` encrypts per-read evidence
+and separately owned reusable rules. Matching/review/profile control facts are
+hashes and counts. Execution keeps original source identities and effective
+mapped business identities and references.
+
+`web/composition/identity_aliases.py` authorizes protected replay before source
+or target I/O. `web/presenters/identity_alias_forms.py` bounds editable drafts.
+The saved-restore composition binds reusable rules to source and destination
+meaning and revalidates them for each fresh run. This supports explicit company
+name/code mapping and an aliased existing parent of a scoped child. It does not
+add writes to reference records or admit composite/scoped alias datasets.
 
 `application/odoo_saved_data_archive.py` authorizes portable exports and imports.
 `adapters/odoo_saved_data_package.py` owns the authenticated encrypted container.
@@ -154,6 +180,9 @@ and continuation after known rejections.
 through the worker, journal, and transport. `web/load_diagnostics.py` and
 `web/load_diagnostic_bundle.py` build support explanations from the recorded
 event and terminal histories without reopening the database or calling Odoo.
+`web/load_performance.py` collects local database and resource costs through
+the injected observation port. `web/runtime_diagnostics.py` owns the closed
+runtime and machine-capacity schema used at capture and export.
 
 ## Integrated runs
 

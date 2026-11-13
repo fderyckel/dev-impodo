@@ -13,7 +13,12 @@ from impodo.application.data_version.source_packages import (
     SourcePackageOrigin,
     SourcePackageState,
 )
+from impodo.application.odoo_database_binding_ports import OdooDatabaseBindingRepository
 from impodo.application.odoo_saved_data_ports import SavedOdooDataRepository
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBindingRole,
+    database_scope_hash,
+)
 from impodo.domain.project.foundation import MigrationConflictError, utc_now
 from impodo.domain.run.setup import MigrationRunTargetSetup
 from impodo.domain.shared.access import Actor
@@ -56,10 +61,12 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         database: MigrationWorkspaceEngineDatabase,
         foundation: MigrationFoundationRepository,
         *, saved_odoo_data: SavedOdooDataRepository | None = None,
+        database_bindings: OdooDatabaseBindingRepository | None = None,
     ) -> None:
         DuckDbRepository.__init__(self, database)
         self.foundation = foundation
         self.saved_odoo_data = saved_odoo_data
+        self.database_bindings = database_bindings
 
     def initialize_workbench(
         self,
@@ -168,7 +175,7 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         )
         if restore is not None and (restore.project_id != workspace.project_id or restore.data_version_id != workspace.data_version_id):
             raise WorkspaceStateError("The saved restore belongs to another source")
-        return replace(
+        projected = replace(
             workbench,
             name=workspace.display_name,
             source_system=project.source_system_identity,
@@ -196,7 +203,54 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
             created_at=workspace.created_at,
             registered_at=workspace.setup_completed_at,
             saved_restore_generation_id=restore.generation_id if restore else None,
-        ), package
+        )
+        if self.database_bindings is not None and projected.source_mode is SourceMode.ODOO:
+            if projected.odoo_base_url and projected.odoo_database:
+                source_binding, source_current = self.database_bindings.workspace_binding_status(
+                    workspace_id, workspace.project_id, OdooDatabaseBindingRole.SOURCE,
+                    database_scope_hash(projected.odoo_base_url, projected.odoo_database),
+                )
+                projected = replace(projected, source_database_binding=source_binding,
+                    source_database_generation_hash=source_current or "")
+            if projected.destination_configured:
+                destination_binding, destination_current = self.database_bindings.workspace_binding_status(
+                    workspace_id, workspace.project_id, OdooDatabaseBindingRole.DESTINATION,
+                    database_scope_hash(projected.destination_odoo_base_url, projected.destination_odoo_database),
+                )
+                projected = replace(projected, destination_database_binding=destination_binding,
+                    destination_database_generation_hash=destination_current or "",
+                    saved_restore_database_reset_admitted=self.can_restore_to_declared_database(
+                        workspace_id, base_url=projected.destination_odoo_base_url,
+                        database=projected.destination_odoo_database,
+                    ) if restore is not None else False)
+        return projected, package
+
+    def can_restore_to_declared_database(
+        self, workspace_id: str, *, base_url: str, database: str,
+    ) -> bool:
+        """Admit offline same-endpoint restore only after an explicit later reset."""
+
+        if self.saved_odoo_data is None or self.database_bindings is None:
+            return False
+        workspace = self.foundation.get_migration_workspace(workspace_id)
+        restore = self.saved_odoo_data.get_restore_binding(workspace_id)
+        if restore is None or restore.project_id != workspace.project_id:
+            return False
+        binding, current_hash = self.database_bindings.workspace_binding_status(
+            workspace_id, workspace.project_id, OdooDatabaseBindingRole.DESTINATION,
+            database_scope_hash(base_url, database),
+        )
+        if binding is None or binding.generation_hash != current_hash:
+            return False
+        generation = self.database_bindings.current(binding.organization_id, binding.scope_hash)
+        version = self.saved_odoo_data.get_version(
+            restore.project_id, restore.saved_data_id, restore.version_number,
+        )
+        return bool(
+            generation.generation > 0
+            and generation.declared_at is not None
+            and version.captured_at < generation.declared_at
+        )
 
     def save(
         self,

@@ -35,6 +35,7 @@ from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
     MAX_PROJECTED_RECEIPT_IDS,
+    OdooIdentityLookupUnavailable,
     OdooWriteError,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
@@ -93,6 +94,7 @@ from .load_observation import (
     observe_journal_batch,
     observe_load_context,
     observe_load_journal,
+    observe_load_local_phase,
     observe_load_transport,
     record_load_failure,
 )
@@ -1058,6 +1060,10 @@ class ExecutionService:
         report = source_workspace.transfer_preflight_report
         if (
             report is None
+            or not source_workspace.transfer_preflight_ready(
+                source_selection_hash=report.source_selection_hash,
+                source_schema_hash=report.source_schema_hash,
+            )
             or not report.ready
             or report.content_hash != expected_preflight_hash
             or snapshot.preflight_result_hash != report.content_hash
@@ -1479,6 +1485,10 @@ class ExecutionService:
         if (
             source_workspace.source_mode is not SourceMode.ODOO
             or report is None
+            or not source_workspace.transfer_preflight_ready(
+                source_selection_hash=report.source_selection_hash,
+                source_schema_hash=report.source_schema_hash,
+            )
             or not report.ready
             or report.content_hash != expected_preflight_hash
             or snapshot.workspace_id != workspace_id
@@ -1646,7 +1656,7 @@ class ExecutionService:
                 safe_error="Not attempted because the operator stopped further uploads")
                 for row in saved.rows if row.status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
             if pending:
-                self.journal.record_outcomes(workspace_id, run_id, pending)
+                self._record_outcomes(workspace_id, run_id, pending)
             self.journal.finish_run(workspace_id, run_id, ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
         return control
 
@@ -1733,7 +1743,8 @@ class ExecutionService:
         create_batch_rows = validated_create_batch_rows(run.batch_rows or 0)
         progress_sink = progress
         if progress_sink is not None:
-            progress_sink(run)
+            with observe_load_local_phase("progress_publication"):
+                progress_sink(run)
 
         recorded: dict[str, ExecutionRowAttempt] = {
             item.row_id: item for item in run.rows
@@ -1761,7 +1772,8 @@ class ExecutionService:
             progress_rows_since_publish += max(0, int(changed_rows))
             if not force and progress_rows_since_publish < progress_row_interval:
                 return
-            progress_sink(replace(run, rows=tuple(recorded.values())))
+            with observe_load_local_phase("progress_publication"):
+                progress_sink(replace(run, rows=tuple(recorded.values())))
             progress_rows_since_publish = 0
 
         source_cache: dict[tuple[str, str, str, str], int] = {
@@ -1945,7 +1957,7 @@ class ExecutionService:
                             status=ExecutionRowStatus.BLOCKED,
                             safe_error=str(error),
                         )
-                        self.journal.record_outcomes(
+                        self._record_outcomes(
                             workspace_id, run.run_id, (outcome,)
                         )
                         recorded[row.row_id] = outcome
@@ -2004,7 +2016,7 @@ class ExecutionService:
                                 safe_error=str(error), diagnostic=_write_diagnostic(error, row, len(result.prepared),
                                     method="load" if import_create else "create"))
                                 for row, _values, _deferred in result.prepared)
-                            self.journal.record_outcomes(workspace_id, run.run_id, outcomes)
+                            self._record_outcomes(workspace_id, run.run_id, outcomes)
                             recorded.update({item.row_id: item for item in outcomes})
                             publish_progress(changed_rows=len(outcomes), force=True)
                             if unknown:
@@ -2053,7 +2065,7 @@ class ExecutionService:
                                 )
                             ] = identifier
                             identity_cache[_identity_cache_key(row)] = identifier
-                        self.journal.record_outcomes(
+                        self._record_outcomes(
                             workspace_id, run.run_id, outcomes
                         )
                         recorded.update({item.row_id: item for item in outcomes})
@@ -2144,7 +2156,7 @@ class ExecutionService:
                             status=ExecutionRowStatus.COMMITTED,
                             odoo_id=record_id,
                         )
-                self.journal.record_outcomes(workspace_id, run.run_id, (outcome,))
+                self._record_outcomes(workspace_id, run.run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 publish_progress(
                     changed_rows=1,
@@ -2774,6 +2786,12 @@ class ExecutionService:
                             )
                         for alias in requirement["aliases"]:
                             identity_cache[alias] = identifier
+        except OdooIdentityLookupUnavailable as error:
+            raise WorkspaceError(
+                f"{error} This load stopped before sending any records. "
+                "Check the Odoo connection, then run Check changes again.",
+                load_failure_code=error.load_failure_code,
+            ) from error
         except OdooWriteRejected as error:
             raise WorkspaceError(
                 "Odoo identity verification failed before loading",
@@ -2821,6 +2839,17 @@ class ExecutionService:
                         load_failure_code="LOAD_A_GENERATED_ODOO_RELATIONSHIP_RECEIPT_WAS_NOT_JOURNALLED",
                     )
 
+    def _record_outcomes(
+        self,
+        workspace_id: str,
+        run_id: str,
+        rows: Sequence[ExecutionRowAttempt],
+    ) -> None:
+        """Measure each durable outcome write without changing its boundary."""
+
+        with observe_load_local_phase("journal_after_call"):
+            self.journal.record_outcomes(workspace_id, run_id, rows)
+
     def _start_transport_batch(
         self,
         workspace_id: str,
@@ -2856,11 +2885,12 @@ class ExecutionService:
             )
             for row in rows
         )
-        self.journal.record_batch_started(
-            workspace_id,
-            run_id,
-            attempts,
-        )
+        with observe_load_local_phase("journal_before_call"):
+            self.journal.record_batch_started(
+                workspace_id,
+                run_id,
+                attempts,
+            )
         observe_journal_batch(attempts)
         recorded.update({item.row_id: item for item in attempts})
 
@@ -3079,7 +3109,7 @@ class ExecutionService:
                 )
             )
         if outcomes:
-            self.journal.record_outcomes(workspace_id, run_id, outcomes)
+            self._record_outcomes(workspace_id, run_id, outcomes)
             recorded.update({item.row_id: item for item in outcomes})
 
         for row, projection_field, target_model, projected_id in observed:
@@ -3128,7 +3158,7 @@ class ExecutionService:
                 continue
             if dependencies is not None and dependencies.blocks(row.row_id):
                 outcome = replace(attempt, safe_error="Created; relationship completion is waiting because a required record was rejected")
-                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                self._record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 progress()
                 continue
@@ -3153,7 +3183,7 @@ class ExecutionService:
                         f"update failed: {error}"
                     ),
                 )
-                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                self._record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 if dependencies is not None:
                     dependencies.reject(row.row_id)
@@ -3188,7 +3218,7 @@ class ExecutionService:
                     safe_error=str(error),
                     diagnostic=_write_diagnostic(error, row, method="write"),
                 )
-                self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                self._record_outcomes(workspace_id, run_id, (outcome,))
                 recorded[row.row_id] = outcome
                 progress()
                 return True, next_transport_batch
@@ -3203,7 +3233,7 @@ class ExecutionService:
                     ),
                 )
                 if not continuation or not can_set_aside(error):
-                    self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+                    self._record_outcomes(workspace_id, run_id, (outcome,))
                     recorded[row.row_id] = outcome
                     progress()
                     return True, next_transport_batch
@@ -3215,7 +3245,7 @@ class ExecutionService:
                     status=ExecutionRowStatus.COMMITTED,
                     safe_error="",
                 )
-            self.journal.record_outcomes(workspace_id, run_id, (outcome,))
+            self._record_outcomes(workspace_id, run_id, (outcome,))
             recorded[row.row_id] = outcome
             progress()
         return False, next_transport_batch
@@ -3651,7 +3681,7 @@ class ExecutionService:
                 ExecutionRowStatus.RETRY_READY,
             }
         )
-        self.journal.record_outcomes(workspace_id, run_id, outcomes)
+        self._record_outcomes(workspace_id, run_id, outcomes)
         recorded.update({item.row_id: item for item in outcomes})
 
 

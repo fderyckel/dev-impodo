@@ -139,8 +139,35 @@ when you deliberately want to restrict the transfer population.
 
 Choosing **Match within** a Company does not map that source company to a
 differently identified destination company. The company must be found using
-its own selected matching fields. The company chosen for the load controls the
-operation context separately.
+its own selected matching fields or the explicit destination-value mapping
+below. The company chosen for the load controls the operation context separately.
+
+When a linked record already exists under a different name or code, use
+**Use different destination values**. For example, a saved link to `Company A`
+can explicitly use existing `Company B` in the destination.
+
+1. For that reference record type, choose **Use only to match related
+   destination records** or **Reuse existing destination records only**.
+2. Select one matching field and leave its **Match within** choice at
+   **All records**. Check the destination matches if the mapping inputs are
+   not yet shown.
+3. Expand **Use different destination values**. Enter the captured identifier
+   under **Source value** and the exact existing identifier under
+   **Destination value**.
+4. Select **Check destination matches** to validate and save the choice.
+
+The destination value must identify exactly one accessible existing record.
+The source value must belong to the included source records. Distinct source
+records cannot be combined into one destination record. Impodo uses the
+destination value for matching and links; it preserves the captured source and
+does not rename, create or update the reference record. An aliased existing
+parent can also supply the **Match within** scope for its children.
+
+Clear both inputs and check again to remove a mapping. Another blank pair
+appears after a successful check when you need another mapping. If **Review the
+saved reference mappings** appears because the saved choices cannot be opened,
+review the replacement values and explicitly confirm their replacement. Blank
+replacement values clear the saved mappings.
 
 For a BOM transfer, choose **Use only to match related destination records**
 for **Company**. The frozen Company rows then remain lookup evidence for the
@@ -174,6 +201,11 @@ Odoo or the frozen evidence.
 1. In Stage 5, open **Transfer order** and select **Validate transfer order**.
 2. Confirm that supporting records appear before records that use them.
 3. Open **Transfer contents**.
+
+**Reviewed destination values** lists how many reference mappings each record
+type uses. Select **Review destination value mappings** to inspect or change
+them in destination matching. Stage 5 shows counts rather than the mapped
+business values. Changed mappings require fresh checks and transfer approval.
 
 A **wave** is one group of record types that Impodo can load together. Impodo
 calculates the waves from the saved relationships; you do not arrange them by
@@ -228,6 +260,14 @@ to **Match destination data**, rebuild and approve the transfer package, then
 run preflight again. If a write was interrupted, do not start a second load.
 Use **Assess and resume interrupted transfer** or **Verify what happened in
 Odoo**, whichever the saved outcome page offers.
+
+If Impodo reports that a saved destination check or transfer review uses a
+retired format, return to **Match destination data** and check the destination
+again. Rebuild and approve the transfer review before running preflight. The
+captured source remains unchanged. **Refresh the destination review before
+loading** points to the next required step. If loading already started, inspect
+the saved outcome first; the retired approval cannot authorize another load or
+resume an interrupted write.
 
 ## Before you start
 
@@ -300,6 +340,14 @@ write; verification remains a separate read-only check.
 
 ## Understand a stopped load
 
+Before sending records, Impodo checks the existing Odoo records used by the
+load. If that connection is interrupted, Impodo retries the read within its
+configured limit. If every attempt fails, the message identifies the lookup
+failure and confirms that this load stopped before sending records. Check the
+Odoo connection, then run **Check changes** again. If a write response is lost,
+use the saved load's recovery actions to establish what Odoo accepted before
+continuing.
+
 With **Set aside rejected records and continue**, Impodo isolates a known
 rejection, retains its diagnostic, and continues independent records. A rejected
 parent blocks records that need it. Previously accepted records remain in Odoo.
@@ -345,6 +393,13 @@ and saved results. The bundle's `diagnosis.md` explains the recorded cause,
 what is known about changes in Odoo, and the next safe action. It also lists
 missing evidence. An older bundle cannot recover an error that Impodo did
 not record. Keep using the saved outcome to verify or recover uncertain work.
+
+If loading is unusually slow, create the bundle after the slow action and note
+which action you performed. It includes available timing measurements,
+application and library versions, and computer capacity information to help
+support distinguish local preparation from Odoo calls. Missing measurements are
+identified as unavailable. These measurements do not identify antivirus or disk
+problems by themselves.
 
 ![A fictional load outcome separates one written record, one rejected record, and one record that was not attempted.](../../images/user/16h-load-rejection-diagnostic.png)
 
