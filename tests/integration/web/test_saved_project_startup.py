@@ -52,6 +52,20 @@ class SavedProjectStartupTests(unittest.TestCase):
     def test_restart_retains_projects_created_from_the_first_project_baseline(
         self,
     ) -> None:
+        self._assert_restart_retains_projects()
+
+    def test_restart_upgrades_both_registry_v2_layouts_and_opens_saved_files(
+        self,
+    ) -> None:
+        for missing_profile in (True, False):
+            with self.subTest(missing_profile=missing_profile):
+                self._assert_restart_retains_projects(
+                    historical_registry=True, missing_profile=missing_profile
+                )
+
+    def _assert_restart_retains_projects(
+        self, *, historical_registry: bool = False, missing_profile: bool = False
+    ) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / "projects"
             secrets = MemorySecretStore()
@@ -85,6 +99,15 @@ class SavedProjectStartupTests(unittest.TestCase):
                 )
                 self.assertEqual(uploaded.status_code, 303)
             before = _saved_rows(root)
+            if historical_registry:
+                with duckdb.connect(str(root / "registry.duckdb")) as connection:
+                    if missing_profile:
+                        connection.execute("DROP TABLE saved_odoo_restore_profile")
+                    connection.execute("UPDATE schema_version SET version = 2")
+                    connection.execute(
+                        "INSERT INTO schema_migration VALUES "
+                        "(1, 2, 'saved-odoo-data-and-restore-v2')"
+                    )
             schemas = {
                 "registry.duckdb": (MIGRATION_REGISTRY_GENERATION, MIGRATION_REGISTRY_VERSION),
                 "data-version.duckdb": (DATA_VERSION_STORE_GENERATION, DATA_VERSION_STORE_VERSION),
@@ -127,7 +150,12 @@ class SavedProjectStartupTests(unittest.TestCase):
                             )
                             self.assertEqual(
                                 connection.execute(
-                                    "SELECT * FROM schema_migration"
+                                    "SELECT * FROM schema_migration ORDER BY to_version"
                                 ).fetchall(),
-                                [],
+                                [
+                                    (1, 2, "saved-odoo-data-and-restore-v2"),
+                                    (2, 3, "saved-odoo-restore-profile-v3"),
+                                ]
+                                if historical_registry and path.name == "registry.duckdb"
+                                else [],
                             )

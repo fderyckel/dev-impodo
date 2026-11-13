@@ -4,82 +4,65 @@
     <span><strong>Build a hierarchy from separate fields</strong><small>Use this when one field contains the parent and another contains its child.</small></span>
   </summary>
 
-  {% if model_catalog %}
+  {% if model_catalog or submitted %}
     {% for source_view in related_source_views %}
       {% set dataset = source_view.dataset %}
       {% set values = submitted if submitted.get('source_dataset_id') == dataset.dataset_id|string else {} %}
       {% set edit_rule = pending_hierarchy.rule if pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id else none %}
       <details class="source-preparation-choice" id="hierarchy-source-{{ dataset.dataset_id }}" {% if (loop.first and not submitted) or values or (pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id) %}open{% endif %}>
         <summary><span><strong>{{ dataset.name }}</strong><small>{{ dataset.row_count }} rows · {{ dataset.columns|length }} fields</small></span></summary>
-        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview" data-source-editor data-source-source-id="{{ dataset.dataset_id }}">
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/preview" class="hierarchy-form" data-hierarchy-editor data-source-editor data-source-source-id="{{ dataset.dataset_id }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ values.get('expected_parent_version', plan.version if plan else '') }}">
           <input type="hidden" name="source_dataset_id" value="{{ dataset.dataset_id }}">
-          <p>Choose hierarchy levels from your file. If you select an existing Odoo parent below, level 1 will sit beneath it.</p>
-          <div class="form-grid">
-            {% for level in range(1, 6) %}
-              <label>
-                Hierarchy level {{ level }}{% if level == 2 %} (optional beneath an existing parent){% elif level > 2 %} (optional){% endif %}
-                <select name="hierarchy_level_{{ level }}" {% if level == 1 %}required{% endif %}>
-                  <option value="">{% if level <= 2 %}Choose level {{ level }}{% else %}No further level{% endif %}</option>
-                  {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('hierarchy_level_' ~ level, edit_rule.source_level_column_keys[level - 1] if edit_rule and level <= (edit_rule.source_level_column_keys|length) else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
-                </select>
-              </label>
-            {% endfor %}
-            <label>
-              Name shown in Impodo
-              <input name="output_dataset_name" value="{{ values.get('output_dataset_name', edit_rule.output_dataset_name if edit_rule else '') }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
-            </label>
-            <label>
-              Type of Odoo record
-              <input name="target_model" aria-label="Type of Odoo record" value="{{ values.get('target_model', edit_rule.target_model if edit_rule else '') }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
-            </label>
-          </div>
-          <details class="technical-details"{% if values.get('existing_parent_choice') or values.get('existing_source_levels', '0') != '0' or hierarchy_parent_outcome %} open{% endif %}>
-            <summary>Use parents that already exist in Odoo</summary>
+          {% set start_mode = values.get('hierarchy_start', 'existing' if values.get('existing_parent_choice') or values.get('existing_source_levels', '0') != '0' or hierarchy_parent_outcome else 'source') %}
+          <section class="hierarchy-step" aria-label="Odoo record type">
+            <h3>1. Choose the Odoo record type</h3>
             <div class="form-grid">
-              <div>
-                <label>Company for this load
-                <select name="hierarchy_company_id">
-                  <option value="">Choose a company</option>
-                  {% if hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}
-                    {% for company in hierarchy_parent_outcome.companies.choices %}<option value="{{ company.company_id }}"{% if values.get('hierarchy_company_id', workspace_state.odoo_company.company_id|string if workspace_state.odoo_company else '') == company.company_id|string %} selected{% endif %}>{{ company.name }}</option>{% endfor %}
-                  {% elif workspace_state.odoo_company %}<option value="{{ workspace_state.odoo_company.company_id }}" selected>{{ workspace_state.odoo_company.name }}</option>{% endif %}
-                </select>
-                <small>Load companies, then choose the company for this import. This selection continues into the following stages.</small>
-                </label>
-                <div class="actions"><button class="button secondary" type="submit" name="hierarchy_lookup_action" value="companies" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" formnovalidate>Load companies</button></div>
+              <label>Type of Odoo record
+                <input name="target_model" aria-label="Type of Odoo record" value="{{ values.get('target_model', edit_rule.target_model if edit_rule else '') }}" list="derived-target-models" placeholder="Start typing an Odoo record type" autocomplete="off" required>
+              </label>
+              <label>Name shown in Impodo
+                <input name="output_dataset_name" value="{{ values.get('output_dataset_name', edit_rule.output_dataset_name if edit_rule else '') }}" pattern="[a-z][a-z0-9_]{0,62}" placeholder="related_records" required>
+              </label>
+            </div>
+          </section>
+          <section class="hierarchy-step" aria-label="Starting parent">
+            <h3>2. Choose where the hierarchy starts</h3>
+            <div class="choice-grid">
+              <label class="mode-card"><input type="radio" name="hierarchy_start" value="source"{% if start_mode == 'source' %} checked{% endif %}><span><strong>At the top level</strong><small>Start with the first field from your file.</small></span></label>
+              <label class="mode-card"><input type="radio" name="hierarchy_start" value="existing"{% if start_mode == 'existing' %} checked{% endif %}><span><strong>Under an existing Odoo parent</strong><small>Choose its full path from the target database.</small></span></label>
+            </div>
+            {% include "derived_entities/_hierarchy_parents.html" %}
+          </section>
+          <section class="hierarchy-step" aria-label="Levels from your file">
+            <h3>3. Add the levels from your file</h3>
+            <p>Choose fields in parent-to-child order: at least two at the top level, or one beneath an existing Odoo parent.</p>
+            <div class="form-grid">
+              {% for level in range(1, 3) %}
+                {% include "derived_entities/_hierarchy_level.html" %}
+              {% endfor %}
+            </div>
+            <details{% if values.get('hierarchy_level_3') or values.get('hierarchy_level_4') or values.get('hierarchy_level_5') or (edit_rule and edit_rule.source_level_column_keys|length > 2) %} open{% endif %}>
+              <summary>Add more levels (optional)</summary>
+              <div class="form-grid">
+                {% for level in range(3, 6) %}{% include "derived_entities/_hierarchy_level.html" %}{% endfor %}
               </div>
-              <label>Filter Odoo parents (optional)
-                <input name="existing_parent_search" value="{{ values.get('existing_parent_search', '') }}" maxlength="200" placeholder="Leave blank to browse Odoo parents">
-                <small>Load the list from Odoo, or enter part of a name to narrow it. Choose the actual parent in the list below.</small>
-              </label>
-              <label>Starting parent in Odoo
-                <select name="existing_parent_choice">
-                  <option value="">Start with the source fields</option>
-                  {% if hierarchy_parent_outcome and hierarchy_parent_outcome.choices %}
-                    {% for choice in hierarchy_parent_outcome.choices %}<option value="{{ choice.value }}"{% if choice.value == values.get('existing_parent_choice', '') %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}
-                  {% endif %}
-                  {% if values.get('existing_parent_choice') and (not hierarchy_parent_outcome or values.get('existing_parent_choice') not in hierarchy_parent_outcome.choices|map(attribute='value')|list) %}<option value="{{ values.get('existing_parent_choice') }}" selected>Previously selected parent — checked again before saving</option>{% endif %}
-                </select>
-                <small>Select a full path fetched from Odoo. The source levels will sit beneath it.</small>
-              </label>
+            </details>
+            <p class="notice" data-hierarchy-path aria-live="polite">Your hierarchy: choose the levels from your file.</p>
+            <details class="technical-details"{% if values.get('existing_source_levels', '0') != '0' %} open{% endif %}>
+              <summary>Some file levels already exist in Odoo</summary>
               <label>Source levels that must already exist
                 <select name="existing_source_levels">
                   <option value="0">None — follow the reviewed import rules</option>
                   {% for count in range(1, 6) %}<option value="{{ count }}"{% if values.get('existing_source_levels', edit_rule.existing_parent.existing_source_levels|string if edit_rule and edit_rule.existing_parent else '0') == count|string %} selected{% endif %}>First {{ count }} source level{{ 's' if count > 1 else '' }}</option>{% endfor %}
                 </select>
-                <small>This counts the file fields above, starting at hierarchy level 1. The selected Odoo parent is already reused. Missing or ambiguous paths need attention before loading.</small>
+                <small>Count only the file fields above. The starting parent selected from Odoo is already reused.</small>
               </label>
-            </div>
-            <div class="actions"><button class="button secondary" type="submit" name="hierarchy_lookup_action" value="parents" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" formnovalidate>Load existing Odoo parents</button><a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Review Odoo access</a></div>
-            {% if hierarchy_parent_outcome and hierarchy_parent_outcome.parents_loaded %}
-              {% if hierarchy_parent_outcome.has_more %}<p role="status">Showing 50 Odoo parents. More are available: enter part of a name in Filter Odoo parents (optional), then load the list again.</p>
-              {% elif not hierarchy_parent_outcome.choices %}<p role="status">No Odoo parents match this filter and company. Clear or change the filter, or review Odoo access, then load the list again.</p>
-              {% else %}<p role="status">{{ hierarchy_parent_outcome.choices|length }} Odoo parent{{ 's' if hierarchy_parent_outcome.choices|length != 1 else '' }} loaded. Choose the full path in Starting parent in Odoo.</p>{% endif %}
-            {% endif %}
-            {% if hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}<p>Checking user: {{ hierarchy_parent_outcome.companies.login }}</p>{% endif %}
-          </details>
+            </details>
+          </section>
+          <details class="technical-details hierarchy-step">
+            <summary>Blank values and other options</summary>
           <div class="form-grid">
             <label>
               When a parent is blank but a later level is populated
@@ -123,9 +106,7 @@
             <label>Odoo parent relationship <input name="hierarchy_parent_field" value="{{ values.get('hierarchy_parent_field', edit_rule.existing_parent.parent_field if edit_rule and edit_rule.existing_parent else '') }}" pattern="[a-z_][a-z0-9_]{0,127}" placeholder="Detected when there is one parent relationship"></label>
             <label>Stable source-system namespace <input name="external_id_namespace" value="{{ values.get('external_id_namespace', edit_rule.external_id_namespace if edit_rule else namespace_default) }}" pattern="[a-z][a-z0-9_]{0,39}" required></label>
           </details>
-          <div class="notice">
-            A blank parent cannot become an empty Odoo record. Choose a real fixed parent, make the populated value top-level, set the row aside, or stop for correction.
-          </div>
+          </details>
           <div class="actions"><button class="button primary" type="submit">Preview hierarchy records</button></div>
         </form>
         {% if pending_hierarchy and pending_hierarchy.rule.source_dataset_id == dataset.dataset_id %}{% include "derived_entities/_hierarchy_review.html" %}{% endif %}

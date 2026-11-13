@@ -290,14 +290,33 @@ for the local measurement and remaining native qualification.
 Compiler support does not by itself admit a run to the high-volume route.
 Full-pipeline admission also checks snapshots, dataset shape, and downstream
 quality and normalization capabilities. The current limits are 100,000 physical
-rows for qualified exact-snapshot, single-dataset native preparation, 50,000
-for current direct Python-fallback, relationship, or native relational-identity
-routes pending scale qualification, 50,000 for one low-cardinality
+rows for qualified exact-snapshot native preparation, including direct
+relationships and relational identities. An otherwise supported direct mapping
+whose only compiler fallback is `ROW_INCLUSION` also receives this limit when
+every frozen snapshot matches. That route retains the shared Python admission
+evaluator and reports `BOUNDED_PYTHON` with `PARQUET_ROW_INCLUSION`; it does not
+claim native execution. Other unsupported direct transformations retain
+50,000 rows. The limit is also 50,000 for one low-cardinality
 single-column lookup-derived table without advanced quality or reference data,
 and 25,000 for other derived or materialized routes.
 Reviewed exact-join graphs use the separate composed route below. Extending
 the remaining direct and general derived qualification belongs to the
 [remaining scale work](../../plans/00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
+
+Input validation, direct transformation, canonical publication, quality and
+normalization each reuse local database owners within one synchronous phase.
+Owners close before the next phase or a failed retry. Each repository keeps
+its own transaction, and jobs do not share connections. The
+[full-service regression](../../../tests/integration/artifacts/test_row_inclusion_preparation.py)
+checks failure cleanup and phase boundaries. The
+[capacity tests](../../../tests/application/workspace/preparation/test_row_inclusion_capacity.py)
+retain the lower limit for missing snapshots and other unsupported operations.
+The [scale qualification](../../../tests/performance/test_row_inclusion_preparation_scale.py)
+checks 54,191 and 100,000 rows through admission, row review, preparation,
+quality and normalization, with fixed connection and schema budgets and a
+bulk-transport SQL budget. The isolated fixture performs 39 connections and
+28 schema validations at both sizes; source rows never select one database
+connection per record.
 
 ### Joined relationship matches and Recipe reuse
 

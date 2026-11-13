@@ -47,7 +47,7 @@ from impodo.domain.odoo.company import (
     OdooCompanyAccess,
     OdooCompanySelection,
 )
-from impodo.domain.odoo.company_domains import linked_value_domain
+from impodo.domain.odoo.company_domains import hierarchy_parent_domain, linked_value_domain
 from impodo.domain.odoo.compatibility import OdooVersionProblem, recognize_odoo_version
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -1051,6 +1051,38 @@ class Json2ReadConnector:
             model: tuple(sorted(items, key=lambda item: item.name))
             for model, items in by_model.items()
         }
+
+    def hierarchy_lookup_domain(
+        self, metadata: MetadataSnapshot, model_name: str, parent_field: str,
+        company_field: str,
+    ) -> tuple[object, ...]:
+        """Scope an ordinary self-parent using its captured rule and company field.
+
+        See docs/developer/workflow/01-source-data.md. Company ownership does
+        not require the parent value itself to be a company-dependent property.
+        """
+        model = metadata.models.get(model_name)
+        parent = model.fields.get(parent_field) if model is not None else None
+        company = model.fields.get(company_field) if model is not None else None
+        companies = self._config.context.get("allowed_company_ids")
+        key = (model_name, parent_field)
+        if (
+            not metadata.complete
+            or parent is None or parent.type != "many2one" or parent.relation != model_name
+            or company is None or company.type != "many2one" or company.relation != "res.company"
+            or key not in self._company_domains
+            or not isinstance(companies, (list, tuple)) or len(companies) != 1
+            or type(companies[0]) is not int or companies[0] <= 0
+        ):
+            raise ConnectorIncompleteResultError(
+                "Check the hierarchy's parent relationship and company before choosing a parent."
+            )
+        domain = hierarchy_parent_domain(self._company_domains[key], companies[0], company_field)
+        if domain is None:
+            raise ConnectorIncompleteResultError(
+                "Odoo uses a parent field rule that Impodo cannot safely check. Review the parent relationship in Odoo."
+            )
+        return tuple(domain)
 
     def linked_lookup_domain(self, parent_model: str, field_name: str, related_model: str) -> tuple[Any, ...]:
         """Read the current company-dependent field rule before fetching choices.

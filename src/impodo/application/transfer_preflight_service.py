@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 
+from impodo.domain.odoo_restore import OdooRestorePlan, restore_policy_binding
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.workspace.destination_matching import (
     DESTINATION_CREATE_ONLY_HANDLINGS,
+    DESTINATION_NO_WRITE_HANDLINGS,
     DestinationMatchPlan,
     DestinationModelMatch,
 )
@@ -35,7 +38,17 @@ class TransferPreflightService:
         fresh_match: DestinationMatchPlan,
         *,
         recorded_by: ActorIdentity,
+        restore_plans: Mapping[str, OdooRestorePlan] | None = None,
     ) -> TransferPreflightReport:
+        try:
+            restore_hash = restore_policy_binding(
+                restore_plans, workspace.saved_restore_generation_id,
+                required_models=(item.model for item in fresh_match.model_matches if item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS),
+            )
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
+        if package.restore_policy_hash != restore_hash:
+            raise WorkspaceError("The saved-data field policies changed; rebuild and approve the restore review")
         if (
             workspace.transfer_review_package != package
             or workspace.transfer_review_approval != approval
@@ -129,7 +142,7 @@ class TransferPreflightService:
                     != prior.destination_key_binding_hash
                 ):
                     blockers.add("DESTINATION_RECORD_IDENTITY_DRIFT")
-                observed_write_fields = _effective_write_fields(fresh)
+                observed_write_fields = _effective_write_fields(fresh, (restore_plans or {}).get(item.model))
                 if observed_write_fields != approved_fields:
                     blockers.add("DESTINATION_FIELD_SCOPE_DRIFT")
                 will_write = (
@@ -181,7 +194,7 @@ class TransferPreflightService:
                     ),
                     approved_write_fields=approved_fields,
                     observed_compatible_fields=(
-                        _effective_write_fields(fresh)
+                        _effective_write_fields(fresh, (restore_plans or {}).get(item.model))
                         if fresh
                         else ()
                     ),
@@ -190,7 +203,7 @@ class TransferPreflightService:
             )
 
         fresh_relations = {
-            (item.dataset_id, item.field_name): item
+            (item.dataset_id, _restored_field_name((restore_plans or {}).get(item.model), item.field_name)): item
             for item in fresh_match.relationship_matches
         }
         approved_relation_keys = {
@@ -302,19 +315,25 @@ class TransferPreflightService:
         )
 
 
-def _effective_write_fields(item: DestinationModelMatch) -> tuple[str, ...]:
+def _restored_field_name(plan: OdooRestorePlan | None, name: str) -> str:
+    if plan is None:
+        return name
+    return next((field.destination.name for field in plan.fields if field.source.name == name), name)
+
+
+def _effective_write_fields(item: DestinationModelMatch, plan: OdooRestorePlan | None = None) -> tuple[str, ...]:
     """Return the exact fields the approved model policy could write."""
 
     if item.destination_handling not in DESTINATION_CREATE_ONLY_HANDLINGS:
-        return item.compatible_fields
+        return tuple(sorted(_restored_field_name(plan, name) for name in item.compatible_fields))
     if not item.destination_create_key_count:
         return ()
     return tuple(
         sorted(
             (
-                set(item.minimum_create_fields)
-                | set(item.minimum_create_relationship_fields)
+                {_restored_field_name(plan, name) for name in item.minimum_create_fields}
+                | {_restored_field_name(plan, name) for name in item.minimum_create_relationship_fields}
             )
-            & set(item.compatible_fields)
+            & {_restored_field_name(plan, name) for name in item.compatible_fields}
         )
     )

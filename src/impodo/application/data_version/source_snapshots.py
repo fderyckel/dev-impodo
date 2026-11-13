@@ -387,8 +387,14 @@ def open_source_snapshot_batches(
     snapshot: SourceSnapshot,
     *,
     batch_size: int = SOURCE_SNAPSHOT_COMPATIBILITY_BATCH_ROWS,
+    source_column_keys: frozenset[str] | None = None,
 ) -> Iterator[SelectedSourceBatchStream]:
-    """Expose one verified Parquet snapshot through the bounded row adapter."""
+    """Read bounded typed rows, optionally projecting exact governed columns.
+
+    Validate the complete physical schema before narrowing the Parquet scan.
+    Projection preserves source ordinals and typed values without decoding
+    unrelated columns into Python objects.
+    """
 
     if batch_size < 1:
         raise ValueError("Source batch size must be positive")
@@ -396,15 +402,21 @@ def open_source_snapshot_batches(
     if snapshot_path.is_symlink() or not snapshot_path.is_file():
         raise SourceLoadError("stored source snapshot is unavailable")
     _validate_physical_schema(snapshot_path, snapshot.schema)
+    columns = snapshot.schema.columns
+    if source_column_keys is not None:
+        if not source_column_keys <= {item.stable_key for item in columns}:
+            raise SourceLoadError("Source snapshot projection contains unknown columns")
+        columns = tuple(item for item in columns if item.stable_key in source_column_keys)
     rows = _snapshot_rows(
         snapshot_path,
         snapshot,
         batch_size=min(batch_size, SOURCE_SNAPSHOT_COMPATIBILITY_BATCH_ROWS),
+        columns=columns,
     )
     yield SelectedSourceBatchStream(
         dataset=snapshot.dataset_name,
         path=snapshot_path,
-        headers=tuple(item.source_name for item in snapshot.schema.columns),
+        headers=tuple(item.source_name for item in columns),
         content_hash=snapshot.source.source_evidence_hash,
         batch_size=batch_size,
         _rows=rows,
@@ -668,6 +680,7 @@ def _snapshot_rows(
     snapshot: SourceSnapshot,
     *,
     batch_size: int,
+    columns: tuple[SourceSnapshotColumn, ...],
 ) -> Iterator[SourceRow]:
     count = 0
     previous_row = 0
@@ -676,12 +689,15 @@ def _snapshot_rows(
         glob=False,
         low_memory=True,
         rechunk=False,
+    ).select(
+        SOURCE_ROW_COLUMN,
+        *(name for column in columns for name in (column.value_column, column.kind_column)),
     ).collect_batches(
         chunk_size=batch_size,
         maintain_order=True,
         engine="streaming",
     ):
-        for row in _frame_source_rows(frame, snapshot.schema):
+        for row in _frame_source_rows(frame, snapshot.schema, columns=columns):
             if row.number <= previous_row:
                 raise SourceLoadError("Parquet snapshot row order is invalid")
             previous_row = row.number
@@ -696,12 +712,14 @@ def _snapshot_rows(
 def _frame_source_rows(
     frame: pl.DataFrame,
     schema: SourceSnapshotSchema,
+    *,
+    columns: tuple[SourceSnapshotColumn, ...] | None = None,
 ) -> Iterator[SourceRow]:
     for physical in frame.iter_rows(named=False):
         number = int(physical[0])
         values: dict[str, object] = {}
         offset = 1
-        for column in schema.columns:
+        for column in schema.columns if columns is None else columns:
             text = physical[offset]
             kind = physical[offset + 1]
             try:

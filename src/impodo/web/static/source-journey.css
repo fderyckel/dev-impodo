@@ -2,6 +2,56 @@
   display: none !important;
 }
 
+.hierarchy-form .hierarchy-step {
+  border-top: 1px solid var(--line);
+  padding: 1.1rem 0;
+}
+
+.hierarchy-form .hierarchy-step:first-of-type {
+  border-top: 0;
+}
+
+.hierarchy-form .hierarchy-step h3 {
+  margin: 0 0 .65rem;
+}
+
+.hierarchy-form label {
+  margin: .55rem 0;
+}
+
+.hierarchy-form .mode-card {
+  align-items: flex-start;
+}
+
+.hierarchy-picker {
+  margin-top: .75rem;
+  padding: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.hierarchy-company,
+.hierarchy-parent-search {
+  display: flex;
+  align-items: flex-end;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+
+.hierarchy-company label,
+.hierarchy-parent-search label {
+  flex: 1 1 16rem;
+}
+
+.hierarchy-company button,
+.hierarchy-parent-search button {
+  margin-bottom: .55rem;
+}
+
+.hierarchy-form [data-hierarchy-path] {
+  margin: 1rem 0;
+}
+
 .source-journey [data-source-focus-target]:focus,
 .source-journey summary:focus:not(:focus-visible) {
   outline: none;

@@ -295,9 +295,13 @@ def compile_preparation_capability(
             snapshots,
             compilation=compilation,
         )
-        native = (
+        qualified_snapshot = (
             transformation_limit
             == COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+        )
+        native = qualified_snapshot and bool(compilation) and all(
+            item.support is ColumnarSupport.SUPPORTED
+            for item in compilation or ()
         )
         relational_identity_native = (
             bool(dataset_routes)
@@ -330,6 +334,8 @@ def compile_preparation_capability(
             transformation_reasons = (
                 "RELATIONAL_IDENTITY_SCALE_UNQUALIFIED",
             )
+        elif qualified_snapshot:
+            transformation_reasons = ("PARQUET_ROW_INCLUSION",)
         else:
             transformation_reasons = ("COLUMNAR_MAPPING_UNSUPPORTED",)
         transformation = PreparationStageCapability(

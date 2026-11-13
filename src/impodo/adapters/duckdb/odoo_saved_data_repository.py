@@ -16,6 +16,7 @@ from datetime import datetime
 import duckdb
 
 from impodo.domain.odoo_saved_data import (
+    SavedOdooCaptureOperation,
     SavedOdooDataDefinition,
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
@@ -92,7 +93,16 @@ class DuckDbSavedOdooDataRepository:
             ).fetchone()
             if existing is not None:
                 current = self._definition(existing)
-                if current != definition:
+                initial = connection.execute(
+                    """SELECT definition_json, content_hash
+                       FROM saved_odoo_data_configuration
+                       WHERE saved_data_id = ? AND configuration_revision = 1""",
+                    [definition.saved_data_id],
+                ).fetchone()
+                if initial is None:
+                    raise self._corruption()
+                created = self._decode_definition(str(initial[0]), str(initial[1]))
+                if created != definition:
                     raise MigrationOperationReplayError(
                         "Saved configuration identity is already used"
                     )
@@ -338,10 +348,120 @@ class DuckDbSavedOdooDataRepository:
         require_uuid(data_version_id, "data_version_id")
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT EXISTS(SELECT 1 FROM saved_odoo_data_version WHERE data_version_id = ?)",
-                [data_version_id],
+                """SELECT EXISTS(SELECT 1 FROM saved_odoo_data_version WHERE data_version_id = ?)
+                   OR EXISTS(SELECT 1 FROM saved_odoo_capture_operation WHERE data_version_id = ?)""",
+                [data_version_id, data_version_id],
             ).fetchone()
         return bool(row and row[0])
+
+    def bind_capture_operation(
+        self, operation: SavedOdooCaptureOperation
+    ) -> SavedOdooCaptureOperation:
+        """Retain one exact refresh workspace before remote publication begins."""
+
+        with self._connect(write=True) as connection:
+            current = self._get_definition(
+                connection, operation.project_id, operation.saved_data_id
+            )
+            existing = self._capture_operation(connection, operation.operation_id)
+            if existing is not None:
+                if existing != operation:
+                    raise MigrationOperationReplayError(
+                        "Capture operation already belongs to another request"
+                    )
+                return existing
+            if (
+                current.revision != operation.expected_revision
+                or current.configuration_revision != operation.configuration_revision
+            ):
+                raise MigrationConflictError(
+                    "Saved configuration changed before capture started"
+                )
+            self._workspace(
+                connection,
+                operation.project_id,
+                operation.workspace_id,
+                data_version_id=operation.data_version_id,
+            )
+            connection.execute(
+                "INSERT INTO saved_odoo_capture_operation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    operation.operation_id,
+                    operation.project_id,
+                    operation.saved_data_id,
+                    operation.expected_revision,
+                    operation.configuration_revision,
+                    operation.workspace_id,
+                    operation.data_version_id,
+                    canonical_json(asdict(operation)),
+                    operation.content_hash,
+                ],
+            )
+        return operation
+
+    def get_capture_operation(
+        self, project_id: str, saved_data_id: str, operation_id: str
+    ) -> SavedOdooCaptureOperation | None:
+        """Recover a pending capture without provisioning a second workspace."""
+
+        self._identifiers(project_id, saved_data_id)
+        require_uuid(operation_id, "operation_id")
+        with self._connect() as connection:
+            self._get_definition(connection, project_id, saved_data_id)
+            operation = self._capture_operation(connection, operation_id)
+        if operation is not None and (
+            operation.project_id != project_id
+            or operation.saved_data_id != saved_data_id
+        ):
+            raise MigrationOperationReplayError(
+                "Capture operation belongs to another saved configuration"
+            )
+        return operation
+
+    def _capture_operation(
+        self, connection: duckdb.DuckDBPyConnection, operation_id: str
+    ) -> SavedOdooCaptureOperation | None:
+        row = connection.execute(
+            """SELECT operation_json, content_hash, operation_id, project_id,
+               saved_data_id, expected_revision, configuration_revision, workspace_id,
+               data_version_id FROM saved_odoo_capture_operation WHERE operation_id = ?""",
+            [operation_id],
+        ).fetchone()
+        if row is None:
+            return None
+        payload = self._payload(
+            str(row[0]), {item.name for item in fields(SavedOdooCaptureOperation)}
+        )
+        try:
+            operation = SavedOdooCaptureOperation(
+                operation_id=str(payload["operation_id"]),
+                project_id=str(payload["project_id"]),
+                saved_data_id=str(payload["saved_data_id"]),
+                expected_revision=int(str(payload["expected_revision"])),
+                configuration_revision=int(str(payload["configuration_revision"])),
+                workspace_id=str(payload["workspace_id"]),
+                data_version_id=str(payload["data_version_id"]),
+                created_at=datetime.fromisoformat(str(payload["created_at"])),
+            )
+        except (KeyError, ValueError, TypeError) as error:
+            raise self._corruption() from error
+        if operation.content_hash != str(row[1]) or tuple(row[2:]) != (
+            operation.operation_id,
+            operation.project_id,
+            operation.saved_data_id,
+            operation.expected_revision,
+            operation.configuration_revision,
+            operation.workspace_id,
+            operation.data_version_id,
+        ):
+            raise self._corruption()
+        self._workspace(
+            connection,
+            operation.project_id,
+            operation.workspace_id,
+            data_version_id=operation.data_version_id,
+        )
+        return operation
 
     def bind_restore(self, binding: SavedOdooRestoreBinding) -> SavedOdooRestoreBinding:
         """Bind a fresh workspace to exactly one retained source generation."""
@@ -396,6 +516,32 @@ class DuckDbSavedOdooDataRepository:
         require_uuid(workspace_id, "workspace_id")
         with self._connect() as connection:
             return self._binding(connection, workspace_id)
+
+    def list_restore_bindings(
+        self, project_id: str, saved_data_id: str, *, limit: int = 100, offset: int = 0
+    ) -> tuple[SavedOdooRestoreBinding, ...]:
+        """Page all restore generations for a saved definition in one bulk read."""
+
+        self._identifiers(project_id, saved_data_id)
+        self._page(limit, offset)
+        with self._connect() as connection:
+            self._get_definition(connection, project_id, saved_data_id)
+            rows = connection.execute(
+                """SELECT binding_json, content_hash, workspace_id FROM saved_odoo_restore_binding
+                   WHERE project_id = ? AND saved_data_id = ?
+                   ORDER BY json_extract_string(binding_json, '$.created_at'), workspace_id
+                   LIMIT ? OFFSET ?""",
+                [project_id, saved_data_id, limit, offset],
+            ).fetchall()
+        bindings = tuple(
+            self._decode_binding(str(row[0]), str(row[1]), str(row[2])) for row in rows
+        )
+        if any(
+            item.project_id != project_id or item.saved_data_id != saved_data_id
+            for item in bindings
+        ):
+            raise self._corruption()
+        return bindings
 
     def save_restore_profile(
         self, profile: SavedOdooRestoreProfile, *, expected_revision: int | None
@@ -555,24 +701,7 @@ class DuckDbSavedOdooDataRepository:
         ).fetchone()
         if row is None:
             return None
-        payload = self._payload(
-            str(row[0]), {item.name for item in fields(SavedOdooRestoreBinding)}
-        )
-        try:
-            binding = SavedOdooRestoreBinding(
-                project_id=str(payload["project_id"]),
-                workspace_id=str(payload["workspace_id"]),
-                saved_data_id=str(payload["saved_data_id"]),
-                version_number=int(str(payload["version_number"])),
-                source_workspace_id=str(payload["source_workspace_id"]),
-                data_version_id=str(payload["data_version_id"]),
-                generation_id=str(payload["generation_id"]),
-                created_at=datetime.fromisoformat(str(payload["created_at"])),
-            )
-        except (KeyError, TypeError, ValueError) as error:
-            raise self._corruption() from error
-        if binding.workspace_id != workspace_id or binding.content_hash != str(row[1]):
-            raise self._corruption()
+        binding = self._decode_binding(str(row[0]), str(row[1]), workspace_id)
         source = self._get_version(
             connection,
             binding.project_id,
@@ -591,6 +720,32 @@ class DuckDbSavedOdooDataRepository:
             data_version_id=binding.data_version_id,
             frozen=True,
         )
+        return binding
+
+    def _decode_binding(
+        self, encoded: str, expected_hash: str, workspace_id: str
+    ) -> SavedOdooRestoreBinding:
+        payload = self._payload(
+            encoded, {item.name for item in fields(SavedOdooRestoreBinding)}
+        )
+        try:
+            binding = SavedOdooRestoreBinding(
+                project_id=str(payload["project_id"]),
+                workspace_id=str(payload["workspace_id"]),
+                saved_data_id=str(payload["saved_data_id"]),
+                version_number=int(str(payload["version_number"])),
+                source_workspace_id=str(payload["source_workspace_id"]),
+                data_version_id=str(payload["data_version_id"]),
+                generation_id=str(payload["generation_id"]),
+                created_at=datetime.fromisoformat(str(payload["created_at"])),
+            )
+        except (KeyError, TypeError, ValueError) as error:
+            raise self._corruption() from error
+        if (
+            binding.workspace_id != workspace_id
+            or binding.content_hash != expected_hash
+        ):
+            raise self._corruption()
         return binding
 
     def _get_definition(

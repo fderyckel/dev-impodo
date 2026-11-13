@@ -18,10 +18,15 @@ from .structure import read_table_columns
 
 MIGRATION_REGISTRY_GENERATION = "impodo-migration-registry-2026-10-31-project-root"
 MIGRATION_REGISTRY_BASELINE_VERSION = 1
-MIGRATION_REGISTRY_VERSION = 2
+MIGRATION_REGISTRY_VERSION = 4
 
 
 EXPECTED_REGISTRY_COLUMNS = {
+    "saved_odoo_capture_operation": (
+        "operation_id", "project_id", "saved_data_id", "expected_revision",
+        "configuration_revision", "workspace_id", "data_version_id",
+        "operation_json", "content_hash",
+    ),
     "saved_odoo_data_identity": ("saved_data_id", "project_id"),
     "saved_odoo_data_definition": (
         "saved_data_id", "project_id", "revision", "configuration_revision",
@@ -662,7 +667,19 @@ def _create_saved_odoo_data(connection: duckdb.DuckDBPyConnection) -> None:
             content_hash VARCHAR NOT NULL,
             FOREIGN KEY (saved_data_id, version_number) REFERENCES
                 saved_odoo_data_version(saved_data_id, version_number)
-        );
+        )
+        """
+    )
+    _create_saved_odoo_restore_profile(connection)
+
+
+def _create_saved_odoo_restore_profile(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Create the optional remembered destination choices for saved data."""
+
+    connection.execute(
+        """
         CREATE TABLE saved_odoo_restore_profile (
             profile_id VARCHAR PRIMARY KEY,
             project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
@@ -676,8 +693,49 @@ def _create_saved_odoo_data(connection: duckdb.DuckDBPyConnection) -> None:
     )
 
 
+def _upgrade_saved_odoo_restore_profile(
+    connection: duckdb.DuckDBPyConnection,
+) -> None:
+    """Accept v2 with or without profiles, then require the exact v3 layout.
+
+    Early v2 registries predate restore profiles. Later v2 registries already
+    contain this table and may have saved choices. The shared upgrade runner
+    validates every table before committing either variant; any other layout
+    difference rolls back the table, version, and ledger together.
+    """
+
+    if "saved_odoo_restore_profile" not in _tables(connection):
+        _create_saved_odoo_restore_profile(connection)
+
+
+def _create_saved_odoo_capture_operation(connection: duckdb.DuckDBPyConnection) -> None:
+    """Keep refresh ownership durable before capture and acceptance publish."""
+
+    connection.execute(
+        """
+        CREATE TABLE saved_odoo_capture_operation (
+            operation_id VARCHAR PRIMARY KEY,
+            project_id VARCHAR NOT NULL REFERENCES migration_project_identity(project_id),
+            saved_data_id VARCHAR NOT NULL REFERENCES saved_odoo_data_identity(saved_data_id),
+            expected_revision INTEGER NOT NULL CHECK (expected_revision >= 1),
+            configuration_revision INTEGER NOT NULL CHECK (configuration_revision >= 1),
+            workspace_id VARCHAR NOT NULL REFERENCES migration_workspace_identity(workspace_id),
+            data_version_id VARCHAR NOT NULL REFERENCES data_version_identity(data_version_id),
+            operation_json VARCHAR NOT NULL,
+            content_hash VARCHAR NOT NULL,
+            FOREIGN KEY (saved_data_id, configuration_revision) REFERENCES
+                saved_odoo_data_configuration(saved_data_id, configuration_revision)
+        )
+        """
+    )
+
+
 MIGRATION_REGISTRY_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     1: ForwardSchemaUpgrade("saved-odoo-data-and-restore-v2", _create_saved_odoo_data),
+    2: ForwardSchemaUpgrade(
+        "saved-odoo-restore-profile-v3", _upgrade_saved_odoo_restore_profile
+    ),
+    3: ForwardSchemaUpgrade("saved-odoo-capture-recovery-v4", _create_saved_odoo_capture_operation),
 }
 
 
@@ -1245,6 +1303,7 @@ def _initialize_migration_registry(
         _create_production_run_values(connection)
         _create_correction_run_binding(connection)
         _create_saved_odoo_data(connection)
+        _create_saved_odoo_capture_operation(connection)
         create_schema_migration_ledger(connection)
         connection.commit()
     except Exception:

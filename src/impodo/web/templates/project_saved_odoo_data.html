@@ -4,6 +4,7 @@
   <script src="{{ url_for('static', path='/saved-odoo-data.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import decision_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{{ project.display_name }}</p>
@@ -16,10 +17,6 @@
       </span>
     {% endif %}
   </div>
-
-  {% if error %}
-    <div class="notice error" role="alert"><strong>{{ error }}</strong><p>Review the affected choices below and try the action again.</p></div>
-  {% endif %}
 
   {% if job %}
     {% set job_status = job.status.value if job.status.value is defined else job.status %}

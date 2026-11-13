@@ -85,9 +85,6 @@ from impodo.domain.workspace.workbench import (
     WorkspaceState,
     WorkspaceStatus,
 )
-from tests.support.paths import REPOSITORY_ROOT
-
-ROOT = REPOSITORY_ROOT
 HASH_B = "sha256:" + "b" * 64
 COLUMNAR_TRANSFORMATIONS = PolarsTransformationAdapter()
 
@@ -112,8 +109,7 @@ class _WorkspaceAccess:
 
 class SourceSnapshotIngestionTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         self.database = DuckDbWorkspaceDatabase(self.root)
         self.workspace_states = WorkspaceStateRepository(self.database)
@@ -1291,6 +1287,16 @@ class SourceSnapshotIngestionTests(unittest.TestCase):
             expected_sha256=snapshot.parquet_sha256,
         ) as path:
             table = load_source_snapshot_table(path, snapshot)
+            for column in snapshot.schema.columns:
+                with self.subTest(projected_column=column.source_name):
+                    with open_source_snapshot_batches(
+                        path, snapshot, source_column_keys=frozenset({column.stable_key}),
+                    ) as source:
+                        projected = tuple(row for batch in source.iter_batches() for row in batch)
+                    self.assertEqual(
+                        [(row.number, dict(row.values)) for row in projected],
+                        [(row.number, {column.source_name: row.values[column.source_name]}) for row in table.rows],
+                    )
         row = table.rows[0]
         self.assertEqual(row.values["Text"], "Ångström 東京")
         self.assertIs(row.values["Boolean"], True)

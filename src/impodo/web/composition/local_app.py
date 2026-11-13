@@ -23,6 +23,16 @@ from fastapi import FastAPI
 from starlette.middleware.sessions import SessionMiddleware
 
 from impodo.adapters.duckdb.business_intent_repository import BusinessIntentRepository
+from impodo.adapters.duckdb.odoo_saved_data_archive import OdooSavedDataArchiveBackend
+from impodo.adapters.duckdb.odoo_saved_data_projection import (
+    OdooSavedDataProjectionRepository,
+)
+from impodo.adapters.duckdb.odoo_saved_data_repository import (
+    DuckDbSavedOdooDataRepository,
+)
+from impodo.adapters.duckdb.odoo_saved_source_company import (
+    OdooSavedSourceCompanyRepository,
+)
 from impodo.adapters.duckdb.scoped_project_query import (
     LocalScopedMigrationProjectQuery,
 )
@@ -33,6 +43,10 @@ from impodo.adapters.jobs.inline import InlineJobDispatcher
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
 from impodo.adapters.odoo.local_stack import LocalStackService
+from impodo.application.odoo_saved_data_archive import OdooSavedDataArchiveService
+from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
+from impodo.application.odoo_saved_data_service import SavedOdooDataService
+from impodo.application.odoo_saved_data_workspaces import OdooSavedDataWorkspaceService
 from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
@@ -98,12 +112,6 @@ from ...adapters.duckdb.migration_workspace_state_repository import (
 from ...adapters.duckdb.navigation_repository import WorkspaceNavigationRepository
 from ...adapters.duckdb.normalization_repository import NormalizationRepository
 from ...adapters.duckdb.odoo_provenance_repository import OdooProvenanceRepository
-from impodo.adapters.duckdb.odoo_saved_data_repository import DuckDbSavedOdooDataRepository
-from impodo.adapters.duckdb.odoo_saved_data_projection import OdooSavedDataProjectionRepository
-from impodo.adapters.duckdb.odoo_saved_source_company import OdooSavedSourceCompanyRepository
-from impodo.application.odoo_saved_data_service import SavedOdooDataService
-from impodo.application.odoo_saved_data_jobs import SavedOdooDataJobManager
-from impodo.application.odoo_saved_data_workspaces import OdooSavedDataWorkspaceService
 from ...adapters.duckdb.preflight_repository import PreflightRepository
 from ...adapters.duckdb.preparation_recovery_repository import (
     PreparationRecoveryRepository,
@@ -768,6 +776,15 @@ def create_local_app(
         local_operation=run_local_operation_sync,
     )
     context.saved_odoo_jobs = SavedOdooDataJobManager()
+    context.saved_odoo_archive = OdooSavedDataArchiveService(
+        saved_data=context.saved_odoo_data,
+        backend=OdooSavedDataArchiveBackend(
+            saved_data=context.saved_odoo_data,
+            workspace_factory=cast(OdooSavedDataWorkspaceService, context.saved_odoo_data.workspaces),
+            sources=source_repository, schemas=schema_repository,
+            provenance=odoo_provenance_repository, artifacts=artifacts,
+        ),
+    )
     context.odoo_provenance.retained_data_version = saved_odoo_repository.retained_data_version
     if preparation_jobs is not None:
         preparation_jobs.set_result_reader(

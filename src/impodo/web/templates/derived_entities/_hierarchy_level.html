@@ -1,0 +1,7 @@
+<label>
+  Hierarchy level {{ level }} ({{ 'first field from your file' if level == 1 else 'child field' if level == 2 else 'optional' }})
+  <select name="hierarchy_level_{{ level }}"{% if level == 1 %} required{% endif %}>
+    <option value="">{{ 'Choose the first field' if level == 1 else 'No further level' }}</option>
+    {% for column in dataset.columns %}<option value="{{ column.stable_key }}"{% if column.stable_key == values.get('hierarchy_level_' ~ level, edit_rule.source_level_column_keys[level - 1] if edit_rule and level <= edit_rule.source_level_column_keys|length else '') %} selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+  </select>
+</label>

@@ -346,9 +346,15 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         # Admission opens registry/workspace before the retained page scope.
         # The page needs four owners: registry, workspace, engine (saved rules
         # and schema), and Data version (human-readable source column names).
+        # Correction-run admission and continuation each read their binding;
+        # include those two fixed checks in the page's statement budget.
         self.assertLessEqual(timings.connection_count, 6)
         self.assertLessEqual(timings.schema_check_count, 4)
-        self.assertLessEqual(len(statements), 42)
+        self.assertEqual(
+            sum("FROM correction_run_binding" in statement for statement in statements),
+            2,
+        )
+        self.assertLessEqual(len(statements), 44)
         self.assertEqual(timings.lock_retry_count, 0)
 
     def test_prepare_rejects_bad_source_hash_before_publication_and_redirects(

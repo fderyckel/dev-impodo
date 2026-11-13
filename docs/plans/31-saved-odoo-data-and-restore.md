@@ -1,7 +1,7 @@
 ---
 audience: developer
 document_type: plan
-status: planned
+status: completed
 ---
 
 # Save clean Odoo data and restore it after a database reset
@@ -13,20 +13,51 @@ the dated data versions captured with it. One **Update saved data** action
 refreshes all configured data. One **Restore all** action restores a selected
 version into a chosen compatible database.
 
-This document records the implementation plan. The feature is not implemented
-by this documentation change. Proposed labels below are not current controls.
+The first implementation was completed on 12 November 2026. The current
+[user guide](../user/guides/saved-odoo-data.md) and
+[developer workflow](../developer/workflow/02-odoo-data.md#saved-odoo-data-and-repeat-restoration)
+own its operating instructions, source ownership, and verification boundaries.
+The remaining sections retain the accepted design behind that implementation.
+
+## Delivered scope and qualification
+
+Each capture configuration binds one source database and one explicit source
+company. Preserve additional companies with separate configurations. One
+**Update saved data** action captures all configured models for that set, and
+one explicitly confirmed **Restore all** action checks and restores its selected
+version. Saved destination profiles retain field policies and reviewed defaults.
+Encrypted package download and independent-installation import preserve source
+data with new local ownership and keys.
+
+The delivered field surface remains bounded by the qualified capture policy.
+Company-dependent property fields, translations, binary content and attachments
+are excluded. A required relationship needs an admitted provider; an arbitrary
+numeric default cannot supply it. Destination-only records and extra children
+are preserved. There is no record deletion or whole-restore rollback.
+
+Controlled tests cover Odoo 19 and final Odoo 20 with local and remote source
+and destination fixtures, initial and repeated captures, checked restoration,
+required defaults, independent-installation archives, and durable source
+projection. Those results do not qualify every live ORM inverse or establish a
+complete Chart of Accounts backup. Hosted platform and live round-trip
+qualification remain separate.
+
+Fresh browser screenshots were blocked by the host's browser execution and
+native-access restrictions. The user guide uses a genuine existing source-setup
+illustration, and the new capture script is retained for later visual review.
 
 ## Operator goal and two levels
 
 An operator cleans accounting configuration in fictional `odoo-dev` for
-Companies A and B. The operator saves that configuration and its associated
-data. Before the next reset, **Update saved data** captures the latest clean
-records. After the reset, **Restore all** loads a selected saved version into
-`odoo-test`, using the remembered destination choices.
+Companies A and B. The operator saves a separate capture configuration for each
+company and preserves its associated data. Before the next reset,
+**Update saved data** captures the latest clean records for the selected set.
+After the reset, **Restore all** loads a selected saved version into `odoo-test`,
+using the remembered destination choices.
 
 | Level | Contains | Main action |
 | --- | --- | --- |
-| Capture configuration | Source database, companies, main models, fields, record filters, archived-record choices, related models, and relationship scope. | **Edit configuration** creates a new configuration revision. |
+| Capture configuration | Source database and company, main models, fields, record filters, archived-record choices, related models, and relationship scope. | **Save configuration changes** creates a new configuration revision. |
 | Saved data | Immutable records and relationships captured with one exact configuration revision, together with completeness and capture evidence. | **Update saved data** creates the next complete data version. |
 
 A configuration can have several saved versions. Editing it does not alter

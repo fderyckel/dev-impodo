@@ -410,6 +410,140 @@ cannot produce identity evidence. Without a supplied context, the existing
 user-default and available-company behavior remains unchanged. The explicit
 browser company selection supplies this adapter context.
 
+## Saved Odoo data and repeat restoration
+
+The project-level **Saved Odoo data** path preserves selected clean records
+for later same-major restoration. It reuses an Odoo-source workspace's reviewed
+model, field, filter, archived-record, and relationship choices. It does not
+introduce a separate unrestricted model picker or make a Recipe own source rows.
+The paired [user guide](../../user/guides/saved-odoo-data.md) explains the two
+operator-facing levels and exact controls.
+
+`SavedOdooDataDefinition` owns reusable capture meaning and a configuration
+revision. `SavedOdooDataVersion` references a complete frozen DataVersion and
+its manifest hashes and model row counts. Publishing data advances the saved
+definition's optimistic revision without silently revising its configuration.
+Capture configuration contract version 2 binds the reviewed relationship scope
+alongside the selected models and fields.
+`SavedOdooRestoreProfile` separately remembers destination settings, matching
+keys, field rules, and required-value providers. It contains no API key.
+
+| Browser command | Owner and result |
+| --- | --- |
+| `GET /projects/{project_id}/saved-odoo-data` | Projects visible definitions, saved versions, destination profiles, and current action status. It does not capture or restore data. |
+| `POST /projects/{project_id}/saved-odoo-data/configure` | Rechecks the source company and metadata, then creates or revises the capture definition. It does not download business rows. |
+| `POST /projects/{project_id}/saved-odoo-data/{saved_data_id}/update` | Enqueues a complete refresh. The previous complete saved version remains usable if the new attempt fails. |
+| `POST /projects/{project_id}/saved-odoo-data/{saved_data_id}/restore` | Checks the destination under the selected version and policies. `Check destination` is read-only; explicitly confirmed `Restore all` can continue through checked execution and read-back. |
+| `POST /projects/{project_id}/saved-odoo-data/{saved_data_id}/versions/{version_number}/download` | Exports that exact version and configuration inside a password-protected `.impodo` file. |
+| `POST /projects/{project_id}/saved-odoo-data/import` | Authenticates and validates a complete package before admitting new source ownership in the selected project. |
+
+### Source context and complete refresh
+
+Source company ownership is separate from destination company selection.
+Workspace schema version 7 adds `odoo_saved_source_company`; its serialized
+`OdooCompanySelection` is checked against its binding hash. Selecting a changed
+source company retires dependent metadata and capture plans. A frozen source
+requires a fresh successor before changing that context. The run's destination
+company binding remains separate.
+
+`SavedOdooDataService.configure` and `refresh` separate local admission from
+remote source checks. `All restorable fields` reevaluates eligible scalar
+fields against current metadata. Explicit selection keeps its reviewed field
+list. Both paths preserve the reviewed relationship scope. The source capability
+policy still excludes company-dependent property values, translations, binary
+content, and other ineligible fields; the label does not broaden that policy.
+
+`OdooSavedDataWorkspaceService.prepare_refresh` provisions an Authoring
+successor with a draft DataVersion. Fresh schema, access, company context,
+capture plans, and protected filters are bound to that successor.
+`OdooCapturePublicationService` publishes complete immutable Parquet and origin
+evidence, then `WorkspaceDataVersionSourceService.accept_odoo_capture` freezes
+the canonical source package. The saved repository advances its version pointer
+only for a complete set. Operation receipts and optimistic revisions prevent
+retries or concurrent edits from replacing accepted data with a partial result.
+
+Atomic local publication is distinct from Odoo capture consistency. Paginated
+API reads observe a bounded interval. Membership, schema, context and available
+change checks detect observed drift, but cannot provide a transactionally
+simultaneous database snapshot or detect every change that reverts between
+checks. Capture start and finish evidence remains retained.
+
+### Fresh restore ownership and field decisions
+
+Every restoration uses a fresh run and workspace over the selected frozen
+DataVersion. `OdooSavedDataProjectionRepository` checks matching project and
+DataVersion ownership, source selection and manifest hashes, and artifact
+integrity before attaching immutable caches. It reuses the DataVersion-owned
+Parquet and protected origin artifacts without copying previous destination
+approvals or execution journals.
+
+`SavedOdooRestoreBinding` records the source owner and a fresh generation.
+This dedicated admission permits a reviewed restore after a reset at the same
+server address and database name. Connection identity alone does not prove
+database generation. Ordinary Odoo-source transfer protections still apply
+outside this retained-data entry point, and an old interrupted journal cannot
+authorize recovery against the replacement database.
+
+`restore_saved_odoo_data` resolves the destination company with fresh access,
+captures destination metadata, and calls `compile_odoo_restore` for all selected
+models. The pure domain plan classifies captured fields, schema changes,
+creation requirements and field policies. Matching keys cannot be excluded
+or renamed through an ordinary field policy. Required related values still
+need an admitted existing or incoming provider; a numeric scalar default does
+not supply a relationship.
+
+The consolidated review retains explicit exclusions and replacement field
+names, reports incompatible types and missing models, and accepts reviewed
+scalar defaults for new records. `apply_odoo_restore` derives each row's effective
+write and verification values. Keep policies preserve current values; fill-empty
+policies preserve meaningful false and zero values. Many2many replacement,
+keep and additive policies distinguish record membership from record deletion.
+Destination-only records and extra children are preserved.
+
+The composition continues through destination matching, dependency order,
+exact transfer review, fresh preflight and `TransferExecutionService`.
+The submitted confirmation authorizes that selected version, destination and
+field policy set. Changed evidence stops execution. The shared writer journals
+attempts and independently reads back the effective policy result. There is
+no transaction spanning the complete restore and no whole-restore rollback.
+Recovery uses the retained execution snapshot without contacting source Odoo.
+
+### Portable archives and retention
+
+`OdooSavedDataArchiveService` authorizes export of the exact saved version and
+its historical configuration. The archive backend selects explicit schema,
+company, selector, filter, scope, Parquet and origin members. It never exports
+workspace databases, source credentials, original encryption keys, destination
+profiles, or prior write authorization.
+
+The package codec authenticates the encrypted container before exposing its
+members. The payload validator checks its closed metadata shape, complete
+model and relationship coverage, selector and snapshot bindings, Parquet
+hashes and physical schema, row counts, filters, and protected origins before
+creating imported roots. Import is project-authorized before provisioning.
+The UI limits uploads to 100 MiB; the codec separately bounds member counts,
+member bytes and total bytes.
+
+Import creates new DataVersion, selector, dataset, run and workspace identities.
+Stable model and field column keys allow identical Parquet bytes to be
+preserved. Protected filter values are rebound to the new project and data
+version. `prepare_capture_origins` encrypts original source IDs, write dates
+and relationship columns with the new DataVersion key. New manifests retain
+the original capture interval while assigning local retention. Package-bound
+operation identities let a repeated import return its existing saved version.
+
+The saved registry pins complete DataVersions. The protected-provenance
+retention callback checks those pins after authorization, so ordinary expiry
+or successful-load cleanup does not remove a reusable restore point.
+Explicit project deletion remains a separate authorized lifecycle action.
+Progress jobs are process-local; accepted versions, operation receipts and
+execution journals are durable evidence.
+
+Local page reads and commands use bounded synchronous scopes. Source and
+destination network calls and package streaming run after local owners close.
+Model-level batching and columnar snapshots remain the reuse boundary; do not
+add a source-record loop that opens DuckDB or reads metadata per row.
+
 ## Contract invariants
 
 Connection and capture checks use the shared operation policy in
@@ -543,6 +677,13 @@ remains outside the migration write scope.
 | Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
 | Matching-rule screenshot capture | [`capture_matching_rule_screenshots.py`](../../../scripts/capture_matching_rule_screenshots.py) |
 | Odoo-source eligible-field screenshot capture | [`capture_odoo_source_eligible_fields.py`](../../../scripts/capture_odoo_source_eligible_fields.py) |
+| Saved source configuration and immutable version lifecycle | [`SavedOdooDataService`](../../../src/impodo/application/odoo_saved_data_service.py), [domain records](../../../src/impodo/domain/odoo_saved_data.py), and [registry persistence](../../../src/impodo/adapters/duckdb/odoo_saved_data_repository.py) |
+| Independent refresh and restore workspaces | [`OdooSavedDataWorkspaceService`](../../../src/impodo/application/odoo_saved_data_workspaces.py) and [immutable source projection](../../../src/impodo/adapters/duckdb/odoo_saved_data_projection.py) |
+| Source company storage | [Source company command](../../../src/impodo/adapters/duckdb/odoo_saved_source_company.py) and [schema companion](../../../src/impodo/adapters/duckdb/schema/odoo_saved_source_company.py) |
+| Restore policies and checked execution | [Pure restore plans](../../../src/impodo/domain/odoo_restore.py) and [restore composition](../../../src/impodo/web/composition/saved_odoo_restore.py) |
+| Saved-data routes, progress, and source access | [Router](../../../src/impodo/web/routers/saved_odoo_data.py), [jobs](../../../src/impodo/application/odoo_saved_data_jobs.py), and [source composition](../../../src/impodo/web/composition/saved_odoo_data.py) |
+| Portable archive lifecycle | [Archive service](../../../src/impodo/application/odoo_saved_data_archive.py), [backend](../../../src/impodo/adapters/duckdb/odoo_saved_data_archive.py), [semantic validation](../../../src/impodo/adapters/duckdb/odoo_saved_data_archive_payload.py), [import ownership](../../../src/impodo/adapters/duckdb/odoo_saved_data_archive_import.py), and [encrypted codec](../../../src/impodo/adapters/odoo_saved_data_package.py) |
+| Saved-data documentation capture | [`capture_saved_odoo_data.py`](../../../scripts/capture_saved_odoo_data.py) |
 | Local reader | [`local_odoo_reader.py`](../../../src/impodo/adapters/odoo/local_reader.py) |
 
 ## Evidence and state
@@ -695,6 +836,22 @@ scope.
 
 ## Verification
 
+- [Restore field, membership, schema and value policies](../../../tests/domain/test_odoo_restore.py).
+- [Saved definitions, immutable versions, profiles and operation persistence](../../../tests/integration/duckdb/test_odoo_saved_data_repository.py).
+- [Offline restore projections, retry and source-company ownership](../../../tests/integration/web/test_saved_odoo_workspace_projection.py).
+- [Source-company forward upgrade and protected hash checks](../../../tests/integration/duckdb/test_saved_source_company_upgrade.py).
+- [Restore policies through transfer matching and execution compilation](../../../tests/application/workspace/test_saved_odoo_transfer.py).
+- [Encrypted package format and rejection of malformed containers](../../../tests/integration/artifacts/test_odoo_saved_data_package.py).
+- [Independent-installation archive round trips](../../../tests/integration/web/test_saved_odoo_archive_lifecycle.py) cover Odoo 19 and 20 with local and remote source metadata, new keys, filter rebinding, no source access, retry, malformed metadata, and authorization rejection. These are controlled fixtures; they do not qualify live ORM behavior or a complete Chart of Accounts.
+- [Saved-data browser routes and destination review](../../../tests/integration/web/test_saved_odoo_data.py), [initial and repeated source capture](../../../tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py), and [checked restoration through the assembled application](../../../tests/integration/web/test_saved_odoo_restore_flow.py).
+
+Fresh saved-data page screenshots were not captured during this implementation:
+the execution sandbox rejected browser Mach registration, and native browser
+access timed out. The user guide's illustration shows the existing verified
+source-field selection step. It is not presented as visual verification of the
+new saved-data page. The reproducible capture script remains available for an
+environment that permits browser capture.
+
 - [Supporting closure and conflicting business choices](../../../tests/domain/workspace/test_supporting_closure.py)
 - [Portable supporting decisions in Recipes](../../../tests/domain/recipe/test_supporting_decisions.py)
 - [Consumer freshness and bulk metadata reads](../../../tests/application/workspace/test_supporting_mapping_guard.py)
@@ -734,6 +891,7 @@ read-only capability, batched requests, invalidation, and both source modes.
 
 ## Related documentation
 
+- [User guide: save and restore clean Odoo data](../../user/guides/saved-odoo-data.md).
 - [Workflow responsiveness qualification](../../plans/09-responsive-workflow-liveness-and-navigation.md)
 - [User guide: Odoo data](../../user/workflow/02-odoo-data.md)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)

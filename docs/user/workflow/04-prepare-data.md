@@ -163,13 +163,18 @@ cause has been corrected, return to **Prepare data** in the same workspace
 and start a fresh attempt. You can keep your accepted source data and saved
 field matches.
 
-Direct parent-and-child tables can now use the preparation route for up to
-50,000 source rows in the selection. This includes document lines, hierarchies,
-and BoM components whose matching rules use an incoming parent as part of
-their identity. The same limit applies when the identity uses an existing Odoo
-record or checks Odoo before an incoming parent. Impodo still checks the
-complete group together. The route comes from the saved relationship rules,
-so it applies to standard and custom Odoo models without a BoM-specific setup.
+Direct tables with verified saved source data can use the qualified preparation
+route for up to 100,000 source rows across the selection. This includes
+**Rows to use** conditions when the remaining matching and transformation rules
+fit that route. For example, a 60,000-row stock table can exclude inactive rows
+and continue through preparation without splitting the accepted delivery.
+The limit counts source rows before exclusions.
+
+Supported direct parent-and-child matches also use this route, including
+identities that refer to incoming parents or existing Odoo records. Impodo
+still checks each complete group together. The route follows the saved rules
+for standard and custom models. Other unsupported transformations, including
+formulas, retain the 50,000-row fallback limit.
 
 Several combined tables can prepare together in the same workspace. For example,
 you can prepare a Contacts table and a second combined Addresses table from the

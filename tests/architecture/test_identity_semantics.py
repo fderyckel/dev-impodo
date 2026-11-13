@@ -43,6 +43,19 @@ CANONICAL_IDENTITY_FIELDS = {
         "workspace_id",
         "recipe_application_id",
     },
+    ("src/impodo/domain/odoo_saved_data.py", "SavedOdooDataDefinition"): {
+        "project_id", "saved_data_id", "source_workspace_id",
+    },
+    ("src/impodo/domain/odoo_saved_data.py", "SavedOdooDataVersion"): {
+        "project_id", "saved_data_id", "workspace_id", "data_version_id",
+    },
+    ("src/impodo/domain/odoo_saved_data.py", "SavedOdooRestoreBinding"): {
+        "project_id", "saved_data_id", "workspace_id", "source_workspace_id",
+        "data_version_id", "generation_id",
+    },
+    ("src/impodo/domain/odoo_saved_data.py", "SavedOdooRestoreProfile"): {
+        "project_id", "saved_data_id", "profile_id", "credential_workspace_id",
+    },
 }
 
 
@@ -52,6 +65,11 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "application/data_version/source_packages.py::WorkspaceSourceProjection",
         "application/preflight_attempts.py::PreflightComparisonRequest",
         "domain/data_version/models.py::DataVersion",
+        "domain/odoo_saved_data.py::SavedOdooDataDefinition",
+        "domain/odoo_saved_data.py::SavedOdooCaptureOperation",
+        "domain/odoo_saved_data.py::SavedOdooDataVersion",
+        "domain/odoo_saved_data.py::SavedOdooRestoreBinding",
+        "domain/odoo_saved_data.py::SavedOdooRestoreProfile",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
         "domain/cutover/models.py::CutoverPlan",
         "domain/cutover/models.py::CutoverPlanQualification",
@@ -74,6 +92,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/shared/retention.py::ProjectRetentionSelection",
         "application/run/setup_service.py::RunSetupSelection",
         "application/run/recipe_run_jobs.py::RecipeRunJob",
+        "application/odoo_saved_data_jobs.py::SavedOdooJob",
         "application/run/odoo_requirements.py::SelectedRunSetup",
         "domain/project/models.py::MigrationProject",
         "domain/project/models.py::MigrationProjectSummary",
@@ -122,6 +141,13 @@ REMOVED_AMBIGUITY_COUNTS = {
 
 
 CURRENT_IDENTITY_SURFACES = {
+    "saved Odoo capture and restore ownership": (
+        ("src/impodo/domain/odoo_saved_data.py", "class SavedOdooDataDefinition"),
+        ("src/impodo/domain/odoo_saved_data.py", "class SavedOdooDataVersion"),
+        ("src/impodo/domain/odoo_saved_data.py", "class SavedOdooRestoreBinding"),
+        ("src/impodo/domain/odoo_saved_data.py", "class SavedOdooRestoreProfile"),
+        ("src/impodo/application/odoo_saved_data_jobs.py", "class SavedOdooJob"),
+    ),
     "semantic hashes and portable payloads": (
         ("src/impodo/domain/workspace/contracts.py", "class SourceSelection"),
         ("src/impodo/domain/workspace/contracts.py", "class OdooModelCatalog"),

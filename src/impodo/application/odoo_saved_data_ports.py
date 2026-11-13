@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from impodo.domain.odoo_saved_data import (
+    SavedOdooCaptureOperation,
     SavedOdooDataDefinition,
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
@@ -47,6 +48,14 @@ class SavedOdooDataRepository(Protocol):
         self, project_id: str, saved_data_id: str, operation_id: str
     ) -> SavedOdooDataVersion | None: ...
 
+    def bind_capture_operation(
+        self, operation: SavedOdooCaptureOperation
+    ) -> SavedOdooCaptureOperation: ...
+
+    def get_capture_operation(
+        self, project_id: str, saved_data_id: str, operation_id: str
+    ) -> SavedOdooCaptureOperation | None: ...
+
     def append_version(
         self, version: SavedOdooDataVersion, *, expected_revision: int
     ) -> tuple[SavedOdooDataDefinition, SavedOdooDataVersion]: ...
@@ -60,6 +69,10 @@ class SavedOdooDataRepository(Protocol):
     def get_restore_binding(
         self, workspace_id: str
     ) -> SavedOdooRestoreBinding | None: ...
+
+    def list_restore_bindings(
+        self, project_id: str, saved_data_id: str, *, limit: int = 100, offset: int = 0
+    ) -> tuple[SavedOdooRestoreBinding, ...]: ...
 
     def save_restore_profile(
         self, profile: SavedOdooRestoreProfile, *, expected_revision: int | None

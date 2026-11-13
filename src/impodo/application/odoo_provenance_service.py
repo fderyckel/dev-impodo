@@ -427,9 +427,9 @@ class OdooProvenanceService:
         actor: Actor,
         now: datetime | None = None,
     ) -> int:
-        """Invalidate an expired current pointer, then purge expired history."""
+        """Preserve saved sources and purge only unretained expired history."""
 
-        self._authorization.require(
+        context = self._authorization.require(
             actor,
             Capability.PROTECTED_EVIDENCE_MANAGE,
             workspace_id=workspace_id,
@@ -437,6 +437,11 @@ class OdooProvenanceService:
         current_time = now or datetime.now(UTC)
         if current_time.tzinfo is None:
             raise WorkspaceError("Odoo retention time must be timezone-aware")
+        if (
+            self.retained_data_version is not None
+            and self.retained_data_version(context.data_version_id)
+        ):
+            return 0
         current = self._provenance.get_current(workspace_id)
         if current is not None and current.retention_until <= current_time:
             self._provenance.invalidate_current(
@@ -451,13 +456,21 @@ class OdooProvenanceService:
         )
 
     def delete_recipe_workspace_key(self, workspace_id: str, *, actor: Actor) -> None:
-        """Remove one workspace key during governed Recipe deletion."""
+        """Remove Recipe keys only when saved data no longer depends on them."""
 
         context = self._authorization.require(
             actor,
             Capability.RECIPE_DELETE,
             workspace_id=workspace_id,
         )
+        if (
+            self.retained_data_version is not None
+            and self.retained_data_version(context.data_version_id)
+        ):
+            raise WorkspaceError(
+                "Saved Odoo data still uses this source. Keep its encryption keys "
+                "until the saved versions are deliberately removed."
+            )
         self._secrets.delete(_workspace_key_id(workspace_id))
         self._secrets.delete(_data_version_key_id(context.data_version_id))
 

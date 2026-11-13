@@ -51,7 +51,7 @@
         </div>
       </div>
       <span class="boundary">
-        {% if "/load" in current_path or "/transfer-load" in current_path or "/correction" in current_path %}Odoo change · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
+        {% if "/load" in current_path or "/transfer-load" in current_path or "/correction" in current_path or "/saved-odoo-data" in current_path %}Odoo change · explicit action only{% else %}Safe preview · Odoo stays unchanged{% endif %}
         {{ app_icon("shield-check") }}
       </span>
     </header>
@@ -375,6 +375,11 @@
           class="country-flag"
           src="{{ url_for('static', path='/flag-thailand.svg') }}"
           alt="Thailand flag"
+        >
+        <img
+          class="country-flag"
+          src="{{ url_for('static', path='/flag-germany.svg') }}"
+          alt="Germany flag"
         >
       </span>
       <div class="footer-actions">

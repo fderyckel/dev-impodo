@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from tests.integration.web import test_transfer_page_reads as fixtures
+from tests.support.database_probe import count_duckdb_statements
 
 
 class TransferRowRuleRouteTests(unittest.TestCase):
@@ -74,13 +75,20 @@ class TransferRowRuleRouteTests(unittest.TestCase):
         self.assertNotIn("<td>Alice</td>", review.text)
         self.assertLessEqual(review_timings.connection_count, 6)
         data = self.confirmation_data()
-        with collect_duckdb_request_timings() as confirmation_timings:
+        with collect_duckdb_request_timings() as confirmation_timings, count_duckdb_statements() as statements:
             response = self.fixture._post(self.path + "/rows-to-use/confirm", data)
         self.assertEqual(response.status_code, 303, response.text)
-        # Two request-binding reads precede four retained operation owners:
-        # registry, project, workspace engine, and source-version database.
+        # Admission validates the workspace reference in its own bounded scope.
+        # The command revalidates it, then validates engine, source-version and
+        # saved-restore registry contracts. The registry read is required even
+        # when no saved restore is bound; don't hide it from schema accounting.
         self.assertLessEqual(confirmation_timings.connection_count, 6)
-        self.assertLessEqual(confirmation_timings.schema_check_count, 4)
+        self.assertLessEqual(confirmation_timings.schema_check_count, 5)
+        self.assertEqual(
+            sum("duckdb_columns()" in statement for statement in statements),
+            confirmation_timings.schema_check_count,
+        )
+        self.assertLessEqual(len(statements), 100)
         self.assertTrue(
             self.context.queries.get(self.workspace_id).destination_match_plan.ready
         )

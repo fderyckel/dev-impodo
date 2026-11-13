@@ -7,6 +7,7 @@ import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import patch
 from uuid import uuid4
 
 import duckdb
@@ -31,6 +32,7 @@ from impodo.application.project.service import MigrationProjectService
 from impodo.application.run.service import MigrationRunService
 from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.domain.odoo_saved_data import (
+    SavedOdooCaptureOperation,
     SavedOdooDataDefinition,
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
@@ -48,6 +50,7 @@ from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPoli
 from tests.support.database_probe import count_duckdb_statements
 
 SAVED_TABLES = (
+    "saved_odoo_capture_operation",
     "saved_odoo_restore_profile",
     "saved_odoo_restore_binding",
     "saved_odoo_data_version",
@@ -207,6 +210,9 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
             (2, 1, 1),
         )
         self.assertEqual(saved, version)
+        self.assertEqual(self.repository.create_definition(self.definition), updated)
+        with self.assertRaises(MigrationOperationReplayError):
+            self.repository.create_definition(replace(self.definition, label="Different creation meaning"))
         reopened = DuckDbSavedOdooDataRepository(
             MigrationFoundationDatabase(self.database.root)
         )
@@ -240,6 +246,23 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
             ).latest_version,
             1,
         )
+
+    def test_capture_operation_reopens_exact_workspace_before_capture_acceptance(self) -> None:
+        self.repository.create_definition(self.definition)
+        operation = SavedOdooCaptureOperation(
+            operation_id=str(uuid4()), project_id=self.definition.project_id,
+            saved_data_id=self.definition.saved_data_id, expected_revision=1,
+            configuration_revision=1, workspace_id=self.source.workspace_id,
+            data_version_id=self.data_version.data_version_id, created_at=datetime.now(UTC),
+        )
+        self.assertIsNone(self.repository.get_capture_operation(operation.project_id, operation.saved_data_id, operation.operation_id))
+        self.assertEqual(self.repository.bind_capture_operation(operation), operation)
+        reopened = DuckDbSavedOdooDataRepository(MigrationFoundationDatabase(self.database.root))
+        self.assertEqual(reopened.get_capture_operation(operation.project_id, operation.saved_data_id, operation.operation_id), operation)
+        self.assertEqual(reopened.bind_capture_operation(operation), operation)
+        self.assertTrue(reopened.retained_data_version(operation.data_version_id))
+        with self.assertRaises(MigrationOperationReplayError):
+            reopened.bind_capture_operation(replace(operation, workspace_id=str(uuid4())))
 
     def test_stale_and_incomplete_capture_cannot_replace_last_complete_version(
         self,
@@ -330,6 +353,8 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         self.assertEqual(
             self.repository.get_restore_binding(workspace.workspace_id), binding
         )
+        self.assertEqual(self.repository.list_restore_bindings(binding.project_id, binding.saved_data_id), (binding,))
+        self.assertEqual(self.repository.list_restore_bindings(binding.project_id, binding.saved_data_id, offset=1), ())
         with self.assertRaises(MigrationOperationReplayError):
             self.repository.bind_restore(replace(binding, generation_id=str(uuid4())))
 
@@ -386,6 +411,33 @@ class SavedOdooDataRegistryTests(unittest.TestCase):
         # One current-schema check uses four statements. Listing performs
         # one bulk SELECT regardless of the number of saved configurations.
         self.assertLessEqual(len(statements), 5)
+
+    def test_retained_versions_block_project_deletion_before_artifacts_move(self) -> None:
+        self.repository.create_definition(self.definition)
+        self._accept_fixture_data()
+        _definition, version = self.repository.append_version(self._version(), expected_revision=1)
+        source_directory = self.database.workspace_directory(self.project.project_id, self.source.workspace_id)
+        self.assertTrue(source_directory.is_dir())
+
+        with patch.object(self.foundation, "_stage_project_directories", side_effect=AssertionError("Retained source must not be staged")):
+            with self.assertRaisesRegex(MigrationConflictError, "saved Odoo data for future restores"):
+                self.projects.delete(
+                    self.project.project_id, actor=LOCAL_ACTOR,
+                    expected_revision=self._project_revision(),
+                )
+
+        self.assertTrue(source_directory.is_dir())
+        self.assertEqual(self.repository.get_version(version.project_id, version.saved_data_id, 1), version)
+        self.assertIsNotNone(self.projects.get(self.project.project_id, actor=LOCAL_ACTOR))
+
+    def test_empty_saved_configuration_does_not_block_normal_project_deletion(self) -> None:
+        self.repository.create_definition(self.definition)
+        self.projects.delete(
+            self.project.project_id, actor=LOCAL_ACTOR,
+            expected_revision=self._project_revision(),
+        )
+        with self.assertRaises(MigrationNotFoundError):
+            self.projects.get(self.project.project_id, actor=LOCAL_ACTOR)
 
     def test_restore_profiles_remember_portable_choices_with_cas_and_project_scope(
         self,
@@ -464,7 +516,11 @@ class SavedOdooRegistryUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version, migration_id FROM schema_migration"
                 ).fetchall(),
-                [(1, 2, "saved-odoo-data-and-restore-v2")],
+                [
+                    (1, 2, "saved-odoo-data-and-restore-v2"),
+                    (2, 3, "saved-odoo-restore-profile-v3"),
+                    (3, 4, "saved-odoo-capture-recovery-v4"),
+                ],
             )
             self.assertEqual(
                 {str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()},

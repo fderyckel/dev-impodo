@@ -520,6 +520,29 @@ class OdooProvenanceTests(unittest.TestCase):
             ).is_file()
         )
 
+    def test_saved_data_retention_keeps_expired_source_and_protected_artifacts(self) -> None:
+        manifest = self._publish(self._batches())
+        data_version_id = _data_version_id(self.workspace_state.workspace_id)
+        self.service.retained_data_version = lambda identity: identity == data_version_id
+        expired_at = self.now + timedelta(days=2)
+
+        with patch.object(self.repository, "purge_expired_history", side_effect=AssertionError("Retained sources cannot be purged")):
+            self.assertEqual(
+                self.service.enforce_retention(
+                    self.workspace_state.workspace_id,
+                    actor=LOCAL_ACTOR,
+                    now=expired_at,
+                ),
+                0,
+            )
+
+        self.assertEqual(self.repository.get_current(self.workspace_state.workspace_id), manifest)
+        self.assertEqual(self.repository.history(self.workspace_state.workspace_id), (manifest,))
+        self.assertIsNotNone(self.sources.get_source_selection(self.workspace_state.workspace_id))
+        self.assertIsNotNone(self.service.read_current_origins(
+            self.workspace_state.workspace_id, actor=LOCAL_ACTOR, now=expired_at,
+        ))
+
     def test_authorization_is_checked_before_protected_repository_access(self) -> None:
         unauthorized = Actor(
             identity=ActorIdentity(
@@ -551,6 +574,23 @@ class OdooProvenanceTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
                 now=self.now + timedelta(hours=1),
             )
+
+    def test_saved_data_prevents_recipe_cleanup_from_deleting_shared_source_key(self) -> None:
+        self._publish(self._batches())
+        data_version_id = _data_version_id(self.workspace_state.workspace_id)
+        self.service.retained_data_version = lambda identity: identity == data_version_id
+        keys_before = dict(self.secrets.values)
+
+        with self.assertRaisesRegex(WorkspaceError, "saved versions are deliberately removed"):
+            self.service.delete_recipe_workspace_key(
+                self.workspace_state.workspace_id, actor=LOCAL_ACTOR,
+            )
+
+        self.assertEqual(self.secrets.values, keys_before)
+        self.assertIsNotNone(self.service.read_current_origins(
+            self.workspace_state.workspace_id, actor=LOCAL_ACTOR,
+            now=self.now + timedelta(hours=1),
+        ))
 
     def test_execution_origin_reuses_snapshot_hashes_and_source_ordinals(self) -> None:
         batch = OdooExecutionOriginBatch(

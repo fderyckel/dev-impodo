@@ -5,6 +5,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/source-review.css') }}">
 {% endblock %}
 {% block page_scripts %}
+  <script src="{{ url_for('static', path='/hierarchy-editor.js') }}" defer></script>
   <script src="{{ url_for('static', path='/derived-entities.js') }}" defer></script>
   <script src="{{ url_for('static', path='/derived-journey.js') }}" defer></script>
 {% endblock %}

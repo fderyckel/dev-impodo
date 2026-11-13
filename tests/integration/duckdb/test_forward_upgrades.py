@@ -146,7 +146,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 lambda c: ensure_migration_registry_schema(c, Path("registry.duckdb")),
                 MIGRATION_REGISTRY_GENERATION,
                 MIGRATION_REGISTRY_VERSION,
-                "a9ce36f4b0b1e1814c95b046ef6dce636a2ac9ca0faa2bb7540757b6d78db89a",
+                "064c52c0f356395d37818fe39beb1bebff453a4aac1f1d34af2b71262a0db049",
             ),
             (
                 lambda c: initialize_data_version_store(c, data_version),

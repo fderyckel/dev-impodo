@@ -70,6 +70,7 @@ from impodo.web.routers.production_runs import build_production_runs_router
 from impodo.web.routers.quality import build_quality_router
 from impodo.web.routers.resolution import build_resolution_router
 from impodo.web.routers.run_fresh_data import build_run_fresh_data_router
+from impodo.web.routers.saved_odoo_data import build_saved_odoo_data_router
 from impodo.web.routers.schema import build_schema_router
 from impodo.web.routers.sources import build_sources_router
 from impodo.web.routers.summary import build_summary_router
@@ -401,6 +402,7 @@ def install_http_application(
         build_migration_projects_router(context),
         build_integrated_runs_router(context),
         build_run_fresh_data_router(context),
+        build_saved_odoo_data_router(context),
         build_cutover_plans_router(context),
         build_production_runs_router(context),
         build_workspace_setup_router(context),

@@ -237,11 +237,14 @@ async def resolve_hierarchy_parent(
                     lookup_relationship=(shape.model, shape.parent_field)
                     if apply_parent_domain and company is not None
                     else None,
+                    hierarchy_company_field=shape.company_field
+                    if apply_parent_domain and company is not None
+                    else None,
                 )
             elif connector is not None:
-                if apply_parent_domain and company is not None:
-                    domain = connector.linked_lookup_domain(
-                        shape.model, shape.parent_field, shape.model
+                if apply_parent_domain and company is not None and shape.company_field is not None:
+                    domain = connector.hierarchy_lookup_domain(
+                        metadata, shape.model, shape.parent_field, shape.company_field
                     )
                     requests = tuple(
                         replace(item, domain=(*item.domain, *domain))

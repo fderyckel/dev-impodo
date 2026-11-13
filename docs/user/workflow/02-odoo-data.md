@@ -30,8 +30,10 @@ data choice after it loads the record types.
 
 Impodo supports Odoo 19 and final Odoo 20 workflows. For either supported
 major, you can check the connection, capture the live schema, freeze a bounded
-Odoo source, read matching values, author a Recipe, and continue to same-major
-loading, recovery, and qualified-plan Production rollout. If the server
+Odoo source, read matching values, and continue to same-major loading and
+recovery. File-source Authoring can publish reusable Recipes and continue
+through qualified-plan Production rollout. Saved Odoo data preserves captured
+Odoo records for repeated restoration. If the server
 reports an unknown, prerelease, SaaS, later-minor, or conflicting version,
 resolve that connection check before capturing details.
 A Recipe applies only to its authored Odoo major version, and an Odoo source
@@ -263,6 +265,20 @@ If you change a supporting choice, return to **Match data** and check the
 corresponding rule again. Saving the same choices again keeps their dependent
 checks. Older Recipes continue to use their existing saved relationship rules.
 
+## Preserve clean Odoo data between test resets
+
+Use **Open saved Odoo data** from the data project when you want to preserve
+clean records already in Odoo. Its **Capture configuration** reuses the source
+models, fields, filters and related-data choices reviewed here. **Saved data**
+then keeps dated versions of those records. **Update saved data** captures the
+complete configured scope; **Restore all** checks and restores a selected
+version into the chosen same-major destination.
+
+Restoration can use a retained version without contacting the original source.
+For source-company choices, field policies, schema differences, protected
+downloads and importing on another installation, follow
+[Save clean Odoo data and restore it after a reset](../guides/saved-odoo-data.md).
+
 ## What to check
 
 - The model is the intended Odoo record type, including custom models when
@@ -341,5 +357,6 @@ records before matching.
 
 ## Related documentation
 
+- [Save clean Odoo data and restore it after a reset](../guides/saved-odoo-data.md)
 - [Connect to Odoo on this computer](../guides/local-odoo.md)
 - [Developer implementation: Odoo data](../../developer/workflow/02-odoo-data.md)

@@ -264,3 +264,36 @@ class SavedOdooRestoreProfile:
         """Bind the exact remembered destination and portable policy settings."""
 
         return content_hash(asdict(self))
+
+
+@dataclass(frozen=True, slots=True)
+class SavedOdooCaptureOperation:
+    """Remember which workspace owns a refresh before its remote reads begin."""
+
+    operation_id: str
+    project_id: str
+    saved_data_id: str
+    expected_revision: int
+    configuration_revision: int
+    workspace_id: str
+    data_version_id: str
+    created_at: datetime
+
+    def __post_init__(self) -> None:
+        for name in (
+            "operation_id",
+            "project_id",
+            "saved_data_id",
+            "workspace_id",
+            "data_version_id",
+        ):
+            require_uuid(getattr(self, name), name)
+        require_revision(self.expected_revision, "expected_revision")
+        require_revision(self.configuration_revision, "configuration_revision")
+        require_aware(self.created_at, "created_at")
+
+    @property
+    def content_hash(self) -> str:
+        """Bind the request and exact capture ownership for restart recovery."""
+
+        return content_hash(asdict(self))

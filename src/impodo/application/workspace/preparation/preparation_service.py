@@ -195,6 +195,9 @@ class PreparationService:
         derived datasets, publishes canonical staging, evaluates quality, and
         creates normalization review evidence. Each downstream publication is
         bound to the exact result returned by the previous step.
+        Each synchronous phase retains compatible local database owners and
+        closes them before the next phase. Transactions remain independent;
+        no connection is retained across preparation jobs.
 
         Returns:
             The current normalization run summary that the browser uses to
@@ -219,74 +222,75 @@ class PreparationService:
             Capability.MAPPING_SUBMIT,
             workspace_id=workspace_id,
         )
-        workspace_state = self.workspaces.get(workspace_id)
-        revision = self.mappings.get_mapping_revision(workspace_id)
-        if revision is None:
-            raise ReadinessError("Submit the mapping before checking data")
-        if (
-            expected_mapping_hash is not None
-            and revision.definition.content_hash != expected_mapping_hash
-        ):
-            raise ReadinessError(
-                "The Recipe mapping changed after preparation was requested. "
-                "Continue from Review and load to prepare the current decisions."
-            )
-        submission = self.mappings.get_mapping_submission(
-            workspace_id, revision.version
-        )
-        if (
-            submission is None
-            or submission.mapping_content_hash != revision.definition.content_hash
-        ):
-            raise ReadinessError("Submit the current mapping before checking data")
-        physical_selection = self.sources.get_source_selection(workspace_id)
-        if physical_selection is None:
-            raise ReadinessError("Freeze the source datasets before checking data")
-        source_snapshots = self.sources.get_current_source_snapshots(workspace_id)
-        _verify_odoo_preparation_evidence(
-            workspace_id,
-            physical_selection,
-            source_snapshots,
-            self.odoo_provenance,
-            actor=actor,
-        )
-        total_rows = sum(item.row_count for item in physical_selection.datasets)
-        source_hashes = canonical_source_hashes(physical_selection)
-        effective_selection = self.sources.get_mapping_source_selection(workspace_id)
-        if effective_selection is None:
-            raise ReadinessError("Freeze the source datasets before checking data")
-        reference_bundle = (
-            self.resolution.current_reference_bundle(workspace_id)
-            if self.resolution is not None
-            else None
-        )
-
-        derived_plan = self.derived_entities.get_derived_entity_plan(workspace_id)
-        for rule in derived_plan.rules if derived_plan is not None else ():
-            existing_parent = rule.existing_parent if isinstance(rule, HierarchicalLookupRule) else None
-            if existing_parent is not None and existing_parent.company_field is not None and (
-                workspace_state.odoo_company is None
-                or workspace_state.odoo_company.name != existing_parent.company_name
+        with self.sessions.operation_scope():
+            workspace_state = self.workspaces.get(workspace_id)
+            revision = self.mappings.get_mapping_revision(workspace_id)
+            if revision is None:
+                raise ReadinessError("Submit the mapping before checking data")
+            if (
+                expected_mapping_hash is not None
+                and revision.definition.content_hash != expected_mapping_hash
             ):
-                raise ReadinessError("The company for this hierarchy changed. Return to Source data and check its existing parents for the selected company before preparing again")
-        if self.supporting_decisions is not None and self.schemas is not None:
-            self.supporting_decisions.require_preparation(
-                workspace_id, revision.definition.datasets, self.schemas,
-                workspace_state, physical_selection, derived_plan,
+                raise ReadinessError(
+                    "The Recipe mapping changed after preparation was requested. "
+                    "Continue from Review and load to prepare the current decisions."
+                )
+            submission = self.mappings.get_mapping_submission(
+                workspace_id, revision.version
             )
-        quality_ruleset, quality_seed = self.quality.preparation_inputs(
-            workspace_id, revision.definition, effective_selection,
-        )
-        capability = compile_preparation_capability(
-            definition=revision.definition,
-            physical_selection=physical_selection,
-            effective_selection=effective_selection,
-            source_snapshots=source_snapshots,
-            derived_plan=derived_plan,
-            current_ruleset=quality_ruleset,
-            reference_bundle=reference_bundle,
-        )
-        capability.require_supported()
+            if (
+                submission is None
+                or submission.mapping_content_hash != revision.definition.content_hash
+            ):
+                raise ReadinessError("Submit the current mapping before checking data")
+            physical_selection = self.sources.get_source_selection(workspace_id)
+            if physical_selection is None:
+                raise ReadinessError("Freeze the source datasets before checking data")
+            source_snapshots = self.sources.get_current_source_snapshots(workspace_id)
+            _verify_odoo_preparation_evidence(
+                workspace_id,
+                physical_selection,
+                source_snapshots,
+                self.odoo_provenance,
+                actor=actor,
+            )
+            total_rows = sum(item.row_count for item in physical_selection.datasets)
+            source_hashes = canonical_source_hashes(physical_selection)
+            effective_selection = self.sources.get_mapping_source_selection(workspace_id)
+            if effective_selection is None:
+                raise ReadinessError("Freeze the source datasets before checking data")
+            reference_bundle = (
+                self.resolution.current_reference_bundle(workspace_id)
+                if self.resolution is not None
+                else None
+            )
+
+            derived_plan = self.derived_entities.get_derived_entity_plan(workspace_id)
+            for rule in derived_plan.rules if derived_plan is not None else ():
+                existing_parent = rule.existing_parent if isinstance(rule, HierarchicalLookupRule) else None
+                if existing_parent is not None and existing_parent.company_field is not None and (
+                    workspace_state.odoo_company is None
+                    or workspace_state.odoo_company.name != existing_parent.company_name
+                ):
+                    raise ReadinessError("The company for this hierarchy changed. Return to Source data and check its existing parents for the selected company before preparing again")
+            if self.supporting_decisions is not None and self.schemas is not None:
+                self.supporting_decisions.require_preparation(
+                    workspace_id, revision.definition.datasets, self.schemas,
+                    workspace_state, physical_selection, derived_plan,
+                )
+            quality_ruleset, quality_seed = self.quality.preparation_inputs(
+                workspace_id, revision.definition, effective_selection,
+            )
+            capability = compile_preparation_capability(
+                definition=revision.definition,
+                physical_selection=physical_selection,
+                effective_selection=effective_selection,
+                source_snapshots=source_snapshots,
+                derived_plan=derived_plan,
+                current_ruleset=quality_ruleset,
+                reference_bundle=reference_bundle,
+            )
+            capability.require_supported()
         bounded_session_id: str | None = None
         bounded_canonical_run: StoredCanonicalStagingRun | None = None
         impact_rows: Iterable[TransformationImpactRow]
@@ -312,21 +316,22 @@ class PreparationService:
             effective_selection,
             derived_plan,
         ):
-            bounded = prepare_bounded_direct_session(
-                workspace_state,
-                revision.definition,
-                revision.version,
-                physical_selection,
-                effective_selection,
-                self.sources.get_source_catalogs(workspace_id),
-                self.artifacts,
-                reference_bundle,
-                self.sessions,
-                self.columnar_transformations,
-                actor=actor,
-                source_snapshots=source_snapshots,
-                batch_progress=report_source_batch,
-            )
+            with self.sessions.operation_scope():
+                bounded = prepare_bounded_direct_session(
+                    workspace_state,
+                    revision.definition,
+                    revision.version,
+                    physical_selection,
+                    effective_selection,
+                    self.sources.get_source_catalogs(workspace_id),
+                    self.artifacts,
+                    reference_bundle,
+                    self.sessions,
+                    self.columnar_transformations,
+                    actor=actor,
+                    source_snapshots=source_snapshots,
+                    batch_progress=report_source_batch,
+                )
             bounded_session_id = bounded.session_id
             staging_input = bounded.run
             bounded_canonical_run = bounded.run
@@ -338,12 +343,13 @@ class PreparationService:
                     total_rows,
                     "Saving prepared data",
                 )
-                staging = self.staging.publish_canonical_staging(
-                    workspace_id,
-                    staging_input,
-                    mapping_version=revision.version,
-                    actor=actor,
-                )
+                with self.sessions.operation_scope():
+                    staging = self.staging.publish_canonical_staging(
+                        workspace_id,
+                        staging_input,
+                        mapping_version=revision.version,
+                        actor=actor,
+                    )
             except Exception:
                 self.sessions.fail_session(
                     workspace_id,
@@ -396,12 +402,13 @@ class PreparationService:
                     total_rows,
                     "Saving prepared data",
                 )
-                staging = self.staging.publish_canonical_staging(
-                    workspace_id,
-                    staging_input,
-                    mapping_version=revision.version,
-                    actor=actor,
-                )
+                with self.sessions.operation_scope():
+                    staging = self.staging.publish_canonical_staging(
+                        workspace_id,
+                        staging_input,
+                        mapping_version=revision.version,
+                        actor=actor,
+                    )
             except Exception:
                 self.sessions.fail_session(
                     workspace_id,
@@ -523,51 +530,53 @@ class PreparationService:
                 schema,
                 target_float_digits=self.target_float_digits,
             )
-            quality_run, quality = self.quality.evaluate_and_publish(
-                workspace_state,
-                revision,
-                effective_selection,
-                canonical_run,
-                physical_rows,
-                staging,
-                effective,
-                (
-                    resolution_summary.run_id
-                    if effective is not None and resolution_summary is not None
-                    else None
-                ),
-                reference_bundle,
-                numeric_fields=numeric_fields,
-                actor=actor,
-                planned_seed=quality_seed,
-                allow_materialized_fallback=(
-                    capability.permits_materialized_fallback
-                ),
-                timing=timing,
-            )
+            with self.sessions.operation_scope():
+                quality_run, quality = self.quality.evaluate_and_publish(
+                    workspace_state,
+                    revision,
+                    effective_selection,
+                    canonical_run,
+                    physical_rows,
+                    staging,
+                    effective,
+                    (
+                        resolution_summary.run_id
+                        if effective is not None and resolution_summary is not None
+                        else None
+                    ),
+                    reference_bundle,
+                    numeric_fields=numeric_fields,
+                    actor=actor,
+                    planned_seed=quality_seed,
+                    allow_materialized_fallback=(
+                        capability.permits_materialized_fallback
+                    ),
+                    timing=timing,
+                )
             report_progress(
                 PreparationPhase.NORMALIZING,
                 total_rows,
                 total_rows,
                 "Organizing changes for review",
             )
-            normalization = self.normalization.evaluate_and_publish(
-                workspace_state,
-                revision,
-                effective_selection,
-                canonical_run,
-                staging,
-                quality_run,
-                quality,
-                impact_rows,
-                source_hashes,
-                effective,
-                actor=actor,
-                allow_materialized_fallback=(
-                    capability.permits_materialized_fallback
-                ),
-                timing=timing,
-            )
+            with self.sessions.operation_scope():
+                normalization = self.normalization.evaluate_and_publish(
+                    workspace_state,
+                    revision,
+                    effective_selection,
+                    canonical_run,
+                    staging,
+                    quality_run,
+                    quality,
+                    impact_rows,
+                    source_hashes,
+                    effective,
+                    actor=actor,
+                    allow_materialized_fallback=(
+                        capability.permits_materialized_fallback
+                    ),
+                    timing=timing,
+                )
             if bounded_session_id is not None:
                 self.sessions.mark_published(workspace_id, bounded_session_id)
             report_progress(

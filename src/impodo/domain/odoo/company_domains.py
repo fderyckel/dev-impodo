@@ -12,7 +12,9 @@ _LOOKUP_FIELD = re.compile(r"[a-zA-Z][a-zA-Z0-9_]{0,127}")
 _LOOKUP_OPERATORS = {"=", "!=", "in", "not in", "parent_of", "child_of", "like", "ilike", "=like", "=ilike", ">", ">=", "<", "<="}
 
 
-def linked_value_domain(expression: object, company_id: int) -> list[object] | None:
+def linked_value_domain(
+    expression: object, company_id: int, *, company_field: str | None = None
+) -> list[object] | None:
     """Interpret a closed field domain using only the selected company and literals.
 
     Unlike the company-only compatibility probe, this preserves the complete
@@ -21,6 +23,8 @@ def linked_value_domain(expression: object, company_id: int) -> list[object] | N
     """
     if type(company_id) is not int or company_id <= 0:
         return None
+    if company_field is not None and _LOOKUP_FIELD.fullmatch(company_field) is None:
+        return None
     try:
         if isinstance(expression, str):
             if len(expression) > 8192:
@@ -28,7 +32,7 @@ def linked_value_domain(expression: object, company_id: int) -> list[object] | N
             root = ast.parse(expression, mode="eval").body
             if sum(1 for _ in ast.walk(root)) > 256:
                 return None
-            result = _value(root, company_id)
+            result = _value(root, company_id, company_field)
         else:
             result = expression
         if not isinstance(result, (list, tuple)) or len(result) > 256:
@@ -52,6 +56,20 @@ def linked_value_domain(expression: object, company_id: int) -> list[object] | N
         return list(result)
     except (ValueError, SyntaxError, RecursionError, TypeError):
         return None
+
+
+def hierarchy_parent_domain(
+    expression: object, company_id: int, company_field: str
+) -> list[object] | None:
+    """Keep the native parent rule and restrict choices to this company or shared."""
+    domain = linked_value_domain(
+        [] if expression is None else expression,
+        company_id,
+        company_field=company_field,
+    )
+    if domain is None:
+        return None
+    return [*domain, "|", [company_field, "=", False], [company_field, "=", company_id]]
 
 
 def _lookup_literal(value: object) -> bool:
@@ -99,13 +117,15 @@ def operation_company_domain(
         return None
 
 
-def _value(node: ast.AST, company_id: int) -> object:
+def _value(node: ast.AST, company_id: int, company_field: str | None = None) -> object:
     if isinstance(node, ast.Constant) and (
         node.value is None or type(node.value) in {str, int, bool}
     ):
         return node.value
     if isinstance(node, (ast.List, ast.Tuple)):
-        return [_value(item, company_id) for item in node.elts]
+        return [_value(item, company_id, company_field) for item in node.elts]
+    if isinstance(node, ast.Name) and node.id == company_field:
+        return company_id
     if (
         isinstance(node, ast.Subscript)
         and isinstance(node.value, ast.Name)
@@ -116,7 +136,7 @@ def _value(node: ast.AST, company_id: int) -> object:
     ):
         return company_id
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left, right = _value(node.left, company_id), _value(node.right, company_id)
+        left, right = _value(node.left, company_id, company_field), _value(node.right, company_id, company_field)
         if isinstance(left, list) and isinstance(right, list):
             return left + right
     raise ValueError("Unsupported company-domain expression")

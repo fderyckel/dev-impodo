@@ -24,6 +24,7 @@ belongs.
 | Compare with Odoo and review changes | `web/routers/summary.py` and `preflight.py` | `PreflightService` binds current preparation, target reads, and decisions to a comparison. |
 | Load and verify changes | `web/routers/execution.py` | `ExecutionService` runs the confirmed schedule. `ReconciliationService` verifies the result. |
 | Load an Odoo-to-Odoo transfer | `web/routers/transfer_load.py` | `TransferExecutionService` compiles the transfer from reviewed source and destination evidence. `ExecutionService` loads it and handles recovery. |
+| Save and restore clean Odoo data | `web/routers/saved_odoo_data.py` | `SavedOdooDataService` owns capture configurations and retained data versions. `web/composition/saved_odoo_restore.py` checks a fresh destination and applies field policies through the transfer engine. `OdooSavedDataArchiveService` governs portable download and import. |
 | Continue or inspect a completed load | `web/routers/history.py`, `continuation.py`, and `corrections.py` | `application/continuation_publication.py` retains the next cycle's full target index. `application/correction_workflow.py` coordinates the review. `application/correction_execution.py` uses exact protected record IDs and the scoped Odoo writer and reconciliation services. |
 | Save a Recipe | `web/routers/migration_projects.py` | `RecipePublicationService` checks eligibility and publishes the revision. `RecipeCompiler` compiles portable rules from the selected source contracts and current workspace evidence. |
 | Set up and run an integrated Test | `web/routers/integrated_runs.py` and `run_fresh_data.py` | `MigrationRunPlanningService` plans and activates the run. `RecipeApplicationService` builds fresh mapping evidence for each application. |
@@ -66,6 +67,42 @@ revision or appends a successor with an optimistic revision check. A stored
 operation intent lets a retry return the same result. See the
 [Project lifecycle](../developer/contracts/project-lifecycle.md) and
 [Recipe lifecycle](../developer/contracts/recipe-lifecycle.md) contracts.
+
+## Saved Odoo data and repeat restoration
+
+`domain/odoo_saved_data.py` separates capture definitions, immutable data-version
+references, destination profiles, restore generations and capture operations.
+`application/odoo_saved_data_ports.py` declares registry persistence.
+`adapters/duckdb/odoo_saved_data_repository.py` stores those identities without
+copying source rows into the registry.
+
+`application/odoo_saved_data_service.py` checks source context, compiles capture
+choices and publishes complete saved versions. Its progress owner is
+`application/odoo_saved_data_jobs.py`. The source access boundary lives in
+`web/composition/saved_odoo_data.py`.
+
+`application/odoo_saved_data_workspaces.py` creates successor captures and
+independent restore workspaces. The checked immutable-cache adapter is
+`adapters/duckdb/odoo_saved_data_projection.py`. Source company selection is
+stored separately by `adapters/duckdb/odoo_saved_source_company.py` and its
+`schema/odoo_saved_source_company.py` companion.
+
+`domain/odoo_restore.py` compiles schema coverage, scalar and relationship
+policies and effective row results. `web/composition/saved_odoo_restore.py`
+applies them through destination matching, transfer order, review, preflight,
+execution and read-back. It keeps the ordinary transfer path's identity and
+authorization boundaries.
+
+`application/odoo_saved_data_archive.py` authorizes portable exports and imports.
+`adapters/odoo_saved_data_package.py` owns the authenticated encrypted container.
+The DuckDB archive backend selects exact retained members;
+`odoo_saved_data_archive_payload.py` validates semantic coverage, and
+`odoo_saved_data_archive_import.py` gives imported data new local ownership and
+encryption keys. No original credential or destination write approval is
+transported.
+
+The [developer Odoo workflow](../developer/workflow/02-odoo-data.md#saved-odoo-data-and-repeat-restoration)
+owns route, retention, consistency, compatibility and verification details.
 
 ## Mapping, preparation, and review
 

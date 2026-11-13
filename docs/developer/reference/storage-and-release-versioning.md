@@ -17,7 +17,7 @@ The application continues its existing release numbering.
 | Application release | [`pyproject.toml`](../../../pyproject.toml), currently `26.11.1` | Use `YY.MM.W` for the maintainer-selected weekly slot and create the matching `v<version>` Git tag when releasing. Synchronize the package entry in `uv.lock` with uv after changing the release version. |
 | Release bundle | [`scripts/internal_release.py`](../../../scripts/internal_release.py) | Keep the application version, Git revision, artifact hashes, and validation evidence together in the immutable manifest. |
 | Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Baseline version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`; version 2 adds protected duplicate-group index columns and current version 3 adds the protected relationship-choice index. |
-| Project registry | [`schema/migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) | Start at version 1 in generation `impodo-migration-registry-2026-10-31-project-root`. |
+| Project registry | [`schema/migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) | Baseline version 1 in generation `impodo-migration-registry-2026-10-31-project-root`; version 2 adds saved Odoo data, and current version 3 ensures that restore profiles are available. |
 | Data version store | [`schema/data_version_store.py`](../../../src/impodo/adapters/duckdb/schema/data_version_store.py) | Start at version 1 in generation `impodo-data-version-store-2026-10-31-project-owned`. |
 | Workspace reference store | [`schema/migration_workspace_store.py`](../../../src/impodo/adapters/duckdb/schema/migration_workspace_store.py) | Start at version 1 in generation `impodo-migration-workspace-2026-10-31-reference-only`. |
 | PostgreSQL control schema | [`control_schema.py`](../../../src/impodo/adapters/postgresql/control_schema.py) and [`migrations.py`](../../../src/impodo/adapters/postgresql/migrations.py) | Start at version 1 in generation `impodo-control-2026-10-31`, with one checksummed initial migration. |
@@ -27,6 +27,17 @@ The baseline DuckDB upgrade registries started empty, and new databases have emp
 `schema_migration` ledgers. Unsupported generations, future versions, malformed
 schemas, and missing upgrade paths are rejected without changing stored data.
 The application no longer resets or archives abandoned development layouts.
+
+Early version 2 registries contain saved Odoo data without the restore-profile
+table. Later version 2 registries already contain that table and may have saved
+destination choices. The version 3 upgrade adds the table only when it is
+missing and preserves every existing business row. Both variants must pass the
+same exact final schema validation before the transaction commits. Any other
+missing table, unexpected table, or changed column layout rejects the upgrade
+and rolls back its table, version, and migration-ledger changes.
+The [registry upgrade tests](../../../tests/integration/duckdb/test_registry_restore_profile_upgrade.py)
+check row preservation and rollback. The [saved-project startup tests](../../../tests/integration/web/test_saved_project_startup.py)
+also reopen the application and the project's saved files after the upgrade.
 
 ## Change storage after this baseline
 

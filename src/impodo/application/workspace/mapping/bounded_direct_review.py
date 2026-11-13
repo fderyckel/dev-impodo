@@ -8,16 +8,21 @@ produce the evidence requested by the review.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Iterator
+from contextlib import ExitStack
+from dataclasses import replace
 
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_snapshots import (
     included_parent_rows_from_snapshots,
+    open_source_snapshot_batches,
+    validate_snapshot_for_dataset,
 )
 from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     GovernedArtifactStores,
 )
 from impodo.application.workspace.preparation.bounded_preparation import (
+    BOUNDED_SOURCE_BATCH_SIZE,
     open_bounded_source,
     supports_bounded_direct_preparation,
 )
@@ -43,9 +48,11 @@ from impodo.domain.staging.evaluator import (
     CompiledBrowserRowTransformer,
     compile_browser_row_transformer,
     row_inclusion_review_values,
+    row_inclusion_source_keys,
 )
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+    COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
     browser_evaluation_scale,
 )
@@ -86,6 +93,7 @@ def _direct_batches(
     source_snapshots: Iterable[SourceSnapshot],
     *,
     dataset_ids: frozenset[str] | None = None,
+    row_inclusion_only: bool = False,
 ) -> Iterator[
     tuple[
         SourceDataset,
@@ -98,7 +106,10 @@ def _direct_batches(
 
     scale = browser_evaluation_scale(
         physical_selection,
-        supported_limit=BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
+        supported_limit=(
+            COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+            if row_inclusion_only else BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
+        ),
     )
     if not scale.supported:
         raise ReadinessError(
@@ -123,11 +134,18 @@ def _direct_batches(
         raise ReadinessError("Bounded review datasets are incomplete or duplicated")
     snapshots = tuple(source_snapshots)
     snapshot_by_id = {item.dataset_id: item for item in snapshots}
+    if len(snapshot_by_id) != len(snapshots) or set(snapshot_by_id) != set(physical_by_id):
+        raise ReadinessError("Frozen source snapshots are incomplete")
+    try:
+        for physical in physical_selection.datasets:
+            validate_snapshot_for_dataset(
+                physical_selection, physical, snapshot_by_id[physical.dataset_id],
+            )
+    except SourceLoadError as error:
+        raise ReadinessError("The frozen source snapshot could not be verified") from error
     included_parents = included_parent_rows_from_snapshots(
         definition.datasets, physical_selection, snapshots, artifacts,
     )
-    if len(snapshot_by_id) != len(snapshots) or set(snapshot_by_id) != set(physical_by_id):
-        raise ReadinessError("Frozen source snapshots are incomplete")
     catalog_by_file = {item.file_id: item for item in catalogs}
     source_file_by_id = {item.file_id: item for item in workspace_state.source_files}
 
@@ -160,17 +178,28 @@ def _direct_batches(
             effective, physical, mapping, None, "source",
             included_parent=included_parents.get(mapping.dataset_id),
         )
+        review_keys = row_inclusion_source_keys(mapping) if row_inclusion_only else None
+        if review_keys is not None:
+            transformer = replace(transformer, effective_column_keys=review_keys)
         count = 0
         try:
-            with open_bounded_source(
-                workspace_state,
-                physical_selection,
-                physical,
-                source_file,
-                artifacts,
-                snapshot_by_id[physical.dataset_id],
-                named_range=named_range,
-            ) as source:
+            with ExitStack() as stack:
+                snapshot = snapshot_by_id[physical.dataset_id]
+                if review_keys is not None:
+                    path = stack.enter_context(artifacts.materialize_source_snapshot(
+                        physical_selection.data_version_id,
+                        snapshot.parquet_storage_key,
+                        expected_sha256=snapshot.parquet_sha256,
+                    ))
+                    source = stack.enter_context(open_source_snapshot_batches(
+                        path, snapshot, batch_size=BOUNDED_SOURCE_BATCH_SIZE,
+                        source_column_keys=frozenset(review_keys),
+                    ))
+                else:
+                    source = stack.enter_context(open_bounded_source(
+                        workspace_state, physical_selection, physical, source_file,
+                        artifacts, snapshot, named_range=named_range,
+                    ))
                 if source.content_hash != physical.source_evidence_hash:
                     raise ReadinessError("Stored source content changed after selection")
                 for batch in source.iter_batches():
@@ -234,7 +263,12 @@ def direct_row_inclusion_review(
     artifacts: GovernedArtifactStores,
     source_snapshots: Iterable[SourceSnapshot],
 ) -> RowInclusionReviewReport | None:
-    """Evaluate source-only admission rules without transforming target rows."""
+    """Review up to 100,000 frozen rows using narrow typed Parquet batches.
+
+    Keep the shared Python admission semantics and complete decision evidence;
+    only source columns needed by the row rule are decoded. Transformation
+    effects retain their separately qualified evaluation limit.
+    """
 
     return row_inclusion_review_from_batches(
         definition, physical_selection, effective_selection,
@@ -245,6 +279,7 @@ def direct_row_inclusion_review(
                 item.dataset_id for item in definition.datasets
                 if item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS
             ),
+            row_inclusion_only=True,
         ),
     )
 

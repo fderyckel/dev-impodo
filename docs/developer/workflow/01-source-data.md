@@ -354,6 +354,18 @@ operator to narrow the filter. It never becomes complete catalogue evidence.
 an exact predicate before preview and save; filter text cannot become a
 selected parent. Refreshes preserve the submitted file fields and selected
 parent, including when a filter returns no matches.
+The editor groups record type, starting parent, and file levels into three
+numbered sections. `hierarchy-editor.js` posts the complete inert form to the
+same bounded route and replaces only the picker on success. Rejected lookups
+replace only the inline feedback. Network failures leave every form control
+in place. Changing company clears the selected parent and loads that company's
+choices. Late responses cannot replace choices after the lookup inputs change.
+The presentation-only `hierarchy_start` value requires an explicit parent in
+existing-parent mode and ignores a hidden old choice in top-level mode. It
+does not change portable hierarchy or Recipe contracts. Non-JavaScript
+responses retain the submitted editor even when model discovery is unavailable.
+`derived-journey.js` reveals and focuses the lookup feedback after a full-page
+response, and keeps that submitted editor marked as unsaved.
 `hierarchy_parents.py::resolve_hierarchy_parent` authorizes and captures local
 inputs, closes its database owners, reads Odoo on a worker, and rechecks the
 workspace, source, plan, profile, and credential before publication. The shared
@@ -896,6 +908,7 @@ operator workspace.
 - [`tests/domain/workspace/test_existing_hierarchy_rules.py`](../../../tests/domain/workspace/test_existing_hierarchy_rules.py)
 - [`tests/domain/preparation/test_existing_hierarchy_parents.py`](../../../tests/domain/preparation/test_existing_hierarchy_parents.py)
 - [`tests/integration/web/test_existing_hierarchy_parents.py`](../../../tests/integration/web/test_existing_hierarchy_parents.py)
+- [`tests/e2e/hierarchy-editor.test.cjs`](../../../tests/e2e/hierarchy-editor.test.cjs)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)
 - [`tests/integration/web/test_exact_join_group_forms.py`](../../../tests/integration/web/test_exact_join_group_forms.py)

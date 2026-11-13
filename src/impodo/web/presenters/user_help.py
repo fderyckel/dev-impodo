@@ -165,6 +165,13 @@ USER_HELP_TARGETS = (
         description="Join tables, build hierarchies, and split repeated rows.",
     ),
     UserHelpTarget(
+        help_id="saved-odoo-data",
+        title="Save and restore clean Odoo data",
+        document_path="docs/user/guides/saved-odoo-data.md",
+        scope=UserHelpScope.CONTEXTUAL,
+        description="Preserve selected clean records and restore a dated version after a reset.",
+    ),
+    UserHelpTarget(
         help_id="integrated-test-runs",
         title="Integrated multi-Recipe Test run",
         document_path="docs/user/guides/integrated-test-runs.md",
@@ -250,6 +257,7 @@ USER_HELP_GROUPS = (
         target_ids=(
             "local-odoo",
             "related-tables",
+            "saved-odoo-data",
             "integrated-test-runs",
             "qualify-integrated-test",
             "production-rollout",
@@ -289,6 +297,13 @@ def _decision_help(
 
 
 DECISION_HELP_TARGETS = (
+    _decision_help(
+        "saved-odoo-capture",
+        "saved-odoo-data",
+        "Save clean Odoo data for repeat restoration",
+        "save-the-capture-configuration",
+        "saved_odoo_data/_configuration.html",
+    ),
     _decision_help(
         "source-composition",
         "related-tables",
@@ -420,6 +435,7 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
     {
         "concepts.html": "concepts",
         "project_business_overview.html": "getting-started",
+        "project_saved_odoo_data.html": "getting-started",
         "project_integrated_qualification.html": "qualify-integrated-test",
         "project_integrated_run.html": "integrated-test-runs",
         "project_list.html": "getting-started",

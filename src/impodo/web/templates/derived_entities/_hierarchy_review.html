@@ -59,6 +59,7 @@
       <input type="hidden" name="all_blank_mode" value="{{ pending_rule.all_blank.mode }}">
       <input type="hidden" name="all_blank_value" value="{{ pending_rule.all_blank.value or '' }}">
       {% if pending_rule.existing_parent %}
+        <input type="hidden" name="hierarchy_start" value="{{ 'existing' if pending_rule.existing_parent.fixed_path else 'source' }}">
         <input type="hidden" name="existing_source_levels" value="{{ pending_rule.existing_parent.existing_source_levels }}">
         <input type="hidden" name="hierarchy_parent_field" value="{{ pending_rule.existing_parent.parent_field }}">
         <input type="hidden" name="hierarchy_company_id" value="{{ workspace_state.odoo_company.company_id if workspace_state.odoo_company else '' }}">

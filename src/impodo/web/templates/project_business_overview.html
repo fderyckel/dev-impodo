@@ -24,6 +24,17 @@
     </section>
   {% endif %}
 
+  {% if request.app.state.context.saved_odoo_data %}
+    <section class="next-action-card">
+      <div>
+        <p class="eyebrow">Saved Odoo data</p>
+        <h2>Keep clean data ready for the next database reset</h2>
+        <p>Choose the models, fields, and related records once. Update your saved data and restore a complete version to the database and company you choose.</p>
+      </div>
+      <a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data{% if authoring_workspace %}?source_workspace_id={{ authoring_workspace.workspace_id }}{% endif %}">Open saved Odoo data</a>
+    </section>
+  {% endif %}
+
   {% for correction in correction_journeys %}
     <section class="next-action-card {% if not correction.completed %}current{% endif %}">
       <div>

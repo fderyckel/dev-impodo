@@ -2,7 +2,7 @@
   <div class="page-heading compact">
     <div>
       <p class="eyebrow">Level 1 · What to preserve</p>
-      <h2 id="capture-configuration-title">Capture configuration</h2>
+      <h2 id="capture-configuration-title">Capture configuration {{ decision_help("saved-odoo-capture") }}</h2>
       <p>Choose the source database, company, models, fields, and related records once. Saving these choices does not download data.</p>
     </div>
     {% if definition %}<span class="status registered">Revision {{ definition.configuration_revision }}</span>{% endif %}
@@ -20,6 +20,10 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="workspace_id" value="{{ source_workspace.workspace_id }}">
       <input type="hidden" name="operation_id" value="{{ operation_id }}">
+      {% if definition %}
+        <input type="hidden" name="saved_data_id" value="{{ definition.saved_data_id }}">
+        <input type="hidden" name="revision" value="{{ definition.revision }}">
+      {% endif %}
       <div class="form-grid">
         <label>
           Saved set name
@@ -48,9 +52,22 @@
         <ul>{% for model in source_workspace.intended_models %}<li><code>{{ model }}</code></li>{% endfor %}</ul>
         <p>Use source setup to choose models, filters, fields, archived records, and related data. Existing saved data versions keep their original choices.</p>
       </details>
+      {% if coverage_rows|default(()) %}
+        <details>
+          <summary>Fields outside this saved scope · {{ coverage_total|default(coverage_rows|length) }}</summary>
+          <p>These fields are not selected or cannot be restored automatically under the current field capabilities. Captured reference values remain in their saved version.</p>
+          <div class="table-scroll">
+            <table class="data-table">
+              <thead><tr><th scope="col">Model</th><th scope="col">Field</th><th scope="col">Reason</th></tr></thead>
+              <tbody>{% for field in coverage_rows %}<tr><td><code>{{ field.model }}</code></td><th scope="row">{{ field.label }} <small>{{ field.name }}</small></th><td>{{ field.reason }}</td></tr>{% endfor %}</tbody>
+            </table>
+          </div>
+          {% if coverage_total|default(0) > coverage_rows|length %}<p class="muted">Showing the first {{ coverage_rows|length }} fields. Open source setup to inspect all field definitions.</p>{% endif %}
+        </details>
+      {% endif %}
       <div class="actions">
         <a class="button secondary" href="/workspaces/{{ source_workspace.workspace_id }}/sources">Edit models, fields, and related data</a>
-        <button class="button primary" type="submit" data-submitting-label="Saving capture configuration...">Save capture configuration</button>
+        <button class="button primary" type="submit" data-submitting-label="Saving capture configuration...">{% if definition %}Save configuration changes{% else %}Save capture configuration{% endif %}</button>
       </div>
     </form>
   {% elif definition %}

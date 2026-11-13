@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
-import shutil
+from tempfile import TemporaryDirectory
 import unittest
 from uuid import uuid4
 
@@ -30,15 +30,10 @@ from impodo.domain.mapping.row_inclusion_review import (
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState, WorkspaceStatus
-from tests.support.paths import REPOSITORY_ROOT
-
-
 class RowInclusionReviewRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        (REPOSITORY_ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = REPOSITORY_ROOT / ".tmp" / f"row-review-{uuid4()}"
-        self.temporary.mkdir()
-        self.database = DuckDbWorkspaceDatabase(self.temporary)
+        self.temporary = TemporaryDirectory()
+        self.database = DuckDbWorkspaceDatabase(Path(self.temporary.name))
         self.workspace_id = str(uuid4())
         WorkspaceStateRepository(self.database).initialize_workbench(
             WorkspaceState(
@@ -52,7 +47,7 @@ class RowInclusionReviewRepositoryTests(unittest.TestCase):
         self.repository = RowInclusionReviewRepository(self.database)
 
     def tearDown(self) -> None:
-        shutil.rmtree(Path(self.temporary), ignore_errors=True)
+        self.temporary.cleanup()
 
     def test_review_pages_and_confirmation_are_bound_to_exact_inputs(self) -> None:
         identity = RowInclusionReviewIdentity(

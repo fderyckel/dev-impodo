@@ -48,6 +48,7 @@ For a concise question-and-answer guide to every current Match data rule, use
 - [Understand data projects, data versions, workspaces, and Recipes](concepts.md)
 - [Connect to Odoo on this computer](guides/local-odoo.md)
 - [Prepare related tables](guides/related-tables.md)
+- [Save clean Odoo data and restore it after a reset](guides/saved-odoo-data.md)
 - [Plan an integrated multi-Recipe Test run](guides/integrated-test-runs.md)
 - [Qualify an integrated Test](guides/qualify-integrated-test.md)
 - [Run the qualified plan with latest data](guides/production-rollout.md)

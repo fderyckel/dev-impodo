@@ -4,8 +4,10 @@ from dataclasses import replace
 from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from impodo.application.workspace.mapping.bounded_direct_review import (
+    direct_row_inclusion_review,
     direct_transformation_impact,
     uses_bounded_direct_review,
 )
@@ -16,6 +18,7 @@ from impodo.application.workspace.mapping.transformation_impact import (
     TransformationImpactService,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import RowInclusionCondition, RowInclusionPolicy
 from tests.application.workspace.preparation.test_capability import (
     _definition,
     _selection,
@@ -131,6 +134,24 @@ class BoundedDirectReviewRoutingTests(unittest.TestCase):
             direct_transformation_impact(
                 MagicMock(), self.definition, large, large, (), MagicMock(),
                 (), lambda _row: None,
+            )
+
+    def test_rows_to_use_rejects_100_001_before_opening_sources(self) -> None:
+        large = replace(
+            self.selection,
+            datasets=(replace(self.selection.datasets[0], row_count=100_001),),
+        )
+        definition = replace(self.definition, datasets=(replace(
+            self.definition.datasets[0], row_inclusion=RowInclusionPolicy(
+                mode="matching_rows", conditions=(RowInclusionCondition(
+                    str(uuid4()), large.datasets[0].columns[0].stable_key,
+                    "is_not_blank",
+                ),),
+            ),
+        ),))
+        with self.assertRaisesRegex(ReadinessError, "100,000"):
+            direct_row_inclusion_review(
+                MagicMock(), definition, large, large, (), MagicMock(), (),
             )
 
     def test_materialized_route_stays_for_small_or_derived_selections(self) -> None:

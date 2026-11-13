@@ -40,6 +40,45 @@ MODEL = "x.storage.place"
 
 
 class ExistingHierarchyParentWebTests(HierarchyWorkflowFixture):
+    def test_missing_model_discovery_keeps_the_editor_and_inline_recovery(self):
+        workspace_id, form, _schema = self.configure(20, "REMOTE")
+        form["hierarchy_company_id"] = "7"
+        form["hierarchy_start"] = "existing"
+        with patch.object(self.context.queries, "get_odoo_model_catalog", return_value=None):
+            response = self._post(
+                f"/workspaces/{workspace_id}/derived-entities/hierarchy/parents", form
+            )
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("data-hierarchy-editor", response.text)
+        self.assertIn("data-source-feedback", response.text)
+        self.assertIn('value="location_hierarchy"', response.text)
+        self.assertIn('value="Stock"', response.text)
+        self.assertEqual(self.calls, [])
+        self.assertIsNone(self.context.queries.get_derived_entity_plan(workspace_id))
+
+    def test_starting_parent_is_explicit_and_a_hidden_old_choice_is_ignored(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace_id, form, _schema = self.configure(major, "REMOTE")
+                prefix = f"/workspaces/{workspace_id}/derived-entities/hierarchy"
+                form["hierarchy_start"] = "existing"
+                rejected = self._post(prefix + "/preview", form)
+                self.assertEqual(rejected.status_code, 422)
+                self.assertIn("Choose a Starting parent in Odoo", rejected.text)
+                self.assertIn("data-source-feedback", rejected.text)
+                self.assertEqual(self.calls, [])
+                form["hierarchy_start"] = "source"
+                form["existing_parent_choice"] = HierarchyParentChoice(
+                    ("An old selection",), ("Example",)
+                ).value
+                preview = self._post(prefix + "/preview", form)
+                self.assertEqual(preview.status_code, 200)
+                saved = self._post(prefix + "/save", form)
+                self.assertEqual(saved.status_code, 303)
+                plan = self.context.queries.get_derived_entity_plan(workspace_id)
+                self.assertIsNone(plan.rules[0].existing_parent)
+                self.assertEqual(self.calls, [])
+
     def test_changed_checking_key_rejects_publication_and_keeps_the_form(self):
         workspace_id, form, _schema = self.configure(20, "REMOTE")
         form["hierarchy_company_id"] = "7"
@@ -381,7 +420,7 @@ class ExistingHierarchyParentWebTests(HierarchyWorkflowFixture):
                     self.assertEqual(companies.status_code, 200, companies.text[:300])
                     self.assertIn("Example", companies.text)
                     self.assertIn("Load existing Odoo parents", companies.text)
-                    self.assertIn("Filter Odoo parents (optional)", companies.text)
+                    self.assertIn("Search parents (optional)", companies.text)
                     self.assertEqual(self.calls, [])
                     self.assertIsNone(
                         self.context.queries.get(workspace_id).odoo_company

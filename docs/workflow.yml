@@ -30,6 +30,7 @@ shared:
     - docs/user/concepts.md
     - docs/developer/README.md
     - docs/architecture/code-organization.md
+    - docs/user/guides/saved-odoo-data.md
 
 stages:
   - id: setup
@@ -48,6 +49,7 @@ stages:
       - src/impodo/web/templates/project_list.html
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
+      - src/impodo/web/templates/project_saved_odoo_data.html
       - src/impodo/web/templates/project_recipe_detail.html
       - src/impodo/web/templates/project_recipe_revision.html
       - src/impodo/web/templates/workspace_overview.html
@@ -219,6 +221,7 @@ stages:
       - tests/domain/workspace/test_existing_hierarchy_rules.py
       - tests/domain/preparation/test_existing_hierarchy_parents.py
       - tests/integration/web/test_existing_hierarchy_parents.py
+      - tests/e2e/hierarchy-editor.test.cjs
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
       - tests/integration/web/test_exact_join_group_forms.py
@@ -416,6 +419,7 @@ stages:
     router_modules:
       - src/impodo/web/routers/schema.py
       - src/impodo/web/routers/supporting_review.py
+      - src/impodo/web/routers/saved_odoo_data.py
     templates:
       - src/impodo/web/templates/workspace_schema.html
     code_references:
@@ -452,6 +456,28 @@ stages:
       - scripts/capture_matching_rule_screenshots.py::capture
       - scripts/capture_matching_rule_screenshots.py::capture_supporting_review
       - scripts/capture_product_supporting_review.py::capture
+      - src/impodo/web/routers/saved_odoo_data.py::build_saved_odoo_data_router
+      - src/impodo/web/composition/saved_odoo_data.py::saved_capture_access
+      - src/impodo/web/composition/saved_odoo_restore.py::restore_saved_odoo_data
+      - src/impodo/application/odoo_saved_data_service.py::SavedOdooDataService
+      - src/impodo/application/odoo_saved_data_jobs.py::SavedOdooDataJobManager
+      - src/impodo/application/odoo_saved_data_workspaces.py::OdooSavedDataWorkspaceService
+      - src/impodo/application/odoo_saved_data_archive.py::OdooSavedDataArchiveService
+      - src/impodo/domain/odoo_saved_data.py::SavedOdooDataDefinition
+      - src/impodo/domain/odoo_saved_data.py::SavedOdooDataVersion
+      - src/impodo/domain/odoo_saved_data.py::SavedOdooRestoreProfile
+      - src/impodo/domain/odoo_restore.py::compile_odoo_restore
+      - src/impodo/domain/odoo_restore.py::apply_odoo_restore
+      - src/impodo/adapters/duckdb/odoo_saved_data_repository.py::DuckDbSavedOdooDataRepository
+      - src/impodo/adapters/duckdb/odoo_saved_data_projection.py::OdooSavedDataProjectionRepository
+      - src/impodo/adapters/duckdb/odoo_saved_source_company.py::OdooSavedSourceCompanyRepository
+      - src/impodo/adapters/duckdb/schema/odoo_saved_source_company.py::create_saved_source_company_schema
+      - src/impodo/adapters/duckdb/odoo_saved_data_archive.py::OdooSavedDataArchiveBackend
+      - src/impodo/adapters/duckdb/odoo_saved_data_archive_import.py::OdooSavedDataArchiveImporter
+      - src/impodo/adapters/duckdb/odoo_saved_data_archive_payload.py::decode_payload
+      - src/impodo/adapters/odoo_saved_data_package.py::write_saved_odoo_package
+      - src/impodo/adapters/odoo_saved_data_package.py::read_saved_odoo_package
+      - scripts/capture_saved_odoo_data.py::capture
     tests:
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/duckdb/test_workspace.py
@@ -494,6 +520,16 @@ stages:
       - tests/integration/web/test_target_workflow.py
       - tests/integration/web/test_schema_capture_recovery.py
       - tests/e2e/test_stage2_matching_rules.py
+      - tests/domain/test_odoo_restore.py
+      - tests/integration/duckdb/test_odoo_saved_data_repository.py
+      - tests/integration/duckdb/test_saved_source_company_upgrade.py
+      - tests/integration/web/test_saved_odoo_workspace_projection.py
+      - tests/application/workspace/test_saved_odoo_transfer.py
+      - tests/integration/artifacts/test_odoo_saved_data_package.py
+      - tests/integration/web/test_saved_odoo_archive_lifecycle.py
+      - tests/integration/web/test_saved_odoo_data.py
+      - tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py
+      - tests/integration/web/test_saved_odoo_restore_flow.py
     contracts:
       - docs/developer/contracts/evidence-lifecycle.md
     references:
@@ -575,6 +611,8 @@ stages:
       - src/impodo/domain/mapping/row_inclusion.py::compile_included_parent_rows
       - src/impodo/domain/mapping/row_inclusion_review.py::RowInclusionReviewSnapshot
       - src/impodo/application/workspace/mapping/row_inclusion_review.py::RowInclusionReviewService
+      - src/impodo/application/workspace/mapping/bounded_direct_review.py::direct_row_inclusion_review
+      - src/impodo/application/data_version/source_snapshots.py::open_source_snapshot_batches
       - src/impodo/application/workspace/mapping/bounded_join_review.py::joined_row_inclusion_review
       - src/impodo/application/workspace/mapping/bounded_join_review.py::joined_transformation_impact
       - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::iter_bounded_preparation_source_batches
@@ -669,6 +707,8 @@ stages:
       - tests/application/workspace/mapping/test_value_match_choices.py
       - tests/e2e/mapping-value-match-origins.test.cjs
       - tests/integration/artifacts/test_joined_row_inclusion.py
+      - tests/integration/artifacts/test_direct_row_review.py
+      - tests/performance/test_direct_row_review_scale.py
       - tests/integration/web/test_selection_choice_refresh.py
       - tests/integration/web/test_recipe_selection_refresh.py
       - tests/e2e/test_selection_choice_refresh.py
@@ -806,6 +846,9 @@ stages:
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_preparation_session.py
       - tests/application/workspace/preparation/test_capability.py
+      - tests/application/workspace/preparation/test_row_inclusion_capacity.py
+      - tests/integration/artifacts/test_row_inclusion_preparation.py
+      - tests/performance/test_row_inclusion_preparation_scale.py
       - tests/integration/duckdb/test_identity_group_quality.py
       - tests/integration/duckdb/test_native_reference_serialization.py
       - tests/performance/test_preparation_identity_groups.py

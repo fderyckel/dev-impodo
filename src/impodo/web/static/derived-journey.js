@@ -355,7 +355,7 @@ document.addEventListener("DOMContentLoaded", () => {
     };
     editor.addEventListener("input", changed);
     editor.addEventListener("change", changed);
-    editor.addEventListener("submit", () => { leaving = true; });
+    editor.addEventListener("submit", (event) => { if (!event.defaultPrevented) leaving = true; });
     editor.addEventListener("invalid", (event) => {
       leaving = false;
       editor.hidden = false;
@@ -452,8 +452,9 @@ document.addEventListener("DOMContentLoaded", () => {
   let hash = "";
   try { hash = decodeURIComponent(location.hash.slice(1)); } catch { /* Ignore malformed section links. */ }
   const preview = reviews[0];
+  const feedback = root.querySelector("[data-source-feedback]");
   const target = savedIntent === "another" && !hasWork() ? root.querySelector("[data-source-choices]")
-    : restoredEditor || document.getElementById(hash) || preview
+    : restoredEditor || document.getElementById(hash) || feedback || preview
       || document.getElementById(root.dataset.sourceCurrentOperation || "");
   if (preview) {
     currentEditor = editorFor(preview);
@@ -461,5 +462,11 @@ document.addEventListener("DOMContentLoaded", () => {
   }
   if (target) activate(target, { force: true });
   else activate(null, { force: true });
-  if (rejected && currentEditor) reveal(currentEditor);
+  if (feedback) {
+    currentEditor = feedback.closest("form[data-source-editor]") || currentEditor;
+    rejected = true;
+    update();
+    reveal(feedback);
+  }
+  if (rejected && currentEditor && !feedback) reveal(currentEditor);
 });

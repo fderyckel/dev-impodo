@@ -30,21 +30,29 @@ from impodo.application.workspace.access import WorkspaceAccessService
 from impodo.application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
-from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.odoo.company import OdooCompanySelection
-from impodo.domain.odoo.contracts import MetadataSnapshot
+from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
+from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.odoo.field_capabilities import is_editable_scalar_field
 from impodo.domain.odoo_capture import OdooCaptureSelection
 from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
 from impodo.domain.odoo_saved_data import (
+    SavedOdooCaptureOperation,
     SavedOdooDataDefinition,
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
 )
 from impodo.domain.odoo_source_capture import is_odoo_capture_value_field
-from impodo.domain.project.foundation import MigrationConflictError, require_uuid
-from impodo.domain.serialization import canonical_json
+from impodo.domain.project.foundation import (
+    MigrationConflictError,
+    MigrationNotFoundError,
+    require_hash,
+    require_uuid,
+)
+from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, AuthorizationPolicy, Capability
 from impodo.domain.shared.models import OdooReadIdentity
+from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
@@ -66,6 +74,10 @@ class SavedOdooEvidenceReader(Protocol):
     def get_current_odoo_capture_selections(
         self, workspace_id: str
     ) -> tuple[OdooCaptureSelection, ...]: ...
+
+    def get_current_source_snapshots(
+        self, workspace_id: str
+    ) -> tuple[SourceSnapshot, ...]: ...
 
 
 class SavedOdooWorkspaceFactory(Protocol):
@@ -94,6 +106,8 @@ class SavedOdooCaptureAccess:
     read_identity: OdooReadIdentity | None
     credential_binding_hash: str
     gateway: OdooSourceCapturePort
+    model_catalog: RecordSnapshot | None = None
+    model_catalog_identity: OdooReadIdentity | None = None
 
 
 SavedOdooAccessFactory = Callable[[WorkspaceState, str], SavedOdooCaptureAccess]
@@ -102,7 +116,14 @@ SavedOdooAccessFactory = Callable[[WorkspaceState, str], SavedOdooCaptureAccess]
 class SavedOdooSourceCompanyWriter(Protocol):
     """Persist the source context independently from destination choices."""
 
-    def set_source_company(self, workspace_id: str, selection: OdooCompanySelection, *, actor: Actor, expected_revision: int) -> None: ...
+    def set_source_company(
+        self,
+        workspace_id: str,
+        selection: OdooCompanySelection,
+        *,
+        actor: Actor,
+        expected_revision: int,
+    ) -> None: ...
 
 
 class SavedOdooDataService:
@@ -140,39 +161,122 @@ class SavedOdooDataService:
         self.local_operation = local_operation
 
     def configure(
-        self, workspace_id: str, *, actor: Actor, label: str,
-        source_company: OdooCompanySelection, all_fields: bool,
-        operation_id: str, access_factory: SavedOdooAccessFactory,
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        label: str,
+        source_company: OdooCompanySelection,
+        all_fields: bool,
+        operation_id: str,
+        access_factory: SavedOdooAccessFactory,
     ) -> SavedOdooDataDefinition:
         """Check capture choices in the explicit company without downloading rows."""
 
         require_uuid(operation_id, "operation_id")
+        request_hash = content_hash(
+            {
+                "workspace_id": require_uuid(workspace_id, "workspace_id"),
+                "label": label.strip(),
+                "all_fields": all_fields,
+                "source_company_hash": source_company.binding_hash,
+                "source_target_hash": source_company.target_hash,
+            }
+        )
+
+        def replay():
+            owner = self.access.require(
+                actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id
+            )
+            try:
+                existing = self.repository.get_definition(
+                    owner.project_id, str(uuid5(UUID(operation_id), "saved-data"))
+                )
+            except MigrationNotFoundError:
+                return None
+            initial = self.repository.get_configuration(
+                owner.project_id, existing.saved_data_id, 1
+            )
+            if (
+                json.loads(initial.config_json).get("configuration_request_hash")
+                != request_hash
+            ):
+                raise MigrationConflictError(
+                    "This configuration request was already used for different choices"
+                )
+            return existing
+
+        existing = self.local_operation(replay)
+        if existing is not None:
+            return existing
+
         def prepare():
-            owner = self.access.require(actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id)
+            owner = self.access.require(
+                actor, Capability.SOURCE_CONFIGURE, workspace_id=workspace_id
+            )
             state, schema, selections = self._configuration(workspace_id)
-            scope = self.states.repository.get_current_odoo_relationship_scope(workspace_id)
+            scope = self.states.repository.get_current_odoo_relationship_scope(
+                workspace_id
+            )
             if self.evidence.get_source_selection(workspace_id) is not None:
-                fresh = self.workspaces.prepare_refresh(workspace_id, actor=actor, operation_id=str(uuid5(UUID(operation_id), "configuration-workspace")))
+                fresh = self.workspaces.prepare_refresh(
+                    workspace_id,
+                    actor=actor,
+                    operation_id=str(
+                        uuid5(UUID(operation_id), "configuration-workspace")
+                    ),
+                )
             else:
                 fresh = state
-            self.source_companies.set_source_company(fresh.workspace_id, source_company, actor=actor, expected_revision=fresh.revision)
-            fresh = self.states.repository.get(fresh.workspace_id)
+            if source_company.target_hash != schema.connection_target_hash:
+                raise WorkspaceError("The source company belongs to another database")
+            fresh = replace(fresh, odoo_company=source_company)
             now = datetime.now(UTC)
-            major = assess_odoo_operation(schema.odoo_version, OdooOperation.CAPTURE_SOURCE).version.major
+            major = assess_odoo_operation(
+                schema.odoo_version, OdooOperation.CAPTURE_SOURCE
+            ).version.major
             if major not in {19, 20}:
                 raise WorkspaceError("Choose a supported Odoo source")
             candidate = SavedOdooDataDefinition(
-                saved_data_id=str(uuid5(UUID(operation_id), "saved-data")), project_id=owner.project_id,
-                label=label, revision=1, source_workspace_id=fresh.workspace_id,
-                source_target_hash=schema.connection_target_hash, source_company_hash=source_company.binding_hash,
-                odoo_major=major, config_json=canonical_json({"all_fields": all_fields}), latest_version=None,
-                created_at=now, updated_at=now,
+                saved_data_id=str(uuid5(UUID(operation_id), "saved-data")),
+                project_id=owner.project_id,
+                label=label,
+                revision=1,
+                source_workspace_id=fresh.workspace_id,
+                source_target_hash=schema.connection_target_hash,
+                source_company_hash=source_company.binding_hash,
+                odoo_major=major,
+                config_json=canonical_json({"all_fields": all_fields}),
+                latest_version=None,
+                created_at=now,
+                updated_at=now,
             )
             return candidate, fresh, selections, scope
+
         candidate, fresh, selections, scope = self.local_operation(prepare)
         live = access_factory(fresh, workspace_id)
-        self.local_operation(lambda: self._seed_refresh(candidate, fresh, selections, scope, live, actor))
-        return self.local_operation(lambda: self.create(fresh.workspace_id, actor=actor, label=label, all_fields=all_fields, saved_data_id=candidate.saved_data_id))
+
+        def seed():
+            self.source_companies.set_source_company(
+                fresh.workspace_id,
+                source_company,
+                actor=actor,
+                expected_revision=fresh.revision,
+            )
+            current = self.states.repository.get(fresh.workspace_id)
+            self._seed_refresh(candidate, current, selections, scope, live, actor)
+
+        self.local_operation(seed)
+        return self.local_operation(
+            lambda: self.create(
+                fresh.workspace_id,
+                actor=actor,
+                label=label,
+                all_fields=all_fields,
+                saved_data_id=candidate.saved_data_id,
+                configuration_request_hash=request_hash,
+            )
+        )
 
     def create(
         self,
@@ -182,6 +286,7 @@ class SavedOdooDataService:
         label: str,
         all_fields: bool = False,
         saved_data_id: str | None = None,
+        configuration_request_hash: str | None = None,
     ) -> SavedOdooDataDefinition:
         """Save reviewed source choices before or after their first capture."""
 
@@ -196,6 +301,39 @@ class SavedOdooDataService:
             raise WorkspaceError("Choose a supported Odoo 19 or Odoo 20 source")
         if state.odoo_company is None:
             raise WorkspaceError("Choose the source company before saving Odoo data")
+        config = json.loads(
+            self._config_json(
+                schema, selections, project_id=owner.project_id, all_fields=all_fields
+            )
+        )
+        if configuration_request_hash is not None:
+            config["configuration_request_hash"] = require_hash(
+                configuration_request_hash, "configuration_request_hash"
+            )
+        config_json = canonical_json(config)
+        if saved_data_id is not None:
+            try:
+                existing = self.repository.get_definition(
+                    owner.project_id, saved_data_id
+                )
+            except MigrationNotFoundError:
+                pass
+            else:
+                initial = self.repository.get_configuration(
+                    owner.project_id, saved_data_id, 1
+                )
+                if (
+                    initial.source_workspace_id != workspace_id
+                    or initial.label != label.strip()
+                    or initial.source_target_hash != schema.connection_target_hash
+                    or initial.source_company_hash != state.odoo_company.binding_hash
+                    or initial.odoo_major != major
+                    or initial.config_json != config_json
+                ):
+                    raise MigrationConflictError(
+                        "This configuration identity was already used for different choices"
+                    )
+                return existing
         now = datetime.now(UTC)
         definition = SavedOdooDataDefinition(
             saved_data_id=saved_data_id or str(uuid4()),
@@ -206,7 +344,7 @@ class SavedOdooDataService:
             source_target_hash=schema.connection_target_hash,
             source_company_hash=state.odoo_company.binding_hash,
             odoo_major=major,
-            config_json=self._config_json(schema, selections, all_fields=all_fields),
+            config_json=config_json,
             latest_version=None,
             created_at=now,
             updated_at=now,
@@ -246,7 +384,10 @@ class SavedOdooDataService:
                 label=label,
                 source_workspace_id=workspace_id,
                 config_json=self._config_json(
-                    schema, selections, all_fields=all_fields
+                    schema,
+                    selections,
+                    project_id=owner.project_id,
+                    all_fields=all_fields,
                 ),
                 updated_at=datetime.now(UTC),
             ),
@@ -275,6 +416,11 @@ class SavedOdooDataService:
         """Retain an already complete source capture without reading Odoo again."""
 
         definition = self.get(project_id, saved_data_id, actor=actor)
+        completed = self.repository.get_version_for_operation(
+            project_id, saved_data_id, operation_id
+        )
+        if completed is not None:
+            return definition, completed
         self.access.require(
             actor,
             Capability.SOURCE_CAPTURE,
@@ -302,7 +448,11 @@ class SavedOdooDataService:
         """Recapture all configured models between bounded local phases."""
 
         require_uuid(operation_id, "operation_id")
-        previous = self.local_operation(lambda: self._completed_operation(project_id, saved_data_id, operation_id, actor))
+        previous = self.local_operation(
+            lambda: self._completed_operation(
+                project_id, saved_data_id, operation_id, actor
+            )
+        )
         if previous is not None:
             return previous
 
@@ -320,6 +470,10 @@ class SavedOdooDataService:
             state, schema, selections = self._configuration(
                 definition.source_workspace_id
             )
+            if not self._configuration_matches(definition, schema, selections):
+                raise WorkspaceError(
+                    "The source choices changed. Save the revised capture configuration before updating data"
+                )
             if (
                 state.odoo_company is None
                 or state.odoo_company.binding_hash != definition.source_company_hash
@@ -331,16 +485,80 @@ class SavedOdooDataService:
                 raise WorkspaceError(
                     "The source database changed; save a separate configuration"
                 )
-            fresh = (
-                self.workspaces.prepare_refresh(state.workspace_id, actor=actor, operation_id=str(uuid5(UUID(operation_id), "capture-workspace")))
-                if self.evidence.get_source_selection(state.workspace_id) is not None else state
+            pending = self.repository.get_capture_operation(
+                project_id, saved_data_id, operation_id
             )
+            if pending is not None:
+                if (
+                    pending.expected_revision != expected_revision
+                    or pending.configuration_revision
+                    != definition.configuration_revision
+                ):
+                    raise MigrationConflictError(
+                        "This refresh request was already used for another configuration revision"
+                    )
+                fresh = self.states.repository.get(pending.workspace_id)
+            else:
+                fresh = (
+                    self.workspaces.prepare_refresh(
+                        state.workspace_id,
+                        actor=actor,
+                        operation_id=str(
+                            uuid5(UUID(operation_id), "capture-workspace")
+                        ),
+                    )
+                    if self.evidence.get_source_selection(state.workspace_id)
+                    is not None
+                    else state
+                )
+                owner = self.access.require(
+                    actor, Capability.SOURCE_CAPTURE, workspace_id=fresh.workspace_id
+                )
+                if owner.project_id != project_id:
+                    raise WorkspaceError(
+                        "The capture workspace belongs to another project"
+                    )
+                self.repository.bind_capture_operation(
+                    SavedOdooCaptureOperation(
+                        operation_id=operation_id,
+                        project_id=project_id,
+                        saved_data_id=saved_data_id,
+                        expected_revision=expected_revision,
+                        configuration_revision=definition.configuration_revision,
+                        workspace_id=fresh.workspace_id,
+                        data_version_id=owner.data_version_id,
+                        created_at=datetime.now(UTC),
+                    )
+                )
+            owner = self.access.require(
+                actor, Capability.SOURCE_CAPTURE, workspace_id=fresh.workspace_id
+            )
+            if owner.project_id != project_id or (
+                pending is not None and owner.data_version_id != pending.data_version_id
+            ):
+                raise WorkspaceError("The pending capture workspace ownership changed")
+            if (
+                fresh.odoo_company is None
+                or fresh.odoo_company.binding_hash != definition.source_company_hash
+            ):
+                raise WorkspaceError(
+                    "The pending capture company changed; review the source configuration"
+                )
             scope = self.states.repository.get_current_odoo_relationship_scope(
                 state.workspace_id
             )
             return definition, fresh, selections, scope
 
         definition, fresh, selections, scope = self.local_operation(prepare)
+        resumed = self.local_operation(
+            lambda: self._resume_capture(
+                definition, fresh.workspace_id, operation_id, actor
+            )
+        )
+        if resumed is not None:
+            if progress:
+                progress(100, "Saved data updated")
+            return resumed
         if progress:
             progress(5, "Checking the source database and company")
         live = access_factory(fresh, definition.source_workspace_id)
@@ -405,11 +623,15 @@ class SavedOdooDataService:
                 created_at=state.created_at,
             )
         )
-        return state
+        return self.states.repository.get(state.workspace_id)
 
-    def _completed_operation(self, project_id: str, saved_data_id: str, operation_id: str, actor: Actor) -> SavedOdooDataVersion | None:
+    def _completed_operation(
+        self, project_id: str, saved_data_id: str, operation_id: str, actor: Actor
+    ) -> SavedOdooDataVersion | None:
         self.get(project_id, saved_data_id, actor=actor)
-        return self.repository.get_version_for_operation(project_id, saved_data_id, operation_id)
+        return self.repository.get_version_for_operation(
+            project_id, saved_data_id, operation_id
+        )
 
     def _configuration(self, workspace_id: str):
         state = self.states.repository.get(workspace_id)
@@ -423,28 +645,105 @@ class SavedOdooDataService:
             raise WorkspaceError("Save a capture plan for every selected Odoo model")
         return state, schema, selections
 
-    @staticmethod
     def _config_json(
+        self,
         schema: OdooSchemaCatalog,
         selections: tuple[OdooCaptureSelection, ...],
         *,
+        project_id: str,
         all_fields: bool,
     ) -> str:
         return canonical_json(
             {
-                "contract_version": 1,
+                "contract_version": 2,
                 "all_fields": all_fields,
                 "schema_hash": schema.content_hash,
                 "models": [
-                    {
-                        "model": item.model,
-                        "field_names": item.field_names,
-                        "selection_hash": item.content_hash,
-                    }
-                    for item in selections
+                    self._capture_choice(project_id, item)
+                    for item in sorted(selections, key=lambda item: item.model)
                 ],
             }
         )
+
+    def _capture_choice(
+        self, project_id: str, selection: OdooCaptureSelection
+    ) -> dict[str, object]:
+        clauses = selection.filter_clauses
+        if selection.protected_filter_artifact_hash is not None:
+            if self.sources.capture_filters is None:
+                raise WorkspaceError("The saved source filter is unavailable")
+            clauses = self.sources.capture_filters.read(project_id, selection)
+        return {
+            "model": selection.model,
+            "dataset_name": selection.dataset_name,
+            "field_names": selection.field_names,
+            "filter_policy": selection.filter_policy.value,
+            "capture_role": selection.capture_role.value,
+            "max_rows": selection.max_rows,
+            "page_size": selection.page_size,
+            "consistency": selection.consistency.value,
+            "filter_hash": content_hash(tuple(clause.to_dict() for clause in clauses)),
+        }
+
+    def _configuration_matches(
+        self,
+        definition: SavedOdooDataDefinition,
+        schema: OdooSchemaCatalog,
+        selections: tuple[OdooCaptureSelection, ...],
+    ) -> bool:
+        saved = json.loads(definition.config_json)
+        if saved.get("contract_version") == 1:
+            return saved.get("models") == [
+                {
+                    "model": item.model,
+                    "field_names": list(item.field_names),
+                    "selection_hash": item.content_hash,
+                }
+                for item in selections
+            ]
+        if saved.get("contract_version") != 2:
+            return False
+        current = json.loads(
+            self._config_json(
+                schema,
+                selections,
+                project_id=definition.project_id,
+                all_fields=saved.get("all_fields") is True,
+            )
+        )
+        saved_models = saved.get("models")
+        if not isinstance(saved_models, list) or any(
+            not isinstance(item, dict) for item in saved_models
+        ):
+            return False
+        if saved.get("all_fields") is True:
+            without_fields = lambda items: [
+                {key: value for key, value in item.items() if key != "field_names"}
+                for item in items
+            ]
+            return without_fields(saved_models) == without_fields(current["models"])
+        return saved_models == current["models"]
+
+    def _resume_capture(
+        self,
+        definition: SavedOdooDataDefinition,
+        workspace_id: str,
+        operation_id: str,
+        actor: Actor,
+    ) -> SavedOdooDataVersion | None:
+        selection = self.evidence.get_source_selection(workspace_id)
+        if selection is None:
+            return None
+        snapshots = self.evidence.get_current_source_snapshots(workspace_id)
+        manifests = self.provenance.current_manifests(workspace_id, actor=actor)
+        if not snapshots or not manifests:
+            raise WorkspaceError(
+                "The interrupted capture is incomplete; keep the previous saved version and review its source artifacts"
+            )
+        self.projections.accept_odoo_capture(
+            workspace_id, selection, snapshots, manifests, actor=actor
+        )
+        return self._append(definition, workspace_id, operation_id, actor)[1]
 
     def _append(
         self,
@@ -507,6 +806,17 @@ class SavedOdooDataService:
         live: SavedOdooCaptureAccess,
         actor: Actor,
     ) -> None:
+        if live.model_catalog is None:
+            raise WorkspaceError(
+                "Refresh the available source Odoo record types before capturing saved data"
+            )
+        model_catalog = self.schemas.discover_models(
+            fresh.workspace_id,
+            live.model_catalog,
+            read_credential_binding_hash=live.credential_binding_hash,
+            read_identity=live.model_catalog_identity,
+            actor=actor,
+        )
         schema = self.schemas.prepare_capture(
             fresh,
             live.metadata,
@@ -522,6 +832,17 @@ class SavedOdooDataService:
         ):
             raise WorkspaceError(
                 "The source Odoo major changed; save a separate configuration"
+            )
+        if schema.connection_target_hash != definition.source_target_hash:
+            raise WorkspaceError(
+                "The source database changed; save a separate configuration"
+            )
+        if (
+            fresh.odoo_company is None
+            or fresh.odoo_company.binding_hash != definition.source_company_hash
+        ):
+            raise WorkspaceError(
+                "The source company changed; save a separate configuration"
             )
         by_model = {model.name: model for model in schema.models}
         owner = self.access.require(
@@ -542,6 +863,10 @@ class SavedOdooDataService:
                         for field in model.fields
                         if field.name not in {"id", "write_date"}
                         and is_odoo_capture_value_field(field)
+                        and is_editable_scalar_field(field)
+                        and not (
+                            field.computed is True and field.has_inverse is not True
+                        )
                     )
                 )
                 if all_fields
@@ -597,5 +922,6 @@ class SavedOdooDataService:
             if scope
             else (),
             schema_catalog=schema,
+            expected_model_catalog_content_hash=model_catalog.content_hash,
             capture_selections=rebuilt,
         )

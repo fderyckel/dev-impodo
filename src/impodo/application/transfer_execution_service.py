@@ -9,10 +9,12 @@ destination before it contacts Odoo.
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Mapping
+from dataclasses import replace
 from decimal import Decimal
 from hashlib import sha256
-from typing import Protocol
+from typing import Protocol, cast
 
 from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
@@ -34,6 +36,14 @@ from impodo.domain.execution_snapshot import (
 from impodo.domain.mapping.contracts import RowInclusionMode
 from impodo.domain.odoo.contracts import RecordSnapshot, record_snapshot_payload
 from impodo.domain.odoo_provenance import OdooOriginBatch
+from impodo.domain.odoo_restore import (
+    OdooRestorePlan,
+    RestoreLinkPolicy,
+    RestoreValue,
+    RestoreValuePolicy,
+    apply_odoo_restore,
+    restore_policy_binding,
+)
 from impodo.domain.preparation.source import SourceRow
 from impodo.domain.reconciliation import ReconciliationRun
 from impodo.domain.serialization import content_hash
@@ -110,6 +120,7 @@ class TransferExecutionService:
         destination_records: RecordSnapshot,
         *,
         actor: Actor,
+        restore_plans: Mapping[str, OdooRestorePlan] | None = None,
     ) -> ExecutionSnapshot:
         """Compile exact frozen values after the final destination read.
 
@@ -120,6 +131,15 @@ class TransferExecutionService:
 
         if workspace.source_mode is not SourceMode.ODOO:
             raise WorkspaceError("The destination load requires a frozen Odoo source")
+        try:
+            restore_hash = restore_policy_binding(
+                restore_plans, workspace.saved_restore_generation_id,
+                required_models=(item.model for item in package.datasets if item.model_policy != "reuse_only"),
+            )
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
+        if package.restore_policy_hash != restore_hash:
+            raise WorkspaceError("The saved-data field policies differ from the approved restore review")
         if (
             workspace.transfer_review_package != package
             or workspace.transfer_preflight_report != preflight
@@ -199,6 +219,7 @@ class TransferExecutionService:
             source_snapshots=snapshot_by_dataset,
             source_manifest_hashes=manifest_hashes,
             create_field_evidence=fresh_match.create_field_evidence,
+            restore_plans=restore_plans,
         )
 
     def stage(
@@ -389,6 +410,7 @@ def compile_transfer_execution_snapshot(
     source_snapshots: Mapping[str, SourceSnapshot],
     source_manifest_hashes: Mapping[str, str],
     create_field_evidence: DestinationCreateFieldEvidence | None = None,
+    restore_plans: Mapping[str, OdooRestorePlan] | None = None,
 ) -> ExecutionSnapshot:
     """Turn generic scalar and relation evidence into the shared write contract.
 
@@ -398,6 +420,15 @@ def compile_transfer_execution_snapshot(
     making that snapshot the browser's current no-write preview.
     """
 
+    try:
+        restore_hash = restore_policy_binding(
+            restore_plans, workspace.saved_restore_generation_id,
+            required_models=(item.model for item in package.datasets if item.model_policy != "reuse_only"),
+        )
+    except ValueError as error:
+        raise WorkspaceError(str(error)) from error
+    if package.restore_policy_hash != restore_hash:
+        raise WorkspaceError("The saved-data field policies differ from the approved restore review")
     if not fresh_match.row_inclusion_confirmed or not fresh_match.row_inclusion_confirmable:
         raise WorkspaceError("Check and confirm the current rows to use before loading.")
     selected_by_id = {item.dataset_id: item for item in selection.datasets}
@@ -405,6 +436,21 @@ def compile_transfer_execution_snapshot(
     match_by_id = {item.dataset_id: item for item in fresh_match.model_matches}
     preflight_by_id = {item.dataset_id: item for item in preflight.datasets}
     schema_by_model = {item.name: item for item in schema.models}
+    current_values_by_model = {
+        model: {record.odoo_id: record.values for record in records}
+        for model, records in destination_records.records.items()
+    } if restore_plans is not None else {}
+    current_reference_catalog = _restore_reference_catalog(
+        destination_records, {item.model: item.key_fields for item in package.datasets}
+    ) if any(field.link_policy is RestoreLinkPolicy.ADD_MISSING for plan in (restore_plans or {}).values() for field in plan.fields) else {}
+    if restore_plans is not None:
+        if set(restore_plans) - set(schema_by_model):
+            raise WorkspaceError("Restore field plans contain unselected record types")
+        schema_by_model = {
+            name: replace(model, fields=restore_plans[name].destination_fields)
+            if name in restore_plans else model
+            for name, model in schema_by_model.items()
+        }
     if create_field_evidence is None:
         create_field_evidence = fresh_match.create_field_evidence
     create_decisions_by_dataset: dict[str, list] = {}
@@ -707,7 +753,7 @@ def compile_transfer_execution_snapshot(
             intents = []
             if disposition != "UNCHANGED":
                 intents.extend(
-                    _scalar_intent(field, source_row.values.get(field))
+                    _scalar_intent(field, source_row.values.get(_restore_source_field((restore_plans or {}).get(reviewed.model), field)))
                     for field in reviewed.scalar_write_fields
                 )
             if disposition == "CREATE":
@@ -726,7 +772,7 @@ def compile_transfer_execution_snapshot(
                 else ()
             )
             for relationship in relationships_to_write:
-                members_by_row = relationship_columns.get(relationship.field_name)
+                members_by_row = relationship_columns.get(_restore_source_field((restore_plans or {}).get(reviewed.model), relationship.field_name))
                 if members_by_row is None:
                     raise WorkspaceError(
                         f"Protected relationship evidence is missing for "
@@ -778,6 +824,16 @@ def compile_transfer_execution_snapshot(
                         tuple(reference_bindings),
                     )
                 )
+            restore_plan = (restore_plans or {}).get(reviewed.model)
+            if restore_plan is not None and disposition != "UNCHANGED":
+                current_values = current_values_by_model.get(reviewed.model, {}).get(target_id) if target_id is not None else None
+                intents = _restore_field_intents(
+                    restore_plan, tuple(intents), source_row.values,
+                    current_values, current_reference_catalog,
+                )
+                if disposition == "UPDATE" and not any(intent.action != "OMIT" for intent in intents):
+                    disposition = "UNCHANGED"
+                    intents = []
             row_id = _row_id(
                 workspace.workspace_id,
                 dataset_id,
@@ -860,6 +916,7 @@ def compile_transfer_execution_snapshot(
             "source_manifests": dict(sorted(source_manifest_hashes.items())),
             "review_package": package.content_hash,
             "preflight": preflight.content_hash,
+            **({"restore_policy": restore_hash} if restore_hash is not None else {}),
         }
     )
     snapshot = ExecutionSnapshot(
@@ -906,6 +963,152 @@ def compile_transfer_execution_snapshot(
         return ExecutionSnapshot.from_json(snapshot.to_json())
     except ValueError as error:
         raise WorkspaceError("The transfer execution snapshot is invalid") from error
+
+
+def _restore_source_field(plan: OdooRestorePlan | None, name: str) -> str:
+    if plan is None:
+        return name
+    return next((field.source.name for field in plan.fields if field.destination.name == name), name)
+
+
+def _restore_field_intents(
+    plan: OdooRestorePlan,
+    intents: tuple[FieldIntent, ...],
+    saved_values: Mapping[str, object],
+    current_values: Mapping[str, object] | None,
+    reference_catalog: Mapping[str, Mapping[int, tuple[BusinessReference, str]]],
+) -> list[FieldIntent]:
+    """Apply approved policies to ordinary intents without adding a writer."""
+
+    scalar_fields = tuple(field for field in plan.fields if field.destination.type not in {"many2one", "many2many", "one2many"})
+    scalar_names = {field.destination.name for field in scalar_fields}
+    defaults = tuple(provider for provider in plan.defaults if provider.field_name in scalar_names)
+    scalar_plan = replace(
+        plan, fields=scalar_fields,
+        destination_fields=tuple(field.destination for field in scalar_fields),
+        identity_fields=tuple(name for name in plan.identity_fields if any(field.source.name == name for field in scalar_fields)),
+        defaults=defaults,
+    )
+    result = apply_odoo_restore(
+        scalar_plan,
+        {field.source.name: cast(RestoreValue, saved_values[field.source.name]) for field in scalar_fields if field.source.name in saved_values},
+        cast(Mapping[str, RestoreValue], current_values) if current_values is not None else None,
+    )
+    if not result.ready:
+        raise WorkspaceError("The saved-data field policies cannot be applied: " + "; ".join(issue.message for issue in result.issues))
+    write_values = dict(result.writes)
+    provider_names = {provider.field_name for provider in defaults}
+    remaining = [
+        intent for intent in intents
+        if intent.field not in scalar_names
+        or (
+            intent.field in provider_names
+            and _restore_source_field(plan, intent.field) not in saved_values
+            and intent.field not in write_values
+        )
+    ]
+    remaining.extend(_scalar_intent(name, value) for name, value in result.writes)
+    if current_values is None:
+        return remaining
+
+    relation_policies = {field.destination.name: field for field in plan.fields if field.destination.type in {"many2one", "many2many"}}
+    effective: list[FieldIntent] = []
+    for intent in remaining:
+        policy = relation_policies.get(intent.field)
+        if policy is None:
+            effective.append(intent)
+            continue
+        needs_current = policy.policy is not RestoreValuePolicy.USE_SAVED or policy.link_policy is not RestoreLinkPolicy.REPLACE
+        if needs_current and intent.field not in current_values:
+            raise WorkspaceError(f"Read the current destination relationship {plan.model}.{intent.field} before restoring it")
+        current = current_values.get(intent.field)
+        empty = current is None or current is False or current == () or current == []
+        if (
+            policy.policy is RestoreValuePolicy.KEEP_DESTINATION
+            or policy.link_policy is RestoreLinkPolicy.KEEP
+            or (policy.policy is RestoreValuePolicy.FILL_EMPTY and not empty)
+        ):
+            effective.append(replace(intent, action="OMIT", value=None, target_binding_hashes=()))
+            continue
+        if policy.link_policy is not RestoreLinkPolicy.ADD_MISSING:
+            effective.append(intent)
+            continue
+        current_refs, bindings = _restore_current_members(
+            policy.destination.relation or "", current, reference_catalog,
+        )
+        saved_refs = intent.value if isinstance(intent.value, tuple) else ()
+        merged: dict[str, tuple[BusinessReference | LogicalReference, str]] = {}
+        for reference, binding in zip(current_refs, bindings, strict=True):
+            merged[canonical_json_bytes(portable_value(reference.key)).decode("utf-8")] = (reference, binding)
+        for index, reference in enumerate(saved_refs):
+            if not isinstance(reference, (LogicalReference, BusinessReference)):
+                raise WorkspaceError("Saved relationship membership is not portable")
+            token = canonical_json_bytes(portable_value(reference.key)).decode("utf-8")
+            if token not in merged:
+                binding = intent.target_binding_hashes[index] if index < len(intent.target_binding_hashes) else ""
+                merged[token] = (reference, binding)
+        values = tuple(merged[key] for key in sorted(merged))
+        if len(values) == len(current_refs):
+            effective.append(replace(intent, action="OMIT", value=None, target_binding_hashes=()))
+        else:
+            effective.append(replace(
+                intent, action="SET_VALUE", value=tuple(value[0] for value in values),
+                target_binding_hashes=tuple(value[1] for value in values),
+            ))
+    return effective
+
+
+def _restore_current_members(
+    model: str,
+    value: object,
+    reference_catalog: Mapping[str, Mapping[int, tuple[BusinessReference, str]]],
+) -> tuple[tuple[BusinessReference, ...], tuple[str, ...]]:
+    """Resolve current links only from the fresh, bound destination evidence."""
+
+    if value is None or value is False or value == () or value == []:
+        return (), ()
+    if not isinstance(value, (tuple, list)) or any(not isinstance(member, int) or isinstance(member, bool) or member <= 0 for member in value):
+        raise WorkspaceError("The current destination relationship membership is incomplete")
+    by_id = reference_catalog.get(model)
+    if by_id is None:
+        raise WorkspaceError("Adding saved links requires a reviewed portable identity for the related model")
+    references: list[BusinessReference] = []
+    bindings: list[str] = []
+    for identifier in value:
+        matched = by_id.get(identifier)
+        if matched is None:
+            raise WorkspaceError("Adding saved links needs fresh evidence for every current linked record; no destination links were removed")
+        references.append(matched[0])
+        bindings.append(matched[1])
+    return tuple(references), tuple(bindings)
+
+
+def _restore_reference_catalog(
+    records: RecordSnapshot,
+    identity_fields: Mapping[str, tuple[str, ...]],
+) -> dict[str, dict[int, tuple[BusinessReference, str]]]:
+    """Index each fresh related population once for bounded membership merges."""
+
+    if not records.complete:
+        raise WorkspaceError("Adding saved links requires complete destination evidence")
+    catalog: dict[str, dict[int, tuple[BusinessReference, str]]] = {}
+    for model, fields in identity_fields.items():
+        if not fields:
+            continue
+        rows = records.records.get(model, ())
+        key_counts = Counter(record_identity(row.values, fields) for row in rows)
+        id_counts = Counter(row.odoo_id for row in rows)
+        indexed: dict[int, tuple[BusinessReference, str]] = {}
+        for row in rows:
+            key = record_identity(row.values, fields)
+            components = portable_components(tuple(row.values.get(field) for field in fields))
+            if key and key_counts[key] == 1 and id_counts[row.odoo_id] == 1 and len(components) == len(fields):
+                indexed[row.odoo_id] = (
+                    BusinessReference(model=model, key=components, target_fields=fields),
+                    target_record_binding_hash(model, row.odoo_id),
+                )
+        catalog[model] = indexed
+    return catalog
 
 
 def _scalar_intent(field: str, value: object) -> FieldIntent:

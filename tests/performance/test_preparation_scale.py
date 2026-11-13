@@ -3084,7 +3084,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.assertEqual(staging.total_rows, 5)
         self.assertEqual(summary.workspace_id, workspace_id)
 
-    def test_native_projection_miss_above_python_limit_fails_closed(self) -> None:
+    def test_native_projection_miss_above_snapshot_limit_fails_closed(self) -> None:
         workspace_id, _source_hash, _source_size = (
             PreparationWorkflowScaleTests._prepare_project_and_evidence(
                 self,
@@ -3095,6 +3095,17 @@ class BoundedPreparationParityTests(unittest.TestCase):
             )
         )
 
+        original_capacity = bounded_preparation_module._require_python_row_adaptation_capacity
+
+        def limited_compatibility_capacity(total_rows):
+            # Lower only the runtime adaptation boundary after normal admission.
+            with patch.object(
+                bounded_preparation_module,
+                "COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT",
+                4,
+            ):
+                original_capacity(total_rows)
+
         with (
             patch(
                 "impodo.adapters.duckdb.preparation_direct_writer."
@@ -3103,8 +3114,8 @@ class BoundedPreparationParityTests(unittest.TestCase):
             ),
             patch.object(
                 bounded_preparation_module,
-                "BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT",
-                4,
+                "_require_python_row_adaptation_capacity",
+                limited_compatibility_capacity,
             ),
             self.assertRaisesRegex(
                 ReadinessError,

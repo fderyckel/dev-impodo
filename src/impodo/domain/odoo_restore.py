@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -218,6 +218,8 @@ class RestoreRowResult:
 def restore_policy_binding(
     plans: Mapping[str, OdooRestorePlan] | None,
     generation_id: str | None,
+    *,
+    required_models: Iterable[str] = (),
 ) -> str | None:
     """Bind an admitted restore policy set to one fresh destination generation.
 
@@ -229,13 +231,21 @@ def restore_policy_binding(
     if plans is None and generation_id is None:
         return None
     if plans is None or generation_id is None:
-        raise ValueError("Saved-data restoration requires its generation and explicit field plans")
+        raise ValueError(
+            "Saved-data restoration requires its generation and explicit field plans"
+        )
     try:
         UUID(generation_id)
     except (ValueError, AttributeError) as error:
         raise ValueError("The saved-data destination generation is invalid") from error
     if any(name != plan.model or not plan.ready for name, plan in plans.items()):
         raise ValueError("Resolve every selected restore field plan before continuing")
+    missing = set(required_models) - set(plans)
+    if missing:
+        raise ValueError(
+            "Restore field policies must cover every writable record type: "
+            + ", ".join(sorted(missing))
+        )
     return content_hash(
         {
             "destination_generation": generation_id,

@@ -127,10 +127,10 @@ For a multi-column parent-and-child hierarchy, follow [Prepare related
 tables](../guides/related-tables.md#build-a-hierarchy-from-separate-fields).
 
 If a parent location or another hierarchy level already exists in the
-destination, open **Use parents that already exist in Odoo**. Select **Load
+destination, choose **Under an existing Odoo parent**. Select **Load
 companies**, choose **Company for this load**, then select **Load existing
 Odoo parents**. Choose the parent's complete path in **Starting parent in
-Odoo**. You can leave **Filter Odoo parents (optional)** blank to browse, or
+Odoo**. You can leave **Search parents (optional)** blank to browse, or
 enter part of a name and load the list again. Your source fields describe the
 levels beneath that parent. The
 preview shows which records are reused and which are included for import.

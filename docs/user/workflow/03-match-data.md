@@ -563,6 +563,13 @@ checked**. Select **Review rows** to filter the complete decision set by table,
 decision, or relevant source value. This review is read-only: filtering the
 page never changes the saved rule or its decisions.
 
+For tables used directly from the accepted Data version, **Rows to use** can
+check up to 100,000 source rows across the selected tables. For example, a
+60,000-row stock table can be checked before you confirm which rows to use.
+Impodo reads the saved source data in batches and reports every row's decision.
+This limit counts source rows before your conditions exclude any rows.
+The separate rule-effects review retains its 50,000-row limit.
+
 For a reviewed combined table, **Rows to use** and the rule-effects review
 check the combined output. For example, three files containing 70,000 rows
 can produce a combined table with 4,000 rows. Impodo reviews those 4,000 rows

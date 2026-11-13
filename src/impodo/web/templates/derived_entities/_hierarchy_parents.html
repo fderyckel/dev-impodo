@@ -1,0 +1,38 @@
+<div class="hierarchy-picker" data-hierarchy-picker{% if start_mode == 'source' %} hidden{% endif %}>
+  <div class="hierarchy-company">
+    <label>Company for this load
+      <select name="hierarchy_company_id">
+        <option value="">Choose a company</option>
+        {% if hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}
+          {% for company in hierarchy_parent_outcome.companies.choices %}<option value="{{ company.company_id }}"{% if values.get('hierarchy_company_id', workspace_state.odoo_company.company_id|string if workspace_state.odoo_company else '') == company.company_id|string %} selected{% endif %}>{{ company.name }}</option>{% endfor %}
+        {% elif workspace_state.odoo_company %}<option value="{{ workspace_state.odoo_company.company_id }}" selected>{{ workspace_state.odoo_company.name }}</option>{% endif %}
+      </select>
+    </label>
+    <button class="button secondary" type="submit" name="hierarchy_lookup_action" value="companies" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>{{ 'Refresh companies' if hierarchy_parent_outcome and hierarchy_parent_outcome.companies or workspace_state.odoo_company else 'Load companies' }}</button>
+  </div>
+  {% if hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}<p class="muted">Checking user: {{ hierarchy_parent_outcome.companies.login }}</p>{% endif %}
+  <div class="hierarchy-parent-search">
+    <label>Search parents (optional)
+      <input name="existing_parent_search" value="{{ values.get('existing_parent_search', '') }}" maxlength="200" placeholder="Leave blank to browse available parents">
+    </label>
+    <button class="button secondary" type="submit" name="hierarchy_lookup_action" value="parents" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>Load existing Odoo parents</button>
+  </div>
+  <div data-hierarchy-feedback tabindex="-1"{% if hierarchy_parent_outcome or hierarchy_lookup_error %} data-source-feedback{% endif %}>
+    {% if hierarchy_lookup_error %}<p class="notice warning" role="alert">{{ hierarchy_lookup_error }}</p>
+    {% elif hierarchy_parent_outcome and hierarchy_parent_outcome.parents_loaded %}
+      {% if hierarchy_parent_outcome.has_more %}<p role="status">Showing 50 Odoo parents. More are available: narrow the search and load the list again.</p>
+      {% elif not hierarchy_parent_outcome.choices %}<p role="status">No Odoo parents match this search and company. Clear or change the search, or review Odoo access, then try again.</p>
+      {% else %}<p role="status">{{ hierarchy_parent_outcome.choices|length }} Odoo parent{{ 's' if hierarchy_parent_outcome.choices|length != 1 else '' }} loaded. Choose the full path below.</p>{% endif %}
+    {% elif hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}<p role="status">Choose a company. Its available parents will load when you select it.</p>
+    {% else %}<p class="muted">Load companies, choose one, then select an Odoo parent below.</p>{% endif %}
+  </div>
+  <label>Starting parent in Odoo
+    <select name="existing_parent_choice">
+      <option value="">Choose an Odoo parent</option>
+      {% if hierarchy_parent_outcome %}{% for choice in hierarchy_parent_outcome.choices %}<option value="{{ choice.value }}"{% if choice.value == values.get('existing_parent_choice', '') %} selected{% endif %}>{{ choice.label }}</option>{% endfor %}{% endif %}
+      {% if values.get('existing_parent_choice') and (not hierarchy_parent_outcome or values.get('existing_parent_choice') not in hierarchy_parent_outcome.choices|map(attribute='value')|list) %}<option value="{{ values.get('existing_parent_choice') }}" selected>Previously selected parent — checked again before saving</option>{% endif %}
+    </select>
+    <small>The first field from your file becomes a child of this parent.</small>
+  </label>
+  <a href="/workspaces/{{ workspace_id }}/target?return_to=source-hierarchy">Review Odoo access</a>
+</div>

@@ -225,6 +225,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
                 raise MigrationConflictError(
                     "The project changed in another request; reload before deleting"
                 )
+            self._require_no_saved_odoo_versions(connection, project_id)
             data_version_ids = self._project_owner_ids(
                 connection,
                 "data_version",
@@ -354,6 +355,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
                 project_id,
                 expected_revision=expected_revision,
             )
+            cls._require_no_saved_odoo_versions(connection, project_id)
             cls._validate_project_registry_delete_plan(connection, filters)
             primary_keys = cls._project_registry_primary_keys(connection, filters)
             layers = cls._project_registry_delete_layers(connection, filters)
@@ -372,6 +374,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
                     project_id,
                     expected_revision=expected_revision,
                 )
+                cls._require_no_saved_odoo_versions(connection, project_id)
                 if layer == ("migration_project",):
                     cls._delete_project_registry_rows(
                         connection,
@@ -400,6 +403,20 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
                     "Project deletion could not be completed safely"
                 ) from restore_error
             raise
+
+    @staticmethod
+    def _require_no_saved_odoo_versions(connection, project_id: str) -> None:
+        """Protect reusable source versions before project artifacts are staged."""
+
+        retained = connection.execute(
+            "SELECT EXISTS(SELECT 1 FROM saved_odoo_data_version WHERE project_id = ?)",
+            [project_id],
+        ).fetchone()
+        if retained is not None and bool(retained[0]):
+            raise MigrationConflictError(
+                "This project contains saved Odoo data for future restores. "
+                "Deliberately remove those saved versions before deleting the project."
+            )
 
     @staticmethod
     def _require_project_revision(
@@ -433,7 +450,14 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
         run_ids = "SELECT migration_run_id FROM migration_run WHERE project_id = ?"
         recipe_ids = "SELECT recipe_id FROM recipe WHERE project_id = ?"
         plan_ids = "SELECT cutover_plan_id FROM cutover_plan WHERE project_id = ?"
+        saved_ids = "SELECT saved_data_id FROM saved_odoo_data_definition WHERE project_id = ?"
         return {
+            "saved_odoo_capture_operation": "project_id = ?",
+            "saved_odoo_restore_profile": "project_id = ?",
+            "saved_odoo_restore_binding": "project_id = ?",
+            "saved_odoo_data_version": "project_id = ?",
+            "saved_odoo_data_configuration": f"saved_data_id IN ({saved_ids})",
+            "saved_odoo_data_definition": "project_id = ?",
             "migration_project": "project_id = ?",
             "data_version": "project_id = ?",
             "migration_run": "project_id = ?",
@@ -490,6 +514,7 @@ class FoundationProjectRecords(FoundationRepositoryMixin):
             "recipe_identity",
             "recipe_application_identity",
             "cutover_plan_identity",
+            "saved_odoo_data_identity",
         }
         registry_tables = {
             str(row[0]) for row in connection.execute("SHOW TABLES").fetchall()

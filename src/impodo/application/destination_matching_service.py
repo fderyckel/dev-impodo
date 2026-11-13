@@ -440,6 +440,13 @@ class DestinationMatchingService:
         }
         if restore_plans is not None and set(restore_plans) - selected_model_names:
             raise WorkspaceError("Restore field plans contain an unselected record type")
+        try:
+            restore_policy_binding(
+                restore_plans, workspace.saved_restore_generation_id,
+                required_models=(dataset.source.model for dataset in selection.datasets if isinstance(dataset.source, OdooSourceBinding) and destination_handlings[dataset.dataset_id] not in DESTINATION_NO_WRITE_HANDLINGS),
+            )
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
         prepared: list[_PreparedModel] = []
         exclusions_by_dataset = dict(excluded_source_rows or {})
         if set(exclusions_by_dataset) - {
@@ -534,6 +541,14 @@ class DestinationMatchingService:
                     "identity before creating or reusing destination records."
                 )
             key_field = key_fields[0]
+            if restore_plan is not None:
+                restored_keys = {field.source.name: field for field in restore_plan.fields}
+                if any(
+                    field.name not in restored_keys
+                    or restored_keys[field.name].destination.name != field.name
+                    for field in key_fields
+                ):
+                    raise WorkspaceError("Restore field mappings cannot change the selected matching identity")
             source_counts: Counter[str] = Counter()
             identity_by_key: dict[str, tuple[bool | int | float | str, ...]] = {}
             raw_exclusions = exclusions_by_dataset.get(dataset.dataset_id, ())
@@ -664,13 +679,9 @@ class DestinationMatchingService:
                         field
                         for field in source_model.fields
                         if (restore_source_fields is None or field.name in restore_source_fields)
-                        and (_is_transferable_scalar_field(
-                            field,
-                            selected_source_names,
-                        ))
-                        or _is_transferable_relationship_field(
-                            field,
-                            selected_model_names,
+                        and (
+                            _is_transferable_scalar_field(field, selected_source_names)
+                            or _is_transferable_relationship_field(field, selected_model_names)
                         )
                     ),
                     destination_managed_fields=tuple(
@@ -1027,8 +1038,16 @@ class DestinationMatchingService:
         missing: list[str] = []
         incompatible: list[str] = []
         destination_fields = destination_model.fields if destination_model else {}
+        restore_fields = (
+            {field.source.name: field for field in item.restore_plan.fields}
+            if item.restore_plan is not None else {}
+        )
+        if item.restore_plan is not None:
+            _validate_restore_destination(item.restore_plan, destination_fields)
         for source_field in item.source_fields:
-            destination_field = destination_fields.get(source_field.name)
+            restored = restore_fields.get(source_field.name)
+            target_name = restored.destination.name if restored is not None else source_field.name
+            destination_field = destination_fields.get(target_name)
             if destination_field is None:
                 missing.append(source_field.name)
             elif (
@@ -1039,7 +1058,7 @@ class DestinationMatchingService:
                     is_editable_scalar_projection(source_field)
                     and not is_editable_scalar_field(destination_field)
                 )
-                or (destination_field.required and not source_field.required)
+                or (destination_field.required and not source_field.required and restored is None)
             ):
                 incompatible.append(source_field.name)
             else:
@@ -1074,7 +1093,10 @@ class DestinationMatchingService:
             _create_field_defaults(
                 item,
                 metadata,
-                tuple(compatible),
+                tuple(
+                    restore_fields[name].destination.name if name in restore_fields else name
+                    for name in compatible
+                ),
                 records,
                 prepared,
             )
@@ -1082,6 +1104,10 @@ class DestinationMatchingService:
             and item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
             else ((), (), ())
         )
+        if item.restore_plan is not None and create_count and item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS:
+            unresolved, decisions, values = _restore_create_defaults(
+                item, metadata, unresolved, decisions, values
+            )
         compared_field_names = set(compatible) | set(missing) | set(incompatible)
         compatible_field_names = set(compatible)
         hook_input_fields = required_create_hook_inputs(
@@ -1095,7 +1121,10 @@ class DestinationMatchingService:
             and (
                 source_field.required
                 or (
-                    (destination_field := destination_fields.get(source_field.name))
+                    (destination_field := destination_fields.get(
+                        restore_fields[source_field.name].destination.name
+                        if source_field.name in restore_fields else source_field.name
+                    ))
                     is not None
                     and destination_field.required
                 )
@@ -1110,7 +1139,10 @@ class DestinationMatchingService:
                     for source_field in item.source_fields
                     if source_field.type not in {"many2one", "many2many", "one2many"}
                     and (
-                        (destination_field := destination_fields.get(source_field.name))
+                        (destination_field := destination_fields.get(
+                            restore_fields[source_field.name].destination.name
+                            if source_field.name in restore_fields else source_field.name
+                        ))
                         is not None
                         and destination_field.required
                     )
@@ -1311,6 +1343,89 @@ class DestinationMatchingService:
                 )
             )
         return tuple(sorted(results, key=lambda item: (item.model, item.field_name)))
+
+
+def _validate_restore_destination(
+    plan: OdooRestorePlan,
+    fields: Mapping[str, FieldMetadata],
+) -> None:
+    """Reject stale policy metadata before using any restored field scope."""
+
+    required_names = {field.destination.name for field in plan.fields} | {
+        provider.field_name for provider in plan.defaults
+    }
+    expected = {field.name: field for field in plan.destination_fields}
+    for name in sorted(required_names):
+        current, prior = fields.get(name), expected.get(name)
+        if current is None or prior is None or any(
+            getattr(current, attribute) != getattr(prior, attribute)
+            for attribute in ("type", "required", "readonly", "relation", "selection", "company_dependent", "digits")
+        ):
+            raise WorkspaceError(f"Destination field {plan.model}.{name} changed; rebuild the restore policies")
+
+
+def _restore_create_defaults(
+    item: _PreparedModel,
+    metadata: MetadataSnapshot,
+    unresolved: tuple[str, ...],
+    decisions: tuple[DestinationCreateFieldDecision, ...],
+    values: tuple[DestinationCreateFieldEvidenceValue, ...],
+) -> tuple[
+    tuple[str, ...],
+    tuple[DestinationCreateFieldDecision, ...],
+    tuple[DestinationCreateFieldEvidenceValue, ...],
+]:
+    """Project explicitly reviewed restore defaults into protected providers."""
+
+    plan = item.restore_plan
+    if plan is None:
+        return unresolved, decisions, values
+    model = metadata.models.get(item.model)
+    if model is None:
+        raise WorkspaceError("The restore destination model is unavailable")
+    by_decision = {decision.field_name: decision for decision in decisions}
+    by_value = {value.field_name: value for value in values}
+    pending = set(unresolved)
+    for provider in plan.defaults:
+        field = model.fields.get(provider.field_name)
+        if field is None or field.type in {"many2one", "many2many", "one2many"}:
+            raise WorkspaceError("Restore relationship defaults require a reviewed related-record provider")
+        value = provider.value
+        if provider.use_odoo_default:
+            native = metadata.create_defaults.get(item.model, {})
+            prior = next(field for field in plan.destination_fields if field.name == provider.field_name)
+            if provider.field_name not in native or native[provider.field_name] != prior.create_default_value:
+                raise WorkspaceError("The checked Odoo creation default changed; rebuild the restore review")
+            value = prior.create_default_value
+        if value is None or not isinstance(value, (bool, int, float, str)):
+            raise WorkspaceError("The restore creation default needs a supported explicit scalar value")
+        provider_kind = "odoo_default" if provider.use_odoo_default else "fixed_value"
+        field_contract_hash = content_hash({
+            "model": item.model, "field": field.name, "type": field.type,
+            "required": field.required, "readonly": field.readonly,
+            "relation": field.relation, "selection": field.selection,
+            "restore_policy": plan.content_hash,
+        })
+        value_hash = content_hash({"field_contract": field_contract_hash, "provider": provider_kind, "value": value})
+        by_decision[field.name] = DestinationCreateFieldDecision(
+            dataset_id=item.dataset_id, model=item.model, model_label=item.model_label,
+            field_name=field.name, field_label=field.label or field.name,
+            field_type=field.type, provider_kind=provider_kind, decision_kind="review",
+            reason="Use the explicitly reviewed saved-data creation provider",
+            field_contract_hash=field_contract_hash, value_hash=value_hash, reviewed=True,
+        )
+        by_value[field.name] = DestinationCreateFieldEvidenceValue(
+            dataset_id=item.dataset_id, model=item.model, field_name=field.name,
+            field_type=field.type, value=value, display_value=str(value),
+            field_contract_hash=field_contract_hash, value_hash=value_hash,
+            field_label=field.label or field.name, provider_kind=provider_kind,
+        )
+        pending.discard(field.name)
+    return (
+        tuple(sorted(pending)),
+        tuple(sorted(by_decision.values(), key=lambda decision: decision.key)),
+        tuple(sorted(by_value.values(), key=lambda value: value.key)),
+    )
 
 
 def _create_field_defaults(

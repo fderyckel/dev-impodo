@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from datetime import UTC, datetime
 from uuid import uuid4
 
 from impodo.domain.cutover.approvals import FrozenExportPlan
+from impodo.domain.odoo_restore import (
+    OdooRestorePlan,
+    RestoreCoverageKind,
+    restore_policy_binding,
+)
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import ActorIdentity
 from impodo.domain.workspace.destination_matching import (
@@ -41,7 +47,15 @@ class TransferReviewService:
         data_version_id: str,
         built_by: ActorIdentity,
         model_policies: Mapping[str, str] | None = None,
+        restore_plans: Mapping[str, OdooRestorePlan] | None = None,
     ) -> TransferReviewPackage:
+        try:
+            restore_hash = restore_policy_binding(
+                restore_plans, workspace.saved_restore_generation_id,
+                required_models=(item.model for item in match_plan.model_matches if item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS),
+            )
+        except ValueError as error:
+            raise WorkspaceError(str(error)) from error
         if (
             workspace.destination_match_plan != match_plan
             or workspace.transfer_order_plan != order_plan
@@ -53,6 +67,8 @@ class TransferReviewService:
             raise WorkspaceError("Complete the current transfer order first")
         policies = dict(model_policies or {})
         model_names = {item.model for item in match_plan.model_matches}
+        if restore_plans is not None and set(restore_plans) - model_names:
+            raise WorkspaceError("Restore field plans contain unselected record types")
         if set(policies) - model_names or any(
             value not in TRANSFER_MODEL_POLICIES for value in policies.values()
         ):
@@ -222,6 +238,21 @@ class TransferReviewService:
             )
             for item in match_plan.model_matches
         )
+        if restore_plans is not None:
+            mapped = []
+            for item in datasets:
+                plan = restore_plans.get(item.model)
+                fields = {field.source.name: field.destination.name for field in plan.fields} if plan is not None else {}
+                scalars = tuple(sorted(fields.get(name, name) for name in item.scalar_write_fields))
+                relations = tuple(sorted(fields.get(name, name) for name in item.relationship_write_fields))
+                excluded = set(item.excluded_source_fields)
+                if plan is not None:
+                    excluded.update(coverage.source_field for coverage in plan.coverage if coverage.kind is RestoreCoverageKind.EXCLUDED and coverage.source_field is not None)
+                mapped.append(replace(
+                    item, scalar_write_fields=scalars, relationship_write_fields=relations,
+                    excluded_source_fields=tuple(sorted(excluded - set(scalars) - set(relations))),
+                ))
+            datasets = tuple(mapped)
 
         dependency_by_field = {
             (item.owner_dataset_id, item.field_name): item
@@ -233,7 +264,10 @@ class TransferReviewService:
         }
         relationships: list[TransferReviewRelationship] = []
         for item in match_plan.relationship_matches:
-            if item.field_name not in authorized_relationships[item.dataset_id]:
+            plan = (restore_plans or {}).get(item.model)
+            restored = next((field for field in plan.fields if field.source.name == item.field_name), None) if plan is not None else None
+            target_field = restored.destination.name if restored is not None else item.field_name
+            if target_field not in authorized_relationships[item.dataset_id]:
                 continue
             dependency = dependency_by_field.get((item.dataset_id, item.field_name))
             if item.incoming_link_count > 0 and (
@@ -257,14 +291,14 @@ class TransferReviewService:
                     owner_model_label=item.model_label,
                     related_model=item.related_model,
                     related_model_label=item.related_model_label,
-                    field_name=item.field_name,
-                    field_label=item.field_label,
+                    field_name=target_field,
+                    field_label=restored.destination.label if restored is not None else item.field_label,
                     related_key_field=item.related_key_field,
                     related_key_fields=item.related_key_fields,
                     kind=item.kind,
                     operation=item.operation,
                     inverse_field=item.inverse_field,
-                    required=item.required,
+                    required=restored.destination.required if restored is not None else item.required,
                     source_link_count=item.source_link_count,
                     destination_reused_link_count=(
                         item.destination_reused_link_count
@@ -304,6 +338,7 @@ class TransferReviewService:
                 "data_version": content_hash(
                     {"data_version_id": data_version_id}
                 ),
+                **({"restore_policy": restore_hash} if restore_hash is not None else {}),
             },
             mapping_hash=match_plan.content_hash,
             ruleset_hash=content_hash(

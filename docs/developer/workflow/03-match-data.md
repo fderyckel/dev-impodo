@@ -707,6 +707,26 @@ at most 100 protected decisions per request with server-side dataset, outcome,
 value, and cursor filters. It performs no Odoo read and cannot mutate mapping
 meaning.
 
+For unchanged direct selections,
+[`direct_row_inclusion_review`](../../../src/impodo/application/workspace/mapping/bounded_direct_review.py) supports up to
+100,000 physical source rows across the selection. It verifies complete frozen
+snapshot bindings, then uses `open_source_snapshot_batches` to project only
+the row-rule columns and their typed tags from Parquet through the
+[source snapshot reader](../../../src/impodo/application/data_version/source_snapshots.py).
+Source ordinals,
+artifact hashes, full physical-schema validation and exact row counts remain
+required. The shared admission evaluator preserves included-parent rules,
+comparison errors and deterministic review hashes. Transformation-effect
+reviews keep their separate 50,000-row qualification.
+
+The [direct-review regression](../../../tests/integration/artifacts/test_direct_row_review.py)
+publishes 54,191 decisions with one retained
+DuckDB owner, one schema validation and 55 bulk inserts. It covers preview,
+paging, confirmation, retry, stale inputs and publication rollback. The
+[100,000-row performance check](../../../tests/performance/test_direct_row_review_scale.py)
+verifies that review and bounded session preparation
+produce the same counts; these are isolated-fixture checks, not live timings.
+
 Reviewed exact-join outputs use
 [`bounded_join_review.py`](../../../src/impodo/application/workspace/mapping/bounded_join_review.py)
 for both row admission and rule-effects review. It shares

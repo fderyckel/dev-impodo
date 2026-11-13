@@ -312,6 +312,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         discover_matching_fields: bool = False,
         validate_lookup_fields: bool = False,
         lookup_relationship: tuple[str, str] | None = None,
+        hierarchy_company_field: str | None = None,
     ) -> tuple[MetadataSnapshot, RecordSnapshot]:
         """Capture one consistent, read-only metadata and record snapshot.
 
@@ -352,6 +353,12 @@ payload = {"database": env.cr.dbname, "version": release.version,
         ):
             raise LocalOdooReaderError("Choose the company and one current linked field before checking its records.")
         validate_lookup_fields = validate_lookup_fields or lookup_relationship is not None
+        if hierarchy_company_field is not None and (
+            lookup_relationship is None
+            or _FIELD_NAME.fullmatch(hierarchy_company_field) is None
+            or len(records) != 1 or lookup_relationship[0] != records[0].model
+        ):
+            raise LocalOdooReaderError("Choose a self-parent and company field for this hierarchy.")
         if not requested_models or not requested_models.issubset(permitted_models):
             raise LocalOdooReaderError(
                 "Local readiness requests must stay inside the project or "
@@ -380,7 +387,7 @@ payload = {"database": env.cr.dbname, "version": release.version,
         payload = self._invoke(
             workspace_state,
             profile,
-            _preflight_script(metadata, records, validate_lookup_fields=validate_lookup_fields, lookup_relationship=lookup_relationship),
+            _preflight_script(metadata, records, validate_lookup_fields=validate_lookup_fields, lookup_relationship=lookup_relationship, hierarchy_company_field=hierarchy_company_field),
         )
         if payload.get("lookup_error"):
             raise LocalOdooReaderError(
@@ -824,6 +831,7 @@ def _preflight_script(
     *,
     validate_lookup_fields: bool = False,
     lookup_relationship: tuple[str, str] | None = None,
+    hierarchy_company_field: str | None = None,
 ) -> str:
     metadata_payload = [
         {"model": item.model, "fields": list(item.fields), "discover": item.all_fields}
@@ -849,7 +857,7 @@ def _preflight_script(
         f"""
 metadata_requests = json.loads({encoded_metadata!r})
 record_requests = json.loads({encoded_records!r})
-{_linked_lookup_script(lookup_relationship)}
+{_linked_lookup_script(lookup_relationship, hierarchy_company_field=hierarchy_company_field)}
 captured_models = {{}}
 for request in metadata_requests:
     model = env[request["model"]].sudo()
@@ -949,7 +957,9 @@ payload = {{
     )
 
 
-def _linked_lookup_script(relationship: tuple[str, str] | None) -> str:
+def _linked_lookup_script(
+    relationship: tuple[str, str] | None, *, hierarchy_company_field: str | None = None
+) -> str:
     """Embed the closed domain interpreter in the isolated Odoo Python process.
 
     The local installation cannot import Impodo. Parity tests exercise this
@@ -968,6 +978,8 @@ def lookup_value(node):
         return node.value
     if isinstance(node, (ast.List, ast.Tuple)):
         return [lookup_value(item) for item in node.elts]
+    if isinstance(node, ast.Name) and node.id == hierarchy_company_field:
+        return env.company.id
     if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "allowed_company_ids" and isinstance(node.slice, ast.Constant) and type(node.slice.value) is int and node.slice.value == 0:
         return env.company.id
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
@@ -976,11 +988,22 @@ def lookup_value(node):
             return left + right
     raise ValueError("Unsupported linked field rule")
 parent_model, parent_field = {relationship!r}
-details = env[parent_model].fields_get([parent_field], attributes=["type", "relation", "company_dependent", "domain"]).get(parent_field, {{}})
-if details.get("type") != "many2one" or details.get("relation") != record_requests[0]["model"] or details.get("company_dependent") is not True:
+hierarchy_company_field = {hierarchy_company_field!r}
+lookup_fields = [parent_field] + ([hierarchy_company_field] if hierarchy_company_field else [])
+lookup_metadata = env[parent_model].fields_get(lookup_fields, attributes=["type", "relation", "company_dependent", "domain"])
+details = lookup_metadata.get(parent_field, {{}})
+if details.get("type") != "many2one" or details.get("relation") != record_requests[0]["model"]:
+    reject_lookup()
+if hierarchy_company_field is not None:
+    company_details = lookup_metadata.get(hierarchy_company_field, {{}})
+    if parent_model != record_requests[0]["model"] or company_details.get("type") != "many2one" or company_details.get("relation") != "res.company":
+        reject_lookup()
+elif details.get("company_dependent") is not True:
     reject_lookup()
 try:
     expression = details.get("domain")
+    if hierarchy_company_field is not None and expression is None:
+        expression = []
     if isinstance(expression, str):
         if len(expression) > 8192:
             raise ValueError("Oversized field rule")
@@ -1006,6 +1029,8 @@ try:
             remaining += 1
         else:
             raise ValueError("Invalid field rule")
+    if hierarchy_company_field is not None:
+        domain = list(domain) + ["|", [hierarchy_company_field, "=", False], [hierarchy_company_field, "=", env.company.id]]
     fields = [item[0] for item in domain if isinstance(item, (list, tuple))]
     metadata_requests[0]["fields"] = list(dict.fromkeys(metadata_requests[0]["fields"] + fields))
     record_requests[0]["domain"] = list(record_requests[0]["domain"]) + list(domain)

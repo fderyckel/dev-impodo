@@ -4,7 +4,8 @@ This module publishes canonical prepared rows only for an unchanged direct
 selection of physical datasets. It compiles dataset-wide capability decisions
 before transforming rows, routes supported programs through the columnar port,
 and uses the bounded Python evaluator for unsupported mappings. The 100,000-row
-limit applies to qualified exact-snapshot native routes, including relationships
+limit applies to qualified exact-snapshot native routes and to row-admission
+rules whose remaining operations are native-capable, including relationships
 and relational identities across direct datasets.
 Both paths preserve the same session evidence, quality inputs, and control
 totals. Full-pipeline admission also checks downstream preparation capabilities.
@@ -33,6 +34,7 @@ from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapp
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarCompilationDecision,
     ColumnarCompilationError,
+    ColumnarOperationKind,
     ColumnarSupport,
     ColumnarTransformationProgram,
     compile_columnar_transformation_programs,
@@ -166,10 +168,11 @@ def direct_preparation_row_limit(
 ) -> int:
     """Choose the safe evaluation ceiling for the verified source representation.
 
-    A valid frozen snapshot permits the 100,000-row columnar limit for routes
-    qualified at that scale, including relational identity programs. Missing
-    or malformed evidence and unsupported programs retain the conservative
-    Python evaluation limit.
+    Valid frozen snapshots permit 100,000 rows for native programs and for
+    otherwise supported programs whose only fallback is source-row admission.
+    Row admission uses the shared evaluator in bounded Parquet batches and
+    publishes canonical facts incrementally. Other unsupported operations and
+    missing or malformed evidence retain the conservative Python limit.
     """
 
     try:
@@ -178,7 +181,15 @@ def direct_preparation_row_limit(
         )
     except ColumnarCompilationError:
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
-    if any(item.support is not ColumnarSupport.SUPPORTED for item in decisions):
+    if any(
+        item.support is not ColumnarSupport.SUPPORTED
+        and (
+            not item.fallback_reasons
+            or any(reason.operation is not ColumnarOperationKind.ROW_INCLUSION
+                   for reason in item.fallback_reasons)
+        )
+        for item in decisions
+    ):
         return BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT
     snapshots = tuple(source_snapshots)
     snapshots_by_id = {item.dataset_id: item for item in snapshots}
@@ -761,14 +772,19 @@ def prepare_bounded_direct_session(
 
 
 def _require_python_row_adaptation_capacity(total_rows: int) -> None:
-    """Keep a data-dependent native miss inside the proven Python boundary."""
+    """Bound prepared-native batch adaptation to the qualified snapshot route.
 
-    if total_rows <= BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
+    This path reads immutable native results in bounded batches and writes
+    canonical facts incrementally. Data findings do not select the separate
+    raw-Python transformation or whole-run materialization routes.
+    """
+
+    if total_rows <= COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:
         return
     raise ReadinessError(
         "This prepared data requires the bounded compatibility checker, but "
         f"this workspace selection contains {total_rows:,} rows. That route safely "
-        f"supports up to {BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,} "
+        f"supports up to {COLUMNAR_DIRECT_BROWSER_EVALUATION_ROW_LIMIT:,} "
         "rows. Split the source into smaller projects; no data was changed."
     )
 

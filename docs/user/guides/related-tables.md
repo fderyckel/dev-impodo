@@ -214,11 +214,13 @@ you select an existing starting parent.
 To create the generated table:
 
 1. Select the original source table.
-2. Set **Hierarchy level 1**, **Hierarchy level 2**, and any later levels in
-   parent-to-child order. Use two to five distinct fields.
-3. Enter the generated **Name shown in Impodo** and choose its **Type of Odoo
-   record**.
-4. Decide what happens when a parent is blank but a later level is populated,
+2. Choose **Type of Odoo record** and enter **Name shown in Impodo**.
+3. Choose **At the top level** or **Under an existing Odoo parent**.
+4. Under **3. Add the levels from your file**, set **Hierarchy level 1** and
+   **Hierarchy level 2** in parent-to-child order. Open **Add more levels
+   (optional)** for levels 3 to 5. Use two to five distinct fields, or one to
+   five beneath an existing parent. **Your hierarchy** shows the chosen path.
+5. Open **Blank values and other options** to change what happens when a parent is blank but a later level is populated,
    when the final selected level is blank, and when every selected level is
    blank.
 
@@ -228,8 +230,6 @@ real generated related record; it is not an Odoo create default. For a missing
 final level, **Use the deepest populated level** links the consumer to the last
 available ancestor. For an entirely blank path, Impodo can leave the
 relationship blank, use a fixed related value, stop, or set the row aside.
-
-![The hierarchy editor shows the fields and missing-value choices for one source table.](../../images/user/06k-stage1-hierarchy.png)
 
 Select **Preview hierarchy records** and review the complete path keys, parent
 keys, missing-value outcomes, and affected sampled rows. Identically named
@@ -243,17 +243,18 @@ intended business records.
 
 To use an existing parent:
 
-1. Open **Use parents that already exist in Odoo** after choosing the record
-   type. Select **Load companies** to fetch the companies available to the
+1. Choose **Under an existing Odoo parent**. Select **Load companies** to fetch the companies available to the
    checking user.
-2. Choose **Company for this load**, then select **Load existing Odoo
-   parents**. You do not need to type a parent name. You can enter part of a
-   name in **Filter Odoo parents (optional)** and load the list again to narrow
+2. Choose **Company for this load**. Impodo loads its available parents. You
+   can also select **Load existing Odoo parents** to refresh the list. You do
+   not need to type a parent name. You can enter part of a
+   name in **Search parents (optional)** and load the list again to narrow
    it. The selected company continues into the following stages.
 3. Choose **Starting parent in Odoo** from the full paths returned by the
    list. This can be an existing second level or a deeper record. Shared
    ancestors keep their own company setting.
-4. If the first fields in your source also describe existing levels, set
+4. If the first fields in your source also describe existing levels, open
+   **Some file levels already exist in Odoo** and set
    **Source levels that must already exist**. Those levels must match existing
    paths during comparison. They cannot be created or updated by this import.
    This count starts at the first field selected from your file; the selected
@@ -274,6 +275,11 @@ parents hold back their descendants. A list with more than 50 parents shows
 the first 50 and asks you to narrow the optional filter. A typed filter is
 never saved as the parent. Searching and building the table only read
 Odoo; loading remains the later approved action.
+
+Loading companies or parents updates the picker without leaving the editor.
+If Odoo rejects a lookup or the connection fails, your file fields, table
+name, and previous parent choices remain in place. Read the message beside
+the picker, correct the choice or review Odoo access, and retry.
 
 If this source also feeds a combined table, Impodo adds **Selected categories
 path** to that combined table when your hierarchy is named `categories`. The
