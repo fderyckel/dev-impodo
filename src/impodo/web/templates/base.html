@@ -320,6 +320,14 @@
           {% if flash %}
             <div class="notice success" role="status">{{ flash }}</div>
           {% endif %}
+          {% if workspace_state and workspace_state.source_mode.value == 'ODOO' and workspace_state.destination_configured and not workspace_state.destination_database_binding_current %}
+            <section class="notice warning" role="status" data-database-binding-review>
+              <strong>Review the destination database before loading</strong>
+              <p>This workspace has no current reviewed database binding. Saved source data and earlier load journals remain available.</p>
+              <p>If the database was recreated, record its reset and start a fresh restore. Earlier approvals and receipts cannot authorize or verify records in the replacement database.</p>
+              {% if migration_project %}<a href="/projects/{{ migration_project.project_id }}/odoo-database-bindings?workspace_id={{ workspace_state.workspace_id }}&role=DESTINATION">Review the database declaration</a>{% endif %}
+            </section>
+          {% endif %}
           {% if workspace_state and workspace_state.transfer_evidence_recovery_step|default(none) %}
             <section class="notice warning" role="status" data-transfer-evidence-recovery>
               <strong>Refresh the destination review before loading</strong>

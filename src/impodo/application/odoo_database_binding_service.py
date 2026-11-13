@@ -41,7 +41,9 @@ class OdooDatabaseBindingService:
         authorization: AuthorizationPolicy,
         repository: OdooDatabaseBindingRepository,
         *,
-        review_admission: Callable[[WorkspaceAccessContext, OdooDatabaseBindingRole, str], None],
+        review_admission: Callable[
+            [WorkspaceAccessContext, OdooDatabaseBindingRole, str], None
+        ],
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.access = access
@@ -123,7 +125,10 @@ class OdooDatabaseBindingService:
             bound_at=self._clock(),
             operation_id=require_uuid(operation_id, "operation_id"),
         )
-        if self.repository.get(owner.workspace_id, binding.role, binding.scope_hash) is None:
+        if (
+            self.repository.get(owner.workspace_id, binding.role, binding.scope_hash)
+            is None
+        ):
             self._review_admission(owner, binding.role, binding.scope_hash)
         return self.repository.bind(
             binding, expected_generation_hash=expected_generation_hash

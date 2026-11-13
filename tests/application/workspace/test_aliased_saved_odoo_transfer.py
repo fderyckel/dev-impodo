@@ -275,6 +275,7 @@ def _verification(fixture, snapshot, reader, *, recovery=False):
         SimpleNamespace(get_run=lambda *_args: run, get_current_run=lambda *_args: run),
         saved.readback_fixture._Results(),
         CapabilityAuthorizationPolicy(),
+        database_admission=fixture.require_current_destination,
     )
     operation = service.assess_recovery if recovery else service.reconcile
     return operation(

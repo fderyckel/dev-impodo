@@ -83,7 +83,8 @@ def review_database_binding(
             or workspace.transfer_preflight_report is not None
             or (
                 role is OdooDatabaseBindingRole.SOURCE
-                and context.queries.get_source_selection(workspace.workspace_id) is not None
+                and context.queries.get_source_selection(workspace.workspace_id)
+                is not None
             )
         ):
             raise WorkspaceError(
@@ -106,10 +107,12 @@ def review_database_binding(
             base_url=endpoint,
             database=database_name,
             expected_generation_hash=current.generation_hash,
-            operation_id=str(uuid5(
-                UUID(workspace.workspace_id),
-                f"database-review:{role.value}:{database_scope_hash(endpoint, database_name)}",
-            )),
+            operation_id=str(
+                uuid5(
+                    UUID(workspace.workspace_id),
+                    f"database-review:{role.value}:{database_scope_hash(endpoint, database_name)}",
+                )
+            ),
             actor=actor,
             capability=capability,
             scope=scope,
@@ -170,9 +173,13 @@ def fenced_transfer_writer(
         return delegate
     return GenerationFencedOdooWriteExecutor(
         delegate,
-        frozen_database_guard(context, workspace, actor=actor,
+        frozen_database_guard(
+            context,
+            workspace,
+            actor=actor,
             role=OdooDatabaseBindingRole.DESTINATION,
-            capability=Capability.EXPORT_PLAN_EXECUTE),
+            capability=Capability.EXPORT_PLAN_EXECUTE,
+        ),
     )
 
 
@@ -189,7 +196,11 @@ def fenced_transfer_readback(
         return delegate
     return GenerationFencedOdooReadbackReader(
         delegate,
-        frozen_database_guard(context, workspace, actor=actor,
+        frozen_database_guard(
+            context,
+            workspace,
+            actor=actor,
             role=OdooDatabaseBindingRole.DESTINATION,
-            capability=Capability.EXPORT_PLAN_EXECUTE),
+            capability=Capability.EXPORT_PLAN_EXECUTE,
+        ),
     )

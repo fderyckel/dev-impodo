@@ -200,6 +200,14 @@ class ScopedTransferFixture:
         self.calls = []
         self.captured = []
 
+    def require_current_destination(self, workspace_id, actor):
+        del actor
+        if (
+            workspace_id != self.workspace.workspace_id
+            or not self.workspace.destination_database_binding_current
+        ):
+            raise WorkspaceError("The fixture destination database binding is not current")
+
     def source_identity_counts(self, workspace_id, dataset_id, key, **kwargs):
         return tuple(
             Counter(
@@ -682,6 +690,7 @@ class ScopedOdooTransferTests(TestCase):
             ),
             SimpleNamespace(),
             CapabilityAuthorizationPolicy(),
+            database_admission=fixture.require_current_destination,
         )
         report = service.assess_recovery(
             snapshot.workspace_id,

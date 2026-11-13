@@ -608,6 +608,14 @@ def build_target_router(context: WebContext) -> APIRouter:
                 intended_models=intended_models,
             )
             successor_state = successor.workspace_state
+            if successor_state.source_mode is SourceMode.ODOO:
+                identity = request_identity(request, context.identity_resolver)
+                await run_in_threadpool(
+                    review_database_binding, context, successor_state,
+                    OdooDatabaseBindingRole.SOURCE,
+                    actor=identity.actor, scope=identity.organization_scope,
+                    authorization_receipt=identity.authorization,
+                )
             predecessor_credential = get_target_credential(
                 context.secret_store,
                 predecessor_state,

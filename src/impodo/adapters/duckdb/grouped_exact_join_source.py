@@ -39,7 +39,11 @@ from impodo.domain.workspace.derived_entities import (
 
 from .database import DuckDbWorkspaceDatabase
 from .exact_join_group_evaluator import parsed_join_key_expression
-from .lookup_preparation_source import iter_lookup_batches, project_lookup_values
+from .lookup_preparation_source import (
+    iter_lookup_batches,
+    project_hierarchy_consumer_values,
+    project_lookup_values,
+)
 
 configure_columnar_runtime()
 
@@ -104,6 +108,16 @@ class DuckDbGroupedExactJoinSource(GroupedExactJoinSourcePort):
         return project_lookup_values(
             self._connection_factory, rule=rule, link=link, snapshot=snapshot,
             path=path, column_keys=column_keys, maximum_values=maximum_values,
+        )
+
+    def project_hierarchy_consumer_values(
+        self, *, bindings: Sequence[HierarchyConsumerBinding], snapshot: SourceSnapshot,
+        path: Path, column_keys: Sequence[str], maximum_values: int | None = None,
+    ) -> pl.DataFrame:
+        """Project original rows with their generated hierarchy reference values."""
+        return project_hierarchy_consumer_values(
+            self._connection_factory, bindings=bindings, snapshot=snapshot, path=path,
+            column_keys=column_keys, maximum_values=maximum_values,
         )
 
     def project_values(

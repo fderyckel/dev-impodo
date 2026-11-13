@@ -56,6 +56,9 @@ CANONICAL_IDENTITY_FIELDS = {
     ("src/impodo/domain/odoo_saved_data.py", "SavedOdooRestoreProfile"): {
         "project_id", "saved_data_id", "profile_id", "credential_workspace_id",
     },
+    ("src/impodo/domain/odoo_database_binding.py", "OdooDatabaseBinding"): {
+        "project_id", "workspace_id", "organization_id",
+    },
 }
 
 
@@ -70,6 +73,7 @@ TRUE_PROJECT_ID_TYPES = frozenset(
         "domain/odoo_saved_data.py::SavedOdooDataVersion",
         "domain/odoo_saved_data.py::SavedOdooRestoreBinding",
         "domain/odoo_saved_data.py::SavedOdooRestoreProfile",
+        "domain/odoo_database_binding.py::OdooDatabaseBinding",
         "domain/cutover/models.py::ApplicationQualificationEvidence",
         "domain/cutover/models.py::CutoverPlan",
         "domain/cutover/models.py::CutoverPlanQualification",

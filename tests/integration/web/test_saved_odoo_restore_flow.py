@@ -12,10 +12,13 @@ from uuid import uuid4
 from impodo.application.odoo_saved_data_jobs import SavedOdooActionError
 from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo.contracts import RecordSnapshot
+from impodo.domain.odoo_database_binding import database_scope_hash
 from impodo.domain.odoo_saved_data import SavedOdooRestoreProfile
 from impodo.domain.serialization import canonical_json, content_hash
+from impodo.domain.shared.access import Capability
 from impodo.domain.shared.models import FieldMetadata, OdooWriteIdentity, TargetRecord
 from impodo.domain.workspace.workbench import OdooConnectionMode, target_identity_hash
+from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.composition.saved_odoo_restore import restore_saved_odoo_data
 from tests.integration.web import test_saved_odoo_archive_lifecycle as archive_fixture
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase, _browser_schema
@@ -144,9 +147,9 @@ class SavedOdooRestoreFlowTests(ProjectSetupBrowserTestCase):
             },
         )
 
-    def _profile(self, definition, mode, *, required=False):
+    def _profile(self, definition, mode, *, required=False, declare_recreated=True):
         now = datetime.now(UTC)
-        return SavedOdooRestoreProfile(
+        profile = SavedOdooRestoreProfile(
             profile_id=str(uuid4()),
             project_id=definition.project_id,
             saved_data_id=definition.saved_data_id,
@@ -178,6 +181,36 @@ class SavedOdooRestoreFlowTests(ProjectSetupBrowserTestCase):
             created_at=now,
             updated_at=now,
         )
+        # This fixture explicitly recreates its fictional same-endpoint target
+        # once after capture. Restoring and retrying never declare generations.
+        context = self.app.state.context
+        identity = context.identity_resolver.resolve({"authenticated": True})
+
+        def prepare_reset():
+            source = context.queries.get(definition.source_workspace_id)
+            if not declare_recreated or database_scope_hash(
+                source.odoo_base_url, source.odoo_database
+            ) != database_scope_hash(profile.base_url, profile.database):
+                return
+            current = context.odoo_database_bindings.current(
+                source.workspace_id, base_url=profile.base_url,
+                database=profile.database, actor=identity.actor,
+                capability=Capability.SOURCE_CONFIGURE,
+                scope=identity.organization_scope,
+                authorization_receipt=identity.authorization,
+            )
+            context.odoo_database_bindings.declare_recreated(
+                source.workspace_id, base_url=profile.base_url,
+                database=profile.database,
+                expected_generation_hash=current.generation_hash,
+                operation_id=str(uuid4()),
+                reason="The fixture recreated its test destination after saving clean data",
+                actor=identity.actor, scope=identity.organization_scope,
+                authorization_receipt=identity.authorization,
+            )
+
+        run_local_operation_sync(prepare_reset)
+        return profile
 
     def _run(
         self,

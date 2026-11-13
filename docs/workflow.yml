@@ -45,11 +45,13 @@ stages:
       - src/impodo/web/routers/recipe_revision.py
       - src/impodo/web/routers/workspace_setup.py
       - src/impodo/web/routers/target.py
+      - src/impodo/web/routers/odoo_database_bindings.py
     templates:
       - src/impodo/web/templates/project_list.html
       - src/impodo/web/templates/project_new.html
       - src/impodo/web/templates/project_business_overview.html
       - src/impodo/web/templates/project_saved_odoo_data.html
+      - src/impodo/web/templates/project_odoo_database_bindings.html
       - src/impodo/web/templates/project_recipe_detail.html
       - src/impodo/web/templates/project_recipe_revision.html
       - src/impodo/web/templates/workspace_overview.html
@@ -89,6 +91,8 @@ stages:
       - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._field
       - src/impodo/application/recipe_application_compilation.py::RecipeApplicationCompiler._materialize_preparation
       - src/impodo/application/odoo_connection_service.py::OdooConnectionTestService
+      - src/impodo/application/odoo_database_binding_service.py::OdooDatabaseBindingService
+      - src/impodo/web/composition/database_bindings.py::review_database_binding
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
       - src/impodo/web/presenters/concepts.py::ConceptHelp
       - src/impodo/web/presenters/user_help.py::UserHelpTarget
@@ -112,6 +116,8 @@ stages:
       - tests/domain/recipe/test_representative_shapes.py
       - tests/application/workspace/test_odoo_connection.py
       - tests/integration/web/test_target_workflow.py
+      - tests/integration/web/test_odoo_database_bindings.py
+      - tests/integration/web/test_saved_project_startup.py
       - tests/integration/web/test_odoo_company.py
       - tests/e2e/test_odoo_company.py
       - tests/integration/web/test_local_stack.py
@@ -759,6 +765,7 @@ stages:
       - tests/integration/web/test_identity_health_presenter.py
       - tests/integration/web/test_disconnection_messages.py
       - tests/integration/web/test_hierarchy_identity_reads.py
+      - tests/integration/artifacts/test_hierarchy_consumer_values.py
       - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_identity_group_review.py
       - tests/integration/web/test_duplicate_row_exclusions.py

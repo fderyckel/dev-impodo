@@ -322,6 +322,13 @@ def restore_saved_odoo_data(
         lambda: context.execution.current_transfer_run(state.workspace_id)
     )
     if existing_run is not None:
+        run_local_operation_sync(
+            lambda: context.odoo_database_bindings.require_current(
+                state.workspace_id, OdooDatabaseBindingRole.DESTINATION,
+                base_url=profile.base_url, database=profile.database,
+                actor=actor, capability=Capability.EXPORT_PLAN_EXECUTE,
+            )
+        )
         verification = run_local_operation_sync(
             lambda: context.reconciliation.current(state.workspace_id)
         )

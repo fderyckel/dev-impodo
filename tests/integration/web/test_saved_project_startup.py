@@ -5,6 +5,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 from uuid import uuid4
 
 import duckdb
@@ -49,6 +50,33 @@ def _saved_rows(root: Path) -> dict:
 
 
 class SavedProjectStartupTests(unittest.TestCase):
+    def test_default_composition_starts_without_contacting_odoo(self) -> None:
+        """Construct every production service before any project is opened."""
+
+        remote = Mock(side_effect=AssertionError("Startup must not contact Odoo"))
+        with tempfile.TemporaryDirectory() as temporary:
+            app = create_local_app(
+                Path(temporary) / "projects",
+                secret_store=MemorySecretStore(),
+                launch_token="startup-launch",
+                connection_tester=remote,
+                read_identity_probe=remote,
+                write_identity_probe=remote,
+                schema_reader=remote,
+                schema_read_session_factory=remote,
+                model_catalog_reader=remote,
+                readiness_reader=remote,
+                destination_match_reader=remote,
+                source_capture_factory=remote,
+                write_executor_factory=remote,
+                readback_reader_factory=remote,
+            )
+            self.assertIsNotNone(app.state.context.odoo_database_bindings)
+            with TestClient(app) as client:
+                response = client.get("/launch?token=startup-launch")
+                self.assertEqual(response.status_code, 200)
+            remote.assert_not_called()
+
     def test_restart_retains_projects_created_from_the_first_project_baseline(
         self,
     ) -> None:
@@ -101,6 +129,16 @@ class SavedProjectStartupTests(unittest.TestCase):
             before = _saved_rows(root)
             if historical_registry:
                 with duckdb.connect(str(root / "registry.duckdb")) as connection:
+                    # Model an actual v2 registry: v4 capture recovery and v5
+                    # database authority tables did not exist in that layout.
+                    for table in (
+                        "saved_odoo_capture_operation",
+                        "saved_odoo_source_binding",
+                        "odoo_workspace_database_binding",
+                        "odoo_database_generation_current",
+                        "odoo_database_generation",
+                    ):
+                        connection.execute(f'DROP TABLE "{table}"')
                     if missing_profile:
                         connection.execute("DROP TABLE saved_odoo_restore_profile")
                     connection.execute("UPDATE schema_version SET version = 2")
@@ -155,6 +193,8 @@ class SavedProjectStartupTests(unittest.TestCase):
                                 [
                                     (1, 2, "saved-odoo-data-and-restore-v2"),
                                     (2, 3, "saved-odoo-restore-profile-v3"),
+                                    (3, 4, "saved-odoo-capture-recovery-v4"),
+                                    (4, 5, "odoo-database-generation-authority-v5"),
                                 ]
                                 if historical_registry and path.name == "registry.duckdb"
                                 else [],

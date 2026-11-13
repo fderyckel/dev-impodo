@@ -255,6 +255,8 @@ class ReconciliationServiceTests(unittest.TestCase):
             _Execution(run),
             results,
             CapabilityAuthorizationPolicy(),
+            # These isolated reconciliation fixtures represent admitted File workspaces.
+            database_admission=lambda _workspace_id, _actor: None,
         )
         return service, results
 
@@ -483,7 +485,9 @@ class ReconciliationServiceTests(unittest.TestCase):
             _Execution(run),
             results,
             CapabilityAuthorizationPolicy(),
-            evidence,
+            # These isolated reconciliation fixtures represent admitted File workspaces.
+            database_admission=lambda _workspace_id, _actor: None,
+            evidence=evidence,
         )
         reader = _Reader(execution_api_scope(snapshot).semantic_hash)
         reader.records[("product.template", 11)]["weight"] = 0.0

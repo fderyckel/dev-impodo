@@ -900,8 +900,12 @@ source**, choose the generated complete-path column, choose **Only another
 incoming table**, and select the generated hierarchy table. Use the same
 scoped related-record matching rule.
 
-For a combined table, choose **Selected categories path** when the generated
-hierarchy is named `categories`. Impodo carries this column from whichever
+Choose **Selected categories path** when the generated hierarchy is named
+`categories`. This column is available beside the original table's fields.
+It supplies the related record's complete path, not another value such as its
+company name.
+
+For a combined table, Impodo carries this column from whichever
 input supplies the hierarchy: the primary table, a second table, or any later
 table. You do not need to include its original level fields in the combined
 table. The saved joins determine which hierarchy path belongs to each row.

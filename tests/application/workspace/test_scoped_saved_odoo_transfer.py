@@ -198,7 +198,7 @@ def _compile(fixture, plans):
     )
 
 
-def _reconcile(snapshot, now, *, wrong_parent=False):
+def _reconcile(fixture, snapshot, now, *, wrong_parent=False):
     identifiers = {
         ("x.scope_parent", 1): 901,
         ("x.scope_parent", 2): 902,
@@ -267,6 +267,7 @@ def _reconcile(snapshot, now, *, wrong_parent=False):
         readback_fixture._Execution(run),
         readback_fixture._Results(),
         CapabilityAuthorizationPolicy(),
+        database_admission=fixture.require_current_destination,
     )
     return service.reconcile(
         snapshot.workspace_id,
@@ -390,9 +391,9 @@ class ScopedSavedOdooTransferTests(unittest.TestCase):
                 with self.subTest(major=major, mode=mode):
                     fixture = _saved_fixture(major, mode)
                     result = _compile(fixture, _plans(fixture))
-                    verified = _reconcile(result.snapshot, fixture.now)
+                    verified = _reconcile(fixture, result.snapshot, fixture.now)
                     self.assertEqual(verified.status, ReconciliationRunStatus.VERIFIED)
-                    wrong = _reconcile(result.snapshot, fixture.now, wrong_parent=True)
+                    wrong = _reconcile(fixture, result.snapshot, fixture.now, wrong_parent=True)
                     self.assertGreater(wrong.fallout_count, 0)
                     self.assertNotEqual(wrong.status, ReconciliationRunStatus.VERIFIED)
 

@@ -7,6 +7,7 @@ streams complete physical membership through the same generated records.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
@@ -25,6 +26,7 @@ from impodo.application.workspace.preparation.grouped_exact_join_preparation imp
 from impodo.domain.preparation.source import SourceLoadError, SourceRow
 from impodo.domain.shared.models import Issue, Severity
 from impodo.domain.source_snapshot import (
+    SOURCE_ROW_COLUMN,
     EncodedSourceCell,
     SourceCellKind,
     SourceSnapshot,
@@ -34,10 +36,12 @@ from impodo.domain.workspace.contracts import SourceDataset
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     HierarchicalLookupRule,
+    HierarchyConsumerBinding,
     LookupRule,
     _display_path,
     _normalized_path,
     evaluate_hierarchy_path,
+    hierarchy_consumer_values,
     hierarchy_path_key,
 )
 
@@ -54,6 +58,90 @@ _NORMALIZED_SCHEMA = (
 _CHOICE_WHITESPACE = "".join(
     chr(value) for value in range(0x3100) if chr(value).isspace()
 )
+
+
+def project_hierarchy_consumer_values(
+    factory: DuckDbConnectionFactory,
+    *,
+    bindings: Sequence[HierarchyConsumerBinding],
+    snapshot: SourceSnapshot,
+    path: Path,
+    column_keys: Sequence[str],
+    maximum_values: int | None = None,
+) -> pl.DataFrame:
+    """Read physical values and generated parent paths in original row order."""
+    columns = {item.stable_key: item for item in snapshot.schema.columns}
+    virtual = {item.link.source_column_key: item for item in bindings}
+    keys = tuple(column_keys)
+    if not keys or len(set(keys)) != len(keys) or any(
+        key not in columns and key not in virtual and key != SOURCE_ROW_COLUMN
+        for key in keys
+    ):
+        raise SourceLoadError("Choose current hierarchy source columns")
+    if maximum_values is not None and (len(keys) != 1 or maximum_values < 1):
+        raise SourceLoadError("Choose one hierarchy source column and a positive limit")
+    active = tuple(binding for key, binding in virtual.items() if key in keys)
+    levels = tuple(dict.fromkeys(
+        key for binding in active for key in binding.rule.source_level_column_keys
+    ))
+    needed = tuple(dict.fromkeys((*levels, *(key for key in keys if key in columns))))
+    if any(key not in columns for key in needed):
+        raise SourceLoadError("The hierarchy's frozen source fields changed")
+    projected = ", ".join(
+        f'"{columns[key].kind_column}", "{columns[key].value_column}"'
+        for key in needed
+    )
+    rows: list[tuple[object, ...]] = []
+    counts: Counter[str] = Counter()
+    total = 0
+    previous_number = 0
+    with factory.connect(
+        Path(":memory:"), memory_limit="256MB", threads="2",
+        preserve_insertion_order=False, enable_external_access=True,
+    ) as connection:
+        try:
+            cursor = connection.execute(
+                f'SELECT "{snapshot.schema.source_row_column}"'
+                f'{", " + projected if projected else ""} FROM read_parquet(?) '
+                f'ORDER BY "{snapshot.schema.source_row_column}"',
+                [str(path.resolve())],
+            )
+            while batch := cursor.fetchmany(1000):
+                for number, *cells in batch:
+                    if number is None or int(number) <= previous_number:
+                        raise SourceLoadError("The hierarchy's frozen source rows changed")
+                    previous_number = int(number)
+                    total += 1
+                    raw = {key: cells[index * 2 + 1] for index, key in enumerate(needed)}
+                    decoded = {
+                        key: EncodedSourceCell(
+                            SourceCellKind(int(cells[index * 2])), cells[index * 2 + 1]
+                        ).to_python()
+                        for index, key in enumerate(needed) if key in levels
+                    }
+                    values: dict[str, object] = {**raw, SOURCE_ROW_COLUMN: int(number)}
+                    for binding in active:
+                        values[binding.link.source_column_key] = hierarchy_consumer_values(
+                            binding, decoded
+                        )[binding.link.source_column_key]
+                    row = tuple(values[key] for key in keys)
+                    if maximum_values is None:
+                        rows.append(row)
+                    elif row[0] is not None and (value := str(row[0]).strip()):
+                        counts[value] += 1
+            if total != snapshot.row_count:
+                raise SourceLoadError("The hierarchy's frozen source row count changed")
+        except duckdb.Error as error:
+            raise SourceLoadError("Impodo could not read the hierarchy's source values") from error
+    if maximum_values is not None:
+        return pl.DataFrame(
+            sorted(counts.items())[:maximum_values + 1],
+            schema={keys[0]: pl.String, "count": pl.Int64}, orient="row",
+        )
+    return pl.DataFrame(
+        rows, schema={key: pl.Int64 if key == SOURCE_ROW_COLUMN else pl.String for key in keys},
+        orient="row",
+    )
 
 
 def _source_keys(rule: LookupRule) -> tuple[str, ...]:

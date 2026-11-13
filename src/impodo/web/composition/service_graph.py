@@ -244,7 +244,9 @@ from impodo.domain.shared.access import (
     AuthorizationPolicy,
     WorkspaceAuthorizationPolicy,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
+    SourceMode,
     WorkspaceStateRepository,
     WorkspaceStateService,
 )
@@ -882,11 +884,25 @@ def build_execution_service_graph(
         provenance,
         execution,
     )
+
+    def admit_reconciliation_database(workspace_id: str, _actor: Actor) -> None:
+        workspace = workspaces.get(workspace_id)
+        if (
+            workspace.source_mode is SourceMode.ODOO
+            and not workspace.destination_database_binding_current
+        ):
+            raise WorkspaceError(
+                "The destination database binding is no longer current. Keep "
+                "this journal as historical evidence and prepare a fresh restore "
+                "workspace for the declared current database."
+            )
+
     reconciliation = ReconciliationService(
         preflight,
         journal,
         reconciliation_results,
         authorization,
+        admit_reconciliation_database,
         ReconciliationEvidenceService(authorization, artifacts),
         schemas,
     )

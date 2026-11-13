@@ -267,6 +267,7 @@ and phone-width placement.
 | Project Recipe presentation | [`build_recipe_definition_view`](../../../src/impodo/web/presenters/recipes.py) and [`project_recipe_detail.html`](../../../src/impodo/web/templates/project_recipe_detail.html) |
 | Exact Recipe revision and change review | [`build_recipe_revision_router`](../../../src/impodo/web/routers/recipe_revision.py), [`build_recipe_change_view`](../../../src/impodo/web/presenters/recipes.py), and [`RecipeChangeReview`](../../../src/impodo/application/recipe_publication_service.py) |
 | Odoo connection boundary | [`OdooConnectionTestService`](../../../src/impodo/application/odoo_connection_service.py) |
+| Explicit database review and reset authority | [`OdooDatabaseBindingService`](../../../src/impodo/application/odoo_database_binding_service.py) and [`review_database_binding`](../../../src/impodo/web/composition/database_bindings.py) |
 | Bounded navigation query | [`WorkspaceNavigationQueryService`](../../../src/impodo/application/workspace/navigation.py) and [`WorkspaceNavigationRepository`](../../../src/impodo/adapters/duckdb/navigation_repository.py) |
 | Navigation presentation | [`build_workspace_navigation`](../../../src/impodo/web/presenters/navigation.py) |
 | Data-manager concept registry | [`ConceptHelp`](../../../src/impodo/web/presenters/concepts.py) |
@@ -291,6 +292,8 @@ and phone-width placement.
 - [`tests/integration/protected_evidence/test_project_security.py`](../../../tests/integration/protected_evidence/test_project_security.py)
 - [`tests/application/workspace/test_odoo_connection.py`](../../../tests/application/workspace/test_odoo_connection.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
+- [`tests/integration/web/test_odoo_database_bindings.py`](../../../tests/integration/web/test_odoo_database_bindings.py)
+- [`tests/integration/web/test_saved_project_startup.py`](../../../tests/integration/web/test_saved_project_startup.py)
 - [`tests/integration/web/test_local_stack.py`](../../../tests/integration/web/test_local_stack.py)
 - [`tests/application/data_version/test_odoo_capture_jobs.py`](../../../tests/application/data_version/test_odoo_capture_jobs.py)
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)

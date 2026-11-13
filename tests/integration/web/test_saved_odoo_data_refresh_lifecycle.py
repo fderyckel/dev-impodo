@@ -7,9 +7,11 @@ from datetime import UTC, datetime
 from unittest.mock import Mock, patch
 from uuid import uuid4
 
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
+from impodo.domain.shared.access import Capability
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.composition.saved_odoo_data import saved_capture_access
@@ -20,6 +22,7 @@ from tests.support.browser_scenarios import (
     _browser_schema,
     _BrowserOdooCaptureGateway,
 )
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 
 
@@ -56,8 +59,11 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
         )
         request_identity = context.identity_resolver.resolve({"authenticated": True})
         review_database_binding(
-            context, state, OdooDatabaseBindingRole.SOURCE,
-            actor=actor, scope=request_identity.organization_scope,
+            context,
+            state,
+            OdooDatabaseBindingRole.SOURCE,
+            actor=actor,
+            scope=request_identity.organization_scope,
             authorization_receipt=request_identity.authorization,
         )
         response = self._post(
@@ -120,7 +126,10 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
                 ),
             ):
                 access = saved_capture_access(
-                    context, fresh, credential_owner, actor=actor,
+                    context,
+                    fresh,
+                    credential_owner,
+                    actor=actor,
                     scope=request_identity.organization_scope,
                     authorization_receipt=request_identity.authorization,
                 )
@@ -157,6 +166,83 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
         )
         access_factory.assert_not_called()
         return service, definition, access_factory, actor
+
+    def test_update_requires_current_source_review_before_enqueuing(self):
+        context = self.app.state.context
+        for major in (19, 20):
+            for problem in ("unbound", "recreated"):
+                with self.subTest(major=major, problem=problem):
+                    service, definition, factory, actor = self._configured(major)
+                    if problem == "unbound":
+                        database = service.repository.database
+                        with database.connect(database.registry_path) as connection:
+                            connection.execute(
+                                "DELETE FROM saved_odoo_source_binding WHERE saved_data_id = ?",
+                                [definition.saved_data_id],
+                            )
+                    else:
+                        identity = context.identity_resolver.resolve(
+                            {"authenticated": True}
+                        )
+                        state = context.queries.get(definition.source_workspace_id)
+                        current = context.odoo_database_bindings.current(
+                            state.workspace_id,
+                            base_url=state.odoo_base_url,
+                            database=state.odoo_database,
+                            actor=actor,
+                            capability=Capability.PROJECT_ADMIN,
+                            scope=identity.organization_scope,
+                            authorization_receipt=identity.authorization,
+                        )
+                        context.odoo_database_bindings.declare_recreated(
+                            state.workspace_id,
+                            base_url=state.odoo_base_url,
+                            database=state.odoo_database,
+                            actor=actor,
+                            expected_generation_hash=current.generation_hash,
+                            operation_id=str(uuid4()),
+                            reason="Isolated test recreation",
+                            scope=identity.organization_scope,
+                            authorization_receipt=identity.authorization,
+                        )
+                    with (
+                        patch.object(context.saved_odoo_jobs, "enqueue") as enqueue,
+                        patch.object(context, "source_capture_factory") as remote,
+                        count_duckdb_statements() as statements,
+                        collect_duckdb_request_timings() as timings,
+                    ):
+                        response = self._post(
+                            f"/projects/{definition.project_id}/saved-odoo-data/{definition.saved_data_id}/update",
+                            {
+                                "csrf_token": self.csrf,
+                                "revision": str(definition.revision),
+                                "operation_id": str(uuid4()),
+                            },
+                        )
+                    self.assertEqual(response.status_code, 422, response.text)
+                    self.assertIn("fresh", response.text)
+                    self.assertIn(
+                        "Review a database reset or rebind the source", response.text
+                    )
+                    enqueue.assert_not_called()
+                    remote.assert_not_called()
+                    factory.assert_not_called()
+                    self.assertEqual(
+                        service.get(
+                            definition.project_id, definition.saved_data_id, actor=actor
+                        ),
+                        definition,
+                    )
+                    self.assertEqual(
+                        timings.connection_count, 5 if problem == "unbound" else 8
+                    )
+                    self.assertEqual(
+                        timings.schema_check_count, 5 if problem == "unbound" else 8
+                    )
+                    self.assertEqual(timings.lock_retry_count, 0)
+                    self.assertLessEqual(
+                        len(statements), 79 if problem == "unbound" else 116
+                    )
 
     def test_physical_capture_acceptance_interruption_recovers_without_source(self):
         for major in (19, 20):

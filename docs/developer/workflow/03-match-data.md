@@ -1596,6 +1596,19 @@ key reads. Categorical scan contract v5 binds joined results to the effective
 selection and all participating physical snapshot hashes. Uncovered explicit
 matches remain blocking findings, and stale join evidence requires review.
 
+An original physical table can also expose a generated hierarchy path beside
+its frozen columns. The categorical reader sends requests containing that
+virtual column to `JoinedMappingSourceValues`, rather than searching for it
+inside the immutable snapshot. The adapter verifies the current hierarchy,
+physical source and snapshot, then derives the path with the shared hierarchy
+rules. One narrow, ordered scan retains duplicate source rows, their numbers,
+and the snapshot text of ordinary fields. Missing paths remain blank. The
+[consumer-value regressions](../../../tests/integration/artifacts/test_hierarchy_consumer_values.py)
+cover row order, leading zeroes, blank paths, choice counts, stale rules and
+changed bytes. The [workflow regressions](../../../tests/integration/web/test_hierarchy_identity_reads.py)
+cover both majors and access modes, including a bad existing-record lookup
+that must return mapping findings rather than a snapshot-verification error.
+
 `reviewed_exact_join_output` resolves a standalone join between frozen physical
 tables into a one-step execution plan, or selects the requested dataset's
 complete join group. It retains the original rules, dataset identities, and

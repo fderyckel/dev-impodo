@@ -443,6 +443,8 @@ class ProfileScenarioWorkflow:
                 ScenarioExecutionJournal(self._evidence_directory),
                 ScenarioReconciliationResults(self._evidence_directory),
                 CapabilityAuthorizationPolicy(),
+                # Profile scenarios are prepared exclusively from File sources.
+                database_admission=lambda _workspace_id, _actor: None,
             ).reconcile(
                 self._workspace_id,
                 expected_execution_run_id=execution.state.run_id,

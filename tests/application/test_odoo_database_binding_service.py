@@ -60,8 +60,11 @@ class OdooDatabaseBindingServiceTests(TestCase):
         self.repository.declare.side_effect = lambda generation, **kwargs: generation
         self.review_admission = MagicMock()
         self.service = OdooDatabaseBindingService(
-            self.access, self.authorization, self.repository,
-            review_admission=self.review_admission, clock=lambda: self.now
+            self.access,
+            self.authorization,
+            self.repository,
+            review_admission=self.review_admission,
+            clock=lambda: self.now,
         )
         self.arguments = {
             "base_url": "https://odoo.example.test",
@@ -91,7 +94,9 @@ class OdooDatabaseBindingServiceTests(TestCase):
             **self.request,
         )
         self.assertEqual(binding.project_id, self.project_id)
-        self.review_admission.assert_called_once_with(self.lineage, OdooDatabaseBindingRole.SOURCE, self.scope_hash)
+        self.review_admission.assert_called_once_with(
+            self.lineage, OdooDatabaseBindingRole.SOURCE, self.scope_hash
+        )
         self.assertEqual(
             binding.organization_id,
             str(self.identity.organization_scope.organization_id),
@@ -108,28 +113,52 @@ class OdooDatabaseBindingServiceTests(TestCase):
         self.assertEqual(generation.actor, LOCAL_ACTOR.identity)
 
     def test_first_review_admission_denial_cannot_seed_old_workspace_authority(self):
-        self.review_admission.side_effect = OdooDatabaseBindingError("Earlier load journal requires a fresh workspace")
+        self.review_admission.side_effect = OdooDatabaseBindingError(
+            "Earlier load journal requires a fresh workspace"
+        )
         with self.assertRaisesRegex(OdooDatabaseBindingError, "fresh workspace"):
             self.service.bind(
-                self.workspace_id, "DESTINATION",
+                self.workspace_id,
+                "DESTINATION",
                 expected_generation_hash=self.current.generation_hash,
-                operation_id=str(uuid4()), capability=Capability.EXPORT_PLAN_APPROVE,
-                **self.arguments, **self.request,
+                operation_id=str(uuid4()),
+                capability=Capability.EXPORT_PLAN_APPROVE,
+                **self.arguments,
+                **self.request,
             )
-        self.review_admission.assert_called_once_with(self.lineage, OdooDatabaseBindingRole.DESTINATION, self.scope_hash)
+        self.review_admission.assert_called_once_with(
+            self.lineage, OdooDatabaseBindingRole.DESTINATION, self.scope_hash
+        )
         self.repository.bind.assert_not_called()
         self.repository.declare.assert_not_called()
 
     def test_existing_proof_reuse_does_not_admit_the_workspace_again(self):
-        proof = OdooDatabaseBinding(self.workspace_id, self.project_id, "impodo-local", OdooDatabaseBindingRole.DESTINATION, self.scope_hash, self.current.generation_hash, LOCAL_ACTOR.identity, self.now, str(uuid4()))
+        proof = OdooDatabaseBinding(
+            self.workspace_id,
+            self.project_id,
+            "impodo-local",
+            OdooDatabaseBindingRole.DESTINATION,
+            self.scope_hash,
+            self.current.generation_hash,
+            LOCAL_ACTOR.identity,
+            self.now,
+            str(uuid4()),
+        )
         self.repository.get.return_value = proof
         self.repository.bind.return_value = proof
         self.repository.bind.side_effect = None
-        self.assertEqual(self.service.bind(
-            self.workspace_id, "DESTINATION", expected_generation_hash=self.current.generation_hash,
-            operation_id=str(uuid4()), capability=Capability.EXPORT_PLAN_APPROVE,
-            **self.arguments, **self.request,
-        ), proof)
+        self.assertEqual(
+            self.service.bind(
+                self.workspace_id,
+                "DESTINATION",
+                expected_generation_hash=self.current.generation_hash,
+                operation_id=str(uuid4()),
+                capability=Capability.EXPORT_PLAN_APPROVE,
+                **self.arguments,
+                **self.request,
+            ),
+            proof,
+        )
         self.review_admission.assert_not_called()
         self.repository.bind.assert_called_once()
 

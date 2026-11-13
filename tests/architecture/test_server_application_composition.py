@@ -346,6 +346,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             corrections=corrections,
             support=support,
         )
+        database_bindings = _fake("odoo_database_bindings")
         context = build_web_context(
             services,
             request=WebRequestDependencies(
@@ -354,6 +355,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             ),
             jobs=job_runtimes,
             infrastructure=WebInfrastructureDependencies(
+                odoo_database_bindings=database_bindings,
                 destination_create_fields=_fake("destination_create_fields"),
                 destination_identity_aliases=_fake("destination_identity_aliases"),
                 artifacts=artifacts,
@@ -379,6 +381,7 @@ class ServerApplicationCompositionTests(unittest.TestCase):
         )
 
         self.assertIs(context.workspace_access, foundation.workspace_access)
+        self.assertIs(context.odoo_database_bindings, database_bindings)
         self.assertIs(context.odoo_source_capture, odoo_sources.capture)
         self.assertIs(context.odoo_capture_publication, odoo_sources.publication)
         self.assertIs(context.odoo_provenance, odoo_sources.provenance)

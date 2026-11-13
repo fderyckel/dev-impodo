@@ -213,10 +213,15 @@ class CategoricalCoverageService:
         }:
             raise WorkspaceError("Choose one current source column")
         physical = self.sources.get_source_selection(workspace_id)
+        physical_dataset = next(
+            (item for item in physical.datasets if item.dataset_id == dataset_id), None
+        ) if physical else None
         if (
             self.logical_values is not None
             and physical is not None
-            and dataset_id not in {item.dataset_id for item in physical.datasets}
+            and (physical_dataset is None or source_column_key not in {
+                item.stable_key for item in physical_dataset.columns
+            })
         ):
             counts = self.logical_values.counts(
                 workspace_id,
@@ -784,7 +789,7 @@ class CategoricalCoverageService:
                 source_keys = tuple(dict.fromkeys((*source_keys, *gate.source_keys)))
             frame = self._scan_dataset(
                 workspace_id,
-                selection if joined_values_supported else physical_selection,
+                selection,
                 dataset_id,
                 source_keys,
             )
@@ -850,15 +855,22 @@ class CategoricalCoverageService:
         include_source_numbers: bool = False,
     ) -> pl.DataFrame:
         physical = self.sources.get_source_selection(workspace_id)
+        physical_dataset = next(
+            (item for item in physical.datasets if item.dataset_id == dataset_id), None
+        ) if physical else None
         if (
             self.logical_values is not None
             and physical is not None
-            and dataset_id not in {item.dataset_id for item in physical.datasets}
+            and (physical_dataset is None or any(
+                key not in {item.stable_key for item in physical_dataset.columns}
+                for key in source_column_keys
+            ))
         ):
-            if include_source_numbers:
+            if include_source_numbers and physical_dataset is None:
                 raise WorkspaceError("Choose rows from a table with a frozen source file")
+            requested = (*source_column_keys, SOURCE_ROW_COLUMN) if include_source_numbers else source_column_keys
             frame = self.logical_values.project(
-                workspace_id, selection, dataset_id, source_column_keys,
+                workspace_id, selection, dataset_id, requested,
             )
             return _select_source_positions(frame, source_positions) if source_positions is not None else frame
         if physical is not None:

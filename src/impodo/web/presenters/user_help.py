@@ -436,6 +436,7 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "concepts.html": "concepts",
         "project_business_overview.html": "getting-started",
         "project_saved_odoo_data.html": "getting-started",
+        "project_odoo_database_bindings.html": "getting-started",
         "project_integrated_qualification.html": "qualify-integrated-test",
         "project_integrated_run.html": "integrated-test-runs",
         "project_list.html": "getting-started",

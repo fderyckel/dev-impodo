@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal, InvalidOperation
@@ -149,6 +149,7 @@ class ReconciliationService:
     execution: ReconciliationExecutionRepository
     results: ReconciliationResultRepository
     authorization: WorkspaceAuthorizationPolicy
+    database_admission: Callable[[str, Actor], None]
     evidence: ReconciliationEvidenceService | None = None
     schemas: ReconciliationSchemaReader | None = None
 
@@ -184,6 +185,7 @@ class ReconciliationService:
             Capability.EXPORT_PLAN_EXECUTE,
             workspace_id=workspace_id,
         )
+        self.database_admission(workspace_id, actor)
         run = self.execution.get_run(workspace_id, expected_execution_run_id)
         current = self.execution.get_current_run(workspace_id)
         if run is None or current is None or current.run_id != expected_execution_run_id:
@@ -195,6 +197,7 @@ class ReconciliationService:
         )
         existing = self.results.get_current(workspace_id, run.run_id)
         if existing is not None and not refresh:
+            self.database_admission(workspace_id, actor)
             return existing
         if run.status is ExecutionRunStatus.RUNNING or run.planned_count:
             raise WorkspaceError("The Odoo load is not finished yet")
@@ -228,6 +231,7 @@ class ReconciliationService:
         )
         # Exercise the portable contract before it reaches durable storage.
         report = ReconciliationRun.from_json(report.to_json())
+        self.database_admission(workspace_id, actor)
         candidate = None
         evidence = self.evidence
         if evidence is not None:
@@ -251,8 +255,10 @@ class ReconciliationService:
             )
             detail = ReconciliationDetailArtifact.from_json(detail.to_json())
             candidate = evidence.prepare(report, detail, actor=actor)
+            self.database_admission(workspace_id, actor)
             evidence.publish(report, candidate)
         try:
+            self.database_admission(workspace_id, actor)
             if candidate is None:
                 self.results.publish(workspace_id, report, actor=actor)
             else:
@@ -388,6 +394,7 @@ class ReconciliationService:
             Capability.EXPORT_PLAN_EXECUTE,
             workspace_id=workspace_id,
         )
+        self.database_admission(workspace_id, actor)
         run = self.execution.get_run(workspace_id, expected_execution_run_id)
         current = self.execution.get_current_run(workspace_id)
         if (
@@ -428,7 +435,9 @@ class ReconciliationService:
                 if targeted else None
             ),
         )
-        return ReconciliationRun.from_json(report.to_json())
+        result = ReconciliationRun.from_json(report.to_json())
+        self.database_admission(workspace_id, actor)
+        return result
 
     def _read_back(
         self,

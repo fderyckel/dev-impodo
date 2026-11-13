@@ -14,7 +14,10 @@ from impodo.application.data_version.source_snapshots import (
     validate_snapshot_for_dataset,
     validate_source_snapshot_path,
 )
-from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
+from impodo.application.shared.artifacts import (
+    ArtifactStoreError,
+    DataVersionSourceArtifactStore,
+)
 from impodo.application.workspace.mapping.categorical_coverage import (
     CategoricalSourceRepository,
 )
@@ -27,15 +30,18 @@ from impodo.application.workspace.preparation.grouped_exact_join_preparation imp
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.serialization import content_hash
 from impodo.domain.source_binding import DerivedSourceBinding
+from impodo.domain.source_snapshot import SOURCE_ROW_COLUMN
 from impodo.domain.workspace.contracts import SourceSelection
 from impodo.domain.workspace.derived_entities import (
     DerivedDatasetLink,
     DerivedEntityPlan,
     DerivedEntityRule,
     HierarchicalLookupRule,
+    HierarchyConsumerBinding,
     LookupRule,
     _rule_payload,
     derived_dataset_links,
+    hierarchy_consumer_bindings,
 )
 from impodo.domain.workspace.errors import SourcePreparationReadError, WorkspaceError
 
@@ -78,6 +84,8 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         if physical is None:
             return False
         if self._lookup(plan, dataset_id) is not None:
+            return True
+        if self._consumer_bindings(plan, dataset_id):
             return True
         try:
             reviewed_exact_join_output(physical, selection, plan, dataset_id=dataset_id)
@@ -133,6 +141,14 @@ class JoinedMappingSourceValues(LogicalSourceValues):
             return self._read_lookup(
                 workspace_id, selection, dataset_id, column_keys, maximum_values,
                 physical, plan, lookup,
+            )
+        bindings = self._consumer_bindings(plan, dataset_id)
+        if bindings and physical is not None and any(
+            item.dataset_id == dataset_id for item in physical.datasets
+        ):
+            return self._read_consumer(
+                workspace_id, selection, dataset_id, column_keys, maximum_values,
+                physical, plan, bindings,
             )
         if physical is None or plan is None:
             raise SourcePreparationReadError(
@@ -211,6 +227,62 @@ class JoinedMappingSourceValues(LogicalSourceValues):
                 column_keys=column_keys,
                 maximum_values=maximum_values,
             )
+
+    @staticmethod
+    def _consumer_bindings(
+        plan: DerivedEntityPlan | None, dataset_id: str
+    ) -> tuple[HierarchyConsumerBinding, ...]:
+        """Select direct physical consumers; carried join paths keep their reader."""
+        return tuple(
+            binding for binding in hierarchy_consumer_bindings(plan)
+            if not binding.carried and binding.link.consumer_dataset_id == dataset_id
+            and binding.rule.source_dataset_id == dataset_id
+        )
+
+    def _read_consumer(
+        self, workspace_id: str, selection: SourceSelection, dataset_id: str,
+        column_keys: Sequence[str], maximum_values: int | None,
+        physical: SourceSelection, plan: DerivedEntityPlan | None,
+        bindings: tuple[HierarchyConsumerBinding, ...],
+    ) -> pl.DataFrame:
+        """Verify frozen physical evidence before deriving original-row path values."""
+        source = next(item for item in physical.datasets if item.dataset_id == dataset_id)
+        output = next((item for item in selection.datasets if item.dataset_id == dataset_id), None)
+        if (
+            plan is None or plan.workspace_id != workspace_id
+            or plan.source_selection_hash != physical.content_hash
+            or selection.data_version_id != physical.data_version_id
+            or output is None or output.source != source.source
+            or output.row_count != source.row_count
+        ):
+            raise WorkspaceError("The hierarchy source evidence changed; review Source data again")
+        allowed = {item.stable_key for item in source.columns} | {
+            item.link.source_column_key for item in bindings
+        }
+        available = {item.stable_key for item in output.columns}
+        if any(key not in allowed or key not in available for key in column_keys if key != SOURCE_ROW_COLUMN):
+            raise WorkspaceError("Choose current hierarchy source columns")
+        snapshot = next((
+            item for item in self.sources.get_current_source_snapshots(workspace_id)
+            if item.dataset_id == dataset_id
+        ), None)
+        if snapshot is None:
+            raise WorkspaceError("The hierarchy's frozen source is incomplete")
+        try:
+            validate_snapshot_for_dataset(physical, source, snapshot)
+            with self.artifacts.materialize_source_snapshot(
+                physical.data_version_id, snapshot.parquet_storage_key,
+                expected_sha256=snapshot.parquet_sha256,
+            ) as path:
+                path = validate_source_snapshot_path(path, snapshot)
+                return self.executor.project_hierarchy_consumer_values(
+                    bindings=bindings, snapshot=snapshot, path=path,
+                    column_keys=column_keys, maximum_values=maximum_values,
+                )
+        except (ArtifactStoreError, OSError, SourceLoadError) as error:
+            raise WorkspaceError(
+                "The hierarchy's source values could not be read. Review its source data in Source data."
+            ) from error
 
     @staticmethod
     def _lookup(

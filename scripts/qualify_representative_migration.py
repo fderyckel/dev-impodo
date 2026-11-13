@@ -488,6 +488,8 @@ def main() -> int:
             journal,
             _Results(),
             authorization,
+            # Qualification uses generated File sources, outside Odoo-source authority.
+            database_admission=lambda _workspace_id, _actor: None,
         ).reconcile(
             project_id,
             expected_execution_run_id=run.run_id,

@@ -157,13 +157,6 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
             )
         destination_target = None
         try:
-            await run_in_threadpool(
-                review_database_binding, context, current,
-                OdooDatabaseBindingRole.DESTINATION,
-                actor=actor, scope=identity.organization_scope,
-                authorization_receipt=identity.authorization,
-                base_url=_text(form, "odoo_base_url"), database=_text(form, "odoo_database"),
-            )
             previous_target_hash = transfer_destination_identity_hash(current)
             workspace_state = context.workspace_states.configure_transfer_destination(
                 workspace_id,
@@ -172,6 +165,14 @@ def build_transfer_destination_router(context: WebContext) -> APIRouter:
                 odoo_connection_mode=_text(form, "odoo_connection_mode"),
                 odoo_base_url=_text(form, "odoo_base_url"),
                 odoo_database=_text(form, "odoo_database"),
+            )
+            await run_in_threadpool(
+                review_database_binding, context, workspace_state,
+                OdooDatabaseBindingRole.DESTINATION,
+                actor=actor, scope=identity.organization_scope,
+                authorization_receipt=identity.authorization,
+                base_url=workspace_state.destination_odoo_base_url,
+                database=workspace_state.destination_odoo_database,
             )
             destination_target_hash = transfer_destination_identity_hash(
                 workspace_state

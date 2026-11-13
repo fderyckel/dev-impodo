@@ -61,6 +61,7 @@ from impodo.application.shared.build_contract import (
 from impodo.application.shared.jobs import JobDispatcher
 from impodo.application.shared.secrets import SecretStore, SecretStoreError
 from impodo.application.supporting_mapping_guard import SupportingMappingGuard
+from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.domain.odoo_database_binding import (
     OdooDatabaseBindingError,
     OdooDatabaseBindingRole,
@@ -420,8 +421,37 @@ def create_local_app(
         resolved_authorization,
     )
     workspace_access = foundation_services.workspace_access
+
+    def admit_database_review(
+        owner: WorkspaceAccessContext,
+        role: OdooDatabaseBindingRole,
+        _scope_hash: str,
+    ) -> None:
+        """Refuse to manufacture authority for earlier source or load evidence."""
+
+        state = workspace_state_repository.get(owner.workspace_id)
+        if (
+            execution_repository.get_current_run(owner.workspace_id) is not None
+            or state.destination_match_plan is not None
+            or state.transfer_review_package is not None
+            or state.transfer_review_approval is not None
+            or state.transfer_preflight_report is not None
+            or (
+                role is OdooDatabaseBindingRole.SOURCE
+                and source_repository.get_source_selection(owner.workspace_id)
+                is not None
+            )
+        ):
+            raise WorkspaceError(
+                "This workspace already has source or load evidence. Start a fresh source "
+                "workspace or restore; its earlier journal cannot acquire a new database binding."
+            )
+
     database_bindings = OdooDatabaseBindingService(
-        workspace_access, resolved_authorization, database_binding_repository,
+        workspace_access,
+        resolved_authorization,
+        database_binding_repository,
+        review_admission=admit_database_review,
     )
     request_workspace_access = LocalScopedWorkspaceAccessQuery(
         workspace_access,
