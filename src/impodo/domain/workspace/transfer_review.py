@@ -23,7 +23,7 @@ from impodo.domain.cutover.approvals import (
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor, ActorIdentity
 
-TRANSFER_REVIEW_CONTRACT_VERSION = 7
+TRANSFER_REVIEW_CONTRACT_VERSION = 8
 TRANSFER_REVIEW_APPROVAL_CONTRACT_VERSION = 1
 TRANSFER_REVIEW_POLICY_VERSION = "odoo-transfer-review-v5"
 TRANSFER_MODEL_POLICIES = frozenset({"reuse_only", "create_if_missing", "upsert"})
@@ -73,8 +73,18 @@ class TransferReviewDataset:
     create_field_providers: tuple[tuple[str, str], ...] = ()
     excluded_source_fields: tuple[str, ...] = ()
     excluded_source_record_count: int = 0
+    scope_fields: tuple[str, ...] = ()
+    scope_dataset_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if (
+            len(self.scope_fields) > 1
+            or len(self.scope_fields) != len(self.scope_dataset_ids)
+            or any(_TECHNICAL_NAME.fullmatch(name) is None for name in self.scope_fields)
+            or any(not value for value in self.scope_dataset_ids)
+            or set(self.scope_fields).intersection(self.key_fields)
+        ):
+            raise ValueError("Transfer-review relational scope is invalid")
         if any(
             not value.strip()
             for value in (
@@ -287,9 +297,11 @@ class TransferReviewPackage:
 
     def __post_init__(self) -> None:
         if self.contract_version not in {
-            1, 2, 3, 4, 5, 6, TRANSFER_REVIEW_CONTRACT_VERSION
+            1, 2, 3, 4, 5, 6, 7, TRANSFER_REVIEW_CONTRACT_VERSION
         }:
             raise ValueError("Transfer-review contract version is unsupported")
+        if self.contract_version < 8 and any(item.scope_fields for item in self.datasets):
+            raise ValueError("Legacy transfer review cannot contain relational scope")
         matched_policy = (
             "update_selected_fields" if self.contract_version == 1 else "per_model"
         )
@@ -445,6 +457,8 @@ class TransferReviewPackage:
                         ),
                         model_policy=str(item.get("model_policy", "upsert")),
                         key_fields=tuple(item.get("key_fields", ())),
+                        scope_fields=tuple(item.get("scope_fields", ())),
+                        scope_dataset_ids=tuple(item.get("scope_dataset_ids", ())),
                         create_field_providers=tuple(
                             (str(choice[0]), str(choice[1]))
                             for choice in item.get("create_field_providers", ())
@@ -678,6 +692,9 @@ def _dataset_dict(
     item: TransferReviewDataset, *, contract_version: int
 ) -> dict[str, Any]:
     payload = asdict(item)
+    if contract_version < 8:
+        payload.pop("scope_fields")
+        payload.pop("scope_dataset_ids")
     if contract_version < 6:
         payload.pop("excluded_source_record_count")
     if contract_version < 5:

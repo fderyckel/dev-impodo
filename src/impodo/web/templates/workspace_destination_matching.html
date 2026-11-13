@@ -147,6 +147,16 @@
             {% else %}
               <div class="matching-card-error">{{ app_icon("exclamation-triangle") }}<div><strong>No captured text field is available.</strong><span>Return to the source selection and include a stable text identifier.</span></div></div>
             {% endif %}
+            {% if row.scope_candidates and not row.governed_identity %}
+              <div class="identity-field">
+                <label for="match-scope-{{ row_index }}"><span>Match within</span><small>Use a parent or company when the same identifier occurs in separate groups</small></label>
+                <select id="match-scope-{{ row_index }}" name="match_scope">
+                  <option value="">All records</option>
+                  {% for candidate in row.scope_candidates %}<option value="{{ candidate.value }}" {% if candidate.field_name in row.selected_scopes %}selected{% endif %}>{{ candidate.label }}</option>{% endfor %}
+                </select>
+                <small>Each linked parent or company must already have one matching destination record.</small>
+              </div>
+            {% endif %}
             <details class="matching-technical-details">
               <summary>Support details</summary>
               <p>Source dataset <code>{{ row.dataset.name }}</code>. Odoo model <code>{{ row.model }}</code>.</p>

@@ -17,9 +17,11 @@ import psutil
 from impodo.application.data_version.source_files import validate_source_file
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
+    PROCESS_BUILD_MEASUREMENT,
     ApplicationBuildContract,
     require_same_application_build,
 )
+from impodo.application.shared.worker_startup import WorkerKind, record_worker_startup
 from impodo.domain.preparation.source import SourceLoadError
 
 VALIDATION_TIMEOUT_SECONDS = 30
@@ -56,7 +58,7 @@ def validate_source_file_isolated(
         name="impodo-source-validator",
         daemon=True,
     )
-    process.start()
+    start_finished = _start_source_process(process, "validation")
     sender.close()
     job_handle: int | None = None
     try:
@@ -66,22 +68,19 @@ def validate_source_file_isolated(
                 raise SourceLoadError("Source validation worker did not start")
             job_handle = _assign_windows_job(process_id)
         start_event.set()
-        if not _poll_with_memory_limit(
+        result = _receive_source_result(
             receiver,
             process,
             timeout_seconds=VALIDATION_TIMEOUT_SECONDS,
             operation="validation",
             error_type=SourceLoadError,
-        ):
+            start_finished=start_finished,
+        )
+        if result is None:
             process.terminate()
             process.join(timeout=5)
             raise SourceLoadError("Source validation exceeded its time limit")
-        try:
-            status, message = receiver.recv()
-        except EOFError as error:
-            raise SourceLoadError(
-                "Source validation worker stopped unexpectedly"
-            ) from error
+        status, message = result
         process.join(timeout=5)
         if process.is_alive():
             process.terminate()
@@ -129,7 +128,7 @@ def inspect_source_file_isolated(
         name="impodo-source-inspector",
         daemon=True,
     )
-    process.start()
+    start_finished = _start_source_process(process, "inspection")
     sender.close()
     job_handle: int | None = None
     try:
@@ -139,22 +138,19 @@ def inspect_source_file_isolated(
                 raise inspection_error("Source inspection worker did not start")
             job_handle = _assign_windows_job(process_id)
         start_event.set()
-        if not _poll_with_memory_limit(
+        result = _receive_source_result(
             receiver,
             process,
             timeout_seconds=INSPECTION_TIMEOUT_SECONDS,
             operation="inspection",
             error_type=inspection_error,
-        ):
+            start_finished=start_finished,
+        )
+        if result is None:
             process.terminate()
             process.join(timeout=5)
             raise inspection_error("Source inspection exceeded its time limit")
-        try:
-            status, payload = receiver.recv()
-        except EOFError as error:
-            raise inspection_error(
-                "Source inspection worker stopped unexpectedly"
-            ) from error
+        status, payload = result
         process.join(timeout=5)
         if process.is_alive():
             process.terminate()
@@ -184,6 +180,7 @@ def _worker(
         if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
+        _send_worker_readiness(sender)
         require_same_application_build(expected_build_contract)
         validate_source_file(path)
     except Exception as error:  # noqa: BLE001 - child-process boundary
@@ -207,6 +204,7 @@ def _inspection_worker(
         if os.name != "nt" and sys.platform != "darwin":
             _limit_unix_memory()
         start_event.wait()
+        _send_worker_readiness(sender)
         require_same_application_build(expected_build_contract)
         catalog = inspector(
             path,
@@ -219,6 +217,102 @@ def _inspection_worker(
         sender.send(("ok", catalog.to_json()))
     finally:
         sender.close()
+
+
+def _observation_clock() -> float | None:
+    try:
+        return time.perf_counter()
+    except Exception:  # noqa: BLE001 - optional startup timing cannot stop source processing
+        return None
+
+
+def _elapsed(started: float | None) -> float | None:
+    finished = _observation_clock()
+    if started is None or finished is None:
+        return None
+    return max(0.0, finished - started) * 1000
+
+
+def _start_source_process(process: Any, kind: WorkerKind) -> float | None:
+    """Measure process.start itself, without including the following wait."""
+
+    record_worker_startup(kind, worker_count=1)
+    started = _observation_clock()
+    try:
+        process.start()
+    except BaseException:
+        record_worker_startup(kind, start_failure_count=1)
+        raise
+    finally:
+        if (duration := _elapsed(started)) is not None:
+            record_worker_startup(kind, start_call_ms=duration)
+    return _observation_clock()
+
+
+def _send_worker_readiness(sender: Any) -> None:
+    """Send bounded child facts before source work, with no source metadata."""
+
+    try:
+        facts: dict[str, int | float] = {
+            "build_hash_files": PROCESS_BUILD_MEASUREMENT.file_count,
+            "build_hash_bytes": PROCESS_BUILD_MEASUREMENT.read_bytes,
+        }
+        if PROCESS_BUILD_MEASUREMENT.duration_ms is not None:
+            facts["build_hash_ms"] = PROCESS_BUILD_MEASUREMENT.duration_ms
+        sender.send(("startup", facts))
+    except Exception:  # noqa: BLE001 - optional control-plane observation cannot change validation
+        return
+
+
+def _receive_source_result(
+    receiver: Any,
+    process: _WorkerProcess,
+    *,
+    timeout_seconds: int,
+    operation: WorkerKind,
+    error_type: type[Exception],
+    start_finished: float | None,
+) -> tuple[str, Any] | None:
+    """Receive readiness and result under the original single timeout budget."""
+
+    deadline = time.monotonic() + timeout_seconds
+    ready_at: float | None = None
+    readiness_seen = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0 or not _poll_with_memory_limit(
+            receiver, process, timeout_seconds=remaining,
+            operation=operation, error_type=error_type,
+        ):
+            return None
+        try:
+            status, payload = receiver.recv()
+        except EOFError as error:
+            raise error_type(
+                f"Source {operation} worker stopped unexpectedly"
+            ) from error
+        if status != "startup":
+            record_worker_startup(operation, result_count=1)
+            if (duration := _elapsed(ready_at)) is not None:
+                record_worker_startup(operation, result_wait_ms=duration)
+            return str(status), payload
+        if readiness_seen:
+            raise error_type(f"Source {operation} worker returned unexpected readiness")
+        readiness_seen = True
+        ready_at = _observation_clock()
+        record_worker_startup(operation, readiness_count=1)
+        if start_finished is not None and ready_at is not None:
+            record_worker_startup(
+                operation,
+                first_message_wait_ms=max(0.0, ready_at - start_finished) * 1000,
+            )
+        if isinstance(payload, dict):
+            child_facts = {
+                name: value for name, value in payload.items()
+                if name in {"build_hash_ms", "build_hash_files", "build_hash_bytes"}
+                and type(value) in {int, float}
+            }
+            record_worker_startup(operation, **child_facts)
 
 
 def _limit_unix_memory() -> None:
@@ -237,7 +331,7 @@ def _poll_with_memory_limit(
     receiver: Any,
     process: _WorkerProcess,
     *,
-    timeout_seconds: int,
+    timeout_seconds: float,
     operation: str,
     error_type: type[Exception],
 ) -> bool:

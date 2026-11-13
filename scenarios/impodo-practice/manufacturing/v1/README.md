@@ -8,7 +8,7 @@ The target is a disposable Morrow Assembly database with two operation companies
 
 ## Files and target setup
 
-Use `manifest.json` for source hashes and counts, `target-seed-projection.json` for staged initial target intent, `exercise-contracts.json` for composition and mapping decisions, and `expected-business-results.json` for independent final business values. The oracle comes from the earlier proposal, before the manufacturing runner; it is checked against the source and must not be replaced by the runner's own output.
+Use `manifest.json` for source hashes and counts, `target-seed-projection.json` for staged initial target intent, `exercise-contracts.json` for composition and mapping decisions, and `expected-business-results.json` for independent final business values. These files own the exercise's source and business answers. The answers were declared before the manufacturing runner and are checked against the source.
 
 The target must expose the normal models and fields supplied by `base`, `product`, `stock` and `mrp`. Capture and verify metadata on the actual Odoo 19 or Odoo 20 target. A customer-only database or an installed module list without those captured fields is insufficient. No enterprise feature, accounting localization or tax correctness is assumed.
 
@@ -64,8 +64,6 @@ Map ProductRef to the shared template's `default_code`, core Name to `name`, Fre
 CategoryKey is a source key. The native category identity is Name within its recursively identified parent; blank parent explicitly means a root. Three different paths end with Assembly. A leaf-name match must not collapse them. Source category Code and Active are not target writes in this baseline. Odoo 19 has no category `company_id`; Odoo 20 shared categories have it unset.
 
 Use the supplied `bom_headers.csv` as six physical header records and `bom_rows.csv` as 24 physical component records. Select the chosen company in both. Header records are not derived from component rows at runtime. The raw component export deliberately retains repeated header cells so learners can inspect the original export shape. Static checks verify that every repeated value agrees with its separate supplied header, including exactly one Sequence = 10 component per BoM; that sequence does not select header records.
-
-The related-split case remains proposed. The current parent output drops header attributes, requires its outputs to be mapped, and does not yet retain a child categorical provider through Recipe. This supplied-header exercise makes no claim that those paths work. A completed provider and its own normal application tests are required before that separate derivation can become a runnable exercise.
 
 BOMRef maps to the BoM's `code`. It is globally unique within this practice namespace. CompanyCode selects rows; it is not a native company name or an identity alias. Assign `company_id` separately using the chosen company name and verify it after execution. FinishedProductRef resolves to `product.template.default_code`; do not infer the finished product from the BoM code. Map BaseQty directly to `product_qty` and use Manufacture (`normal`). A header is active only when both Approved and Active are Oui. HeaderName is source evidence; this baseline invents no target BoM name field.
 

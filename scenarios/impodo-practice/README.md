@@ -22,6 +22,13 @@ silently supply the other's setup. Each load selects one operation company.
 Products and categories are shared, while the manufacturing BoMs and work
 centres have explicit company ownership.
 
+Use these component packs for shared learner exercises and application
+regressions. The small files in `examples/` serve profile examples and golden
+comparisons. The files in `fixtures/` supply compatibility snapshots and
+contract inputs. Other `scenarios/` directories own their executable canaries,
+workbook round trips and scale cases. Their active consumers determine which
+inputs they retain.
+
 ## Practise with the same data
 
 Start with the component README, its source files, `target-seed-projection.json`
@@ -98,17 +105,15 @@ credential access. The runners retain the target and private evidence.
 
 ## Interpret the evidence
 
-Use each component's dated qualification receipts for the exact source hashes,
-observed Odoo version, access mode, entrypoint and checks that ran. Controlled
-LOCAL/REMOTE contracts, native live Odoo, visual browser behavior and host
-suites are different evidence. A live LOCAL result does not establish HTTPS
-REMOTE, and no application test alone establishes a visual browser journey.
+Read the run's output directory for its status, exact source and answer
+hashes, observed Odoo version, access mode, entrypoint and completed checks.
+Record controlled application checks, live Odoo results, visual browser checks
+and supported-host tests with their own evidence.
 
-The recorded qualification separates all eight controlled combinations
-(Odoo 19/20 × LOCAL/REMOTE × authoring/Recipe) from four live LOCAL journeys
-(Odoo 19/20 × authoring/Recipe). Consult the dated receipts for the exact
-candidate and observed versions. Live REMOTE HTTPS and visual browser
-qualification were not run; neither is implied by controlled REMOTE.
+The maintainer deferred live HTTPS qualification for Odoo 19 Authoring and
+Recipe, and Odoo 20 Authoring. A later run needs a fresh allocation and its
+own evidence. Qualification of a practice exercise does not close the separate
+hosted, Linux, Windows or release guardrails.
 
 The manufacturing main case consumes separate supplied headers, component
 rows and operation rows. It does not qualify header derivation through a

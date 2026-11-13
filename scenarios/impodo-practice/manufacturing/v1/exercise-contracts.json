@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "manufacturing_practice_exercise_contracts",
-  "qualification_status": "independent_exercise_declaration_see_dated_qualification_receipts",
+  "qualification_status": "independent_exercise_declaration_results_in_run_output",
   "delivery_contract": {
     "baseline": "2026-04-15",
     "recipe": "2026-05-15",

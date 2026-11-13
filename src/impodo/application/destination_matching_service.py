@@ -39,12 +39,16 @@ from impodo.domain.odoo.field_capabilities import (
     is_editable_scalar_projection,
 )
 from impodo.domain.odoo_provenance import OdooOriginBatch
-from impodo.domain.odoo_relationship_scope import OdooRelationshipScope
+from impodo.domain.odoo_relationship_scope import (
+    OdooRelationshipCaptureAction,
+    OdooRelationshipScope,
+)
 from impodo.domain.odoo_restore import OdooRestorePlan, restore_policy_binding
 from impodo.domain.odoo_source_policy import CURRENT_ODOO_SOURCE_POLICY
 from impodo.domain.odoo_source_scope import is_writable_related_many2one
 from impodo.domain.serialization import content_hash
 from impodo.domain.shared.models import (
+    BusinessReference,
     FieldMetadata,
     OdooReadIdentity,
     TargetRecord,
@@ -79,6 +83,8 @@ from impodo.domain.workspace.portable_identity import (
     portable_components,
     portable_identity,
     record_identity,
+    scoped_identity,
+    scoped_record_identity,
 )
 from impodo.domain.workspace.workbench import (
     WorkspaceState,
@@ -159,10 +165,13 @@ class DestinationMatchKeyChoice:
     additional_source_column_keys: tuple[str, ...] = ()
     destination_handling: str = "transfer"
     row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
+    scope_fields: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.destination_handling not in DESTINATION_HANDLINGS:
             raise ValueError("Destination handling is invalid")
+        if len(self.scope_fields) > 1 or any(not name or "." in name for name in self.scope_fields):
+            raise ValueError("Choose one direct relationship matching scope")
 
     @property
     def source_column_keys(self) -> tuple[str, ...]:
@@ -220,6 +229,10 @@ class _PreparedModel:
     rule_excluded_source_row_numbers: tuple[int, ...] = ()
     rule_blocked_source_row_numbers: tuple[int, ...] = ()
     restore_plan: OdooRestorePlan | None = None
+    scope_fields: tuple[str, ...] = ()
+    scope_dataset_ids: tuple[str, ...] = ()
+    source_scope_values: tuple[tuple[BusinessReference, ...], ...] = ()
+    destination_scope_references: Mapping[int, BusinessReference] = dataclass_field(default_factory=dict)
 
     @property
     def included_source_row_count(self) -> int:

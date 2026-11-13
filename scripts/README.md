@@ -27,8 +27,9 @@ For the shared synthetic exports, start with the
 `python -m scripts.qualify_practice_customers --help` or
 `python -m scripts.qualify_practice_manufacturing --help` to select an
 application exercise and its controlled or live target boundary. Both support
-the reviewed Odoo 19/20 contracts and authoring/Recipe entrypoints; each
-component's dated receipts identify what actually ran.
+the reviewed Odoo 19 and 20 contracts and Authoring and Recipe entrypoints.
+The run's output directory records its checks, observed version, counts and
+source hashes.
 
 The separate `python -m scripts.prepare_practice_target --help` command
 prepares only a fresh disposable customer baseline for manual practice.

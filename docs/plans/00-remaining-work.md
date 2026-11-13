@@ -5,6 +5,10 @@
 **Status:** Active roadmap. The maintainer closed Plan 01 on 2026-11-08.
 Its remaining qualification is tracked by the end-to-end scenario plan.
 
+The shared practice-data plan is complete. The maintained
+[Morrow exercises](../../scenarios/impodo-practice/README.md) own the customer
+and manufacturing data, starting states, business answers and runnable checks.
+
 This is the broad forward-looking roadmap. Detailed plans remain in this
 folder while delivery or qualification is unfinished.
 

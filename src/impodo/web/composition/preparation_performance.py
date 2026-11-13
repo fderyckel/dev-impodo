@@ -29,6 +29,8 @@ _SECTIONS = (
     "workload",
     "resources",
     "database",
+    "file_io",
+    "numeric_validation",
 )
 PerformanceRecorder = Callable[[Mapping[str, object]], None]
 
@@ -97,6 +99,9 @@ class PreparationPerformanceObservation:
         self._finished = False
         self._sequence = 0
         self._worker_pid: int | None = None
+        self._process_start_at: float | None = None
+        self._process_start_finished_at: float | None = None
+        self._worker_started_recorded = False
         self._last_sample_at: float | None = None
         self._first_sample_at: float | None = None
         self._parent_cpu_start: float | None = None
@@ -144,6 +149,35 @@ class PreparationPerformanceObservation:
                 self._worker_pid = worker_pid
                 self.sample()
         except Exception:  # noqa: BLE001 - optional process observation cannot fail launch
+            self._capture_failures += 1
+
+    def process_starting(self) -> None:
+        """Capture the parent clock immediately before Process.start()."""
+
+        try:
+            with self._lock:
+                if not self._finished:
+                    self._process_start_at = perf_counter()
+        except Exception:  # noqa: BLE001 - optional launch timing cannot prevent process creation
+            self._capture_failures += 1
+
+    def process_start_finished(self, *, succeeded: bool) -> None:
+        """Capture start() completion before logging or supervisor scheduling."""
+
+        try:
+            with self._lock:
+                if self._finished or self._process_start_at is None:
+                    return
+                finished = perf_counter()
+                if succeeded:
+                    self._process_start_finished_at = finished
+                self.phase(
+                    "process_start_call",
+                    max(0.0, finished - self._process_start_at) * 1000,
+                    "completed" if succeeded else "failed",
+                    timing_scope="nested",
+                )
+        except Exception:  # noqa: BLE001 - optional launch timing cannot change process outcome
             self._capture_failures += 1
 
     def sample(self) -> None:
@@ -207,17 +241,29 @@ class PreparationPerformanceObservation:
             self._capture_failures += 1
 
     def worker_started(self) -> None:
-        """Record process launch through the first child entry-point event."""
+        """Record broad startup and the parent wait for the first child event.
+
+        The broad interval includes observation setup, imports, IPC and parent
+        scheduling. The narrower wait starts after Process.start() returns.
+        """
 
         try:
             with self._lock:
-                if self._started_at is None or self._finished:
+                if self._started_at is None or self._finished or self._worker_started_recorded:
                     return
+                observed_at = perf_counter()
+                self._worker_started_recorded = True
                 self.phase(
                     "worker_startup",
-                    max(0.0, perf_counter() - self._started_at) * 1000,
+                    max(0.0, observed_at - self._started_at) * 1000,
                     timing_scope="exclusive",
                 )
+                if self._process_start_finished_at is not None:
+                    self.phase(
+                        "worker_first_message_wait",
+                        max(0.0, observed_at - self._process_start_finished_at) * 1000,
+                        timing_scope="nested",
+                    )
         except Exception:  # noqa: BLE001 - optional startup timing cannot fail a job
             self._capture_failures += 1
 

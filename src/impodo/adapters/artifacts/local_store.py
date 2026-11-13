@@ -511,11 +511,13 @@ class LocalArtifactStore:
     ) -> None:
         """Publish one report from in-memory bytes via the partial-file boundary."""
 
-        with self.prepare_report(workspace_id, run_id, filename) as partial:
-            with measure_file_io("write") as transfer:
-                written = partial.write_bytes(content)
-                if transfer is not None:
-                    transfer.add_bytes(written)
+        with (
+            self.prepare_report(workspace_id, run_id, filename) as partial,
+            measure_file_io("write") as transfer,
+        ):
+            written = partial.write_bytes(content)
+            if transfer is not None:
+                transfer.add_bytes(written)
 
     @contextmanager
     def prepare_report(
@@ -866,12 +868,11 @@ def _require_portable_windows_path(path: Path) -> None:
 
 def _file_sha256(path: Path) -> str:
     digest = sha256()
-    with measure_file_io("hash") as transfer:
-        with path.open("rb") as stream:
-            while chunk := stream.read(1024 * 1024):
-                if transfer is not None:
-                    transfer.add_bytes(len(chunk))
-                digest.update(chunk)
+    with measure_file_io("hash") as transfer, path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            if transfer is not None:
+                transfer.add_bytes(len(chunk))
+            digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
 
 

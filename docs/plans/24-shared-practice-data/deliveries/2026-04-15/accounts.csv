@@ -1,9 +1,0 @@
-CompanyCode,AccountNum,Name,AccountTypeLabel,ParentCode
-NORTH,001001,Morrow N Practice Receivable 01,Receivable,001000
-NORTH,001002,Morrow N Practice Receivable 02,Receivable,001000
-NORTH,001003,Morrow N Practice Receivable 03,Receivable,001000
-NORTH,001004,Morrow N Practice Receivable 04,Receivable,001000
-SOUTH,001001,Morrow S Practice Receivable 01,Receivable,001000
-SOUTH,001002,Morrow S Practice Receivable 02,Receivable,001000
-SOUTH,001003,Morrow S Practice Receivable 03,Receivable,001000
-SOUTH,001004,Morrow S Practice Receivable 04,Receivable,001000

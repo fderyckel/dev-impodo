@@ -21,7 +21,7 @@ _BUILD_FILE_SUFFIXES = frozenset({".css", ".html", ".js", ".py"})
 class ApplicationBuildMeasurement:
     """Describe the existing build-hash pass without paths or file contents."""
 
-    duration_ms: float
+    duration_ms: float | None
     file_count: int
     read_bytes: int
 
@@ -61,7 +61,7 @@ def _calculate_application_build_contract(
 ) -> tuple[ApplicationBuildContract, ApplicationBuildMeasurement]:
     """Measure the same byte reads used to produce the authoritative build."""
 
-    started = perf_counter()
+    started = _measurement_clock()
     package_root = Path(__file__).resolve().parents[2]
     digest = sha256()
     file_count = 0
@@ -91,11 +91,25 @@ def _calculate_application_build_contract(
             workspace_schema_version=WORKSPACE_SCHEMA_VERSION,
         ),
         ApplicationBuildMeasurement(
-            duration_ms=max(0.0, perf_counter() - started) * 1000,
+            duration_ms=_measurement_duration(started),
             file_count=file_count,
             read_bytes=read_bytes,
         ),
     )
+
+
+def _measurement_clock() -> float | None:
+    try:
+        return perf_counter()
+    except Exception:  # noqa: BLE001 - unavailable optional timing cannot stop build validation
+        return None
+
+
+def _measurement_duration(started: float | None) -> float | None:
+    finished = _measurement_clock()
+    if started is None or finished is None:
+        return None
+    return max(0.0, finished - started) * 1000
 
 
 # A process captures this once. A spawned worker imports the package again and

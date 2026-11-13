@@ -24,9 +24,9 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.serialization import canonical_json, content_hash
 
-DESTINATION_MATCH_CONTRACT_VERSION = 16
+DESTINATION_MATCH_CONTRACT_VERSION = 17
 _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS = frozenset(
-    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+    {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17}
 )
 DESTINATION_HANDLINGS = frozenset(
     {"transfer", "reuse_or_create", "reuse_only", "reference_only"}
@@ -557,8 +557,18 @@ class DestinationModelMatch:
     row_inclusion: RowInclusionPolicy = dataclass_field(default_factory=RowInclusionPolicy)
     rule_excluded_source_row_numbers: tuple[int, ...] = ()
     rule_blocked_source_row_numbers: tuple[int, ...] = ()
+    scope_fields: tuple[str, ...] = ()
+    scope_dataset_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if (
+            len(self.scope_fields) > 1
+            or len(self.scope_fields) != len(self.scope_dataset_ids)
+            or any(_TECHNICAL_NAME.fullmatch(name) is None for name in self.scope_fields)
+            or any(not value for value in self.scope_dataset_ids)
+            or set(self.scope_fields).intersection(self.key_fields)
+        ):
+            raise ValueError("Destination matching scope is invalid")
         text_values = (
             self.dataset_id,
             self.dataset_name,
@@ -938,6 +948,8 @@ class DestinationMatchPlan:
     def __post_init__(self) -> None:
         if self.contract_version not in _SUPPORTED_DESTINATION_MATCH_CONTRACT_VERSIONS:
             raise ValueError("Destination matching contract version is unsupported")
+        if self.contract_version < 17 and any(item.scope_fields for item in self.model_matches):
+            raise ValueError("Legacy destination matching cannot contain relational scope")
         if self.contract_version < 16 and (
             self.row_inclusion_confirmation_hash is not None
             or any(item.row_inclusion != RowInclusionPolicy() for item in self.model_matches)
@@ -1231,6 +1243,7 @@ class DestinationMatchPlan:
                             "rule_blocked_source_row_numbers",
                         }
                     )
+                    and (self.contract_version >= 17 or name not in {"scope_fields", "scope_dataset_ids"})
                 }
                 for item in self.model_matches
             ],
@@ -1333,6 +1346,8 @@ class DestinationMatchPlan:
                         ),
                         source_column_keys=tuple(item.get("source_column_keys", ())),
                         key_fields=tuple(item.get("key_fields", ())),
+                        scope_fields=tuple(item.get("scope_fields", ())),
+                        scope_dataset_ids=tuple(item.get("scope_dataset_ids", ())),
                         destination_managed_fields=tuple(
                             item.get("destination_managed_fields", ())
                         ),

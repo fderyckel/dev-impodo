@@ -78,17 +78,19 @@ class ArtifactIoPerformanceTests(TestCase):
             store = LocalArtifactStore(directory)
             owner_id, artifact_id = str(uuid4()), str(uuid4())
             error = ValueError("Rejected file")
-            with collect_file_io() as observation:
-                with self.assertRaises(ValueError) as raised:
-                    store.store_source(
-                        owner_id,
-                        artifact_id=artifact_id,
-                        suffix=".csv",
-                        stream=BytesIO(b"code\nA\n"),
-                        maximum_bytes=100,
-                        chunk_bytes=4,
-                        validator=lambda _path: self._raise(error),
-                    )
+            with (
+                collect_file_io() as observation,
+                self.assertRaises(ValueError) as raised,
+            ):
+                store.store_source(
+                    owner_id,
+                    artifact_id=artifact_id,
+                    suffix=".csv",
+                    stream=BytesIO(b"code\nA\n"),
+                    maximum_bytes=100,
+                    chunk_bytes=4,
+                    validator=lambda _path: self._raise(error),
+                )
             self.assertIs(raised.exception, error)
             snapshot = observation.snapshot()
             self.assertEqual(snapshot["write_bytes"], 7)
@@ -134,9 +136,9 @@ class ArtifactIoPerformanceTests(TestCase):
             collect_file_io() as observation,
             patch.object(FileIoPerformance, "record", side_effect=RuntimeError),
             self.assertRaises(OSError) as raised,
+            measure_file_io("read"),
         ):
-            with measure_file_io("read"):
-                raise expected
+            raise expected
         self.assertIs(raised.exception, expected)
         self.assertEqual(observation.snapshot()["capture_failure_count"], 1)
         self.assertEqual(observation.snapshot()["status"], "no_observations")
@@ -145,10 +147,10 @@ class ArtifactIoPerformanceTests(TestCase):
         with (
             collect_file_io() as observation,
             patch(f"{MODULE}.perf_counter", side_effect=OSError),
+            measure_file_io("read") as transfer,
         ):
-            with measure_file_io("read") as transfer:
-                self.assertIsNotNone(transfer)
-                transfer.add_bytes(12)
+            self.assertIsNotNone(transfer)
+            transfer.add_bytes(12)
         snapshot = observation.snapshot()
         self.assertEqual(snapshot["read_bytes"], 12)
         self.assertEqual(snapshot["read_operations"], 1)
@@ -156,12 +158,11 @@ class ArtifactIoPerformanceTests(TestCase):
         self.assertEqual(snapshot["capture_failure_count"], 1)
 
     def test_nested_collection_reuses_observations_and_outer_scope_is_reset(self):
-        with collect_file_io() as outer:
-            with collect_file_io() as inner:
-                self.assertIs(inner, outer)
-                with measure_file_io("write") as transfer:
-                    self.assertIsNotNone(transfer)
-                    transfer.add_bytes(8)
+        with collect_file_io() as outer, collect_file_io() as inner:
+            self.assertIs(inner, outer)
+            with measure_file_io("write") as transfer:
+                self.assertIsNotNone(transfer)
+                transfer.add_bytes(8)
         with measure_file_io("write") as unobserved:
             self.assertIsNone(unobserved)
         with collect_file_io() as fresh:

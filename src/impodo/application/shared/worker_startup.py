@@ -87,7 +87,7 @@ def collect_worker_startup() -> Iterator[WorkerStartupObservation]:
         _CURRENT.reset(token)
 
 
-def record_worker_startup(kind: WorkerKind, **values: int | float) -> None:
+def record_worker_startup(kind: WorkerKind, **values: float) -> None:
     """Keep optional diagnostic failures outside the worker's outcome."""
 
     try:

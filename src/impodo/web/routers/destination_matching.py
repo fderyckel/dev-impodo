@@ -16,6 +16,7 @@ from impodo.application.destination_matching_service import (
     DestinationMatchKeyChoice,
     destination_governed_key_choices,
     destination_match_key_candidates,
+    destination_match_scope_candidates,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.mapping.contracts import (
@@ -180,6 +181,7 @@ def _parse_choices(form, selection) -> tuple[DestinationMatchKeyChoice, ...]:
         for index, dataset in enumerate(selection.datasets)
     }
     extras: dict[str, list[str]] = {}
+    scopes: dict[str, tuple[str, ...]] = {}
     handlings: dict[str, str] = {}
     for raw in form.getlist("destination_handling"):
         dataset_id, separator, handling = str(raw).partition("::")
@@ -200,6 +202,13 @@ def _parse_choices(form, selection) -> tuple[DestinationMatchKeyChoice, ...]:
         if not separator or not dataset_id or not source_column_key:
             raise WorkspaceStateError("Choose current matching fields")
         extras.setdefault(dataset_id, []).append(source_column_key)
+    for raw in form.getlist("match_scope"):
+        if not raw:
+            continue
+        dataset_id, separator, field_name = str(raw).partition("::")
+        if not separator or not dataset_id or not field_name or dataset_id in scopes:
+            raise WorkspaceStateError("Choose one parent or company for each matching rule")
+        scopes[dataset_id] = (field_name,)
     for raw in form.getlist("match_key"):
         dataset_id, separator, source_column_key = str(raw).partition("::")
         if not separator or not dataset_id or not source_column_key:
@@ -216,9 +225,10 @@ def _parse_choices(form, selection) -> tuple[DestinationMatchKeyChoice, ...]:
                 additional_source_column_keys=tuple(extras.pop(dataset_id, ())),
                 destination_handling=destination_handling,
                 row_inclusion=policies.get(dataset_id, RowInclusionPolicy()),
+                scope_fields=scopes.pop(dataset_id, ()),
             )
         )
-    if extras or handlings:
+    if extras or handlings or scopes:
         raise WorkspaceStateError("Matching fields do not belong to a selected table")
     return tuple(choices)
 
@@ -231,6 +241,7 @@ def _matching_rows(
     submitted_choices: tuple[DestinationMatchKeyChoice, ...] = (),
 ):
     candidates = destination_match_key_candidates(selection, schema)
+    scope_candidates = destination_match_scope_candidates(selection, schema, relationship_scope)
     governed_by_dataset = destination_governed_key_choices(selection, schema)
     model_labels = {item.name: item.label for item in schema.models}
     # An unsuccessful check has no result for the submitted choices. Keep any
@@ -300,6 +311,21 @@ def _matching_rows(
         governed_identity = governed_by_dataset.get(dataset.dataset_id)
         selected_keys = selected_by_dataset.get(dataset.dataset_id, ())
         submitted = submitted_by_dataset.get(dataset.dataset_id)
+        available_scopes = tuple(
+            {
+                "field_name": field_name,
+                "label": label,
+                "value": _choice_value(dataset.dataset_id, field_name),
+            }
+            for field_name, label in scope_candidates.get(dataset.dataset_id, ())
+        )
+        selected_scopes = (
+            submitted.scope_fields
+            if submitted is not None
+            else result_by_dataset[dataset.dataset_id].scope_fields
+            if dataset.dataset_id in result_by_dataset
+            else ()
+        )
         if submitted is not None:
             submitted_keys = submitted.source_column_keys
             if (
@@ -348,6 +374,8 @@ def _matching_rows(
                 "candidates": available,
                 "primary_candidates": primary_candidates,
                 "selected_keys": selected_keys,
+                "scope_candidates": available_scopes,
+                "selected_scopes": selected_scopes,
                 "governed_identity": governed_identity,
                 "governed_identity_required": (
                     model in DESTINATION_GOVERNED_IDENTITY_MODELS
@@ -658,6 +686,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                 "revision",
                 "match_key",
                 "match_key_extra",
+                "match_scope",
                 "destination_handling",
             } | _row_rule_fields(selection),
         )
@@ -681,11 +710,13 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             choices = _parse_choices(form, selection)
             previous = workspace_state.destination_match_plan
             choice_keys = {item.dataset_id: item.source_column_keys for item in choices}
+            choice_scopes = {item.dataset_id: item.scope_fields for item in choices}
             exclusions = {
                 item.dataset_id: item.excluded_source_row_numbers
                 for item in (previous.model_matches if previous is not None else ())
                 if item.excluded_source_row_numbers
                 and choice_keys.get(item.dataset_id) == item.source_column_keys
+                and choice_scopes.get(item.dataset_id) == item.scope_fields
             }
             credential = get_target_credential(
                 context.secret_store,
@@ -1222,6 +1253,7 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
                     additional_source_column_keys=item.source_column_keys[1:],
                     destination_handling=item.destination_handling,
                     row_inclusion=item.row_inclusion,
+                    scope_fields=item.scope_fields,
                 )
                 for item in previous.model_matches
             )

@@ -20,9 +20,14 @@ from impodo.adapters.duckdb.request_timing import (
 )
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
+    PROCESS_BUILD_MEASUREMENT,
     ApplicationBuildContract,
     ApplicationBuildMismatchError,
     require_same_application_build,
+)
+from impodo.application.shared.io_performance import (
+    FileIoPerformance,
+    collect_file_io,
 )
 from impodo.application.shared.preparation_runtime import (
     PreparationRuntimeConfigurationError,
@@ -393,7 +398,14 @@ class PreparationJobManager:
         try:
             if (observation := self._performance.get(job.job_id)) is not None:
                 observation.start(None, job.build_contract.application_build_id)
-            process.start()
+                observation.process_starting()
+            process_started = False
+            try:
+                process.start()
+                process_started = True
+            finally:
+                if observation is not None:
+                    observation.process_start_finished(succeeded=process_started)
             worker_pid = process.pid
             if worker_pid is not None and (observation := self._performance.get(job.job_id)) is not None:
                 observation.attach_worker_pid(worker_pid)
@@ -594,6 +606,7 @@ def _run_preparation_worker(
     total_rows = 0
     timing_finished = False
     database_timings: DuckDbRequestTimings | None = None
+    file_io: FileIoPerformance | None = None
     performance_collection_failed = False
 
     def emit_performance(payload: dict[str, object]) -> None:
@@ -688,10 +701,14 @@ def _run_preparation_worker(
                 "schema_ms": database_timings.schema_ms,
                 "lock_wait_ms": database_timings.lock_wait_ms,
             }
+        if file_io is not None:
+            payload["file_io"] = file_io.snapshot()
         emit_performance(payload)
         timing_finished = True
 
     try:
+        if PROCESS_BUILD_MEASUREMENT.duration_ms is not None:
+            emit_timing("worker_build_hash", PROCESS_BUILD_MEASUREMENT.duration_ms, "completed")
         require_same_application_build(expected_build_contract)
         runtime = configure_preparation_runtime()
         emit_performance({
@@ -711,7 +728,10 @@ def _run_preparation_worker(
             if cancel.is_set():
                 raise PreparationCancelled("Preparation cancelled")
 
-        with collect_duckdb_request_timings() as database_timings:
+        with (
+            collect_duckdb_request_timings() as database_timings,
+            collect_file_io() as file_io,
+        ):
             preparation = create_preparation_worker(root, workspace=workspace)
             normalization = preparation.prepare(
                 workspace_id,

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "pack": "impodo-practice/manufacturing/v1",
-  "status": "versioned_source_and_business_declarations_see_dated_qualification_receipts",
+  "status": "versioned_source_and_independent_business_declarations",
   "source_counts": {
     "csv_files": 12,
     "physical_data_rows": 236,
@@ -27,8 +27,8 @@
       "sha256": "31b623a92d2dc9b7b8f560808d539912f784740bea5293f22230507382e213ef",
       "data_rows": 12,
       "role": "baseline_full_snapshot",
-      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_operations.csv",
-      "baseline_bytes_unchanged": true
+      "baseline_bytes_unchanged": true,
+      "promoted_from_git": "85f72e82455a92b89d517ae209d0da506d9c103a:docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_operations.csv"
     },
     {
       "path": "deliveries/2026-04-15/bom_rows.csv",
@@ -36,8 +36,8 @@
       "sha256": "9c738fccf607ab190e42b94fa7bef09f9cd50688576996faa4c8a6204e8b22dc",
       "data_rows": 24,
       "role": "baseline_full_snapshot",
-      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_rows.csv",
-      "baseline_bytes_unchanged": true
+      "baseline_bytes_unchanged": true,
+      "promoted_from_git": "85f72e82455a92b89d517ae209d0da506d9c103a:docs/plans/24-shared-practice-data/deliveries/2026-04-15/bom_rows.csv"
     },
     {
       "path": "deliveries/2026-04-15/categories.csv",
@@ -45,8 +45,8 @@
       "sha256": "cf04d0fef1f3ea7f3c2b7a07d3bf867fecafd333c297d29e9ca089c7fc78600c",
       "data_rows": 12,
       "role": "baseline_full_snapshot",
-      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/categories.csv",
-      "baseline_bytes_unchanged": true
+      "baseline_bytes_unchanged": true,
+      "promoted_from_git": "85f72e82455a92b89d517ae209d0da506d9c103a:docs/plans/24-shared-practice-data/deliveries/2026-04-15/categories.csv"
     },
     {
       "path": "deliveries/2026-04-15/product_details.csv",
@@ -54,8 +54,8 @@
       "sha256": "060a233fb78f91f3892dcf184c4b915569a6f1a878d8b5a37d8c983b6d67842b",
       "data_rows": 32,
       "role": "baseline_full_snapshot",
-      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/product_details.csv",
-      "baseline_bytes_unchanged": true
+      "baseline_bytes_unchanged": true,
+      "promoted_from_git": "85f72e82455a92b89d517ae209d0da506d9c103a:docs/plans/24-shared-practice-data/deliveries/2026-04-15/product_details.csv"
     },
     {
       "path": "deliveries/2026-04-15/products_core.csv",
@@ -63,8 +63,8 @@
       "sha256": "4274d9ed593c6cd23809ad74775420204dcc85b0de9c3df10efc217a36130786",
       "data_rows": 32,
       "role": "baseline_full_snapshot",
-      "promoted_from": "docs/plans/24-shared-practice-data/deliveries/2026-04-15/products_core.csv",
-      "baseline_bytes_unchanged": true
+      "baseline_bytes_unchanged": true,
+      "promoted_from_git": "85f72e82455a92b89d517ae209d0da506d9c103a:docs/plans/24-shared-practice-data/deliveries/2026-04-15/products_core.csv"
     },
     {
       "path": "deliveries/2026-05-15/bom_headers.csv",
@@ -112,18 +112,18 @@
     },
     {
       "path": "exercise-contracts.json",
-      "bytes": 13419,
-      "sha256": "adafa03e0fac9b765c0860b5e394807f7548c969720f967087397e4a25d6f37f"
+      "bytes": 13408,
+      "sha256": "b1df5db721d4e6a181f83207fa8b9930993f0984c5bff97729b4d7abaa5ee6a1"
     },
     {
       "path": "expected-business-results.json",
-      "bytes": 41594,
-      "sha256": "0e4f0ac07e8bdf4f3ca349aad2751687c4e3f8618b83e0abebe374ac8c34e188"
+      "bytes": 41569,
+      "sha256": "b96923d6a51587a7449f8fd51d2fe54c7cf6b24ee6206ee2ec914cb9dc49bba6"
     },
     {
       "path": "target-seed-projection.json",
-      "bytes": 10467,
-      "sha256": "3cf655e7e1bfd7e5182854c177696ab914c62a80d86a290fe52c4c2572862f1e"
+      "bytes": 10456,
+      "sha256": "6221bb1870e9d83079809038d90f018554a25ef35d052cf3f65b206ff01518ed"
     }
   ]
 }

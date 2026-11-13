@@ -173,4 +173,4 @@ def _capture_failed(collector: FileIoPerformance) -> None:
     try:
         collector.capture_failed()
     except Exception:  # noqa: BLE001 - a failed diagnostic cannot diagnose itself
-        pass
+        return

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "kind": "staged_manufacturing_seed_business_specification",
-  "qualification_status": "independent_business_declaration_see_dated_qualification_receipts",
+  "qualification_status": "independent_business_declaration_results_in_run_output",
   "companies": [
     {
       "company_code": "NORTH",

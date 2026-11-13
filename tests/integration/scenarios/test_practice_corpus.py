@@ -9,8 +9,6 @@ from unittest import TestCase
 from tests.support.paths import REPOSITORY_ROOT
 
 CURRENT = REPOSITORY_ROOT / "scenarios/impodo-practice/v1"
-MANUFACTURING = REPOSITORY_ROOT / "scenarios/impodo-practice/manufacturing/v1"
-EXTENSIONS = REPOSITORY_ROOT / "docs/plans/24-shared-practice-data"
 DATES = ("2026-04-15", "2026-05-15")
 CUSTOMER_FILES = (
     "customers_core.csv",
@@ -19,8 +17,6 @@ CUSTOMER_FILES = (
     "payment_terms.csv",
     "payment_term_lines.csv",
 )
-EXTERNAL_CURRENT = "../../../scenarios/impodo-practice/v1/"
-EXTERNAL_MANUFACTURING = "../../../scenarios/impodo-practice/manufacturing/v1/"
 
 
 def read_json(path):
@@ -91,81 +87,6 @@ class PracticeCorpusTests(TestCase):
                     "payment_term_lines.csv": 4,
                 },
             )
-
-    def test_extension_manifest_has_complete_local_coverage_without_baseline_copies(
-        self,
-    ):
-        manifest, names = self.assert_manifest_files(EXTENSIONS)
-        actual_files = {
-            path.relative_to(EXTENSIONS).as_posix()
-            for path in EXTENSIONS.rglob("*")
-            if path.is_file() and path.name != "manifest.json"
-        }
-        self.assertEqual(names, actual_files)
-        csvs = [name for name in names if name.endswith(".csv")]
-        self.assertEqual(len(csvs), 2)
-        self.assertEqual(sum(len(read_csv(EXTENSIONS / name)) for name in csvs), 14)
-        self.assertEqual(
-            (manifest["counts"]["csv_files"], manifest["counts"]["source_rows_total"]),
-            (2, 14),
-        )
-        for date in DATES:
-            for name in CUSTOMER_FILES:
-                self.assertFalse((EXTENSIONS / "deliveries" / date / name).exists())
-        for name in (
-            "categories.csv",
-            "products_core.csv",
-            "product_details.csv",
-            "bom_rows.csv",
-            "bom_operations.csv",
-        ):
-            self.assertFalse((EXTENSIONS / "deliveries" / DATES[0] / name).exists())
-        faults = sorted((EXTENSIONS / "faults").glob("*.json"))
-        self.assertEqual(len(faults), 18)
-        for path in faults:
-            fault = read_json(path)
-            if not fault.get("base_file"):
-                continue
-            rows = read_csv(self.resolve_proposal_path(fault["base_file"]))
-            for mutation in fault["mutations"]:
-                with self.subTest(fault=path.name):
-                    self.assertEqual(
-                        sum(
-                            all(
-                                row.get(field) == value
-                                for field, value in mutation["key"].items()
-                            )
-                            for row in rows
-                        ),
-                        1,
-                    )
-        contracts = read_json(EXTENSIONS / "exercise-contracts.json")
-        for exercise in contracts["exercises"]:
-            for source in exercise.get("source_files", ()):
-                self.assertTrue(self.resolve_proposal_path(source).is_file(), source)
-        overlay = read_json(EXTENSIONS / "target-overlays/vendor-term-repair.json")
-        self.assertTrue(self.resolve_proposal_path(overlay["source_file"]).is_file())
-        self.assertTrue(self.resolve_proposal_path(overlay["base_seed"]).is_file())
-        for name in ("expected-business-results.json", "target-seed-projection.json"):
-            document = read_json(EXTENSIONS / name)
-            for owner in ("current_customer_pack", "current_manufacturing_pack"):
-                reference = document[owner]
-                for field in ("readme", "expected_business_results", "target_seed"):
-                    self.assertTrue(
-                        self.resolve_proposal_path(reference[field]).is_file()
-                    )
-
-    def resolve_proposal_path(self, relative):
-        path = (EXTENSIONS / relative).resolve()
-        permitted = (
-            CURRENT
-            if relative.startswith(EXTERNAL_CURRENT)
-            else MANUFACTURING
-            if relative.startswith(EXTERNAL_MANUFACTURING)
-            else EXTENSIONS
-        )
-        self.assertTrue(path.is_relative_to(permitted.resolve()), relative)
-        return path
 
     def test_both_customer_deliveries_require_the_partition_and_match_declared_answers(
         self,

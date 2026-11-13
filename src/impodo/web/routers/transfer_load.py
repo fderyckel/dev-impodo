@@ -444,6 +444,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     additional_source_column_keys=item.source_column_keys[1:],
                     destination_handling=item.destination_handling,
                     row_inclusion=item.row_inclusion,
+                    scope_fields=item.scope_fields,
                 )
                 for item in approved_match.model_matches
             )

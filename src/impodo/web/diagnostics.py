@@ -221,12 +221,13 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
                         self.format(record).encode("utf-8")
                     ) + len(os.linesep.encode("utf-8"))
                 self._apply_private_output_permissions()
-        except (OSError, TimeoutError, ValueError):
+        except (OSError, TimeoutError, ValueError) as error:
             # Optional diagnostics must never delay or break the application.
             self.write_failure_count += 1
             if not acquired:
                 metrics["diagnostic_file_lock_wait_ms"] = (perf_counter() - lock_started) * 1000
-                metrics["diagnostic_lock_timeout_count"] = 1
+                if isinstance(error, TimeoutError):
+                    metrics["diagnostic_lock_timeout_count"] = 1
             return
         finally:
             self._close_output_stream()
@@ -856,12 +857,13 @@ class RequestDiagnosticsMiddleware:
                         reason="SUBMISSION_REJECTED" if status_code >= 400 else "")
                 route = scope.get("route")
                 route_template = getattr(route, "path", "<unmatched>")
+                reported_duration_ms = (perf_counter() - started) * 1000
                 self.recorder.record_request(
                     request_id=request_id,
                     method=str(scope.get("method", "UNKNOWN")),
                     route_template=str(route_template),
                     status_code=status_code,
-                    duration_ms=(perf_counter() - started) * 1000,
+                    duration_ms=reported_duration_ms,
                     exception_class=exception_class,
                     working_draft_version=_optional_nonnegative_int(
                         state.get("diagnostic_working_draft_version")
@@ -881,6 +883,9 @@ class RequestDiagnosticsMiddleware:
                     database_lock_retry_count=(
                         database_timings.lock_retry_count
                     ),
+                )
+                self.recorder.record_request_completion(
+                    request_id, reported_duration_ms, (perf_counter() - started) * 1000,
                 )
 
 
