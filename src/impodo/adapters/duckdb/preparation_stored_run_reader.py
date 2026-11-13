@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 import duckdb
 
@@ -54,6 +54,13 @@ def _stored_integer(value: object, field_name: str) -> int:
     if not isinstance(value, int) or isinstance(value, bool):
         raise WorkspaceError(f"Stored preparation {field_name} must be an integer")
     return value
+
+
+@dataclass(frozen=True, slots=True)
+class _CanonicalHashCompatibilityText:
+    """Defer compatibility decoding until its ordinal has been checked."""
+
+    row_text: str
 
 
 class PreparationStoredRunReader:
@@ -344,6 +351,7 @@ class PreparationStoredRunReader:
         *,
         batch_size: int,
         connection: duckdb.DuckDBPyConnection | None = None,
+        canonical_for_hash: bool = False,
     ) -> Iterator[Sequence[Sequence[object]]]:
         """Yield stored or prepared-backed canonical JSON in ordinal order."""
 
@@ -358,6 +366,7 @@ class PreparationStoredRunReader:
                     run_id,
                     batch_size=batch_size,
                     connection=owned_connection,
+                    canonical_for_hash=canonical_for_hash,
                 )
             return
         canonical_run_id = canonical_preparation_session_id(run_id)
@@ -417,6 +426,7 @@ class PreparationStoredRunReader:
                 start=next_ordinal,
                 stop=ordinal_start,
                 batch_size=batch_size,
+                canonical_for_hash=canonical_for_hash,
             )
             projection_end = ordinal_start + row_count
             counts = connection.execute(
@@ -439,6 +449,7 @@ class PreparationStoredRunReader:
                     start=ordinal_start,
                     stop=projection_end,
                     batch_size=batch_size,
+                    canonical_for_hash=canonical_for_hash,
                 )
             elif empty_count == row_count:
                 yield from PreparationStoredRunReader._iter_projected_dataset_encoded_batches(
@@ -449,6 +460,7 @@ class PreparationStoredRunReader:
                     snapshot,
                     batch_size=batch_size,
                     connection=connection,
+                    canonical_for_hash=canonical_for_hash,
                 )
             else:
                 raise WorkspaceError("Prepared canonical value storage is inconsistent")
@@ -459,6 +471,7 @@ class PreparationStoredRunReader:
             start=next_ordinal,
             stop=None,
             batch_size=batch_size,
+            canonical_for_hash=canonical_for_hash,
         )
 
     @staticmethod
@@ -469,6 +482,7 @@ class PreparationStoredRunReader:
         start: int,
         stop: int | None,
         batch_size: int,
+        canonical_for_hash: bool = False,
     ) -> Iterator[Sequence[Sequence[object]]]:
         next_ordinal = start
         while True:
@@ -489,8 +503,23 @@ class PreparationStoredRunReader:
             ).fetchall()
             if not batch:
                 return
-            yield batch
+            yield (
+                PreparationStoredRunReader._canonical_hash_payload_batch(batch)
+                if canonical_for_hash
+                else batch
+            )
             next_ordinal += len(batch)
+
+    @staticmethod
+    def _canonical_hash_payload_batch(
+        batch: Sequence[Sequence[object]],
+    ) -> Sequence[Sequence[object]]:
+        """Mark compatibility text without retaining restored rows per batch."""
+
+        return tuple(
+            (*row[:6], _CanonicalHashCompatibilityText(str(row[6])))
+            for row in batch
+        )
 
     @staticmethod
     def _iter_projected_dataset_encoded_batches(
@@ -502,6 +531,7 @@ class PreparationStoredRunReader:
         *,
         batch_size: int,
         connection: duckdb.DuckDBPyConnection,
+        canonical_for_hash: bool = False,
     ) -> Iterator[Sequence[Sequence[object]]]:
         try:
             artifact_context = host._artifacts.materialize_prepared_snapshot(
@@ -581,7 +611,14 @@ class PreparationStoredRunReader:
                                     raise WorkspaceError(
                                         "Prepared canonical row index changed"
                                     )
-                                yield batch
+                                yield (
+                                    PreparationStoredRunReader._canonical_hash_payload_batch(
+                                        batch
+                                    )
+                                    if canonical_for_hash
+                                    and projection.contract_version != 4
+                                    else batch
+                                )
                                 local_offset = local_stop
                             return
                         finally:
@@ -709,7 +746,9 @@ class PreparationStoredRunReader:
                                 row.source_row,
                                 row.target_model,
                                 row.disposition.value,
-                                _canonical_json(row.to_portable_dict()),
+                                row
+                                if canonical_for_hash
+                                else _canonical_json(row.to_portable_dict()),
                             )
                         )
                     yield encoded_batch
@@ -797,6 +836,37 @@ class PreparationStoredRunReader:
                     )
                 next_ordinal += 1
                 yield PreparationStoredRunReader._canonical_row(str(row_text))
+
+    def _iter_canonical_hash_rows(
+        self: PreparationSessionRepositoryHost,
+        workspace_id: str,
+        session_id: str,
+    ) -> Iterator[tuple[str, str | CanonicalRow]]:
+        """Stream trusted native bytes or restored rows in canonical order."""
+
+        next_ordinal = 0
+        for batch in self.iter_direct_encoded_batches(
+            workspace_id,
+            session_id,
+            batch_size=PREPARATION_SESSION_ROW_BATCH_SIZE,
+            canonical_for_hash=True,
+        ):
+            for ordinal, row_id, *_metadata, payload in batch:
+                if _stored_integer(ordinal, "row ordinal") != next_ordinal:
+                    raise WorkspaceError(
+                        "Stored preparation canonical rows are not contiguous"
+                    )
+                if isinstance(payload, _CanonicalHashCompatibilityText):
+                    payload = PreparationStoredRunReader._canonical_row(
+                        payload.row_text
+                    )
+                if not isinstance(payload, (str, CanonicalRow)) or payload == "":
+                    raise WorkspaceError("Stored preparation canonical row is invalid")
+                next_ordinal += 1
+                yield (
+                    payload.row_id if isinstance(payload, CanonicalRow) else str(row_id),
+                    payload,
+                )
 
     @staticmethod
     def _canonical_row(row_text: str) -> CanonicalRow:

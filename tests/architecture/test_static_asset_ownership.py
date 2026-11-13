@@ -123,7 +123,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
                 "/mapping-catalogs.js",
                 "/mapping.js",
             ),
-            "workspace_schema.html": ("/schema.js",),
+            "workspace_schema.html": ("/schema-scope-fields.js", "/schema.js"),
             "workspace_normalization.html": ("/normalization.js", "/review.js"),
             "workspace_summary.html": ("/review.js",),
             "workspace_load.html": ("/execution.js",),

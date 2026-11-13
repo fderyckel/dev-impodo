@@ -22,6 +22,8 @@ if TYPE_CHECKING:
     from .preparation_capability import PreparationCapabilityManifest
 
 MAX_DATASET_ROUTE_OBSERVATIONS = 128
+MAX_DATASET_ROUTE_BYTES = 24 * 1024
+MAX_DATASET_ROUTE_REASON_CODES = 8
 FALLBACK_REASON_CODES = frozenset(
     {
         "ADVANCED_QUALITY_RULES_MATERIALIZE",
@@ -58,6 +60,7 @@ class _DatasetObservation:
     row_count: int
     predicted_route: str
     reason_codes: tuple[str, ...]
+    omitted_reason_count: int
     actual_route: str = "UNOBSERVED"
     adaptation_route: str = "UNOBSERVED"
     outcome: str = "PREDICTED"
@@ -72,6 +75,7 @@ class _DatasetObservation:
             "actual_route": self.actual_route,
             "adaptation_route": self.adaptation_route,
             "reason_codes": list(self.reason_codes),
+            "omitted_reason_count": self.omitted_reason_count,
             "outcome": self.outcome,
         }
         if self.duration_ms is not None:
@@ -106,28 +110,55 @@ class DatasetPreparationPerformance:
             None,
         )
         row_count = 0
+        reserved_bytes = 512
         for dataset in sorted(selection.datasets, key=lambda item: item.dataset_id):
             row_count += dataset.row_count
             if len(self._datasets) >= MAX_DATASET_ROUTE_OBSERVATIONS:
                 continue
             route = routes.get(dataset.dataset_id)
-            predicted = route.behavior if route is not None else (
-                transformation.behavior if transformation is not None else None
+            predicted = (
+                route.behavior
+                if route is not None
+                else (transformation.behavior if transformation is not None else None)
             )
-            reasons = route.reason_codes if route is not None else (
-                transformation.reason_codes if transformation is not None else ()
+            reasons = (
+                route.reason_codes
+                if route is not None
+                else (transformation.reason_codes if transformation is not None else ())
             )
-            digest = sha256(canonical_json_bytes({
-                "dataset_id": dataset.dataset_id,
-                "mapping_hash": mapping_hash,
-                "source_selection_hash": source_selection_hash,
-            })).hexdigest()
-            self._datasets[dataset.dataset_id] = _DatasetObservation(
+            digest = sha256(
+                canonical_json_bytes(
+                    {
+                        "dataset_id": dataset.dataset_id,
+                        "mapping_hash": mapping_hash,
+                        "source_selection_hash": source_selection_hash,
+                    }
+                )
+            ).hexdigest()
+            known_reasons = tuple(sorted(set(reasons) & FALLBACK_REASON_CODES))
+            observation = _DatasetObservation(
                 dataset_hash="sha256:" + digest,
                 row_count=dataset.row_count,
-                predicted_route=predicted.value if predicted is not None else "UNOBSERVED",
-                reason_codes=tuple(sorted(set(reasons) & FALLBACK_REASON_CODES)),
+                predicted_route=predicted.value
+                if predicted is not None
+                else "UNOBSERVED",
+                reason_codes=known_reasons[:MAX_DATASET_ROUTE_REASON_CODES],
+                omitted_reason_count=len(set(reasons))
+                - len(known_reasons[:MAX_DATASET_ROUTE_REASON_CODES]),
             )
+            # Reserve the largest later execution fields so normal observations
+            # retain the same captured datasets throughout the attempt.
+            maximum_payload = observation.payload() | {
+                "actual_route": "NATIVE_COLUMNAR",
+                "adaptation_route": "PYTHON_ROW_ADAPTATION",
+                "outcome": "INTERRUPTED",
+                "duration_ms": 86_400_000.0,
+            }
+            projected_bytes = len(canonical_json_bytes(maximum_payload)) + 1
+            if reserved_bytes + projected_bytes > MAX_DATASET_ROUTE_BYTES:
+                continue
+            reserved_bytes += projected_bytes
+            self._datasets[dataset.dataset_id] = observation
         captured_rows = sum(item.row_count for item in self._datasets.values())
         self._coverage = {
             "dataset_count": len(selection.datasets),
@@ -141,10 +172,16 @@ class DatasetPreparationPerformance:
     def publish(self) -> None:
         """Replace the bounded snapshot; successive observations are not additive."""
         try:
-            self._sink({"workload": {
-                "dataset_routes": [item.payload() for item in self._datasets.values()],
-                "dataset_route_coverage": dict(self._coverage),
-            }})
+            self._sink(
+                {
+                    "workload": {
+                        "dataset_routes": [
+                            item.payload() for item in self._datasets.values()
+                        ],
+                        "dataset_route_coverage": dict(self._coverage),
+                    }
+                }
+            )
         except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation
             return
 
@@ -164,11 +201,24 @@ class DatasetPreparationPerformance:
 
     def adaptation(self, dataset_id: str, route: str) -> None:
         """Observe the actual canonical adapter without emitting a per-row event."""
-        item = self._datasets.get(dataset_id)
-        if item is not None and route in {
-            "NATIVE_PROJECTION", "PYTHON_ROW_ADAPTATION", "PYTHON_RECORDS",
-        }:
-            item.adaptation_route = route
+        try:
+            item = self._datasets.get(dataset_id)
+            if item is not None and route in {
+                "NATIVE_PROJECTION",
+                "PYTHON_ROW_ADAPTATION",
+                "PYTHON_RECORDS",
+            }:
+                item.adaptation_route = route
+        except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation
+            return
+
+    def complete_materialized(self) -> None:
+        """Observe a completed whole-selection evaluator without invented timings."""
+        for item in self._datasets.values():
+            item.actual_route = "MATERIALIZING"
+            item.adaptation_route = "MATERIALIZED_RECORDS"
+            item.outcome = "SUCCEEDED"
+        self.publish()
 
     def finish(self, dataset_id: str) -> None:
         """Mark one fully adapted dataset, excluding subsequent run-wide work."""
@@ -176,7 +226,9 @@ class DatasetPreparationPerformance:
             item = self._datasets.get(dataset_id)
             if item is None or item.started is None or item.outcome != "STARTED":
                 return
-            item.duration_ms = round(max(0.0, (self._clock() - item.started) * 1000), 3)
+            item.duration_ms = round(
+                min(86_400_000.0, max(0.0, (self._clock() - item.started) * 1000)), 3
+            )
             item.outcome = "SUCCEEDED"
             self.publish()
         except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation
@@ -187,7 +239,13 @@ class DatasetPreparationPerformance:
         try:
             for item in self._datasets.values():
                 if item.outcome == "STARTED" and item.started is not None:
-                    item.duration_ms = round(max(0.0, (self._clock() - item.started) * 1000), 3)
+                    item.duration_ms = round(
+                        min(
+                            86_400_000.0,
+                            max(0.0, (self._clock() - item.started) * 1000),
+                        ),
+                        3,
+                    )
                     item.outcome = "INTERRUPTED"
             self.publish()
         except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation

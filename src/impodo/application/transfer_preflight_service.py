@@ -124,6 +124,10 @@ class TransferPreflightService:
                     fresh.model != item.model
                     or fresh.key_field != item.key_field
                     or fresh.key_fields != item.key_fields
+                    or fresh.scope_fields != item.scope_fields
+                    or fresh.scope_dataset_ids != item.scope_dataset_ids
+                    or fresh.scope_fields != prior.scope_fields
+                    or fresh.scope_dataset_ids != prior.scope_dataset_ids
                     or fresh.source_column_key != prior.source_column_key
                     or fresh.source_column_keys != prior.source_column_keys
                     or fresh.source_row_count != item.source_row_count

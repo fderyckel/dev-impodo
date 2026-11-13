@@ -50,6 +50,10 @@ from impodo.domain.preparation.quality import (
     quality_identity_key,
     retention_context_hash,
 )
+from impodo.domain.preparation.quality_budget import (
+    QualityFindingBudget,
+    QualityFindingBudgetExceeded,
+)
 from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
@@ -974,6 +978,30 @@ def _build_indexed_quality_run(
         tuple[_IssueRow, set[tuple[str, int]]],
     ] = {}
     coordinate_ids: dict[tuple[str, int], str] = {}
+    retained_budget = index.get("finding_budget")
+    finding_budget = (
+        retained_budget
+        if isinstance(retained_budget, QualityFindingBudget)
+        else QualityFindingBudget()
+    )
+
+    def charge(byte_count: int) -> None:
+        try:
+            finding_budget.consume(byte_count)
+        except QualityFindingBudgetExceeded as error:
+            raise QualityError(str(error)) from error
+
+    def attach(issue: QualityIssue, row_id: str | None = None) -> None:
+        if issue.issue_id not in issue_map:
+            # Include the final issue payload, map/link containers and sorted
+            # publication tuples in the same retained-evidence allowance.
+            charge(512 + len(canonical_json_bytes(issue.to_portable_dict())))
+        issue_map[issue.issue_id] = issue
+        if row_id is not None:
+            links = row_issue_ids.setdefault(row_id, set())
+            if issue.issue_id not in links:
+                charge(128 + len(row_id.encode("utf-8")) + len(issue.issue_id))
+                links.add(issue.issue_id)
 
     def register(
         row_id: object,
@@ -989,10 +1017,15 @@ def _build_indexed_quality_run(
             _indexed_integer(source_row),
             StagingDisposition(str(disposition)),
         )
+        if row.row_id not in row_metadata:
+            charge(512 + len(row.row_id.encode("utf-8")) + len(row.dataset.encode("utf-8")))
         existing_row, coordinates = row_metadata.setdefault(row.row_id, (row, set()))
         if existing_row != row:
             raise BoundedQualityUnsupported
-        coordinates.add((str(physical_dataset_id), _indexed_integer(physical_source_row)))
+        physical_coordinate = (str(physical_dataset_id), _indexed_integer(physical_source_row))
+        if physical_coordinate not in coordinates:
+            charge(128 + len(physical_coordinate[0].encode("utf-8")))
+            coordinates.add(physical_coordinate)
         coordinate = (row.dataset, row.source_row)
         prior_id = coordinate_ids.setdefault(coordinate, row.row_id)
         if prior_id != row.row_id:
@@ -1041,8 +1074,7 @@ def _build_indexed_quality_run(
             (item.field,) if item.field else (),
             policy=policy,
         )
-        issue_map[issue.issue_id] = issue
-        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+        attach(issue, row.row_id)
 
     for raw in _indexed_rows(index, "collisions"):
         (
@@ -1072,8 +1104,7 @@ def _build_indexed_quality_run(
             (),
             policy=rule.outcome,
         )
-        issue_map[issue.issue_id] = issue
-        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+        attach(issue, row.row_id)
 
     for item in staging.issues:
         if item.dataset and item.source_row is None:
@@ -1084,7 +1115,7 @@ def _build_indexed_quality_run(
                 item.code,
                 item.message,
             )
-            issue_map[issue.issue_id] = issue
+            attach(issue)
             continue
         if not item.dataset or item.source_row is None:
             continue
@@ -1109,8 +1140,7 @@ def _build_indexed_quality_run(
             (item.field,) if item.field else (),
             policy=policy,
         )
-        issue_map[issue.issue_id] = issue
-        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+        attach(issue, row.row_id)
 
     finder_name = (
         "bounded_identity_group_findings" if include_identity_groups
@@ -1222,6 +1252,7 @@ def _build_indexed_quality_run(
             )
             if cause in attached_relationship_causes:
                 continue
+            charge(256 + sum(len(value.encode("utf-8")) for value in cause if isinstance(value, str)))
             attached_relationship_causes.add(cause)
             reason, message, fields = _relationship_issue_details(
                 str(resolution_state),
@@ -1249,8 +1280,7 @@ def _build_indexed_quality_run(
                     else None
                 ),
             )
-            issue_map[issue.issue_id] = issue
-            row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+            attach(issue, row.row_id)
 
     for raw in _indexed_rows(index, "precision_rows"):
         (
@@ -1310,8 +1340,7 @@ def _build_indexed_quality_run(
             row,
             finding,
         )
-        issue_map[issue.issue_id] = issue
-        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+        attach(issue, row.row_id)
 
     summary_counts = {
         "ready_count": disposition_counts[StagingDisposition.CANDIDATE]
@@ -1351,6 +1380,7 @@ def _build_indexed_quality_run(
             if not requires_review:
                 summary_counts["ready_count"] += 1
         else:
+            charge(128 + len(row_id.encode("utf-8")))
             excluded_ids.add(row_id)
             if effective is QualityDisposition.QUARANTINED:
                 summary_counts["quarantined_count"] += 1
@@ -1366,6 +1396,7 @@ def _build_indexed_quality_run(
                 or issue.policy is not QualityOutcomePolicy.QUARANTINE
             ):
                 continue
+            charge(512)
             quarantine.append(
                 QuarantineEntry(
                     entry_id=_hash(

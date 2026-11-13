@@ -66,8 +66,12 @@ from impodo.domain.workspace.destination_matching import (
 )
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.portable_identity import (
+    captured_scope_references,
     portable_components,
+    portable_identity,
     record_identity,
+    scoped_identity,
+    scoped_record_identity,
 )
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
 from impodo.domain.workspace.transfer_review import TransferReviewPackage
@@ -495,6 +499,37 @@ def compile_transfer_execution_snapshot(
     source_id_to_row: dict[str, dict[int, int]] = {}
     included_rows_by_dataset: dict[str, tuple[SourceRow, ...]] = {}
     relationships_by_owner: dict[str, list] = {}
+    scopes_by_dataset: dict[str, tuple[tuple[BusinessReference, ...], ...]] = {}
+    scope_targets_by_dataset: dict[str, dict[int, BusinessReference]] = {}
+    for reviewed in package.datasets:
+        if not reviewed.scope_fields:
+            continue
+        parent = reviewed_by_id[reviewed.scope_dataset_ids[0]]
+        if parent.scope_fields:
+            raise WorkspaceError("A matching-scope parent cannot itself use relational scope")
+        parent_match = match_by_id[parent.dataset_id]
+        match = match_by_id[reviewed.dataset_id]
+        scopes = captured_scope_references(
+            parent_model=parent.model, parent_fields=parent.key_fields,
+            parent_values=tuple(tuple(row.values.get(field) for field in parent.key_fields) for row in source_rows[parent.dataset_id]),
+            parent_origins=source_origins[parent.dataset_id], owner_origins=source_origins[reviewed.dataset_id],
+            scope_field=reviewed.scope_fields[0], owner_row_count=len(source_rows[reviewed.dataset_id]),
+            excluded_parent_rows=parent_match.omitted_source_row_numbers,
+            excluded_owner_rows=match.omitted_source_row_numbers,
+        )
+        targets: dict[str, list[int]] = {}
+        for record in destination_records.records.get(parent.model, ()):
+            targets.setdefault(record_identity(record.values, parent.key_fields), []).append(record.odoo_id)
+        scope_targets: dict[int, BusinessReference] = {}
+        for scope in scopes:
+            if not scope:
+                continue
+            target_ids = targets.get(portable_identity(scope[0].key), ())
+            if len(target_ids) != 1:
+                raise WorkspaceError("The matching-scope parent no longer matches one existing destination record")
+            scope_targets[target_ids[0]] = scope[0]
+        scopes_by_dataset[reviewed.dataset_id] = scopes
+        scope_targets_by_dataset[reviewed.dataset_id] = scope_targets
     for relationship in package.relationships:
         relationships_by_owner.setdefault(relationship.owner_dataset_id, []).append(
             relationship
@@ -527,6 +562,8 @@ def compile_transfer_execution_snapshot(
         )
         if (
             reviewed.key_fields != match.key_fields
+            or reviewed.scope_fields != match.scope_fields
+            or reviewed.scope_dataset_ids != match.scope_dataset_ids
             or selected_key_fields != reviewed.key_fields
         ):
             raise WorkspaceError(f"Matching field changed for {reviewed.model_label}")
@@ -536,7 +573,11 @@ def compile_transfer_execution_snapshot(
             )
             for row in rows
         )
-        keys = tuple(record_identity(row.values, reviewed.key_fields) for row in rows)
+        scopes = scopes_by_dataset.get(dataset_id)
+        keys = tuple(
+            scoped_identity(tuple(row.values.get(field) for field in reviewed.key_fields), scopes[row.number - 1] if scopes else ())
+            for row in rows
+        )
         if any(not value for value in keys) or len(set(keys)) != len(keys):
             raise WorkspaceError(
                 f"Matching values are blank or duplicated for {reviewed.model_label}"
@@ -546,7 +587,7 @@ def compile_transfer_execution_snapshot(
 
         matches: dict[str, list[int]] = {value: [] for value in keys}
         for record in destination_records.records.get(reviewed.model, ()):
-            value = record_identity(record.values, reviewed.key_fields)
+            value = scoped_record_identity(record.values, reviewed.key_fields, reviewed.scope_fields, scope_targets_by_dataset.get(dataset_id, {}))
             if value in matches:
                 matches[value].append(record.odoo_id)
         if any(len(items) > 1 for items in matches.values()):
@@ -558,6 +599,8 @@ def compile_transfer_execution_snapshot(
             reviewed.key_field,
             matches,
             key_fields=reviewed.key_fields,
+            scope_fields=reviewed.scope_fields,
+            scope_dataset_ids=reviewed.scope_dataset_ids,
         )
         expected = preflight_by_id[dataset_id]
         existing = sum(bool(items) for items in matches.values())
@@ -696,7 +739,7 @@ def compile_transfer_execution_snapshot(
                 "update" if item.model_policy == "upsert" else "reference"
             ),
             identity_fields=item.key_fields,
-            scope_fields=(),
+            scope_fields=item.scope_fields,
             field_types=tuple(
                 sorted(
                     {
@@ -846,10 +889,10 @@ def compile_transfer_execution_snapshot(
                     dataset=reviewed.dataset_name,
                     source_row=source_row.number,
                     source_trace_id=row_id,
-                    source_identity=source_identity,
+                    source_identity=(key,) if reviewed.scope_fields else source_identity,
                     target_model=reviewed.model,
                     business_identity=source_identity,
-                    business_scope=(),
+                    business_scope=scopes_by_dataset[dataset_id][source_row.number - 1] if reviewed.scope_fields else (),
                     disposition=disposition,
                     target_match_count=1 if target_id is not None else 0,
                     target_binding_hash=(
@@ -1270,12 +1313,15 @@ def _destination_binding_hash(
     matches: Mapping[str, list[int]],
     *,
     key_fields: tuple[str, ...] = (),
+    scope_fields: tuple[str, ...] = (),
+    scope_dataset_ids: tuple[str, ...] = (),
 ) -> str:
     return content_hash(
         {
             "model": model,
             "key_field": key_field,
             **({"key_fields": key_fields} if len(key_fields) > 1 else {}),
+            **({"scope_fields": scope_fields, "scope_dataset_ids": scope_dataset_ids} if scope_fields else {}),
             "classifications": [
                 {
                     "key": key,

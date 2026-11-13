@@ -1004,6 +1004,13 @@ class DestinationMatchPlan:
             self.model_matches
         ):
             raise ValueError("Destination model matches must be unique")
+        models_by_id = {item.dataset_id: item for item in self.model_matches}
+        if any(
+            parent_id not in models_by_id or parent_id == item.dataset_id
+            or models_by_id[parent_id].scope_fields
+            for item in self.model_matches for parent_id in item.scope_dataset_ids
+        ):
+            raise ValueError("Destination matching scope requires a selected unscoped parent")
         if self.relationship_matches != tuple(
             sorted(
                 self.relationship_matches,
@@ -1547,7 +1554,7 @@ def set_destination_field_exclusion(
     current = matches.get(model)
     if current is None:
         raise ValueError("The destination record type is no longer current")
-    if field_name in current.key_fields:
+    if field_name in (*current.key_fields, *current.scope_fields):
         raise ValueError("A matching field cannot be put aside")
     if any(
         relation.model == model and relation.field_name == field_name

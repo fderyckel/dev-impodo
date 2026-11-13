@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from impodo.application.shared.io_performance import measure_file_io
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.preparation.source import (
     PreparedBundle,
@@ -296,9 +297,11 @@ def _source_content_hash(path: Path) -> str:
     """Hash a governed source without retaining another full-file copy."""
 
     digest = sha256()
-    with path.open("rb") as stream:
+    with measure_file_io("hash") as observed, path.open("rb") as stream:
         while chunk := stream.read(1024 * 1024):
             digest.update(chunk)
+            if observed is not None:
+                observed.add_bytes(len(chunk))
     return "sha256:" + digest.hexdigest()
 
 

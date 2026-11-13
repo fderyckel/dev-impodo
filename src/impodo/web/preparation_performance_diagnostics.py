@@ -12,6 +12,9 @@ from collections.abc import Mapping
 from typing import cast
 from uuid import UUID
 
+from .performance_attribution import sanitize_file_io, sanitize_numeric_validation
+from .preparation_route_diagnostics import sanitize_dataset_workload
+
 PERFORMANCE_SCHEMA_VERSION = 1
 PERFORMANCE_EVENT = "operation_performance"
 PERFORMANCE_EVENT_KINDS = frozenset(
@@ -30,6 +33,11 @@ _PHASES = frozenset(
         "STAGING",
         "queue_wait",
         "worker_startup",
+        "process_start_call",
+        "worker_first_message_wait",
+        "worker_build_hash",
+        "worker_runtime_initialization",
+        "worker_composition",
         "total",
         "resolution_evaluation",
         "quality_evaluation",
@@ -133,6 +141,8 @@ def sanitize_performance_event(value: object) -> dict[str, object] | None:
         ("workload", _workload),
         ("resources", _resources),
         ("database", _database),
+        ("file_io", sanitize_file_io),
+        ("numeric_validation", sanitize_numeric_validation),
     ):
         if section in raw:
             result[section] = sanitizer(_mapping(raw[section]))
@@ -253,6 +263,7 @@ def _workload(raw: Mapping[str, object]) -> dict[str, object]:
     }
     if stage_routes:
         result["stage_routes"] = stage_routes
+    result.update(sanitize_dataset_workload(raw))
     return result
 
 

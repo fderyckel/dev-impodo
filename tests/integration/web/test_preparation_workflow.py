@@ -47,8 +47,8 @@ from tests.support.browser_scenarios import (
     unescape,
     uuid4,
 )
-from tests.support.identity import resolve_local_actor
 from tests.support.database_probe import count_duckdb_statements
+from tests.support.identity import resolve_local_actor
 
 
 class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -852,7 +852,8 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "csrf_token": self.csrf,
                 **expected_evidence,
                 "primary_key_field_0": "ref",
-                "primary_scope_field_0": "ref",
+                "scope_choices_present_0": "1",
+                "scope_choice_0": "ref",
                 "key_fields_0": "ref",
                 "scope_fields_0": "ref",
                 "key_description_0": "Reference within reference",
@@ -882,8 +883,10 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertRegex(
             duplicate_simple.text,
             (
-                r'(?s)name="primary_scope_field_0".*?'
-                r'<option\s+value="ref"\s+selected'
+                r'<input(?=[^>]*\btype="checkbox")'
+                r'(?=[^>]*\bname="scope_choice_0")'
+                r'(?=[^>]*\bvalue="ref")'
+                r'(?=[^>]*\schecked(?:\s|>))[^>]*>'
             ),
         )
         unchanged_governance = (
@@ -902,7 +905,7 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "csrf_token": self.csrf,
                 **expected_evidence,
                 "primary_key_field_0": "",
-                "primary_scope_field_0": "",
+                "scope_choices_present_0": "1",
                 "key_fields_0": "ref, ref",
                 "scope_fields_0": "",
                 "key_description_0": "Repeated combined reference",
@@ -920,7 +923,8 @@ class PreparationWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "csrf_token": self.csrf,
                 **expected_evidence,
                 "primary_key_field_0": "field_0000",
-                "primary_scope_field_0": "ref",
+                "scope_choices_present_0": "1",
+                "scope_choice_0": "ref",
                 "key_fields_0": "field_0000",
                 "scope_fields_0": "ref",
                 "key_description_0": "Field within reference",

@@ -222,7 +222,7 @@
                         {% endfor %}
                       </ul>
                     </details>
-                  {% elif row.identity_issue_error %}<p>The affected source records could not be opened: {{ row.identity_issue_error }}</p>{% endif %}
+                  {% elif row.identity_scope_guidance %}<p>{{ row.identity_scope_guidance }}</p>{% elif row.identity_issue_error %}<p>The affected source records could not be opened: {{ row.identity_issue_error }}</p>{% endif %}
                   {% if row.result.source_blank_row_count or row.result.source_duplicate_key_count %}<p>You can choose another stable identifier above, correct the value in source Odoo and recapture, or explicitly put the affected source record aside. Putting it aside excludes that whole record from this transfer; it does not change source Odoo.</p><div class="decision-actions"><a class="button secondary" href="#matching-identifiers">Choose another identifier</a><a class="button secondary" href="/workspaces/{{ workspace_id }}/sources">Return to source data</a></div>{% endif %}
                 </div>
               {% endif %}

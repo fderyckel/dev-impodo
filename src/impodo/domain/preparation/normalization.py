@@ -34,11 +34,14 @@ from impodo.domain.preparation.quality import (
     StoredQualityRun,
     retention_context_hash,
 )
-from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.preparation.staging_contracts import CanonicalRow, CanonicalStagingRun
 from impodo.domain.resolution import EffectiveDataset
 from impodo.domain.serialization import CanonicalJsonObjectHasher
 from impodo.domain.shared.models import canonical_json_bytes
-from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
+from impodo.domain.staging.preparation_session import (
+    CanonicalHashRowSource,
+    StoredCanonicalStagingRun,
+)
 from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 
 NORMALIZATION_CONTRACT_VERSION = 3
@@ -1265,21 +1268,28 @@ def canonical_eligible_dataset_hash(
     hasher.add_value("effective_dataset_hash", effective_dataset_hash)
     hasher.add_value("quality_content_hash", canonical_quality_hash)
     hasher.start_array("rows")
-    rows = (
-        (item.canonical_row for item in effective.rows)
-        if effective is not None
-        else iter(staging.rows)
-    )
+    rows: Iterable[tuple[str, str | CanonicalRow]]
+    if effective is None and isinstance(staging.rows, CanonicalHashRowSource):
+        rows = staging.rows.iter_canonical_hash_rows()
+    else:
+        canonical_rows = (
+            (item.canonical_row for item in effective.rows)
+            if effective is not None
+            else iter(staging.rows)
+        )
+        rows = ((row.row_id, row) for row in canonical_rows)
     contains_canonical = getattr(eligible_ids, "contains_canonical", None)
-    for row in rows:
+    for row_id, payload in rows:
         eligible = (
-            bool(contains_canonical(row.row_id))
+            bool(contains_canonical(row_id))
             if callable(contains_canonical)
-            else row.row_id in eligible_ids
+            else row_id in eligible_ids
         )
         if eligible:
             hasher.add_encoded_array_item(
-                canonical_json_bytes(row.to_portable_dict())
+                payload
+                if isinstance(payload, str)
+                else canonical_json_bytes(payload.to_portable_dict())
             )
     hasher.end_array()
     hasher.add_value("staging_content_hash", canonical_staging_hash)

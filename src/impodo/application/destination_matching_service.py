@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from dataclasses import field as dataclass_field
 from datetime import UTC, datetime
@@ -80,6 +80,7 @@ from impodo.domain.workspace.odoo_relationship_compilation import (
     compile_odoo_relationship_datasets,
 )
 from impodo.domain.workspace.portable_identity import (
+    captured_scope_references,
     portable_components,
     portable_identity,
     record_identity,
@@ -233,6 +234,7 @@ class _PreparedModel:
     scope_dataset_ids: tuple[str, ...] = ()
     source_scope_values: tuple[tuple[BusinessReference, ...], ...] = ()
     destination_scope_references: Mapping[int, BusinessReference] = dataclass_field(default_factory=dict)
+    source_query_keys: tuple[str, ...] = ()
 
     @property
     def included_source_row_count(self) -> int:
@@ -349,8 +351,8 @@ def _destination_record_requests(
             requests.append(
                 RecordRequest(
                     model=item.model,
-                    fields=tuple(sorted(set(item.key_fields) | set(policy_fields))) if policy_fields else item.key_fields,
-                    domain=_exact_identity_domain(item.key_fields, batch),
+                    fields=tuple(sorted(set(item.key_fields) | set(item.scope_fields) | set(policy_fields))) if policy_fields or item.scope_fields else item.key_fields,
+                    domain=_exact_identity_domain((*item.key_fields, *item.scope_fields), batch),
                     limit=DESTINATION_MATCH_RECORD_LIMIT,
                 )
             )
@@ -387,12 +389,12 @@ def _destination_chunk_limit_reached(
     """Detect a truncated exact-key chunk without exposing its key values."""
 
     chunk_by_key = {
-        portable_identity(identity): index // MAX_KEYS_PER_RECORD_REQUEST
-        for index, identity in enumerate(item.source_query_values)
+        key: index // MAX_KEYS_PER_RECORD_REQUEST
+        for index, key in enumerate(item.source_query_keys or tuple(portable_identity(identity) for identity in item.source_query_values))
     }
     counts: Counter[int] = Counter()
     for row in target_rows:
-        value = record_identity(row.values, item.key_fields)
+        value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
         chunk = chunk_by_key.get(value)
         if chunk is not None:
             counts[chunk] += 1
@@ -422,6 +424,7 @@ class DestinationMatchingService:
         relationship_scope: OdooRelationshipScope | None = None,
         row_inclusion_confirmation_hash: str | None = None,
         restore_plans: Mapping[str, OdooRestorePlan] | None = None,
+        record_snapshot_sink: Callable[[RecordSnapshot], None] | None = None,
     ) -> DestinationMatchPlan:
         """Return a current plan from one bounded metadata/record read."""
 
@@ -436,6 +439,8 @@ class DestinationMatchingService:
             item.dataset_id: item.destination_handling for item in choices
         }
         row_policies = {item.dataset_id: item.row_inclusion for item in choices}
+        chosen_scopes = {item.dataset_id: item.scope_fields for item in choices}
+        scope_candidates = destination_match_scope_candidates(selection, source_schema, relationship_scope)
         if len(selected) != len(choices):
             raise WorkspaceError("Choose one matching field for each source table")
         if set(selected) != {item.dataset_id for item in selection.datasets}:
@@ -543,6 +548,7 @@ class DestinationMatchingService:
                 governed is None
                 and recommended_identity is not None
                 and recommended_identity.scope_fields
+                and not chosen_scopes[dataset.dataset_id]
                 and tuple(field.name for field in key_fields)
                 == recommended_identity.key_fields
             ):
@@ -576,6 +582,8 @@ class DestinationMatchingService:
                     f"Choose current source records for {dataset.name}"
                 )
             exclusions = tuple(sorted(set(raw_exclusions)))
+            if exclusions and chosen_scopes[dataset.dataset_id]:
+                raise WorkspaceError("Putting scoped matching issues aside is not yet supported; clear those choices and correct the source or matching scope")
             policy = row_policies[dataset.dataset_id]
             rule_excluded, rule_blocked = evaluate_transfer_row_inclusion(
                 self._source_values, workspace.workspace_id, dataset, policy
@@ -731,6 +739,7 @@ class DestinationMatchingService:
                     rule_excluded_source_row_numbers=rule_excluded,
                     rule_blocked_source_row_numbers=rule_blocked,
                     restore_plan=restore_plan,
+                    scope_fields=chosen_scopes[dataset.dataset_id],
                 )
             )
 
@@ -742,6 +751,25 @@ class DestinationMatchingService:
                 source_origins or {},
             )
         )
+        models_by_name = {item.model: item for item in prepared}
+        for index, item in enumerate(prepared):
+            if not item.scope_fields:
+                continue
+            scope_field = item.scope_fields[0]
+            if scope_field not in {name for name, _ in scope_candidates.get(item.dataset_id, ())}:
+                raise WorkspaceError(f"Choose a captured direct relationship as the matching scope for {item.model_label}")
+            field = next(field for field in item.source_fields if field.name == scope_field)
+            parent = models_by_name[field.relation or ""]
+            if parent.scope_fields:
+                raise WorkspaceError("Matching within another scoped record type is not yet supported; choose an unscoped parent")
+            if item.restore_plan is not None and any(
+                policy.source.name == scope_field and policy.destination.name != scope_field
+                for policy in item.restore_plan.fields
+            ):
+                raise WorkspaceError("Restore field mappings cannot rename the matching scope")
+            prepared[index] = replace(item, scope_dataset_ids=(parent.dataset_id,))
+        if any(relation.related.scope_fields for relation in _prepare_relationships(tuple(prepared), source_schema)):
+            raise WorkspaceError("Links targeting a record type matched within another record are not yet supported")
         model_names = tuple(sorted(item.model for item in prepared))
         if len(model_names) != len(set(model_names)):
             raise WorkspaceError(
@@ -788,7 +816,7 @@ class DestinationMatchingService:
             )
             for item in sorted(prepared, key=lambda current: current.model)
         )
-        record_requests = _destination_record_requests(tuple(prepared))
+        record_requests = _destination_record_requests(tuple(item for item in prepared if not item.scope_fields))
         metadata, records = reader(
             destination,
             api_key,
@@ -812,6 +840,36 @@ class DestinationMatchingService:
             ):
                 raise WorkspaceError(
                     "Odoo source and destination matching requires the same major version"
+                )
+
+        if any(item.scope_fields for item in prepared):
+            prepared = self._prepare_scoped_models(workspace.workspace_id, prepared, records, source_origins or {})
+            scoped_requests = _destination_record_requests(tuple(item for item in prepared if item.scope_fields))
+            if scoped_requests:
+                scoped_metadata, scoped_records = reader(destination, api_key, metadata_requests, scoped_requests)
+                for snapshot in (scoped_metadata, scoped_records):
+                    if (
+                        not snapshot.complete
+                        or snapshot.fingerprint.target_hash != expected_target_hash
+                        or not assess_odoo_operation(snapshot.fingerprint.odoo_version, OdooOperation.COMPARE).allowed
+                        or not same_odoo_major(source_schema.odoo_version, snapshot.fingerprint.odoo_version)
+                    ):
+                        raise WorkspaceError("The scoped destination read returned an unsupported or different Odoo target")
+                if (
+                    not scoped_metadata.complete or not scoped_records.complete
+                    or scoped_metadata.models != metadata.models
+                    or scoped_metadata.create_defaults != metadata.create_defaults
+                    or scoped_metadata.fingerprint.target_hash != expected_target_hash
+                    or scoped_records.fingerprint.target_hash != expected_target_hash
+                    or not same_odoo_major(source_schema.odoo_version, scoped_records.fingerprint.odoo_version)
+                ):
+                    raise WorkspaceError("The scoped destination read changed target or schema evidence")
+                metadata = scoped_metadata
+                scoped_models = {item.model for item in prepared if item.scope_fields}
+                records = replace(
+                    records, records={**records.records, **{model: rows for model, rows in scoped_records.records.items() if model in scoped_models}},
+                    requested_fields={**records.requested_fields, **{model: fields for model, fields in scoped_records.requested_fields.items() if model in scoped_models}},
+                    fingerprint=scoped_records.fingerprint, content_hash=None,
                 )
 
         model_results: list[DestinationModelMatch] = []
@@ -893,7 +951,79 @@ class DestinationMatchingService:
             )
         except OdooRelationshipCompilationError as error:
             raise WorkspaceError(str(error)) from error
+        if record_snapshot_sink is not None:
+            record_snapshot_sink(records)
         return plan
+
+    def _prepare_scoped_models(
+        self, workspace_id: str, prepared: list[_PreparedModel], records: RecordSnapshot,
+        origins: Mapping[str, tuple[OdooOriginBatch, ...]],
+    ) -> list[_PreparedModel]:
+        """Close protected parent crosswalks before exact bounded child reads."""
+
+        by_id = {item.dataset_id: item for item in prepared}
+        values: dict[str, tuple[tuple[str | None, ...], ...]] = {}
+
+        def source_values(item: _PreparedModel) -> tuple[tuple[str | None, ...], ...]:
+            if item.dataset_id not in values:
+                rows = self._source_values.source_key_tuples(workspace_id, item.dataset_id, item.source_column_keys)
+                if len(rows) != item.source_row_count or any(len(row) != len(item.key_fields) for row in rows):
+                    raise WorkspaceError("The captured matching-scope values are incomplete")
+                values[item.dataset_id] = rows
+            return values[item.dataset_id]
+
+        result: list[_PreparedModel] = []
+        for item in prepared:
+            if not item.scope_fields:
+                result.append(item)
+                continue
+            parent = by_id[item.scope_dataset_ids[0]]
+            scopes = captured_scope_references(
+                parent_model=parent.model, parent_fields=parent.key_fields,
+                parent_values=source_values(parent), parent_origins=origins.get(parent.dataset_id, ()),
+                owner_origins=origins.get(item.dataset_id, ()), scope_field=item.scope_fields[0],
+                owner_row_count=item.source_row_count, excluded_parent_rows=parent.omitted_source_row_numbers,
+                excluded_owner_rows=item.omitted_source_row_numbers,
+            )
+            parent_targets: dict[str, list[int]] = {}
+            for record in records.records.get(parent.model, ()):
+                parent_targets.setdefault(record_identity(record.values, parent.key_fields), []).append(record.odoo_id)
+            references: dict[int, BusinessReference] = {}
+            target_by_key: dict[str, int] = {}
+            for scope in scopes:
+                if not scope:
+                    continue
+                reference = scope[0]
+                token = portable_identity(reference.key)
+                matches = parent_targets.get(token, ())
+                if len(matches) != 1:
+                    raise WorkspaceError("The matching-scope parent must already match exactly one destination record; create missing parents in a separate transfer first")
+                references[matches[0]] = reference
+                target_by_key[token] = matches[0]
+            counts: Counter[str] = Counter()
+            queries: dict[str, tuple[bool | int | float | str, ...]] = {}
+            identities: dict[str, tuple[bool | int | float | str, ...]] = {}
+            omitted = set(item.omitted_source_row_numbers)
+            for number, (row, scope) in enumerate(zip(source_values(item), scopes, strict=True), 1):
+                if number in omitted:
+                    continue
+                token = scoped_identity(row, scope)
+                if not token:
+                    continue
+                counts[token] += 1
+                key = portable_components(row)
+                queries[token] = (*key, target_by_key[portable_identity(scope[0].key)])
+                identities[token] = key
+            if len(counts) > DESTINATION_MATCH_MAX_DISTINCT_KEYS:
+                raise WorkspaceError("The scoped matching identity count exceeds the approved source limit")
+            result.append(replace(
+                item, source_counts=counts, source_scope_values=scopes,
+                destination_scope_references=references, source_query_keys=tuple(sorted(queries)),
+                source_query_values=tuple(queries[key] for key in sorted(queries)),
+                source_identity_values=tuple(identities[key] for key in sorted(identities) if counts[key] == 1),
+                minimum_identity_relationship_fields=tuple(sorted(set(item.minimum_identity_relationship_fields) | set(item.scope_fields))),
+            ))
+        return result
 
     def _scope_reference_only_models(
         self,
@@ -1081,7 +1211,7 @@ class DestinationMatchingService:
         destination_counts: Counter[str] = Counter()
         source_keys = set(item.source_counts)
         for row in target_rows:
-            value = record_identity(row.values, item.key_fields)
+            value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
             if value in source_keys:
                 destination_counts[value] += 1
         matched_keys = set(destination_counts)
@@ -1111,7 +1241,7 @@ class DestinationMatchingService:
                     for name in compatible
                 ),
                 records,
-                prepared,
+                tuple(candidate for candidate in prepared if not candidate.scope_fields),
             )
             if create_count
             and item.destination_handling not in DESTINATION_NO_WRITE_HANDLINGS
@@ -1203,6 +1333,8 @@ class DestinationMatchingService:
             ),
             source_column_keys=item.source_column_keys,
             key_fields=item.key_fields,
+            scope_fields=item.scope_fields,
+            scope_dataset_ids=item.scope_dataset_ids,
             excluded_source_row_numbers=item.excluded_source_row_numbers,
             unreferenced_source_row_numbers=(item.unreferenced_source_row_numbers),
             destination_handling=item.destination_handling,
@@ -2014,6 +2146,50 @@ def destination_match_key_candidates(
     return result
 
 
+def destination_match_scope_candidates(
+    selection: SourceSelection, source_schema: OdooSchemaCatalog,
+    relationship_scope: OdooRelationshipScope | None = None,
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    """Offer captured direct relationships whose portable parent can be reviewed."""
+
+    selected = {item.source.model for item in selection.datasets if isinstance(item.source, OdooSourceBinding)}
+    models = {item.name: item for item in source_schema.models}
+    decisions = {item.identity: item for item in relationship_scope.decisions} if relationship_scope is not None else None
+    admitted = {OdooRelationshipCaptureAction.CAPTURE_LINKED, OdooRelationshipCaptureAction.MATCH_EXISTING, OdooRelationshipCaptureAction.PRESERVE_LINKED}
+    result: dict[str, tuple[tuple[str, str], ...]] = {}
+    for dataset in selection.datasets:
+        model = models.get(dataset.source.model) if isinstance(dataset.source, OdooSourceBinding) else None
+        if model is None:
+            result[dataset.dataset_id] = ()
+            continue
+        model_name = model.name
+        candidates: list[tuple[str, str]] = []
+        for field in model.fields:
+            if (
+                field.type != "many2one" or field.relation == model_name
+                or field.stored is not True or field.readonly or field.related is True
+                or not _is_transferable_relationship_field(field, selected)
+            ):
+                continue
+            if decisions is not None:
+                decision = decisions.get((model_name, field.name))
+                approved = decision is not None and decision.action in admitted and decision.relation_model == field.relation
+                parent = models.get(field.relation or "")
+                if not approved and parent is not None:
+                    parent_name = parent.name
+                    approved = any(
+                        inverse.type == "one2many" and inverse.relation == model_name and inverse.relation_field == field.name
+                        and (saved := decisions.get((parent_name, inverse.name))) is not None
+                        and saved.action in admitted and saved.relation_model == model_name
+                        for inverse in parent.fields
+                    )
+                if not approved:
+                    continue
+            candidates.append((field.name, field.label))
+        result[dataset.dataset_id] = tuple(sorted(candidates))
+    return result
+
+
 def destination_governed_key_choices(
     selection: SourceSelection,
     source_schema: OdooSchemaCatalog,
@@ -2109,13 +2285,14 @@ def _destination_key_binding_hash(
 
     bindings: dict[str, list[str]] = {value: [] for value in sorted(item.source_counts)}
     for row in target_rows:
-        value = record_identity(row.values, item.key_fields)
+        value = scoped_record_identity(row.values, item.key_fields, item.scope_fields, item.destination_scope_references)
         if value in bindings:
             bindings[value].append(target_record_binding_hash(item.model, row.odoo_id))
     return content_hash(
         {
             "model": item.model,
             "key_field": item.key_field,
+            **({"scope_fields": item.scope_fields, "scope_dataset_ids": item.scope_dataset_ids} if item.scope_fields else {}),
             **({"key_fields": item.key_fields} if len(item.key_fields) > 1 else {}),
             "classifications": [
                 {

@@ -231,10 +231,18 @@ includes the preparation phases, elapsed time, processing settings, workload
 size, and available observations of CPU and memory use. This also works on
 Windows, so you can report a slow attempt without running a separate test.
 
+New attempts also record available file-read and verification costs, more
+specific worker-startup intervals, and the processing route used for each
+captured table. These observations help distinguish time spent starting a
+worker, checking numeric values, reading saved files, or recording diagnostics.
+You do not need administrator rights to collect this application evidence.
+
 The performance summary excludes your source values, file paths, host name,
 and credentials. It marks missing or interrupted measurements explicitly.
 It helps locate expensive work; comparing different computers or unrelated
 deliveries does not by itself establish a performance improvement.
+File-operation delays do not establish that an antivirus product caused them.
+Older builds and work that happened before capture remain explicitly unavailable.
 
 ## What makes this work stale
 

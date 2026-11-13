@@ -16,6 +16,7 @@ from __future__ import annotations
 from impodo.domain.mapping.contracts import (
     CategoricalCoveragePolicy,
     DatasetMapping,
+    IdentityComponentMapping,
     MappingTargetMode,
     ReferenceKeyMapping,
     RelationshipMapping,
@@ -140,6 +141,25 @@ def compile_odoo_relationship_datasets(
                 else None
             ),
             source_identity_column_keys=item.source_column_keys,
+            target_identity=tuple(
+                IdentityComponentMapping((source,), (target,))
+                for source, target in zip(item.source_column_keys, item.key_fields, strict=True)
+            ) if item.scope_fields else (),
+            target_scope=tuple(
+                IdentityComponentMapping(
+                    source_column_keys=models_by_dataset[parent_id].source_column_keys,
+                    target_fields=(field,),
+                    resolver=RelationshipResolver(
+                        origin=ResolverOrigin.TARGET_CATALOG,
+                        model=models_by_dataset[parent_id].model,
+                        key_mappings=tuple(
+                            ReferenceKeyMapping(source, target)
+                            for source, target in zip(models_by_dataset[parent_id].source_column_keys, models_by_dataset[parent_id].key_fields, strict=True)
+                        ),
+                    ),
+                )
+                for field, parent_id in zip(item.scope_fields, item.scope_dataset_ids, strict=True)
+            ),
             relationships=tuple(
                 sorted(
                     relationships_by_owner[item.dataset_id],

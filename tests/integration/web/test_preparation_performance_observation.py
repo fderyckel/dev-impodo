@@ -20,6 +20,46 @@ BUILD = "sha256:" + "a" * 64
 
 
 class PreparationPerformanceObservationTests(unittest.TestCase):
+    def test_process_start_and_first_message_wait_have_parent_clock_boundaries(self):
+        clock = [10.0]
+        records = []
+        with (
+            patch(f"{MODULE}.execution_environment", return_value={"build_id": BUILD}),
+            patch(f"{MODULE}.perf_counter", side_effect=lambda: clock[0]),
+            patch.object(PreparationPerformanceObservation, "sample"),
+        ):
+            observer = PreparationPerformanceObservation(str(uuid4()), 12, 7.0, records.append)
+            observer.start(None, BUILD)
+            clock[0] = 10.5
+            observer.process_starting()
+            clock[0] = 10.75
+            observer.process_start_finished(succeeded=True)
+            clock[0] = 12.0
+            observer.worker_started()
+            observer.worker_started()
+        phases = {item.get("phase"): item for item in records if item["event_kind"] == "phase_completed"}
+        self.assertEqual(phases["process_start_call"]["duration_ms"], 250)
+        self.assertEqual(phases["worker_first_message_wait"]["duration_ms"], 1250)
+        self.assertEqual(phases["worker_startup"]["duration_ms"], 2000)
+        self.assertEqual(phases["process_start_call"]["timing_scope"], "nested")
+        self.assertEqual(phases["worker_first_message_wait"]["timing_scope"], "nested")
+        self.assertEqual(sum(item.get("phase") == "worker_startup" for item in records), 1)
+
+    def test_failed_process_start_does_not_claim_a_worker_message_wait(self):
+        records = []
+        with (
+            patch(f"{MODULE}.execution_environment", return_value={"build_id": BUILD}),
+            patch.object(PreparationPerformanceObservation, "sample"),
+        ):
+            observer = PreparationPerformanceObservation(str(uuid4()), 12, 0.0, records.append)
+            observer.start(None, BUILD)
+            observer.process_starting()
+            observer.process_start_finished(succeeded=False)
+            observer.finish("failed", False, failure_reason="WORKER_START_FAILED")
+        phases = {item.get("phase"): item for item in records if item["event_kind"] == "phase_completed"}
+        self.assertEqual(phases["process_start_call"]["outcome"], "failed")
+        self.assertNotIn("worker_first_message_wait", phases)
+
     def test_queue_and_worker_startup_are_distinct_non_overlapping_intervals(self):
         clock = [10.0]
         records = []

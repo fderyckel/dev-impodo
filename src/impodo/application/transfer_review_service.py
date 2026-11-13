@@ -194,6 +194,8 @@ class TransferReviewService:
                 key_field=item.key_field,
                 key_field_label=item.key_field_label,
                 key_fields=item.key_fields,
+                scope_fields=item.scope_fields,
+                scope_dataset_ids=item.scope_dataset_ids,
                 source_row_count=item.source_row_count,
                 destination_existing_record_count=(
                     item.destination_existing_key_count

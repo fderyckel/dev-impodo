@@ -161,6 +161,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const keyForm = decision.closest("form");
     const wasConfirmed = decision.dataset.keyConfirmed === "true";
     let hasFieldConflict = false;
+    let scopePicker = null;
     let descriptionEdited = false;
     let labels = {};
     try {
@@ -239,6 +240,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const scopeNames = new Set(scopeFields);
       const allFields = [...keyFields, ...scopeFields];
       hasFieldConflict = new Set(allFields).size !== allFields.length;
+      scopePicker?.setMatchingFields(keyFields);
 
       for (const option of primaryScope?.options || []) {
         option.disabled = Boolean(
@@ -259,6 +261,7 @@ document.addEventListener("DOMContentLoaded", () => {
         primaryScope,
         combinedKey,
         combinedScope,
+        ...(scopePicker?.controls || []),
       ]) {
         if (control) {
           control.setAttribute("aria-invalid", String(hasFieldConflict));
@@ -283,6 +286,11 @@ document.addEventListener("DOMContentLoaded", () => {
       input.value = select.value;
     };
 
+    scopePicker = window.ImpodoSchemaScopes?.bind(decision, combinedScope, () => {
+      clearDescriptionForChangedIdentity();
+      refreshKeyDraft();
+    });
+
     primaryKey?.addEventListener("change", () => {
       syncSimpleChoice(primaryKey, combinedKey);
       clearDescriptionForChangedIdentity();
@@ -303,6 +311,7 @@ document.addEventListener("DOMContentLoaded", () => {
     });
     combinedScope?.addEventListener("input", () => {
       const scopeFields = values(combinedScope.value);
+      scopePicker?.setFields(scopeFields);
       if (primaryScope) {
         primaryScope.value = scopeFields.length === 1 ? scopeFields[0] : "";
       }

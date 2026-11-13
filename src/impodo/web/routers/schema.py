@@ -78,6 +78,7 @@ from ..forms import (
     _secure_form,
     _submitted_model_scope,
     _text,
+    _texts,
 )
 from ..presenters.common import _flash, _render
 from ..presenters.mapping_forms import _business_key_id, _comma_values
@@ -1255,6 +1256,8 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 f"key_description_{index}",
                 f"primary_key_field_{index}",
                 f"primary_scope_field_{index}",
+                f"scope_choices_present_{index}",
+                f"scope_choice_{index}",
             )
         }
         _secure_form(request, form, allowed)
@@ -1290,6 +1293,18 @@ def build_schema_router(context: WebContext) -> APIRouter:
                 if primary_scope
                 else _comma_values(_text(form, f"scope_fields_{index}"))
             )
+            if _text(form, f"scope_choices_present_{index}") == "1":
+                selected = _texts(form, f"scope_choice_{index}")
+                mirrored = _comma_values(_text(form, f"scope_fields_{index}"))
+                # Keep saved/click order when the mirror describes exactly the
+                # checked fields. Native checkbox submission also works without JS.
+                scope_fields = (
+                    mirrored
+                    if len(mirrored) == len(selected)
+                    and len(set(selected)) == len(selected)
+                    and set(mirrored) == set(selected)
+                    else selected
+                )
             key_drafts[model.name] = (
                 key_fields,
                 scope_fields,

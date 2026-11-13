@@ -15,15 +15,15 @@ import math
 import os
 import re
 import sys
-from collections.abc import Mapping
-from contextlib import contextmanager
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
 from io import BytesIO, TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Lock
 from time import perf_counter, sleep
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -40,6 +40,8 @@ from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
     ApplicationBuildContract,
 )
+from impodo.application.shared.io_performance import collect_file_io
+from impodo.application.shared.worker_startup import collect_worker_startup
 from impodo.application.workspace.execution.load_observation import (
     bind_load_observation,
     record_load_failure,
@@ -50,6 +52,8 @@ from impodo.domain.mapping.mutations import MappingMutationAction
 from impodo.web.diagnostic_costs import (
     DiagnosticCostTracker,
     logging_correlations,
+    logging_cost_clock,
+    logging_cost_elapsed,
     record_logging_costs,
 )
 from impodo.web.load_diagnostic_bundle import load_bundle_members
@@ -57,6 +61,11 @@ from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
     LOAD_SUMMARY_LOG,
     new_load_observation,
+)
+from impodo.web.performance_attribution import (
+    sanitize_file_io,
+    sanitize_logging_costs,
+    sanitize_worker_startup,
 )
 from impodo.web.performance_bundle import performance_bundle_members
 from impodo.web.performance_diagnostics import (
@@ -181,21 +190,21 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
             raise
 
     def emit(self, record: logging.LogRecord) -> None:
-        started = perf_counter()
+        started = logging_cost_clock(self._costs)
         lock_stream = self._process_lock_stream
         if lock_stream is None:
             return
         failures_before = self.write_failure_count
         acquired = False
-        lock_started = perf_counter()
-        metrics: dict[str, int | float] = {"diagnostic_write_attempt_count": 1}
+        lock_started = logging_cost_clock(self._costs)
+        metrics: dict[str, int | float | None] = {"diagnostic_write_attempt_count": 1}
         try:
             with _exclusive_process_file_lock(lock_stream):
                 acquired = True
-                metrics["diagnostic_file_lock_wait_ms"] = (perf_counter() - lock_started) * 1000
+                metrics["diagnostic_file_lock_wait_ms"] = logging_cost_elapsed(self._costs, lock_started)
                 self._close_output_stream()
                 if self.shouldRollover(record):
-                    rotation_started = perf_counter()
+                    rotation_started = logging_cost_clock(self._costs)
                     try:
                         self.doRollover()
                         metrics["diagnostic_rotation_count"] = 1
@@ -208,42 +217,45 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
                         self._close_output_stream()
                         self.baseFilename = self._fallback_filename
                     finally:
-                        metrics["diagnostic_rotation_ms"] = (perf_counter() - rotation_started) * 1000
-                write_started = perf_counter()
+                        metrics["diagnostic_rotation_ms"] = logging_cost_elapsed(self._costs, rotation_started)
+                write_started = logging_cost_clock(self._costs)
                 logging.FileHandler.emit(self, record)
                 if self.stream is not None:
                     self.stream.flush()
-                metrics["diagnostic_write_flush_ms"] = (perf_counter() - write_started) * 1000
+                metrics["diagnostic_write_flush_ms"] = logging_cost_elapsed(self._costs, write_started)
                 if self.write_failure_count == failures_before:
                     metrics["diagnostic_write_count"] = 1
                     # JSON is ASCII escaped; account for TextIO newline translation.
-                    metrics["diagnostic_bytes_written"] = len(
-                        self.format(record).encode("utf-8")
-                    ) + len(os.linesep.encode("utf-8"))
+                    try:
+                        metrics["diagnostic_bytes_written"] = len(
+                            self.format(record).encode("utf-8")
+                        ) + len(os.linesep.encode("utf-8"))
+                    except Exception:  # noqa: BLE001 - optional byte accounting cannot change logging
+                        self._costs.measurement_failed = True
                 self._apply_private_output_permissions()
         except (OSError, TimeoutError, ValueError) as error:
             # Optional diagnostics must never delay or break the application.
             self.write_failure_count += 1
             if not acquired:
-                metrics["diagnostic_file_lock_wait_ms"] = (perf_counter() - lock_started) * 1000
+                metrics["diagnostic_file_lock_wait_ms"] = logging_cost_elapsed(self._costs, lock_started)
                 if isinstance(error, TimeoutError):
                     metrics["diagnostic_lock_timeout_count"] = 1
             return
         finally:
             self._close_output_stream()
-            metrics["diagnostic_emit_ms"] = (perf_counter() - started) * 1000
+            metrics["diagnostic_emit_ms"] = logging_cost_elapsed(self._costs, started)
             metrics["diagnostic_capture_failure_count"] = self.write_failure_count - failures_before
             record_logging_costs(self._costs, metrics)
 
     def _open(self) -> TextIOWrapper:
         """Observe actual stream opens without changing rotation ownership."""
-        started = perf_counter()
+        started = logging_cost_clock(self._costs)
         try:
             return super()._open()
         finally:
             record_logging_costs(self._costs, {
                 "diagnostic_open_count": 1,
-                "diagnostic_open_ms": (perf_counter() - started) * 1000,
+                "diagnostic_open_ms": logging_cost_elapsed(self._costs, started),
             })
 
     def handleError(self, record: logging.LogRecord) -> None:
@@ -264,7 +276,7 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
     def _close_output_stream(self) -> None:
         if self.stream is None:
             return
-        started = perf_counter()
+        started = logging_cost_clock(self._costs)
         try:
             self.stream.close()
         except OSError:
@@ -273,7 +285,7 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
             self.stream = None
             record_logging_costs(self._costs, {
                 "diagnostic_close_count": 1,
-                "diagnostic_close_ms": (perf_counter() - started) * 1000,
+                "diagnostic_close_ms": logging_cost_elapsed(self._costs, started),
             })
 
     def _apply_private_output_permissions(self) -> None:
@@ -449,6 +461,8 @@ class LocalDiagnosticRecorder:
         database_connection_count: int | None = None,
         database_schema_check_count: int | None = None,
         database_lock_retry_count: int | None = None,
+        file_io: object = None,
+        worker_startup: object = None,
     ) -> None:
         """Record one request using a route template rather than its raw URL."""
 
@@ -497,6 +511,17 @@ class LocalDiagnosticRecorder:
         timings = _safe_server_timings(server_timings_ms or {})
         if timings:
             payload["server_timings_ms"] = timings
+        for name, observation, sanitize in (
+            ("file_io", file_io, sanitize_file_io),
+            ("worker_startup", worker_startup, sanitize_worker_startup),
+        ):
+            try:
+                safe_observation = sanitize(observation)
+            except Exception:  # noqa: BLE001 - optional attribution cannot prevent logging
+                self._capture_setup_failures += 1
+                continue
+            if safe_observation:
+                payload[name] = safe_observation
         self._write(payload)
 
     def record_event_loop_delay(self, *, duration_ms: float) -> None:
@@ -728,7 +753,7 @@ class LocalDiagnosticRecorder:
 
     def _write_observed(self, payload: dict[str, Any]) -> None:
         """Measure encoding, caller lock wait, and synchronous diagnostic emission."""
-        started = perf_counter()
+        started = logging_cost_clock(self._logging_costs)
         envelope = {
             "schema_version": DIAGNOSTIC_SCHEMA_VERSION,
             "recorded_at": datetime.now(UTC)
@@ -742,12 +767,12 @@ class LocalDiagnosticRecorder:
             sort_keys=True,
             separators=(",", ":"),
         )
-        encode_ms = (perf_counter() - started) * 1000
-        lock_started = perf_counter()
+        encode_ms = logging_cost_elapsed(self._logging_costs, started)
+        lock_started = logging_cost_clock(self._logging_costs)
         with self._lock:
             record_logging_costs(self._logging_costs, {
                 "diagnostic_encode_ms": encode_ms,
-                "diagnostic_thread_lock_wait_ms": (perf_counter() - lock_started) * 1000,
+                "diagnostic_thread_lock_wait_ms": logging_cost_elapsed(self._logging_costs, lock_started),
             })
             if self._closed:
                 return
@@ -757,10 +782,11 @@ class LocalDiagnosticRecorder:
             except (OSError, ValueError):
                 # Diagnostics must never make the local application unavailable.
                 self._handler.write_failure_count += 1
+                record_logging_costs(self._logging_costs, {"diagnostic_capture_failure_count": 1})
                 return
             finally:
                 record_logging_costs(self._logging_costs, {
-                    "diagnostic_caller_ms": (perf_counter() - started) * 1000,
+                    "diagnostic_caller_ms": logging_cost_elapsed(self._logging_costs, started),
                 })
 
     @staticmethod
@@ -777,6 +803,45 @@ class LocalDiagnosticRecorder:
             return
 
 
+class _RequestCostObservation(Protocol):
+    """Expose only a copied bounded operational observation."""
+
+    def snapshot(self) -> Mapping[str, object]: ...
+
+
+@contextmanager
+def _optional_request_observation(
+    recorder: LocalDiagnosticRecorder,
+    factory: Callable[[], AbstractContextManager[_RequestCostObservation]],
+) -> Iterator[_RequestCostObservation | None]:
+    """Isolate observer setup/teardown while preserving the app's exception."""
+    try:
+        manager = factory()
+        observation = manager.__enter__()
+    except Exception:  # noqa: BLE001 - optional instrumentation cannot reject a request
+        recorder._capture_setup_failures += 1
+        yield None
+        return
+    try:
+        yield observation
+    finally:
+        try:
+            manager.__exit__(None, None, None)
+        except Exception:  # noqa: BLE001 - preserve the original response or exception
+            recorder._capture_setup_failures += 1
+
+
+def _request_observation_snapshot(
+    recorder: LocalDiagnosticRecorder, observation: _RequestCostObservation | None,
+) -> Mapping[str, object]:
+    """Treat a failed optional snapshot as unavailable, never a zero duration."""
+    try:
+        return observation.snapshot() if observation is not None else {}
+    except Exception:  # noqa: BLE001 - request processing remains authoritative
+        recorder._capture_setup_failures += 1
+        return {}
+
+
 class RequestDiagnosticsMiddleware:
     """Attach a request identity and record one bounded terminal request fact."""
 
@@ -789,6 +854,7 @@ class RequestDiagnosticsMiddleware:
             await self.app(scope, receive, send)
             return
 
+        lifecycle_started = perf_counter()
         request_id = str(uuid4())
         state = scope.setdefault("state", {})
         state["diagnostic_request_id"] = request_id
@@ -840,6 +906,8 @@ class RequestDiagnosticsMiddleware:
             await send(message)
 
         with (
+            _optional_request_observation(self.recorder, collect_file_io) as file_io,
+            _optional_request_observation(self.recorder, collect_worker_startup) as startup,
             observe_json2_read_failures(record_json2_failure),
             collect_duckdb_request_timings() as database_timings,
             bind_load_observation(observer),
@@ -851,6 +919,8 @@ class RequestDiagnosticsMiddleware:
                 record_load_failure(error)
                 raise
             finally:
+                file_observation = _request_observation_snapshot(self.recorder, file_io)
+                startup_observation = _request_observation_snapshot(self.recorder, startup)
                 if observer is not None and not observer.enqueued and not observer.terminal:
                     observer.terminal = True
                     observer.emit("terminal", outcome="FAILED" if status_code >= 400 else "COMPLETED",
@@ -883,10 +953,15 @@ class RequestDiagnosticsMiddleware:
                     database_lock_retry_count=(
                         database_timings.lock_retry_count
                     ),
+                    file_io=file_observation,
+                    worker_startup=startup_observation,
                 )
-                self.recorder.record_request_completion(
-                    request_id, reported_duration_ms, (perf_counter() - started) * 1000,
-                )
+                try:
+                    self.recorder.record_request_completion(
+                        request_id, reported_duration_ms, (perf_counter() - lifecycle_started) * 1000,
+                    )
+                except Exception:  # noqa: BLE001 - optional lifecycle costs cannot change the response
+                    self.recorder._capture_setup_failures += 1
 
 
 def set_diagnostic_working_draft_version(request, version: int | None) -> None:
@@ -918,6 +993,7 @@ def create_diagnostic_bundle(
     max_records: int = DEFAULT_MAX_BUNDLE_RECORDS,
     attempt_id: str | None = None,
     capture_failure_count: int = 0,
+    logging_costs: Mapping[str, object] | None = None,
 ) -> bytes:
     """Create a bounded ZIP whose contents cannot carry business data."""
 
@@ -975,6 +1051,8 @@ def create_diagnostic_bundle(
         capture_failure_count=capture_failure_count,
     )
     common_performance_summary = performance_summary(records)
+    logging_observation = sanitize_logging_costs(logging_costs)
+    common_performance_summary["logging"] = logging_observation
     records = records[-max_records:]
     slow_records = [
         item
@@ -1009,6 +1087,11 @@ def create_diagnostic_bundle(
         "supporting_access_record_count": len(supporting_access_records),
         "load_evidence": load_coverage,
         "preparation_performance_evidence": performance_coverage,
+        "logging_performance_evidence": {
+            key: logging_observation[key]
+            for key in ("status", "scope", "capture_complete", "child_process_coverage", "dropped_correlation_count")
+            if key in logging_observation
+        },
         "recording_failure_count_current_session": max(0, capture_failure_count),
         "coverage": {
             **input_issues,
@@ -1337,6 +1420,10 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         safe_timings = _safe_server_timings(timings)
         if safe_timings:
             safe["server_timings_ms"] = safe_timings
+    for field, sanitize in (("file_io", sanitize_file_io), ("worker_startup", sanitize_worker_startup)):
+        observation = sanitize(value.get(field))
+        if observation:
+            safe[field] = observation
     return safe
 
 

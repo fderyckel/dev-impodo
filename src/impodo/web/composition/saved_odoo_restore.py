@@ -15,6 +15,7 @@ from uuid import uuid4
 from impodo.application.destination_matching_service import (
     DestinationMatchingService,
     DestinationMatchKeyChoice,
+    destination_match_scope_candidates,
 )
 from impodo.application.odoo_saved_data_jobs import SavedOdooActionError
 from impodo.application.schema_workspace_service import _schema_field_from_metadata
@@ -314,6 +315,7 @@ def restore_saved_odoo_data(
     plans: dict[str, OdooRestorePlan] = {}
     choices: list[DestinationMatchKeyChoice] = []
     source_by_model = {model.name: model for model in schema.models}
+    scope_candidates = destination_match_scope_candidates(selection, schema, scope)
     errors: list[str] = []
     field_rows: list[dict[str, object]] = []
     default_rows: list[dict[str, object]] = []
@@ -331,6 +333,15 @@ def restore_saved_odoo_data(
             if recommendation
             else ()
         )
+        matching_scopes = tuple(settings.get("scopes", {}).get(source.name, ()))
+        if matching_scopes and (
+            len(matching_scopes) != 1
+            or matching_scopes[0] not in {
+                name for name, _label in scope_candidates.get(dataset.dataset_id, ())
+            }
+        ):
+            errors.append(f"Review the parent or company used to match {source.label}")
+            continue
         if not keys or any(key not in columns for key in keys):
             errors.append(f"Choose portable matching fields for {source.label}")
             continue
@@ -403,6 +414,7 @@ def restore_saved_odoo_data(
                 for decision in scope.decisions
             )
         )
+        relation_names = tuple(dict.fromkeys((*relation_names, *matching_scopes)))
         handling = (
             "reference_only"
             if scope is not None and source.name in scope.reference_models
@@ -415,6 +427,7 @@ def restore_saved_odoo_data(
                     columns[keys[0]],
                     tuple(columns[key] for key in keys[1:]),
                     destination_handling=handling,
+                    scope_fields=matching_scopes,
                 )
             )
             continue
@@ -424,7 +437,7 @@ def restore_saved_odoo_data(
             source_version=schema.odoo_version,
             destination_version=metadata.fingerprint.odoo_version,
             captured_fields=tuple(dict.fromkeys((*columns, *relation_names))),
-            identity_fields=keys,
+            identity_fields=(*keys, *matching_scopes),
             rules=rules,
             defaults=defaults,
             creates_expected=False,
@@ -450,7 +463,7 @@ def restore_saved_odoo_data(
                     "link_policy": rule.link_policy.value,
                     "target_name": rule.target_field or name,
                     "excluded": rule.excluded,
-                    "is_identity": name in keys,
+                    "is_identity": name in (*keys, *matching_scopes),
                     "message": coverage.message if coverage else "",
                 }
             )
@@ -484,6 +497,7 @@ def restore_saved_odoo_data(
                 columns[keys[0]],
                 tuple(columns[key] for key in keys[1:]),
                 destination_handling=handling,
+                scope_fields=matching_scopes,
             )
         )
     profiles = run_local_operation_sync(
@@ -526,11 +540,6 @@ def restore_saved_odoo_data(
     matching = DestinationMatchingService(context.categorical_coverage)
     records = []
 
-    def reader(*args):
-        result = context.destination_match_reader(*args)
-        records.append(result[1])
-        return result
-
     def compare(current):
         return matching.check(
             current,
@@ -542,7 +551,8 @@ def restore_saved_odoo_data(
             read_identity=context.read_identity_probe(
                 destination, credential.secret, models
             ),
-            reader=reader,
+            reader=context.destination_match_reader,
+            record_snapshot_sink=records.append,
             recorded_by=actor.identity.display_name,
             source_origins=origins,
             relationship_scope=scope,

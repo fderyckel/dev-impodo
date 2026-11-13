@@ -61,6 +61,26 @@ it.
 
 ## Implementation flow
 
+### Matching-rule scope selection
+
+The **Within (optional)** control renders labelled checkboxes from captured
+field metadata. Operators can select several scope fields without entering
+technical names. `schema-scope-fields.js` keeps the selected labels and ordered
+technical mirror current. It loads before `schema.js`, which owns the draft,
+conflict and confirmation states. Existing rules retain their scope order.
+
+The governance route reads repeated `scope_choice_*` form values when the
+checkbox-presence marker is submitted. Checked fields are authoritative, so an
+explicit empty selection clears a stale mirror even without JavaScript.
+Historical forms still use the existing scalar or combined-field contract.
+The same domain validation rejects duplicate or incompatible fields. The
+picker reads captured metadata only and adds no Odoo or DuckDB requests.
+
+The [scope-selection regressions](../../../tests/integration/web/test_stage2_scope_selection.py)
+cover saving, reopening, error recovery and clearing for Odoo 19, Odoo 20 and
+a custom model. The [interaction tests](../../../tests/e2e/schema-scope-fields.test.cjs)
+cover labelled selection, field order and removal of all scopes.
+
 ### Company selection and protected ownership
 
 The operator confirms the load company in
@@ -500,6 +520,22 @@ policies preserve meaningful false and zero values. Many2many replacement,
 keep and additive policies distinguish record membership from record deletion.
 Destination-only records and extra children are preserved.
 
+The **How matching records are found** section also offers **Match within**
+for admitted captured Many2one relationships. A saved destination profile
+retains `settings_json.scopes` as a model-to-selected-field mapping alongside
+its scalar keys. The composition passes those fields to the same
+`DestinationMatchKeyChoice` used by ordinary transfer. Selected scope fields
+are identity inputs to `compile_odoo_restore`; field policies cannot rename,
+exclude or keep a different destination value for them.
+
+The admitted scope is one direct writable stored relationship to a selected
+unscoped parent that already matches exactly one destination record. Null,
+missing, ambiguous or recursively scoped parents, and inbound links to the
+scoped model, remain blocked. This does not remap a source company to a
+differently identified destination company. The
+[load workflow](06-load-into-odoo.md#direct-existing-parent-matching-scope)
+owns the shared portable identity, matching, execution and recovery boundary.
+
 The composition continues through destination matching, dependency order,
 exact transfer review, fresh preflight and `TransferExecutionService`.
 The submitted confirmation authorizes that selected version, destination and
@@ -841,6 +877,8 @@ scope.
 - [Offline restore projections, retry and source-company ownership](../../../tests/integration/web/test_saved_odoo_workspace_projection.py).
 - [Source-company forward upgrade and protected hash checks](../../../tests/integration/duckdb/test_saved_source_company_upgrade.py).
 - [Restore policies through transfer matching and execution compilation](../../../tests/application/workspace/test_saved_odoo_transfer.py).
+- [Direct existing-parent matching and execution](../../../tests/application/workspace/test_scoped_odoo_transfer.py) and [ordinary and saved scope-choice protection](../../../tests/integration/web/test_transfer_matching_scope_choices.py).
+- [Saved scoped field policies, fresh preflight, compilation and independent reconciliation](../../../tests/application/workspace/test_scoped_saved_odoo_transfer.py) cover both majors and local/remote fictional metadata. Actual Odoo writes and a complete browser restoration remain separate qualification.
 - [Encrypted package format and rejection of malformed containers](../../../tests/integration/artifacts/test_odoo_saved_data_package.py).
 - [Independent-installation archive round trips](../../../tests/integration/web/test_saved_odoo_archive_lifecycle.py) cover Odoo 19 and 20 with local and remote source metadata, new keys, filter rebinding, no source access, retry, malformed metadata, and authorization rejection. These are controlled fixtures; they do not qualify live ORM behavior or a complete Chart of Accounts.
 - [Saved-data browser routes and destination review](../../../tests/integration/web/test_saved_odoo_data.py), [initial and repeated source capture](../../../tests/integration/web/test_saved_odoo_data_refresh_lifecycle.py), and [checked restoration through the assembled application](../../../tests/integration/web/test_saved_odoo_restore_flow.py).

@@ -105,6 +105,7 @@ from .columnar_transformation_port import (
     DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
     ColumnarTransformationPort,
 )
+from .fallback_performance import DatasetPreparationPerformance
 from .readiness_ports import PreparationSessionRepository
 
 BOUNDED_SOURCE_BATCH_SIZE = 5_000
@@ -226,6 +227,7 @@ def prepare_bounded_direct_session(
     source_snapshots: Iterable[SourceSnapshot] | None = None,
     batch_progress: Callable[[int, int], None] | None = None,
     columnar_batch_size: int = DEFAULT_COLUMNAR_TRANSFORMATION_BATCH_ROWS,
+    dataset_observer: DatasetPreparationPerformance | None = None,
 ) -> BoundedDirectPreparation:
     """Transform one direct selection into a READY durable preparation session.
 
@@ -396,6 +398,12 @@ def prepare_bounded_direct_session(
             else:
                 raise ReadinessError("Frozen source evidence is incomplete")
             columnar = columnar_by_id[effective.dataset_id]
+            if dataset_observer is not None:
+                dataset_observer.start(
+                    effective.dataset_id,
+                    "NATIVE_COLUMNAR" if columnar.support is ColumnarSupport.SUPPORTED
+                    else "BOUNDED_PYTHON",
+                )
             if columnar.support is ColumnarSupport.SUPPORTED:
                 # The native projection remains the preferred path because it
                 # avoids materialising large transformed result sets in Python.
@@ -456,6 +464,8 @@ def prepare_bounded_direct_session(
                             totals.target_fields(effective.name),
                         )
                         if native_projection is not None:
+                            if dataset_observer is not None:
+                                dataset_observer.adaptation(effective.dataset_id, "NATIVE_PROJECTION")
                             for control in native_projection.control_totals:
                                 totals.add_precomputed(
                                     effective.name,
@@ -482,9 +492,13 @@ def prepare_bounded_direct_session(
                                 row_count,
                                 mapping.target_model,
                             )
+                            if dataset_observer is not None:
+                                dataset_observer.finish(effective.dataset_id)
                             continue
 
                         _require_python_row_adaptation_capacity(total_rows)
+                        if dataset_observer is not None:
+                            dataset_observer.adaptation(effective.dataset_id, "PYTHON_ROW_ADAPTATION")
                         sessions.bind_prepared_canonical_projection(
                             workspace_state.workspace_id,
                             session.session_id,
@@ -593,8 +607,12 @@ def prepare_bounded_direct_session(
                     row_count,
                     mapping.target_model,
                 )
+                if dataset_observer is not None:
+                    dataset_observer.finish(effective.dataset_id)
                 continue
 
+            if dataset_observer is not None:
+                dataset_observer.adaptation(effective.dataset_id, "PYTHON_RECORDS")
             transformer = compile_browser_row_transformer(
                 effective,
                 physical,
@@ -751,6 +769,8 @@ def prepare_bounded_direct_session(
                 row_count,
                 mapping.target_model,
             )
+            if dataset_observer is not None:
+                dataset_observer.finish(effective.dataset_id)
 
         impact_sink.flush()
         run = sessions.finalize_direct_session(
@@ -763,6 +783,8 @@ def prepare_bounded_direct_session(
         )
         return BoundedDirectPreparation(session_id=session.session_id, run=run)
     except Exception:
+        if dataset_observer is not None:
+            dataset_observer.interrupt_active()
         sessions.fail_session(
             workspace_state.workspace_id,
             session.session_id,

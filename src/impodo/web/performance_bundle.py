@@ -6,6 +6,7 @@ import json
 from collections.abc import Mapping, Sequence
 from typing import cast
 
+from .performance_attribution import request_attribution
 from .preparation_performance_diagnostics import (
     PERFORMANCE_EVENT,
     sanitize_performance_event,
@@ -70,7 +71,7 @@ def performance_bundle_members(
             document, ensure_ascii=True, indent=2, sort_keys=True
         )
         + "\n",
-        "performance-summary.txt": _text_summary(attempts, coverage),
+        "performance-summary.txt": _text_summary(attempts, coverage, request_attribution(records)),
     }, coverage
 
 
@@ -134,6 +135,8 @@ def _attempt_summary(
         "workload",
         "resources",
         "database",
+        "file_io",
+        "numeric_validation",
     ):
         merged: dict[str, object] = {}
         for payload in payloads:
@@ -149,13 +152,16 @@ def _attempt_summary(
             "workload",
             "resources",
             "database",
+            "file_io",
+            "numeric_validation",
         )
     }
     return result
 
 
 def _text_summary(
-    attempts: Sequence[dict[str, object]], coverage: Mapping[str, object]
+    attempts: Sequence[dict[str, object]], coverage: Mapping[str, object],
+    requests: Sequence[Mapping[str, object]] = (),
 ) -> str:
     lines = [
         "Impodo performance observations",
@@ -164,6 +170,8 @@ def _text_summary(
         "A single observation cannot establish a speedup or qualify Windows/macOS performance.",
         "Memory is sampled resident memory, not an exact peak or a hard memory limit.",
         "Inclusive and nested phase timings overlap; do not add them together.",
+        "File observations measure instrumented operations, not physical disk throughput.",
+        "Antivirus attribution is unavailable without separate authorized system evidence.",
         f"Retained attempts: {len(attempts)}; omitted events: {coverage['omitted_event_count']}.",
     ]
     if not attempts:
@@ -177,6 +185,9 @@ def _text_summary(
         environment = cast("Mapping[str, object]", attempt["environment"])
         configuration = cast("Mapping[str, object]", attempt["configuration"])
         resources = cast("Mapping[str, object]", attempt["resources"])
+        file_io = cast("Mapping[str, object]", attempt["file_io"])
+        numeric = cast("Mapping[str, object]", attempt["numeric_validation"])
+        workload = cast("Mapping[str, object]", attempt["workload"])
         attempt_coverage = cast("Mapping[str, object]", attempt["coverage"])
         lines.extend(
             (
@@ -189,6 +200,33 @@ def _text_summary(
                 f"Sampled peak worker RSS bytes: {resources.get('sampled_peak_worker_rss_bytes', 'unavailable')}; samples: {resources.get('sample_count', 'unavailable')}.",
             )
         )
+        if file_io:
+            lines.append(
+                f"Artifact reads/hashes/writes: {file_io.get('read_operations', 'unavailable')}/"
+                f"{file_io.get('hash_operations', 'unavailable')}/"
+                f"{file_io.get('write_operations', 'unavailable')}; "
+                "durations describe separate instrumented boundaries."
+            )
+        if numeric:
+            lines.append(
+                f"Numeric cells examined: {numeric.get('cells_examined', 'unavailable')}; "
+                f"findings: {numeric.get('findings_generated', 'unavailable')}; "
+                f"validation ms: {numeric.get('elapsed_ms', 'unavailable')}."
+            )
+        dataset_routes = workload.get("dataset_routes")
+        if isinstance(dataset_routes, list):
+            for route in dataset_routes[:8]:
+                if isinstance(route, dict):
+                    lines.append(
+                        f"  Dataset {str(route.get('dataset_hash', 'unavailable'))[:19]}: "
+                        f"{route.get('row_count', 'unavailable')} rows; "
+                        f"predicted {route.get('predicted_route', 'UNOBSERVED')}; "
+                        f"observed {route.get('actual_route', 'UNOBSERVED')}; "
+                        f"adaptation {route.get('adaptation_route', 'UNOBSERVED')}; "
+                        f"reasons {','.join(route.get('reason_codes', []))}; "
+                        f"dataset ms {route.get('duration_ms', 'unavailable')}."
+                    )
+            lines.append("Dataset route snapshots replace earlier snapshots; repeated rows are not additive.")
         phases = cast("Sequence[Mapping[str, object]]", attempt["phase_timings"])
         for phase in sorted(
             phases,
@@ -198,4 +236,22 @@ def _text_summary(
             lines.append(
                 f"  {phase['phase']}: {phase['duration_ms']} ms ({phase.get('timing_scope', 'scope unavailable')})."
             )
+    if requests:
+        lines.extend(("", "Recent request-owned file and worker observations (not additive to job phases):"))
+        for request in requests[-8:]:
+            file_io = cast("Mapping[str, object]", request.get("file_io", {}))
+            startup = cast("Mapping[str, object]", request.get("worker_startup", {}))
+            lines.append(
+                f"  Request {request['request_id']}: reported ms {request.get('duration_ms', 'unavailable')}; "
+                f"file read/hash/write ms {file_io.get('read_ms', 'unavailable')}/"
+                f"{file_io.get('hash_ms', 'unavailable')}/{file_io.get('write_ms', 'unavailable')}."
+            )
+            operations = cast("Mapping[str, Mapping[str, object]]", startup.get("operations", {}))
+            for name, values in operations.items():
+                lines.append(
+                    f"    {name}: worker count {values.get('worker_count', 'unavailable')}; "
+                    f"process start call ms {values.get('start_call_ms', 'unavailable')}; "
+                    f"first message wait ms {values.get('first_message_wait_ms', 'unavailable')}; "
+                    f"result wait ms {values.get('result_wait_ms', 'unavailable')}."
+                )
     return "\n".join(lines) + "\n"

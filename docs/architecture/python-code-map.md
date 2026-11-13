@@ -93,6 +93,16 @@ applies them through destination matching, transfer order, review, preflight,
 execution and read-back. It keeps the ordinary transfer path's identity and
 authorization boundaries.
 
+`application/destination_matching_service.py` owns both entry points' direct
+existing-parent scope. `destination_match_scope_candidates` offers admitted
+captured relationships; `domain/workspace/portable_identity.py` translates
+protected parent origins into portable business references and scoped keys.
+Saved profiles retain the selected scope under `settings_json.scopes`.
+`application/transfer_execution_service.py` uses the existing execution dataset
+scope and row business-scope contracts. This slice requires one selected,
+unscoped parent already matched uniquely at the destination. Broader scope
+shapes and explicit company aliases remain outside this implementation.
+
 `application/odoo_saved_data_archive.py` authorizes portable exports and imports.
 `adapters/odoo_saved_data_package.py` owns the authenticated encrypted container.
 The DuckDB archive backend selects exact retained members;
@@ -116,6 +126,8 @@ owns route, retention, consistency, compatibility and verification details.
 | Existing hierarchy parents | `domain/hierarchy.py` defines portable prefix and company rules. `application/hierarchy_parent_lookup.py` browses bounded full-path choices and rechecks selected paths exactly. `web/composition/hierarchy_parents.py` separates local capture and publication from Odoo company and parent reads; `target_readers.py::hierarchy_parent_connector` constructs the remote adapter. The mapping compiler and preflight engine preserve the reuse-only boundary. |
 | Preparation publication and recovery | `application/workspace/preparation` owns transformation and quality decisions. `preparation_session_repository.py` holds the DuckDB publication boundary. `application/workspace/preparation/recovery.py` checks existing publication evidence so a completed job can be restored without spawning another worker. |
 | Preparation threads and diagnostic evidence | `application/shared/preparation_runtime.py` applies and verifies the child-only Polars thread limit. `web/composition/preparation_performance.py` observes the supervisor-owned attempt and samples process resources. `web/preparation_performance_diagnostics.py` sanitizes that evidence, and `web/performance_bundle.py` builds its bounded diagnostic ZIP members. `scripts/benchmark_preparation_workers.py` compares fixed first and repeat preparations across thread settings. |
+| Diagnostic cost attribution | `application/shared/io_performance.py` measures existing artifact operations. `application/shared/worker_startup.py` collects source-worker startup intervals. `application/workspace/preparation/fallback_performance.py` records predicted and observed dataset routes. `web/diagnostic_costs.py` measures recorder overhead in memory, and `web/performance_attribution.py` sanitizes the exported costs. |
+| Bounded numeric checking | `adapters/duckdb/preparation_numeric_precision.py` streams numeric cells through the authoritative predicate and inserts failure batches. `domain/preparation/quality_budget.py` bounds retained finding evidence, and `application/shared/numeric_performance.py` observes actual work without retaining values. |
 | Review counts and affected rows | `adapters/duckdb/quality_repository.py` pages the preparation cause index. `quality_review_details.py` resolves the requested rows from saved lineage and prepared data. `preflight_repository.py` publishes comparison decisions and the compact review together. |
 | Final review substeps | `web/presenters/final_review_journey.py` resolves presentation-only step and view parameters. `summary.py` renders the active responsibility, and `navigation.py` keeps its sidebar location separate from evidence-derived readiness. |
 | Business expectations | `BusinessIntentService` saves the expectations. `application/workspace/execution/business_review.py` reviews them against the comparison. The execution journal retains the exact approval for recovery. |

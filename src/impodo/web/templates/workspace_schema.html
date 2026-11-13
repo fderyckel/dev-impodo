@@ -5,6 +5,7 @@
   <link rel="stylesheet" href="{{ url_for('static', path='/schema.css') }}">
 {% endblock %}
 {% block page_scripts %}
+  <script src="{{ url_for('static', path='/schema-scope-fields.js') }}" defer></script>
   <script src="{{ url_for('static', path='/schema.js') }}" defer></script>
 {% endblock %}
 {% block content %}
@@ -742,23 +743,9 @@
                 </select>
                 <small>The stable value used to find one Odoo record.</small>
               </label>
-              <label>
-                Within (optional)
-                <select
-                  name="primary_scope_field_{{ loop.index0 }}"
-                  data-primary-scope-field
-                  aria-describedby="key-field-error-{{ loop.index0 }}"
-                >
-                  <option value="">No additional scope</option>
-                  {% for field in view.field_choices %}
-                    <option
-                      value="{{ field.name }}"
-                      {% if view.scope_fields|length == 1 and view.scope_fields[0] == field.name %}selected{% endif %}
-                    >{{ field.label }}</option>
-                  {% endfor %}
-                </select>
-                <small>Use when the same value may exist under different parents, companies, or organizations.</small>
-              </label>
+              {% with scope_index = loop.index0 %}
+                {% include "schema/_scope_picker.html" %}
+              {% endwith %}
             </div>
 
             <details class="key-technical-fields">
@@ -774,16 +761,6 @@
                     aria-describedby="key-field-error-{{ loop.index0 }}"
                   >
                   <small>Comma-separated technical names, in matching order.</small>
-                </label>
-                <label>
-                  Scope field(s)
-                  <input
-                    name="scope_fields_{{ loop.index0 }}"
-                    data-combined-scope-fields
-                    value="{{ view.scope_fields|join(', ') }}"
-                    placeholder="company_id"
-                    aria-describedby="key-field-error-{{ loop.index0 }}"
-                  >
                 </label>
                 <label>
                   Meaning (optional)

@@ -362,7 +362,9 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
             )
 
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertIn("Approve the exact Odoo transfer package", response.text)
+        self.assertIn("Review the Odoo transfer contents", response.text)
+        self.assertIn("Build review package", response.text)
+        self.assertIsNone(context.queries.get(workspace_id).transfer_review_package)
         workspace_read.assert_called()
         source_selection_read.assert_called()
         schema_read.assert_called()

@@ -1,0 +1,41 @@
+<fieldset class="key-scope-picker">
+  <legend>Within <span class="key-optional">(optional)</span></legend>
+  <input type="hidden" name="scope_choices_present_{{ scope_index }}" value="1">
+  <input type="hidden" name="scope_fields_{{ scope_index }}" value="{{ view.scope_fields|join(', ') }}" data-combined-scope-fields>
+  <div class="key-scope-box">
+    <div class="key-scope-current">
+      <div class="key-scope-chips" data-scope-selected>
+        {% for name in view.scope_fields %}
+          <span class="key-scope-chip">{{ view.field_labels.get(name, name) }}</span>
+        {% endfor %}
+      </div>
+      <span class="muted" data-scope-none {% if view.scope_fields %}hidden{% endif %}>No additional scope</span>
+      <button type="button" class="key-scope-clear" data-scope-clear hidden>Clear</button>
+    </div>
+    <details data-scope-disclosure>
+      <summary class="key-scope-selection" data-key-scope-selection>Choose fields</summary>
+      <div class="key-scope-search" data-scope-search-tools hidden>
+        <label>
+          <span class="visually-hidden">Search scope fields</span>
+          <input type="search" placeholder="Search fields…" aria-label="Search scope fields" data-scope-search autocomplete="off">
+        </label>
+      </div>
+      <div class="key-scope-options">
+        {% for field in view.field_choices %}
+          <label class="key-scope-option{% if field.name in view.scope_fields %} is-selected{% endif %}" data-scope-option>
+            <input type="checkbox" name="scope_choice_{{ scope_index }}" value="{{ field.name }}" data-scope-field data-field-label="{{ field.label }}" {% if field.name in view.scope_fields %}checked{% endif %} aria-describedby="key-field-error-{{ scope_index }}">
+            <span>{{ field.label }}</span>
+          </label>
+        {% endfor %}
+        {% for name in view.scope_fields if name not in view.field_labels %}
+          <label class="key-scope-option is-selected" data-scope-option>
+            <input type="checkbox" name="scope_choice_{{ scope_index }}" value="{{ name }}" data-scope-field data-field-label="{{ name }}" checked aria-describedby="key-field-error-{{ scope_index }}">
+            <span>{{ name }} (no longer available)</span>
+          </label>
+        {% endfor %}
+      </div>
+      <p class="muted key-scope-empty" data-scope-no-results hidden>No matching fields.</p>
+    </details>
+  </div>
+  <small>Add a parent, company, or another field when values can repeat.</small>
+</fieldset>

@@ -84,6 +84,28 @@ values again before constructing the journal's exact row set. Recovery uses
 that same bound snapshot and cannot reintroduce an excluded row. Earlier plan
 payloads retain their original hashes and require a new destination check.
 
+Destination-matching contract version 17 and transfer-review contract version 8
+also bind one optional direct Many2one identity scope and its selected parent
+dataset. The parent uses an unscoped scalar identity and must already resolve
+uniquely in the destination. Protected captured origins are translated into a
+portable `BusinessReference` before the scope contributes to a child's identity.
+Numeric Odoo IDs do not become portable identity components.
+
+Matching, approval, fresh preflight and execution compilation must use the same
+scope. The execution dataset's existing `scope_fields` and each row's
+`business_scope` retain the portable parent reference for exact lookup,
+read-back and recovery. Changed scope invalidates prior matching and transfer
+approval. Restored field policies cannot exclude, rename or substitute another
+value for an identity scope field.
+
+This increment rejects null or incomplete captured scope, missing or ambiguous
+parent identities, parents that need creation or their own relational scope,
+and inbound relationships to the scoped model. Equal child keys inside the
+same parent remain ambiguous. A selected destination operating company does
+not remap saved company references, and a matching scope supplies no company
+alias. Historical unscoped payloads retain their original serialization and
+hashes; current readiness still requires fresh admitted evidence.
+
 ## Authorization and binding
 
 Prepared-data execution requires a current `READY` final-review report. An

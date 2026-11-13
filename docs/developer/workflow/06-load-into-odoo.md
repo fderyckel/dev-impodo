@@ -157,6 +157,63 @@ full ordered tuple is used for match counts, binding hashes, review, preflight,
 relationship resolution, and execution. This supports the current 10,000-row
 Odoo capture boundary without one broad first-field query.
 
+### Direct existing-parent matching scope
+
+Destination-matching contract version 17 and transfer-review contract version 8
+bind an optional single `scope_fields` entry and its selected parent dataset.
+The **Match within** control uses
+[`destination_match_scope_candidates`](../../../src/impodo/application/destination_matching_service.py)
+to offer captured, writable, stored Many2one relationships admitted by the saved
+relationship decision or its approved inverse One2many. The related model must
+be selected and use an unscoped scalar identity. The existing key rule still
+requires a text or Selection first field; this increment does not admit a
+sequence-only integer key. Every reached parent must already match exactly one
+existing destination record. This slice does not create a missing scope parent.
+
+[`captured_scope_references`](../../../src/impodo/domain/workspace/portable_identity.py)
+joins protected source relationship origins to the parent's reviewed scalar
+identity. `scoped_identity` combines the child's scalar key with that portable
+`BusinessReference`. Source counts therefore distinguish equal child keys under
+different parents. Matching reads unscoped parents first, then sends bounded
+exact child key-and-parent domains. Numeric source and destination IDs remain
+inside the protected evidence or current read boundary; they do not enter the
+portable scope key or matching plan.
+
+Review binds the selected relationship and parent dataset. Fresh preflight and
+load preparation repeat the same scope choice. The execution compiler uses the
+existing `ExecutionDataset.scope_fields` and row `business_scope` contracts;
+canonical target-scope resolvers carry portable parent references through the
+shared writer, read-back and retained recovery snapshot. Historical unscoped
+plan and review serialization keeps its original hash meaning and requires the
+current destination check before readiness.
+
+A null scope, incomplete source origins, missing or ambiguous parent identity,
+missing destination parent, recursively scoped parent, or inbound relationship
+to a scoped model is blocked in this increment. Duplicate child keys within the
+same parent remain identity issues. Product Category keeps its separate
+governed complete-path behavior. Choosing the operation company or a company
+as a matching scope does not introduce a source-to-destination company alias.
+Scoped identity issues do not use the scalar-only manual row-exclusion path;
+that action is blocked and its scalar duplicate listing is suppressed. Guided
+row-inclusion rules remain available and retain their existing confirmation.
+
+[Scoped transfer tests](../../../tests/application/workspace/test_scoped_odoo_transfer.py)
+cover the shared matching and execution path, including Odoo 19 and Odoo 20
+with local and remote metadata. The
+[scope-choice route tests](../../../tests/integration/web/test_transfer_matching_scope_choices.py)
+cover the browser projection, submitted choices and saved-profile protections.
+[Saved scoped-transfer tests](../../../tests/application/workspace/test_scoped_saved_odoo_transfer.py)
+cover restore policies through matching, review, fresh preflight, compilation
+and independent reconciliation, including wrong-parent fallout. They do not
+execute an actual Odoo write or qualify a complete browser restoration.
+The [load-preparation route test](../../../tests/integration/web/test_scoped_transfer_load.py)
+checks that both destination read phases reach snapshot compilation without
+constructing a writer.
+These are controlled tests, not live ORM or latency qualification. No new
+visual browser capture was produced for this control.
+
+### Destination matching and transfer review
+
 Destination matching contract version 15 separates four Stage 4 handling
 modes. `transfer` permits reviewed creates and updates according to the later
 model policy. `reuse_or_create` reuses exact matches unchanged and permits only
@@ -222,10 +279,10 @@ browser. The operational comparison uses the frozen `complete_name` path, while
 the protected `parent_id` provenance remains the writable self-relationship.
 The read-only computed path is excluded from the write-field compatibility
 projection. For another recommended identity whose scalar value is unique only
-inside a related record, Stage 4 currently fails closed instead of matching by
-the scalar alone. A deliberately selected standalone scalar identity, such as
-an approved external code, remains available. The generic scalar-plus-related
-portable matcher is a remaining integration slice.
+inside a related record, Stage 4 requires an admitted **Match within** choice
+or a deliberately selected standalone scalar identity, such as an approved
+external code. The direct existing-parent slice above defines the admitted
+scope; broader relational identity shapes remain blocked.
 The capture publisher rejects selected links that point outside the captured
 related rows. `TransferOrderService` derives dependency waves, while
 `TransferReviewService` freezes a reviewed policy per model (`reuse_only`,
@@ -709,6 +766,8 @@ recorded outcome.
 | Native sparse review pipeline | [`NativeCorrectionReviewPipeline`](../../../src/impodo/adapters/correction_review_pipeline.py) |
 | Polars and Parquet sparse reduction | [`write_polars_correction_candidates`](../../../src/impodo/adapters/polars_correction.py) |
 | Odoo-to-Odoo destination matching | [`DestinationMatchingService`](../../../src/impodo/application/destination_matching_service.py) |
+| Direct existing-parent scope choices | [`destination_match_scope_candidates`](../../../src/impodo/application/destination_matching_service.py) |
+| Portable captured scope and exact scoped identities | [`captured_scope_references`, `scoped_identity` and `scoped_record_identity`](../../../src/impodo/domain/workspace/portable_identity.py) |
 | Canonical resolver meaning for transfer handling | [`resolver_origin_for_destination_handling`](../../../src/impodo/domain/workspace/destination_matching.py) |
 | Canonical Odoo relationship projection | [`compile_odoo_relationship_datasets`](../../../src/impodo/domain/workspace/odoo_relationship_compilation.py) |
 | Frozen destination-identity counts | [`CategoricalCoverageService.source_identity_counts`](../../../src/impodo/application/workspace/mapping/categorical_coverage.py) |

@@ -56,7 +56,8 @@ downloaded.
    match** and enter the conditions for this transfer.
 3. For each record type, choose the stable business field that identifies the
    same record in both databases. Add another field only when the first field
-   can repeat.
+   can repeat. When the complete identifier repeats under different parents
+   or companies, choose the captured relationship under **Match within**.
 4. Select **Check destination matches**.
    If the check fails, Impodo keeps the identifiers, handling choices, and row
    rules you submitted so you can correct them and check again. The failed
@@ -115,12 +116,31 @@ For each record type, choose its **Destination handling** in Stage 4:
 
 Some Odoo identities are unique only inside another linked record—for example,
 a unit name within its unit category or an operation name within its Bill of
-Materials. Product Category paths are supported directly. For another scoped
-identity, Impodo currently stops with a named message instead of matching the
-name or sequence globally. Continue only if the record type has a reviewed
-standalone identity, such as an external code; otherwise stop and keep the
-relationship-scoped identity unresolved. Do not substitute a global name or
-sequence match.
+Materials. Choose that direct relationship under **Match within**. For example,
+an operation called `Cut` under `Assembly A` remains separate from `Cut` under
+`Assembly B`. The captured source must include the parent record type and its
+own stable matching fields. Each referenced parent must already have exactly
+one destination match; create missing parents in a separate transfer before
+checking the children.
+
+This choice currently supports one direct parent or company link whose parent
+has its own standalone identifier. A blank link, missing or ambiguous parent,
+or parent that itself needs a matching scope stops the check. Another
+transferred record cannot yet refer to a record type matched this way. Repeated
+identifiers within the same parent still need another stable matching field.
+Leave **All records** selected only when the complete identifier is unique
+across that record type. Product Category paths retain their existing automatic
+handling.
+
+For records matched within a parent, **Put this source record aside** is not
+available for identity issues. Correct the identifier or parent choice and
+recapture changed source data when needed. **Rows to use** remains available
+when you deliberately want to restrict the transfer population.
+
+Choosing **Match within** a Company does not map that source company to a
+differently identified destination company. The company must be found using
+its own selected matching fields. The company chosen for the load controls the
+operation context separately.
 
 For a BOM transfer, choose **Use only to match related destination records**
 for **Company**. The frozen Company rows then remain lookup evidence for the

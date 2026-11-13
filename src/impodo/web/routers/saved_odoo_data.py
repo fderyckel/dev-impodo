@@ -22,6 +22,9 @@ from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import FormData, UploadFile
 
+from impodo.application.destination_matching_service import (
+    destination_match_scope_candidates,
+)
 from impodo.application.odoo_saved_data_jobs import SavedOdooActionError
 from impodo.application.odoo_saved_data_service import SavedOdooDataService
 from impodo.domain.odoo_relationship_scope import OdooRelationshipCaptureAction
@@ -133,6 +136,20 @@ def _source_rows(context: WebContext, workspace_id: str, settings: dict):
         for plan in context.queries.get_current_odoo_capture_selections(workspace_id):
             captured[plan.model] = set(plan.field_names)
     scope = context.queries.get_current_odoo_relationship_scope(workspace_id)
+    scope_candidates = (
+        destination_match_scope_candidates(selection, schema, scope)
+        if selection is not None
+        else {}
+    )
+    scopes_by_model = (
+        {
+            dataset.source.model: scope_candidates.get(dataset.dataset_id, ())
+            for dataset in selection.datasets
+            if isinstance(dataset.source, OdooSourceBinding)
+        }
+        if selection is not None
+        else {}
+    )
     if scope is not None:
         for decision in scope.decisions:
             if (
@@ -160,6 +177,11 @@ def _source_rows(context: WebContext, workspace_id: str, settings: dict):
         suggested = recommend_business_key(model)
         keys = tuple(settings.get("keys", {}).get(model.name, ())) or (
             suggested.key_fields if suggested else ()
+        )
+        matching_scopes = tuple(settings.get("scopes", {}).get(model.name, ()))
+        names.update(
+            name for name, _label in scopes_by_model.get(model.name, ())
+            if name in matching_scopes
         )
         rules = {
             item["source_field"]: item
@@ -206,7 +228,7 @@ def _source_rows(context: WebContext, workspace_id: str, settings: dict):
                     "name": field.name,
                     "label": field.label,
                     "type": field.type,
-                    "is_identity": field.name in keys,
+                    "is_identity": field.name in (*keys, *matching_scopes),
                     "policy": rule.get("policy", "use_saved"),
                     "target_name": rule.get("target_field") or field.name,
                     "excluded": rule.get("excluded", False),
@@ -221,6 +243,11 @@ def _source_rows(context: WebContext, workspace_id: str, settings: dict):
                 "label": model.label,
                 "selected": keys,
                 "fields": tuple(candidates),
+                "scope_fields": tuple(
+                    {"name": name, "label": label}
+                    for name, label in scopes_by_model.get(model.name, ())
+                ),
+                "selected_scope": matching_scopes[0] if matching_scopes else "",
             }
         )
     return tuple(rows), tuple(key_rows), types, tuple(coverage)
@@ -412,6 +439,7 @@ def _restore_fields(values: dict) -> tuple[set[str], set[str]]:
     for row in values["key_rows"]:
         name = f"keys__{row['model']}"
         allowed.add(name)
+        allowed.add(f"scope__{row['model']}")
         repeated.add(name)
     for row in values["default_rows"]:
         suffix = f"{row['model']}__{row['name']}"
@@ -436,6 +464,7 @@ def _profile_from_form(
     settings = json.loads(previous.settings_json) if previous else {}
     policy = RestoreValuePolicy(_text(form, "policy_default") or "use_saved")
     keys = dict(settings.get("keys", {}))
+    scopes = dict(settings.get("scopes", {}))
     for row in values["key_rows"]:
         name = f"keys__{row['model']}"
         submitted = tuple(str(value) for value in form.getlist(name))
@@ -452,6 +481,14 @@ def _profile_from_form(
             keys[row["model"]] = submitted
         elif row["selected"]:
             keys[row["model"]] = row["selected"]
+        scope_name = f"scope__{row['model']}"
+        if scope_name in form:
+            selected_scope = _text(form, scope_name)
+            if selected_scope and selected_scope not in {
+                field["name"] for field in row.get("scope_fields", ())
+            }:
+                raise WorkspaceError("Choose an available parent or company for matching")
+            scopes[row["model"]] = (selected_scope,) if selected_scope else ()
     rules: dict[str, list[dict[str, object]]] = {}
     for row in values["field_rows"]:
         model, field = row["model"], row["name"]
@@ -459,7 +496,7 @@ def _profile_from_form(
         target = (
             _text(form, f"target__{suffix}").strip() or row.get("target_name") or field
         )
-        is_identity = field in keys.get(model, ())
+        is_identity = field in (*keys.get(model, ()), *scopes.get(model, ()))
         rule = RestoreFieldRule(
             field,
             target_field=target if target != field else None,
@@ -518,7 +555,7 @@ def _profile_from_form(
         company_name=company,
         credential_workspace_id=previous.credential_workspace_id if previous else None,
         settings_json=canonical_json(
-            {"rules": rules, "defaults": defaults, "keys": keys}
+            {"rules": rules, "defaults": defaults, "keys": keys, "scopes": scopes}
         ),
         created_at=previous.created_at if previous else now,
         updated_at=now,

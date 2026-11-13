@@ -73,6 +73,13 @@ def _matching_evidence(context: WebContext, workspace_id: str):
     return selection, schema
 
 
+def _matching_command_evidence(context: WebContext, workspace_id: str):
+    """Read current command admission and source evidence in one local scope."""
+
+    selection, schema = _matching_evidence(context, workspace_id)
+    return context.queries.get(workspace_id), selection, schema
+
+
 def _choice_value(dataset_id: str, source_column_key: str) -> str:
     return f"{dataset_id}::{source_column_key}"
 
@@ -409,6 +416,7 @@ def _matching_rows(
                 "identity_issue_rows": (),
                 "excluded_identity_rows": (),
                 "identity_issue_error": None,
+                "identity_scope_guidance": None,
                 "relationship_fields": relationship_fields_by_model.get(model, set()),
                 "destination_handling_locked": (
                     model in reference_models or model in create_if_missing_models
@@ -482,6 +490,11 @@ def _render_matching(
             or result.source_duplicate_key_count
             or result.excluded_source_row_numbers
         ):
+            continue
+        if result.scope_fields:
+            row["identity_scope_guidance"] = (
+                "Review the identifier together with its linked parent or company in source data."
+            )
             continue
         try:
             row["identity_issue_rows"] = (
@@ -675,7 +688,9 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
         form = await request.form()
         require_session(request)
         try:
-            selection, schema = await run_page_read(_matching_evidence, context, workspace_id)
+            workspace_state, selection, schema = await run_page_read(
+                _matching_command_evidence, context, workspace_id
+            )
         except WorkspaceError:
             return RedirectResponse(f"/workspaces/{workspace_id}/sources", status_code=303)
         _secure_form(
@@ -691,7 +706,6 @@ def build_destination_matching_router(context: WebContext) -> APIRouter:
             } | _row_rule_fields(selection),
         )
         actor = request_identity(request, context.identity_resolver).actor
-        workspace_state = context.queries.get(workspace_id)
         if (
             workspace_state.source_mode is not SourceMode.ODOO
             or not workspace_state.destination_verified

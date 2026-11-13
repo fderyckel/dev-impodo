@@ -124,6 +124,12 @@ class PreparationSessionViewRepository(Protocol):
         session_id: str,
     ) -> Iterator[CanonicalRow]: ...
 
+    def _iter_canonical_hash_rows(
+        self,
+        workspace_id: str,
+        session_id: str,
+    ) -> Iterator[tuple[str, str | CanonicalRow]]: ...
+
     def iter_direct_encoded_batches(
         self,
         *args,
@@ -371,6 +377,14 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
             batch_size=batch_size,
             connection=connection,
+        )
+
+    def iter_canonical_hash_rows(self) -> Iterator[tuple[str, str | CanonicalRow]]:
+        """Keep current native encodings and restore compatibility payloads."""
+
+        yield from self._repository._iter_canonical_hash_rows(
+            self._workspace_id,
+            self._session_id,
         )
 
     def bounded_quality_index(

@@ -450,11 +450,6 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
             )
             captured_records = []
 
-            def final_reader(*args):
-                metadata, records = context.destination_match_reader(*args)
-                captured_records.append(records)
-                return metadata, records
-
             fresh_match = await run_in_threadpool(
                 matching.check,
                 workspace,
@@ -464,7 +459,8 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                 api_key=credential.secret,
                 credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
-                reader=final_reader,
+                reader=context.destination_match_reader,
+                record_snapshot_sink=captured_records.append,
                 recorded_by=actor.identity.display_name,
                 source_origins=source_origins,
                 row_inclusion_confirmation_hash=approved_match.row_inclusion_confirmation_hash,

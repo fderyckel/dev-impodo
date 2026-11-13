@@ -60,6 +60,7 @@ def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:
             build_contract=request.app.state.build_contract,
             attempt_id=attempt_id,
             capture_failure_count=recorder.capture_failure_count,
+            logging_costs=recorder.logging_costs_snapshot(),
         )
         return Response(
             content=payload,

@@ -22,8 +22,9 @@ class NumericValidationCollector:
     max_failure_batch_rows: int = 0
     max_failure_batch_bytes: int = 0
     elapsed_ms: float = 0.0
+    capture_failure_count: int = 0
 
-    def snapshot(self) -> dict[str, int | float]:
+    def snapshot(self) -> dict[str, int | float | str]:
         """Return only scalar observations safe for the diagnostic boundary."""
 
         return {
@@ -36,6 +37,14 @@ class NumericValidationCollector:
             "max_failure_batch_rows": self.max_failure_batch_rows,
             "max_failure_batch_bytes": self.max_failure_batch_bytes,
             "elapsed_ms": round(max(0.0, self.elapsed_ms), 3),
+            "capture_failure_count": self.capture_failure_count,
+            "status": (
+                "partial"
+                if self.capture_failure_count
+                else "complete"
+                if self.cells_examined
+                else "no_observations"
+            ),
         }
 
 
@@ -60,13 +69,30 @@ def collect_numeric_validation() -> Iterator[NumericValidationCollector]:
 def time_numeric_validation() -> Iterator[None]:
     """Include failed numeric work without measuring unrelated worker phases."""
 
-    started = perf_counter()
+    collector = _CURRENT.get()
+    started = None
+    try:
+        started = perf_counter()
+    except Exception:  # noqa: BLE001 -- Optional capture must not change work or recovery truth.
+        _capture_failed(collector)
     try:
         yield
     finally:
-        collector = _CURRENT.get()
-        if collector is not None:
-            collector.elapsed_ms += (perf_counter() - started) * 1000
+        if collector is not None and started is not None:
+            try:
+                collector.elapsed_ms += (perf_counter() - started) * 1000
+            except Exception:  # noqa: BLE001 -- Optional capture must not change work or recovery truth.
+                _capture_failed(collector)
+
+
+def _capture_failed(collector: NumericValidationCollector | None) -> None:
+    """Expose incomplete capture without masking a work or cleanup failure."""
+
+    if collector is not None:
+        try:
+            collector.capture_failure_count += 1
+        except Exception:  # noqa: BLE001 -- Optional counter capture must not mask governed work or cleanup failures.
+            return
 
 
 def observe_numeric_value_page(*, cells: int, findings: int, byte_count: int) -> None:
@@ -74,13 +100,16 @@ def observe_numeric_value_page(*, cells: int, findings: int, byte_count: int) ->
 
     collector = _CURRENT.get()
     if collector is not None and cells:
-        collector.cells_examined += cells
-        collector.findings_generated += findings
-        collector.value_page_count += 1
-        collector.max_value_page_rows = max(collector.max_value_page_rows, cells)
-        collector.max_value_page_bytes = max(
-            collector.max_value_page_bytes, byte_count
-        )
+        try:
+            collector.cells_examined += cells
+            collector.findings_generated += findings
+            collector.value_page_count += 1
+            collector.max_value_page_rows = max(collector.max_value_page_rows, cells)
+            collector.max_value_page_bytes = max(
+                collector.max_value_page_bytes, byte_count
+            )
+        except Exception:  # noqa: BLE001 -- Optional capture must not change work or recovery truth.
+            _capture_failed(collector)
 
 
 def observe_numeric_failure_batch(*, rows: int, byte_count: int) -> None:
@@ -88,10 +117,13 @@ def observe_numeric_failure_batch(*, rows: int, byte_count: int) -> None:
 
     collector = _CURRENT.get()
     if collector is not None and rows:
-        collector.failure_batch_count += 1
-        collector.max_failure_batch_rows = max(
-            collector.max_failure_batch_rows, rows
-        )
-        collector.max_failure_batch_bytes = max(
-            collector.max_failure_batch_bytes, byte_count
-        )
+        try:
+            collector.failure_batch_count += 1
+            collector.max_failure_batch_rows = max(
+                collector.max_failure_batch_rows, rows
+            )
+            collector.max_failure_batch_bytes = max(
+                collector.max_failure_batch_bytes, byte_count
+            )
+        except Exception:  # noqa: BLE001 -- Optional capture must not change work or recovery truth.
+            _capture_failed(collector)

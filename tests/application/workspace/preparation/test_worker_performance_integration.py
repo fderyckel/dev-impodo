@@ -193,6 +193,18 @@ class PreparationWorkerPerformanceIntegrationTests(unittest.TestCase):
         _workspace_packet, records = self.run_worker(events=sink)
         self.assertEqual(records[-1], ("succeeded", "normalization-run"))
 
+    def test_optional_startup_timing_failure_keeps_success(self) -> None:
+        class RejectStartupTimings(_Events):
+            def put(self, event: tuple[object, ...]) -> None:
+                if event[0] == "timing" and str(event[1]).startswith("worker_"):
+                    raise OSError("Optional startup diagnostic unavailable")
+                super().put(event)
+
+        _workspace_packet, records = self.run_worker(events=RejectStartupTimings())
+        self.assertEqual(records[-1], ("succeeded", "normalization-run"))
+        measurements = [event[1] for event in records if event[0] == "performance"]
+        self.assertFalse(measurements[-1]["measurement_complete"])
+
     def test_supervisor_correlates_worker_metrics_to_exact_attempt(self) -> None:
         workspace, records = self.run_worker()
         with tempfile.TemporaryDirectory() as temporary:

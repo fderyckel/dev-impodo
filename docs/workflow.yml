@@ -481,6 +481,8 @@ stages:
       - scripts/capture_saved_odoo_data.py::capture
     tests:
       - tests/integration/web/test_stage235_performance.py
+      - tests/integration/web/test_stage2_scope_selection.py
+      - tests/e2e/schema-scope-fields.test.cjs
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
       - tests/domain/odoo/test_company_domains.py
@@ -526,6 +528,9 @@ stages:
       - tests/integration/duckdb/test_saved_source_company_upgrade.py
       - tests/integration/web/test_saved_odoo_workspace_projection.py
       - tests/application/workspace/test_saved_odoo_transfer.py
+      - tests/application/workspace/test_scoped_odoo_transfer.py
+      - tests/application/workspace/test_scoped_saved_odoo_transfer.py
+      - tests/integration/web/test_transfer_matching_scope_choices.py
       - tests/integration/artifacts/test_odoo_saved_data_package.py
       - tests/integration/web/test_saved_odoo_archive_lifecycle.py
       - tests/integration/web/test_saved_odoo_data.py
@@ -816,6 +821,9 @@ stages:
       - src/impodo/web/composition/preparation_performance.py::PreparationPerformanceObservation
       - src/impodo/web/preparation_performance_diagnostics.py::sanitize_performance_event
       - src/impodo/web/performance_bundle.py::performance_bundle_members
+      - src/impodo/web/performance_attribution.py::sanitize_file_io
+      - src/impodo/application/workspace/preparation/fallback_performance.py::DatasetPreparationPerformance
+      - src/impodo/adapters/duckdb/preparation_numeric_precision.py::bounded_numeric_precision_rows
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
@@ -854,6 +862,10 @@ stages:
       - tests/application/workspace/preparation/test_performance_cleanup.py
       - tests/integration/web/test_preparation_performance_observation.py
       - tests/integration/web/test_preparation_performance_diagnostics.py
+      - tests/integration/web/test_performance_attribution.py
+      - tests/integration/web/test_diagnostic_costs.py
+      - tests/integration/web/test_preparation_dataset_routes.py
+      - tests/integration/duckdb/test_numeric_precision_streaming.py
       - tests/performance/test_preparation_worker_benchmark.py
       - tests/architecture/test_build_contract.py
       - tests/architecture/test_workspace_schema_contract.py
@@ -1105,6 +1117,10 @@ stages:
       - src/impodo/domain/workspace/workbench.py::WorkspaceStateService.record_recovery_credential_event
       - src/impodo/application/destination_matching_service.py::DestinationMatchingService
       - src/impodo/application/destination_matching_service.py::destination_governed_key_choices
+      - src/impodo/application/destination_matching_service.py::destination_match_scope_candidates
+      - src/impodo/domain/workspace/portable_identity.py::captured_scope_references
+      - src/impodo/domain/workspace/portable_identity.py::scoped_identity
+      - src/impodo/domain/workspace/portable_identity.py::scoped_record_identity
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_counts
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_identity_issue_rows
       - src/impodo/application/workspace/mapping/categorical_coverage.py::CategoricalCoverageService.source_condition_rows
@@ -1197,6 +1213,9 @@ stages:
       - tests/integration/columnar/test_polars_correction.py
       - tests/performance/test_correction_qualification.py
       - tests/application/workspace/test_destination_matching.py
+      - tests/application/workspace/test_scoped_odoo_transfer.py
+      - tests/application/workspace/test_scoped_saved_odoo_transfer.py
+      - tests/integration/web/test_transfer_matching_scope_choices.py
       - tests/integration/web/test_destination_matching_recovery.py
       - tests/integration/odoo/test_editable_scalar_load_readback.py
       - tests/integration/web/test_json2_http_diagnostics.py
@@ -1219,6 +1238,7 @@ stages:
       - tests/integration/odoo/test_row_transfer_qualification.py
       - tests/integration/odoo/test_row_recipe_qualification.py
       - tests/integration/web/test_transfer_load_routes.py
+      - tests/integration/web/test_scoped_transfer_load.py
       - tests/integration/duckdb/test_transfer_order_persistence.py
     contracts:
       - docs/developer/contracts/execution-and-reconciliation.md

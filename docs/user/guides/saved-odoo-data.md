@@ -89,7 +89,8 @@ snapshot. Impodo stops when its checks detect changes during the capture.
 2. Choose a **Saved destination**, or enter another destination's address,
    database, company, and approved checking and loading key.
 3. Review **How matching records are found**. The selected fields must
-   identify one record, including its required parent or company scope.
+   identify one record. If the same identifier occurs under different parents
+   or companies, choose the captured relationship under **Match within**.
 4. Choose how existing destination records should receive saved values. Use
    the bulk buttons, then expand individual field choices when needed.
 5. Select **Check destination** to review access, matches, and schema
@@ -111,6 +112,21 @@ record does not authorize writes into a recreated database.
 The chosen destination company controls the operation context. Company fields
 and other links on individual records must also resolve correctly. Choosing
 the operating company does not silently replace every saved company link.
+
+**Match within** currently supports one direct captured parent or company
+relationship. The parent record type must be included, have a standalone
+matching identifier and already match exactly one destination record. For
+example, a saved operation called `Cut` under `Assembly A` is checked within
+that existing assembly rather than against every operation called `Cut`.
+Saved destinations remember this relationship together with the matching fields.
+
+A blank relationship, missing or ambiguous parent, or parent that itself needs
+a matching scope stops the check. Create missing parents separately before
+restoring the scoped records. Other restored record types cannot yet link to
+a record type matched within a parent. The selected matching relationship is
+part of the identity, so ordinary field policies cannot rename, exclude or
+preserve another destination value for it. This choice does not remap source
+companies to differently identified destination companies.
 
 | Field choice | Existing destination record | Missing destination record |
 | --- | --- | --- |

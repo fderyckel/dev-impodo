@@ -512,6 +512,8 @@ physical lineage, blocked new choices, and the review connection count.
 | Canonical publication validation | [`PreparationStoredRunReader`](../../../src/impodo/adapters/duckdb/preparation_stored_run_reader.py) |
 | Entity resolution | [`ResolutionService`](../../../src/impodo/application/workspace/preparation/resolution_service.py) |
 | Normalization decisions | [`NormalizationService`](../../../src/impodo/application/workspace/preparation/normalization_service.py) |
+| Bounded normalization groups and timing | [`build_bounded_normalization_evaluation`](../../../src/impodo/application/workspace/preparation/bounded_normalization.py) |
+| Durable normalization facts and batched group seeds | [`PreparationNormalizationRecords`](../../../src/impodo/adapters/duckdb/preparation_normalization_records.py) |
 | Approved-data comparison handoff | [`workspace_normalization.html`](../../../src/impodo/web/templates/workspace_normalization.html) and [`PreflightService.compare`](../../../src/impodo/application/preflight_service.py) |
 | Canonical hierarchy materialization | [`evaluate_browser_mapping`](../../../src/impodo/domain/staging/evaluator.py) |
 | Canonical row-inclusion decision | [`canonical_row_from_inclusion_decision`](../../../src/impodo/domain/preparation/staging_contracts.py) |
@@ -650,6 +652,53 @@ A Windows user's normal preparation can supply useful observations through
 the same user-initiated diagnostic export. A single observation does not prove
 a speedup or qualify Windows performance.
 
+The additional attribution sections reuse the same capture and export path.
+[`sanitize_file_io`](../../../src/impodo/web/performance_attribution.py) owns
+the artifact-cost export schema.
+`file_io` counts existing artifact reads, writes and hash passes and records
+their elapsed time. Hash time includes its file read; it is not an independent
+CPU measurement or physical disk throughput. No extra read is performed to
+collect a byte count. Requests also retain source-validator and inspector
+startup intervals. Parent durations use the parent clock; child build costs
+are durations returned by the child, never differences between process clocks.
+The preparation phases `process_start_call`, `worker_first_message_wait`,
+`worker_build_hash`, `worker_runtime_initialization` and `worker_composition`
+overlap the existing broad `worker_startup` interval.
+
+Each captured dataset has an opaque identity, row count, predicted route,
+observed evaluator and adaptation route, stable reason codes, and outcome.
+Dataset elapsed time covers evaluation and canonical adaptation, excluding
+later run-wide publication and quality. Repeated snapshots replace earlier
+ones, so their rows must not be added together. Capture is limited to 128
+datasets and 24 KiB, with at most eight reasons per dataset and explicit
+omissions. A predicted route never substitutes for an unobserved execution
+route. Compiler messages, source names, field names and formulas are excluded.
+[`DatasetPreparationPerformance`](../../../src/impodo/application/workspace/preparation/fallback_performance.py)
+owns those replacement snapshots.
+
+Numeric capacity checks stream the selected numeric cells through the existing
+Python precision predicate. They publish value-free failures through bounded
+set-based batches. The input grouping targets 256 cells and 2 MiB; a single
+larger cell is permitted only within the existing finding envelope. The
+64 MiB retained-finding allowance is shared across indexed findings and the
+consumer's retained issue metadata. It is a retained-evidence budget, not a
+hard process-RSS limit. Excess findings stop the check before a successful
+result is published. Numeric observations report actual cells, findings,
+page and batch sizes, elapsed time and capture failures. This does not qualify
+new native formulas or increase the existing route limits.
+[`bounded_numeric_precision_rows`](../../../src/impodo/adapters/duckdb/preparation_numeric_precision.py)
+owns the streamed evaluation and failure transport.
+
+`performance-summary.json` includes logging measurements from the exporting
+recorder's memory. These measure encoding, lock waits, output handling and
+request lifecycle through the terminal log write. Existing request
+`duration_ms` retains its original meaning. Recorder totals and UUID
+correlations overlap and are not additive; child-process logging coverage is
+unavailable. Exporting an observation does not generate another observation
+of that export. Missing capture and failures remain distinct from zero cost.
+Antivirus attribution remains unavailable without separate authorized system
+evidence.
+
 The opt-in [preparation worker benchmark](../../../scripts/benchmark_preparation_workers.py)
 starts fresh production workers and checks actual first and repeat thread
 counts and application builds. `--thread-matrix` rotates the `1`, `2`, and `4`
@@ -695,6 +744,10 @@ operation result; an application request must not reopen worker-owned DuckDB.
 - [`tests/application/workspace/preparation/test_performance_cleanup.py`](../../../tests/application/workspace/preparation/test_performance_cleanup.py)
 - [`tests/integration/web/test_preparation_performance_observation.py`](../../../tests/integration/web/test_preparation_performance_observation.py)
 - [`tests/integration/web/test_preparation_performance_diagnostics.py`](../../../tests/integration/web/test_preparation_performance_diagnostics.py)
+- [`tests/integration/web/test_performance_attribution.py`](../../../tests/integration/web/test_performance_attribution.py)
+- [`tests/integration/web/test_diagnostic_costs.py`](../../../tests/integration/web/test_diagnostic_costs.py)
+- [`tests/integration/web/test_preparation_dataset_routes.py`](../../../tests/integration/web/test_preparation_dataset_routes.py)
+- [`tests/integration/duckdb/test_numeric_precision_streaming.py`](../../../tests/integration/duckdb/test_numeric_precision_streaming.py)
 - [`tests/performance/test_preparation_worker_benchmark.py`](../../../tests/performance/test_preparation_worker_benchmark.py)
 - [`tests/architecture/test_build_contract.py`](../../../tests/architecture/test_build_contract.py)
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)

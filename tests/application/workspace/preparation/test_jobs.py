@@ -675,6 +675,9 @@ class PreparationWorkerFailureTests(unittest.TestCase):
         self.assertEqual(
             [event[1] for event in timings],
             [
+                "worker_build_hash",
+                "worker_runtime_initialization",
+                "worker_composition",
                 PreparationPhase.VALIDATING.value,
                 "quality_evaluation",
                 PreparationPhase.TRANSFORMING.value,

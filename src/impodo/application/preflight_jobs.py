@@ -28,6 +28,7 @@ from impodo.application.preflight_timing import (
     collect_preflight_publication_timings,
     timed_preflight_publication,
 )
+from impodo.application.shared.io_performance import collect_file_io
 from impodo.application.shared.performance import (
     OperationPerformance,
     bind_performance,
@@ -430,27 +431,42 @@ class PreflightJobManager:
     ) -> None:
         """Capture one worker's costs independently of the submitting request."""
 
-        collector = OperationPerformance(
-            operation_id=_performance_identity(job_id),
-            operation="preflight",
-            sink=self._performance_sink,
-            configured_workers=self._configured_read_workers,
-            queue_wait_ms=(perf_counter() - queued_at) * 1000,
-        )
-        with bind_performance(collector), collect_preflight_publication_timings() as publication:
-            self._run_work(job_id, work, access_context)
-        for phase, duration in publication.milliseconds.items():
-            collector.record_phase(
-                phase,
-                wall_ms=duration,
-                cpu_ms=None,
-                calls=publication.calls[phase],
+        sink = self._performance_sink
+        with collect_file_io() as file_io:
+
+            def observe(payload: Mapping[str, object]) -> None:
+                """Attach only observed artifact costs to this attempt's terminal event."""
+
+                if sink is not None:
+                    enriched = dict(payload)
+                    if payload.get("event") == "performance_operation_completed":
+                        enriched["file_io"] = file_io.snapshot()
+                    sink(enriched)
+
+            collector = OperationPerformance(
+                operation_id=_performance_identity(job_id),
+                operation="preflight",
+                sink=observe,
+                configured_workers=self._configured_read_workers,
+                queue_wait_ms=(perf_counter() - queued_at) * 1000,
             )
-        job = self._jobs[job_id]
-        collector.finish(
-            outcome="succeeded" if job.status is PreflightJobStatus.SUCCEEDED else "failed",
-            failure_code=job.failure.code.value if job.failure is not None else None,
-        )
+            with (
+                bind_performance(collector),
+                collect_preflight_publication_timings() as publication,
+            ):
+                self._run_work(job_id, work, access_context)
+            for phase, duration in publication.milliseconds.items():
+                collector.record_phase(
+                    phase,
+                    wall_ms=duration,
+                    cpu_ms=None,
+                    calls=publication.calls[phase],
+                )
+            job = self._jobs[job_id]
+            collector.finish(
+                outcome="succeeded" if job.status is PreflightJobStatus.SUCCEEDED else "failed",
+                failure_code=job.failure.code.value if job.failure is not None else None,
+            )
 
     def _run_work(
         self,

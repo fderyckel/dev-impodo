@@ -29,6 +29,10 @@ from impodo.application.shared.io_performance import (
     FileIoPerformance,
     collect_file_io,
 )
+from impodo.application.shared.numeric_performance import (
+    NumericValidationCollector,
+    collect_numeric_validation,
+)
 from impodo.application.shared.preparation_runtime import (
     PreparationRuntimeConfigurationError,
     configure_preparation_runtime,
@@ -607,6 +611,7 @@ def _run_preparation_worker(
     timing_finished = False
     database_timings: DuckDbRequestTimings | None = None
     file_io: FileIoPerformance | None = None
+    numeric_validation: NumericValidationCollector | None = None
     performance_collection_failed = False
 
     def emit_performance(payload: dict[str, object]) -> None:
@@ -633,6 +638,15 @@ def _run_preparation_worker(
                 total_rows,
             )
         )
+
+    def emit_startup_timing(stage: str, duration_ms: float) -> None:
+        """Keep added optional startup observations outside job truth."""
+
+        nonlocal performance_collection_failed
+        try:
+            emit_timing(stage, duration_ms, "completed")
+        except Exception:  # noqa: BLE001 - optional startup evidence cannot stop preparation
+            performance_collection_failed = True
 
     def progress(
         phase: PreparationPhase,
@@ -701,16 +715,23 @@ def _run_preparation_worker(
                 "schema_ms": database_timings.schema_ms,
                 "lock_wait_ms": database_timings.lock_wait_ms,
             }
-        if file_io is not None:
-            payload["file_io"] = file_io.snapshot()
+        try:
+            if file_io is not None:
+                payload["file_io"] = file_io.snapshot()
+            if numeric_validation is not None:
+                payload["numeric_validation"] = numeric_validation.snapshot()
+        except Exception:  # noqa: BLE001 - optional metric snapshots cannot replace a job result
+            payload["measurement_complete"] = False
         emit_performance(payload)
         timing_finished = True
 
     try:
         if PROCESS_BUILD_MEASUREMENT.duration_ms is not None:
-            emit_timing("worker_build_hash", PROCESS_BUILD_MEASUREMENT.duration_ms, "completed")
+            emit_startup_timing("worker_build_hash", PROCESS_BUILD_MEASUREMENT.duration_ms)
         require_same_application_build(expected_build_contract)
+        runtime_started = perf_counter()
         runtime = configure_preparation_runtime()
+        emit_startup_timing("worker_runtime_initialization", (perf_counter() - runtime_started) * 1000)
         emit_performance({
             "environment": execution_environment(PROCESS_BUILD_CONTRACT.application_build_id),
             "configuration": {
@@ -731,8 +752,11 @@ def _run_preparation_worker(
         with (
             collect_duckdb_request_timings() as database_timings,
             collect_file_io() as file_io,
+            collect_numeric_validation() as numeric_validation,
         ):
+            composition_started = perf_counter()
             preparation = create_preparation_worker(root, workspace=workspace)
+            emit_startup_timing("worker_composition", (perf_counter() - composition_started) * 1000)
             normalization = preparation.prepare(
                 workspace_id,
                 actor=actor,

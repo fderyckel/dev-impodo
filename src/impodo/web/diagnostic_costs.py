@@ -13,23 +13,38 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import Lock
+from time import perf_counter
 from uuid import UUID
 
 MAX_LOGGING_CORRELATIONS = 64
-LOGGING_COST_METRICS = frozenset({
-    "diagnostic_encode_ms", "diagnostic_thread_lock_wait_ms",
-    "diagnostic_file_lock_wait_ms", "diagnostic_emit_ms",
-    "diagnostic_open_ms", "diagnostic_write_flush_ms", "diagnostic_close_ms",
-    "diagnostic_rotation_ms", "diagnostic_caller_ms",
-    "diagnostic_write_count", "diagnostic_write_attempt_count",
-    "diagnostic_bytes_written", "diagnostic_open_count", "diagnostic_close_count",
-    "diagnostic_lock_timeout_count", "diagnostic_rotation_count",
-    "diagnostic_capture_failure_count", "request_reported_ms",
-    "request_lifecycle_ms", "request_completed_count",
-})
+LOGGING_COST_METRICS = frozenset(
+    {
+        "diagnostic_encode_ms",
+        "diagnostic_thread_lock_wait_ms",
+        "diagnostic_file_lock_wait_ms",
+        "diagnostic_emit_ms",
+        "diagnostic_open_ms",
+        "diagnostic_write_flush_ms",
+        "diagnostic_close_ms",
+        "diagnostic_rotation_ms",
+        "diagnostic_caller_ms",
+        "diagnostic_write_count",
+        "diagnostic_write_attempt_count",
+        "diagnostic_bytes_written",
+        "diagnostic_open_count",
+        "diagnostic_close_count",
+        "diagnostic_lock_timeout_count",
+        "diagnostic_rotation_count",
+        "diagnostic_capture_failure_count",
+        "request_reported_ms",
+        "request_lifecycle_ms",
+        "request_completed_count",
+    }
+)
 _MAX_VALUE = 2**53 - 1
 _CORRELATIONS: ContextVar[tuple[tuple[str, str], ...]] = ContextVar(
-    "impodo_diagnostic_cost_correlations", default=(),
+    "impodo_diagnostic_cost_correlations",
+    default=(),
 )
 
 
@@ -50,8 +65,11 @@ def logging_correlations(payload: Mapping[str, object]) -> Iterator[None]:
     request = _uuid(payload.get("request_id"))
     if request is not None:
         identities.append(("request", request))
-    operation = _uuid(payload.get("performance_operation_id")) or _uuid(
-        payload.get("operation_id")
+    operation = (
+        _uuid(payload.get("performance_operation_id"))
+        or _uuid(payload.get("operation_id"))
+        or _uuid(payload.get("mapping_operation_id"))
+        or _uuid(payload.get("attempt_id"))
     )
     nested = payload.get("performance")
     if operation is None and isinstance(nested, Mapping):
@@ -71,18 +89,23 @@ class DiagnosticCostTracker:
     def __init__(self) -> None:
         self._lock = Lock()
         self._totals: dict[str, int | float] = {}
-        self._correlations: OrderedDict[tuple[str, str], dict[str, int | float]] = OrderedDict()
+        self._correlations: OrderedDict[tuple[str, str], dict[str, int | float]] = (
+            OrderedDict()
+        )
         self._evicted = 0
         self.measurement_failed = False
 
-    def record(self, metrics: Mapping[str, int | float]) -> None:
+    def record(self, metrics: Mapping[str, int | float | None]) -> None:
         """Merge bounded numeric observations; never retain arbitrary fields."""
 
         safe = {
             name: min(value, _MAX_VALUE)
             for name, value in metrics.items()
-            if name in LOGGING_COST_METRICS and type(value) in {int, float}
-            and math.isfinite(value) and value >= 0
+            if name in LOGGING_COST_METRICS
+            and isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            and value >= 0
         }
         with self._lock:
             self._merge(self._totals, safe)
@@ -98,7 +121,9 @@ class DiagnosticCostTracker:
                 self._merge(target, safe)
 
     @staticmethod
-    def _merge(target: dict[str, int | float], metrics: Mapping[str, int | float]) -> None:
+    def _merge(
+        target: dict[str, int | float], metrics: Mapping[str, int | float]
+    ) -> None:
         for name, value in metrics.items():
             target[name] = min(_MAX_VALUE, target.get(name, 0) + value)
 
@@ -112,6 +137,7 @@ class DiagnosticCostTracker:
                 "timing_scope": "inclusive",
                 "component_timings_may_overlap": True,
                 "correlations_are_non_additive": True,
+                "request_lifecycle_scope": "http_middleware_entry_to_post_log",
                 "capture_complete": not self.measurement_failed,
                 "child_process_coverage": "unavailable",
                 "correlation_limit": MAX_LOGGING_CORRELATIONS,
@@ -125,7 +151,8 @@ class DiagnosticCostTracker:
 
 
 def record_logging_costs(
-    tracker: DiagnosticCostTracker, metrics: Mapping[str, int | float],
+    tracker: DiagnosticCostTracker,
+    metrics: Mapping[str, int | float | None],
 ) -> None:
     """Keep optional accounting failures outside diagnostic write outcomes."""
 
@@ -133,3 +160,23 @@ def record_logging_costs(
         tracker.record(metrics)
     except Exception:  # noqa: BLE001 - observation failures cannot affect requests
         tracker.measurement_failed = True
+
+
+def logging_cost_clock(tracker: DiagnosticCostTracker) -> float | None:
+    """Read the optional accounting clock without preventing a log write."""
+    try:
+        return perf_counter()
+    except Exception:  # noqa: BLE001 - clock failure must not change logging
+        tracker.measurement_failed = True
+        return None
+
+
+def logging_cost_elapsed(
+    tracker: DiagnosticCostTracker,
+    started: float | None,
+) -> float | None:
+    """Return a measured elapsed duration, or preserve unavailable coverage."""
+    if started is None:
+        return None
+    ended = logging_cost_clock(tracker)
+    return max(0.0, (ended - started) * 1000) if ended is not None else None

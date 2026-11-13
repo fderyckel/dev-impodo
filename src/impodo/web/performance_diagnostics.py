@@ -22,6 +22,11 @@ from impodo.application.shared.performance import (
     PERFORMANCE_PHASES,
     PERFORMANCE_SCHEMA_VERSION,
 )
+from impodo.web.performance_attribution import (
+    request_attribution,
+    sanitize_file_io,
+    sanitize_numeric_validation,
+)
 from impodo.web.preparation_performance_diagnostics import (
     PERFORMANCE_EVENT,
     sanitize_performance_event,
@@ -154,6 +159,10 @@ def sanitize_performance_record(
             )
             if isinstance(coverage.get(field), list)
         }
+    if "file_io" in value:
+        result["file_io"] = sanitize_file_io(value["file_io"])
+    if "numeric_validation" in value:
+        result["numeric_validation"] = sanitize_numeric_validation(value["numeric_validation"])
     return result
 
 
@@ -239,12 +248,16 @@ def performance_summary(records: Sequence[Mapping[str, object]]) -> dict[str, ob
     return {
         "performance_schema_version": PERFORMANCE_SCHEMA_VERSION,
         "attempts": list(attempts.values()),
+        "request_observations": request_attribution(records),
+        "request_observation_limit": 100,
         "max_attempts": MAX_PERFORMANCE_ATTEMPTS,
         "coverage": "retained logs only; missing phases and terminal facts are unavailable",
         "phase_wall_time": "overlapping phase totals are not additive",
         "memory_measurement": "sampled process-wide RSS; peak between samples may be higher",
         "cpu_measurement": "preflight uses phase/coordinator thread CPU; preparation resource counters use parent/worker process CPU",
         "browser_timing": "client network, browser rendering and click-to-visible latency are unavailable",
+        "file_io_measurement": "instrumented artifact boundaries; overlapping reads and hashes are not physical disk throughput",
+        "antivirus_attribution": "unavailable; file operation delays alone do not identify a security product",
     }
 
 
@@ -270,6 +283,8 @@ def _preparation_summary_record(value: object) -> dict[str, object] | None:
         "workload",
         "resources",
         "database",
+        "file_io",
+        "numeric_validation",
         "measurement_complete",
         "failure_reason",
     ):

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Any
+from typing import Any, Protocol, runtime_checkable
 
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
@@ -18,6 +18,20 @@ from impodo.domain.preparation.staging_contracts import (
 
 from ..compiler.columnar_transformation import ColumnarTransformationProgram
 from .transformation_impact import TransformationImpactReport, TransformationImpactRow
+
+
+@runtime_checkable
+class CanonicalHashRowSource(Protocol):
+    """Stream canonical encodings or restored compatibility rows for hashing.
+
+    Providers preserve iteration order, validation, and payload row identities.
+    A string must equal the canonical serialization of the restored row.
+    Compatibility rows remain objects so only eligible rows are serialized.
+    """
+
+    def iter_canonical_hash_rows(self) -> Iterator[tuple[str, str | CanonicalRow]]:
+        """Yield each row's identity and its exact canonical hash payload."""
+        ...
 
 
 class PreparationSessionStatus(StrEnum):

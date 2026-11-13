@@ -334,6 +334,13 @@ class TransferReviewPackage:
             {item.model for item in self.datasets}
         ) != len(self.datasets):
             raise ValueError("Transfer-review datasets must be unique")
+        datasets_by_id = {item.dataset_id: item for item in self.datasets}
+        if any(
+            parent_id not in datasets_by_id or parent_id == item.dataset_id
+            or datasets_by_id[parent_id].scope_fields
+            for item in self.datasets for parent_id in item.scope_dataset_ids
+        ):
+            raise ValueError("Transfer review scope requires a selected unscoped parent")
         expected_relationships = tuple(
             sorted(
                 self.relationships,

@@ -8,39 +8,74 @@ antivirus product as the cause of an observed delay.
 from __future__ import annotations
 
 import math
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import cast
 from uuid import UUID
 
 _MAX_COUNT = 2**53 - 1
 _MAX_MS = 86_400_000
 FILE_IO_COUNTS = frozenset(
-    {"read_operations", "read_bytes", "write_operations", "write_bytes",
-     "hash_operations", "hash_bytes", "failed_operations"}
+    {
+        "read_operations",
+        "read_bytes",
+        "write_operations",
+        "write_bytes",
+        "hash_operations",
+        "hash_bytes",
+        "failed_operations",
+        "capture_failure_count",
+    }
 )
 FILE_IO_TIMINGS = frozenset({"read_ms", "write_ms", "hash_ms"})
 STARTUP_COUNTS = frozenset(
-    {"worker_count", "build_hash_files", "build_hash_bytes", "start_failure_count",
-     "readiness_count", "result_count"}
+    {
+        "worker_count",
+        "build_hash_files",
+        "build_hash_bytes",
+        "start_failure_count",
+        "readiness_count",
+        "result_count",
+    }
 )
 STARTUP_TIMINGS = frozenset(
     {"start_call_ms", "first_message_wait_ms", "result_wait_ms", "build_hash_ms"}
 )
 NUMERIC_COUNTS = frozenset(
-    {"cells_examined", "findings_generated", "value_page_count",
-     "failure_batch_count", "max_value_page_rows", "max_value_page_bytes",
-     "max_failure_batch_rows", "max_failure_batch_bytes"}
+    {
+        "cells_examined",
+        "findings_generated",
+        "value_page_count",
+        "failure_batch_count",
+        "max_value_page_rows",
+        "max_value_page_bytes",
+        "max_failure_batch_rows",
+        "max_failure_batch_bytes",
+        "capture_failure_count",
+    }
 )
 LOGGING_COUNTS = frozenset(
-    {"diagnostic_write_count", "diagnostic_bytes_written",
-     "diagnostic_lock_timeout_count", "diagnostic_rotation_count",
-     "diagnostic_capture_failure_count", "request_completed_count"}
+    {
+        "diagnostic_write_count",
+        "diagnostic_bytes_written",
+        "diagnostic_lock_timeout_count",
+        "diagnostic_rotation_count",
+        "diagnostic_capture_failure_count",
+        "request_completed_count",
+    }
 )
 LOGGING_TIMINGS = frozenset(
-    {"diagnostic_encode_ms", "diagnostic_thread_lock_wait_ms",
-     "diagnostic_file_lock_wait_ms", "diagnostic_emit_ms", "diagnostic_open_ms",
-     "diagnostic_write_flush_ms", "diagnostic_close_ms", "diagnostic_rotation_ms",
-     "request_reported_ms", "request_lifecycle_ms"}
+    {
+        "diagnostic_encode_ms",
+        "diagnostic_thread_lock_wait_ms",
+        "diagnostic_file_lock_wait_ms",
+        "diagnostic_emit_ms",
+        "diagnostic_open_ms",
+        "diagnostic_write_flush_ms",
+        "diagnostic_close_ms",
+        "diagnostic_rotation_ms",
+        "request_reported_ms",
+        "request_lifecycle_ms",
+    }
 )
 
 
@@ -50,10 +85,16 @@ def sanitize_file_io(value: object) -> dict[str, object]:
     raw = _mapping(value)
     if raw.get("scope") != "instrumented_artifact_boundaries":
         return {}
-    return {
+    result: dict[str, object] = {
         "scope": "instrumented_artifact_boundaries",
         **_numbers(raw, FILE_IO_COUNTS, FILE_IO_TIMINGS),
     }
+    if raw.get("hash_scope") == "read_and_hash_inclusive":
+        result["hash_scope"] = "read_and_hash_inclusive"
+    status = raw.get("status")
+    if isinstance(status, str) and status in {"observed", "no_observations"}:
+        result["status"] = status
+    return result
 
 
 def sanitize_worker_startup(value: object) -> dict[str, object]:
@@ -79,7 +120,53 @@ def sanitize_numeric_validation(value: object) -> dict[str, object]:
     raw = _mapping(value)
     if not raw:
         return {}
-    return _numbers(raw, NUMERIC_COUNTS, frozenset({"elapsed_ms"}))
+    result = _numbers(raw, NUMERIC_COUNTS, frozenset({"elapsed_ms"}))
+    status = raw.get("status")
+    if isinstance(status, str) and status in {"complete", "partial", "no_observations"}:
+        result["status"] = status
+    return result
+
+
+def request_attribution(
+    records: Sequence[Mapping[str, object]],
+) -> list[dict[str, object]]:
+    """Keep recent request-owned artifact and worker observations by UUID.
+
+    Request scopes can overlap background attempts; these observations are not
+    an additive breakdown of machine CPU or physical disk work.
+    """
+
+    retained: dict[str, dict[str, object]] = {}
+    for record in records:
+        if record.get("event") != "request_completed":
+            continue
+        try:
+            identity = str(UUID(str(record.get("request_id", ""))))
+        except ValueError:
+            continue
+        file_io = sanitize_file_io(record.get("file_io"))
+        startup = sanitize_worker_startup(record.get("worker_startup"))
+        has_files = any(
+            type(file_io.get(name)) is int and cast("int", file_io[name]) > 0
+            for name in ("read_operations", "write_operations", "hash_operations")
+        )
+        has_workers = bool(_mapping(startup.get("operations")))
+        if not has_files and not has_workers:
+            continue
+        entry: dict[str, object] = {
+            "request_id": identity,
+            "scope": "request_context_inclusive",
+        }
+        entry.update(_numbers(record, frozenset(), frozenset({"duration_ms"})))
+        if file_io:
+            entry["file_io"] = file_io
+        if startup:
+            entry["worker_startup"] = startup
+        retained.pop(identity, None)
+        retained[identity] = entry
+        if len(retained) > 100:
+            retained.pop(next(iter(retained)))
+    return list(retained.values())
 
 
 def sanitize_logging_costs(value: object) -> dict[str, object]:
@@ -92,7 +179,11 @@ def _logging_costs(value: object, *, include_children: bool) -> dict[str, object
     """Keep one recorder tree level and explicit non-additive correlations."""
 
     raw = _mapping(value)
-    if raw.get("schema_version") != 1 or raw.get("scope") != "process_recorder":
+    if (
+        type(raw.get("schema_version")) is not int
+        or raw.get("schema_version") != 1
+        or raw.get("scope") != "process_recorder"
+    ):
         return {"status": "unavailable"}
     metrics = _numbers(_mapping(raw.get("metrics")), LOGGING_COUNTS, LOGGING_TIMINGS)
     result: dict[str, object] = {
@@ -101,18 +192,25 @@ def _logging_costs(value: object, *, include_children: bool) -> dict[str, object
         "status": "available" if metrics else "unavailable",
         "metrics": metrics,
     }
-    for name in ("capture_complete", "component_timings_may_overlap", "correlations_are_non_additive"):
+    for name in (
+        "capture_complete",
+        "component_timings_may_overlap",
+        "correlations_are_non_additive",
+    ):
         if type(raw.get(name)) is bool:
             result[name] = raw[name]
     result["child_process_coverage"] = "unavailable"
     result["timing_scope"] = "inclusive"
+    if raw.get("request_lifecycle_scope") == "http_middleware_entry_to_post_log":
+        result["request_lifecycle_scope"] = "http_middleware_entry_to_post_log"
     result["correlation_limit"] = 64
     result.update(_numbers(raw, frozenset({"dropped_correlation_count"}), frozenset()))
     correlations: list[dict[str, object]] = []
     items = raw.get("correlations")
     for item in items[:64] if isinstance(items, list) else ():
         item_raw = _mapping(item)
-        if item_raw.get("kind") not in {"request", "operation"}:
+        kind = item_raw.get("kind")
+        if not isinstance(kind, str) or kind not in {"request", "operation"}:
             continue
         try:
             identity = str(UUID(str(item_raw.get("id", ""))))
@@ -121,7 +219,9 @@ def _logging_costs(value: object, *, include_children: bool) -> dict[str, object
         safe: dict[str, object] = {
             "kind": item_raw["kind"],
             "id": identity,
-            "metrics": _numbers(_mapping(item_raw.get("metrics")), LOGGING_COUNTS, LOGGING_TIMINGS)
+            "metrics": _numbers(
+                _mapping(item_raw.get("metrics")), LOGGING_COUNTS, LOGGING_TIMINGS
+            ),
         }
         correlations.append(safe)
     if correlations:

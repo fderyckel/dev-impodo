@@ -18,8 +18,12 @@ WorkerKind = Literal["validation", "inspection"]
 _KINDS = frozenset({"validation", "inspection"})
 _COUNTERS = frozenset(
     {
-        "worker_count", "start_failure_count", "readiness_count", "result_count",
-        "build_hash_files", "build_hash_bytes",
+        "worker_count",
+        "start_failure_count",
+        "readiness_count",
+        "result_count",
+        "build_hash_files",
+        "build_hash_bytes",
     }
 )
 _DURATIONS = frozenset(
@@ -45,9 +49,7 @@ class WorkerStartupObservation:
             current = self._operations.setdefault(kind, {})
             for name, value in values.items():
                 if name in _COUNTERS and type(value) is int and value >= 0:
-                    current[name] = min(
-                        _MAX_COUNTER, int(current.get(name, 0)) + value
-                    )
+                    current[name] = min(_MAX_COUNTER, int(current.get(name, 0)) + value)
                 elif (
                     name in _DURATIONS
                     and type(value) in {int, float}

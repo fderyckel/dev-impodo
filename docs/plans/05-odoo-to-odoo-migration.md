@@ -3,13 +3,19 @@
 ## Status and outcome
 
 **Status (2026-11-13):** The bounded transfer engine is implemented. Recorded
-live Contact qualification covers Odoo 19 relationships and Odoo 20 scalar
-transfers, including interruption and recovery in both LOCAL-to-REMOTE and
-REMOTE-to-LOCAL directions. Generic parent/company identities, explicit
+live Contact qualification covers Odoo 19 relationships. Odoo 20 scalar
+transfers include interruption and recovery in both LOCAL-to-REMOTE and
+REMOTE-to-LOCAL directions. Broader parent/company identities, explicit
 company mapping, Product and bill-of-material transfer qualification, broader
 destination and recovery scenarios, and measured multi-model qualification
 remain open. Cross-major transfer and whole-database upgrade are excluded.
 The [cross-plan roadmap](00-remaining-work.md) owns implementation priority.
+
+The first scoped increment supports one direct captured writable Many2one to
+a selected unscoped parent that already matches uniquely in the destination.
+It is controlled-test verified for Odoo 19 and Odoo 20 with local and remote
+metadata. Broader relational scope and company mapping remain open; this does
+not qualify Product/BOM transfers or a live scoped round trip.
 
 The [shared transfer and restore checklist](32-odoo-transfer-and-restore-checklist.md)
 owns the reconciled remaining work for this plan and
@@ -256,19 +262,22 @@ For relational scope, resolve each protected source parent or company ID to
 its reviewed portable identity, then resolve that identity to the destination
 record before classifying the child. Carry the relation as a reference into
 execution so the destination lookup uses its actual ID at write time. The
-current execution snapshot carries scalar scope values, so this requires a
-new reviewed resolver contract rather than putting a source or destination
-numeric ID into a portable key.
+implemented existing-parent slice uses portable `BusinessReference` scope in
+the existing execution snapshot and canonical resolver contracts. Missing/new,
+null, ambiguous or recursively scoped parents and inbound links to a scoped
+model remain blocked. Extend that contract deliberately for broader cases;
+never place a source or destination numeric ID in a portable key.
 
 Required destination defaults that select another record, workflow choice,
 or company context need a review control bound to exact destination default
 evidence. Generated child records need an explicit handler that predicts and
 reconciles their post-parent identities before the load is approved.
 
-### Required create fields: delivered design and acceptance contract
+### Required create fields: accepted design and implementation
 
-The following design records the implemented create-field providers and their
-acceptance requirements. Check its remaining model and live-qualification
+The existing implementation supplies the core create-field providers described
+below. The design also retains their accepted evidence and acceptance
+requirements. Reconcile any remaining contract differences and model or live
 coverage through the shared checklist before planning another implementation.
 
 **Implementation status (2026-09-23):** Destination matching now handles exact
@@ -445,12 +454,12 @@ cases pass:
 - Review packages, portable snapshots, reports, and downloads contain no
   target numeric IDs or protected default and fixed values.
 
-The current scalar composite match does not resolve a parent or company
-relationship as an identity component. Such records still need the scoped
-identity work above. The publication check validates links between selected
-record types. Linked-only capture now obtains referenced rows for selected
-supporting models. It does not select a missing model type or resolve a parent
-or company relationship as an identity component.
+The **Match within** control now resolves the admitted direct existing-parent
+relationship as an identity component. It does not resolve broader relational
+scope or select a missing model type. The publication check validates links
+between selected record types, and linked-only capture obtains referenced rows
+for selected supporting models. The shared checklist retains the remaining
+scope and qualification work.
 At load time, after an earlier wave commits, Impodo rechecks remaining create
 identities before each later wave. If Odoo generated a record that the plan
 expected to create, the transfer blocks later writes and keeps the journal

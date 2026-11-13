@@ -83,6 +83,7 @@ from .bounded_preparation import (
     supports_bounded_direct_preparation,
 )
 from .columnar_transformation_port import ColumnarTransformationPort
+from .fallback_performance import DatasetPreparationPerformance
 from .grouped_exact_join_preparation import (
     GroupedExactJoinSourcePort,
     bounded_preparation_producers,
@@ -211,6 +212,7 @@ class PreparationService:
 
         report_progress = progress or (lambda _phase, _completed, _total, _message: None)
         check_cancelled = cancellation_checkpoint or (lambda: None)
+        dataset_performance: DatasetPreparationPerformance | None = None
         report_progress(
             PreparationPhase.VALIDATING,
             0,
@@ -293,6 +295,13 @@ class PreparationService:
             )
             if performance is not None:
                 try:
+                    dataset_performance = DatasetPreparationPerformance(
+                        capability,
+                        effective_selection,
+                        mapping_hash=revision.definition.content_hash,
+                        source_selection_hash=effective_selection.content_hash,
+                        sink=performance,
+                    )
                     workload: dict[str, object] = {
                         "row_count": total_rows,
                         "dataset_count": len(physical_selection.datasets),
@@ -311,6 +320,7 @@ class PreparationService:
                     if selected_file_ids and len(selected_files) == len(selected_file_ids):
                         workload["input_bytes"] = sum(item.size_bytes for item in selected_files)
                     performance({"workload": workload})
+                    dataset_performance.publish()
                 except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation
                     logging.getLogger(__name__).debug(
                         "Optional preparation performance capture failed"
@@ -356,6 +366,7 @@ class PreparationService:
                     actor=actor,
                     source_snapshots=source_snapshots,
                     batch_progress=report_source_batch,
+                    dataset_observer=dataset_performance,
                 )
             bounded_session_id = bounded.session_id
             staging_input = bounded.run
@@ -466,6 +477,8 @@ class PreparationService:
                 transformation_detail_limit=0,
                 transformation_impact_sink=materialized_impacts.append,
             )
+            if dataset_performance is not None:
+                dataset_performance.complete_materialized()
             check_cancelled()
             report_progress(
                 PreparationPhase.PUBLISHING,

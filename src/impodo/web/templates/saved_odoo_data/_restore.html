@@ -43,15 +43,20 @@
     {% if key_rows|default(()) %}
       <details>
         <summary>How matching records are found</summary>
-        <p>Select up to three captured fields that identify one record in the destination company. Impodo checks that the complete combination is unique before loading.</p>
+        <p>Select up to three captured fields that identify one record. When an identifier repeats under different parents or companies, choose the relationship under Match within. Impodo checks the complete combination before loading.</p>
         <div class="form-grid">
           {% for row in key_rows %}
-            <label>
-              {{ row.label }}
-              <select name="keys__{{ row.model }}" multiple size="3">
-                {% for field in row.fields %}<option value="{{ field.name }}" {% if field.name in row.selected %}selected{% endif %}>{{ field.label }} · {{ field.name }}</option>{% endfor %}
-              </select>
-            </label>
+            <div>
+              <label>
+                {{ row.label }}
+                <select name="keys__{{ row.model }}" multiple size="3">
+                  {% for field in row.fields %}<option value="{{ field.name }}" {% if field.name in row.selected %}selected{% endif %}>{{ field.label }} · {{ field.name }}</option>{% endfor %}
+                </select>
+              </label>
+              {% if row.scope_fields %}
+                <label>Match within<select name="scope__{{ row.model }}"><option value="">All records</option>{% for field in row.scope_fields %}<option value="{{ field.name }}" {% if field.name == values.get('scope__' ~ row.model, row.selected_scope) %}selected{% endif %}>{{ field.label }}</option>{% endfor %}</select><small>Each linked parent or company must already match one destination record.</small></label>
+              {% endif %}
+            </div>
           {% endfor %}
         </div>
       </details>
