@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from impodo.application.data_version.source_packages import (
+    DataVersionSourcePackage,
     SourcePackageState,
     WorkspaceSourceProjection,
 )
@@ -18,6 +19,18 @@ class WorkspaceSourceProjectionRecords:
         self._repository = repository
 
     def get(self, workspace_id: str) -> WorkspaceSourceProjection | None:
+        context = self.get_with_source_package(workspace_id)
+        return context[0] if context is not None else None
+
+    def get_with_source_package(
+        self, workspace_id: str,
+    ) -> tuple[WorkspaceSourceProjection, DataVersionSourcePackage] | None:
+        """Return a projection and the package verified in this exact read.
+
+        Callers that need catalogues or snapshot manifests consume this same
+        package instead of reconstructing it a second time. No evidence is
+        retained between calls or across remote work.
+        """
         workspace = self._repository.get_migration_workspace(workspace_id)
         path = self._repository.database.ensure_workspace_store(workspace)
         with self._repository.database.connect(path) as connection:
@@ -50,7 +63,7 @@ class WorkspaceSourceProjectionRecords:
             raise MigrationConflictError(
                 "Workspace source snapshot reference is inconsistent"
             )
-        return WorkspaceSourceProjection(
+        projection = WorkspaceSourceProjection(
             projection_id=str(row[0]),
             workspace_id=workspace.workspace_id,
             project_id=workspace.project_id,
@@ -60,3 +73,4 @@ class WorkspaceSourceProjectionRecords:
             created_at=datetime.fromisoformat(str(row[2])),
             created_by=str(row[3]),
         )
+        return projection, package

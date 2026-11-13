@@ -63,3 +63,9 @@ class MigrationFoundationRepository(
         workspace_id: str,
     ) -> WorkspaceSourceProjection | None:
         return self._workspace_source_projections.get(workspace_id)
+
+    def get_workspace_source_projection_with_package(
+        self, workspace_id: str,
+    ) -> tuple[WorkspaceSourceProjection, DataVersionSourcePackage] | None:
+        """Read source selection and its verified package without a second load."""
+        return self._workspace_source_projections.get_with_source_package(workspace_id)

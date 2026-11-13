@@ -35,6 +35,8 @@ _PHASES = frozenset(
         "quality_evaluation",
         "quality_persistence_and_hash",
         "normalization_aggregation",
+        "normalization_effect_aggregation",
+        "normalization_eligible_hash",
         "normalization_persistence_and_hash",
         "source_verification",
         "transformation",

@@ -1393,7 +1393,9 @@ class PreflightService:
                     "Odoo was not contacted."
                 )
             with performance_phase("frozen_input"):
-                frozen = self._load_frozen_input(workspace_id)
+                frozen = self._load_frozen_input(
+                    workspace_id, workspace_state=workspace_state
+                )
             selection = self.sources.get_mapping_source_selection(workspace_id)
             if selection is None:
                 raise ReadinessError(
@@ -1413,7 +1415,9 @@ class PreflightService:
                 run_id=str(uuid4()),
             )
         with performance_phase("frozen_input"):
-            frozen = self._load_frozen_input(workspace_id)
+            frozen = self._load_frozen_input(
+                workspace_id, workspace_state=workspace_state
+            )
         current_reference_policy_hash = None
         if frozen.captured_schema is not None:
             version_decision = assess_odoo_operation(
@@ -1776,11 +1780,13 @@ class PreflightService:
         return report
 
     def _load_frozen_input(
-        self, workspace_id: str, *, include_workbook_findings: bool = False
+        self, workspace_id: str, *, include_workbook_findings: bool = False,
+        workspace_state: WorkspaceState | None = None,
     ) -> FrozenPreflightInput:
-        """Load version-checked durable evidence without source artifacts."""
+        """Load verified evidence, reusing state read in this local phase only."""
 
-        workspace_state = self.workspaces.get(workspace_id)
+        if workspace_state is None:
+            workspace_state = self.workspaces.get(workspace_id)
         revision = self.mappings.get_mapping_revision(workspace_id)
         if revision is None:
             raise OdooReadWorkflowError(

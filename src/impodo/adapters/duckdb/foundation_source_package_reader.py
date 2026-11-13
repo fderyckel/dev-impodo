@@ -14,6 +14,7 @@ from impodo.application.data_version.source_packages import (
     SourcePackageOrigin,
     SourcePackageState,
 )
+from impodo.application.shared.performance import performance_count, performance_phase
 from impodo.domain.project.foundation import MigrationConflictError
 from impodo.domain.workspace.contracts import SourceDatasetColumn
 
@@ -27,6 +28,12 @@ class FoundationSourcePackageReader:
         self._repository = repository
 
     def get(self, data_version_id: str) -> DataVersionSourcePackage | None:
+        """Measure one complete verified read without retaining source values."""
+        with performance_phase("source_package"):
+            performance_count("source_package_reads")
+            return self._get(data_version_id)
+
+    def _get(self, data_version_id: str) -> DataVersionSourcePackage | None:
         data_version = self._repository._get_data_version_registry(data_version_id)
         path = self._repository.database.ensure_data_version_store(data_version)
         with self._repository.database.connect(path) as connection:

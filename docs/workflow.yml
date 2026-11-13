@@ -842,6 +842,8 @@ stages:
       - src/impodo/adapters/duckdb/preparation_stored_run_reader.py::PreparationStoredRunReader
       - src/impodo/application/workspace/preparation/resolution_service.py::ResolutionService
       - src/impodo/application/workspace/preparation/normalization_service.py::NormalizationService
+      - src/impodo/application/workspace/preparation/bounded_normalization.py::build_bounded_normalization_evaluation
+      - src/impodo/adapters/duckdb/preparation_normalization_records.py::PreparationNormalizationRecords
       - src/impodo/domain/staging/evaluator.py::evaluate_browser_mapping
       - src/impodo/domain/recipe/value_rules.py::compile_arithmetic_formula
       - src/impodo/domain/preparation/staging_contracts.py::canonical_row_from_inclusion_decision
@@ -868,6 +870,9 @@ stages:
       - tests/domain/recipe/test_arithmetic_formula.py
       - tests/domain/preparation/test_browser_arithmetic_formula.py
       - tests/domain/preparation/test_normalization.py
+      - tests/application/workspace/preparation/test_normalization_metadata.py
+      - tests/application/workspace/preparation/test_normalization_timing.py
+      - tests/integration/duckdb/test_normalization_seed_transport.py
       - tests/integration/web/test_preparation_workflow.py
       - tests/integration/web/test_hierarchy_causes.py
       - tests/integration/web/test_hierarchy_failures.py

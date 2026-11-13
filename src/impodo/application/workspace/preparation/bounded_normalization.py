@@ -34,6 +34,8 @@ from impodo.domain.staging.preparation_session import StoredCanonicalStagingRun
 from impodo.domain.staging.transformation_impact import TransformationImpactRow
 from impodo.domain.workspace.workbench import DataClassification, WorkspaceState
 
+from .timing import PreparationTimingReporter, timed_preparation_stage
+
 
 class BoundedNormalizationUnsupported(ValueError):
     """Signal that the complete normalization evaluator is required."""
@@ -148,6 +150,9 @@ class _BoundedNormalizationEffects:
             workspace_state.data_classification is DataClassification.RESTRICTED
         )
         self._review_policy = compile_normalization_review_policy(mappings)
+        self._groups_by_field: dict[
+            tuple[str, str], tuple[str, dict[str, object]]
+        ] = {}
 
     def _effect(
         self,
@@ -169,24 +174,44 @@ class _BoundedNormalizationEffects:
             outcome=impact.outcome,
             message=impact.message,
         )
-        field_policy = self._review_policy.resolve(candidate)
-        outcome = field_policy.outcome
-        rule_id = _hash(
-            {
-                "mapping_hash": self._mapping_hash,
-                "dataset": candidate.dataset,
-                "target_field": candidate.target_field,
-                "review_policy": field_policy.to_portable_dict(),
-            }
-        )
-        group_id = _hash(
-            {
-                "kind": NormalizationGroupKind.CHANGE.value,
-                "rule_id": rule_id,
-                "dataset": candidate.dataset,
-                "field": candidate.target_field,
-            }
-        )
+        field_key = (candidate.dataset, candidate.target_field)
+        group = self._groups_by_field.get(field_key)
+        if group is None:
+            # Only resolved fields enter this factory-local cache, so its size
+            # is bounded by the immutable compiled policy's mapped fields.
+            field_policy = self._review_policy.resolve(candidate)
+            rule_id = _hash(
+                {
+                    "mapping_hash": self._mapping_hash,
+                    "dataset": candidate.dataset,
+                    "target_field": candidate.target_field,
+                    "review_policy": field_policy.to_portable_dict(),
+                }
+            )
+            group_id = _hash(
+                {
+                    "kind": NormalizationGroupKind.CHANGE.value,
+                    "rule_id": rule_id,
+                    "dataset": candidate.dataset,
+                    "field": candidate.target_field,
+                }
+            )
+            name, explanation = normalization_change_language(field_policy)
+            group = (
+                group_id,
+                {
+                    "rule_id": rule_id,
+                    "kind": NormalizationGroupKind.CHANGE,
+                    "outcome": field_policy.outcome,
+                    "dataset": candidate.dataset,
+                    "target_field": candidate.target_field,
+                    "name": name,
+                    "explanation": explanation,
+                    "owner_label": "Data manager",
+                },
+            )
+            self._groups_by_field[field_key] = group
+        group_id, metadata = group
         before = _protected_display(
             candidate.raw_display,
             restricted=self._restricted,
@@ -226,17 +251,7 @@ class _BoundedNormalizationEffects:
                 )
             ),
         )
-        name, explanation = normalization_change_language(field_policy)
-        return effect, {
-            "rule_id": rule_id,
-            "kind": NormalizationGroupKind.CHANGE,
-            "outcome": outcome,
-            "dataset": candidate.dataset,
-            "target_field": candidate.target_field,
-            "name": name,
-            "explanation": explanation,
-            "owner_label": "Data manager",
-        }
+        return effect, metadata.copy()
 
 
 class _DurableNormalizationEffects(Iterable[NormalizationEffect]):
@@ -339,6 +354,7 @@ def build_bounded_normalization_evaluation(
     staging_content_hash: str,
     quality_content_hash: str,
     effective: EffectiveDataset | None,
+    timing: PreparationTimingReporter | None = None,
 ) -> StoredNormalizationEvaluation:
     """Aggregate groups while keeping individual effects durably reusable."""
 
@@ -369,7 +385,8 @@ def build_bounded_normalization_evaluation(
         impact_rows,
     )
     effects: Iterable[NormalizationEffect] = durable_effects
-    summary = durable_effects.prepare()
+    with timed_preparation_stage(timing, "normalization_effect_aggregation"):
+        summary = durable_effects.prepare()
     effect_count = _summary_int(summary["effect_count"], "effect count")
     changed_record_count = _summary_int(
         summary["changed_record_count"],
@@ -422,12 +439,13 @@ def build_bounded_normalization_evaluation(
                 **metadata,
             )
         )
-    eligible_dataset_hash = canonical_eligible_dataset_hash(
-        staging,
-        quality,
-        staging_content_hash=staging_content_hash,
-        quality_content_hash=quality_content_hash,
-    )
+    with timed_preparation_stage(timing, "normalization_eligible_hash"):
+        eligible_dataset_hash = canonical_eligible_dataset_hash(
+            staging,
+            quality,
+            staging_content_hash=staging_content_hash,
+            quality_content_hash=quality_content_hash,
+        )
     return StoredNormalizationEvaluation(
         workspace_id=workspace_state.workspace_id,
         staging_content_hash=staging_content_hash,

@@ -241,6 +241,7 @@ class NormalizationService:
                             staging_content_hash=staging.content_hash,
                             quality_content_hash=quality.content_hash,
                             effective=effective,
+                            timing=timing,
                         )
                     except BoundedNormalizationUnsupported as error:
                         if not allow_materialized_fallback:

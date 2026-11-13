@@ -15,6 +15,7 @@ from typing import Protocol
 from impodo.application.data_version.inspection import SourceFileCatalog
 from impodo.application.data_version.source_packages import (
     DataVersionSourcePackage,
+    WorkspaceSourceProjection,
     WorkspaceSourceProjectionRepository,
 )
 from impodo.domain.source_snapshot import (
@@ -35,10 +36,10 @@ from impodo.domain.workspace.derived_entities import (
 class WorkspaceProjectionRepository(WorkspaceSourceProjectionRepository, Protocol):
     """Read workspace selection and its owning immutable source package."""
 
-    def get_source_package(
+    def get_workspace_source_projection_with_package(
         self,
-        data_version_id: str,
-    ) -> DataVersionSourcePackage | None: ...
+        workspace_id: str,
+    ) -> tuple[WorkspaceSourceProjection, DataVersionSourcePackage] | None: ...
 
 
 class WorkspacePreparationReader(Protocol):
@@ -67,9 +68,12 @@ class WorkspaceMappingSourceProjection:
     ) -> SourceSelection | None:
         """Return only the immutable datasets selected for this workspace."""
 
-        projection = self.repository.get_workspace_source_projection(workspace_id)
-        if projection is None:
+        context = self.repository.get_workspace_source_projection_with_package(
+            workspace_id
+        )
+        if context is None:
             return None
+        projection, package = context
         datasets = tuple(item.to_mapping_dataset() for item in projection.datasets)
         version = 1
         selection = canonical_mapping_source_selection(
@@ -87,9 +91,6 @@ class WorkspaceMappingSourceProjection:
             return selection
         plan = self.preparation.get_derived_entity_plan(workspace_id)
         if plan is None:
-            return selection
-        package = self.repository.get_source_package(projection.data_version_id)
-        if package is None:
             return selection
         catalogs = tuple(
             SourceFileCatalog.from_json(
@@ -114,11 +115,13 @@ class WorkspaceMappingSourceProjection:
     ) -> SourceSelection | None:
         """Return the physical selection identity bound to source snapshots."""
 
-        projection = self.repository.get_workspace_source_projection(workspace_id)
-        if projection is None:
+        context = self.repository.get_workspace_source_projection_with_package(
+            workspace_id
+        )
+        if context is None:
             return None
-        package = self.repository.get_source_package(projection.data_version_id)
-        if package is None or package.content_hash != projection.package_hash:
+        projection, package = context
+        if package.content_hash != projection.package_hash:
             return None
         selected_ids = {item.dataset_id for item in projection.datasets}
         datasets = tuple(
@@ -151,11 +154,13 @@ class WorkspaceMappingSourceProjection:
     ) -> tuple[SourceSnapshot, ...]:
         """Rebuild immutable snapshot manifests from the owning source package."""
 
-        projection = self.repository.get_workspace_source_projection(workspace_id)
-        if projection is None:
+        context = self.repository.get_workspace_source_projection_with_package(
+            workspace_id
+        )
+        if context is None:
             return ()
-        package = self.repository.get_source_package(projection.data_version_id)
-        if package is None or package.content_hash != projection.package_hash:
+        projection, package = context
+        if package.content_hash != projection.package_hash:
             return ()
         selected_ids = {item.dataset_id for item in projection.datasets}
         snapshots: list[SourceSnapshot] = []

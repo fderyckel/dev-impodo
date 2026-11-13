@@ -23,6 +23,7 @@ PERFORMANCE_PHASES = frozenset(
     {
         "verify",
         "frozen_input",
+        "source_package",
         "plan",
         "read_odoo",
         "read_metadata",
@@ -63,6 +64,7 @@ PERFORMANCE_COUNTERS = frozenset(
         "prepared_rows",
         "target_rows",
         "dataset_count",
+        "source_package_reads",
         "artifact_read_bytes",
         "artifact_write_bytes",
         "database_connection_count",

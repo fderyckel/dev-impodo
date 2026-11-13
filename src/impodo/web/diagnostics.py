@@ -18,7 +18,7 @@ import sys
 from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
-from io import BytesIO
+from io import BytesIO, TextIOWrapper
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from threading import Lock
@@ -47,6 +47,11 @@ from impodo.application.workspace.execution.load_observation import (
 from impodo.domain.execution.load_control import FailureWindow, LoadControl
 from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.mutations import MappingMutationAction
+from impodo.web.diagnostic_costs import (
+    DiagnosticCostTracker,
+    logging_correlations,
+    record_logging_costs,
+)
 from impodo.web.load_diagnostic_bundle import load_bundle_members
 from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
@@ -134,7 +139,9 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
         max_bytes: int,
         backup_count: int,
         encoding: str,
+        costs: DiagnosticCostTracker | None = None,
     ) -> None:
+        self._costs = costs if costs is not None else DiagnosticCostTracker()
         primary_path = Path(filename)
         primary_path.touch(mode=0o600, exist_ok=True)
         fallback_name = (
@@ -174,15 +181,24 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
             raise
 
     def emit(self, record: logging.LogRecord) -> None:
+        started = perf_counter()
         lock_stream = self._process_lock_stream
         if lock_stream is None:
             return
+        failures_before = self.write_failure_count
+        acquired = False
+        lock_started = perf_counter()
+        metrics: dict[str, int | float] = {"diagnostic_write_attempt_count": 1}
         try:
             with _exclusive_process_file_lock(lock_stream):
+                acquired = True
+                metrics["diagnostic_file_lock_wait_ms"] = (perf_counter() - lock_started) * 1000
                 self._close_output_stream()
                 if self.shouldRollover(record):
+                    rotation_started = perf_counter()
                     try:
                         self.doRollover()
+                        metrics["diagnostic_rotation_count"] = 1
                     except PermissionError as error:
                         if (
                             self.baseFilename != self._primary_filename
@@ -191,16 +207,43 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
                             raise
                         self._close_output_stream()
                         self.baseFilename = self._fallback_filename
+                    finally:
+                        metrics["diagnostic_rotation_ms"] = (perf_counter() - rotation_started) * 1000
+                write_started = perf_counter()
                 logging.FileHandler.emit(self, record)
                 if self.stream is not None:
                     self.stream.flush()
+                metrics["diagnostic_write_flush_ms"] = (perf_counter() - write_started) * 1000
+                if self.write_failure_count == failures_before:
+                    metrics["diagnostic_write_count"] = 1
+                    # JSON is ASCII escaped; account for TextIO newline translation.
+                    metrics["diagnostic_bytes_written"] = len(
+                        self.format(record).encode("utf-8")
+                    ) + len(os.linesep.encode("utf-8"))
                 self._apply_private_output_permissions()
         except (OSError, TimeoutError, ValueError):
             # Optional diagnostics must never delay or break the application.
             self.write_failure_count += 1
+            if not acquired:
+                metrics["diagnostic_file_lock_wait_ms"] = (perf_counter() - lock_started) * 1000
+                metrics["diagnostic_lock_timeout_count"] = 1
             return
         finally:
             self._close_output_stream()
+            metrics["diagnostic_emit_ms"] = (perf_counter() - started) * 1000
+            metrics["diagnostic_capture_failure_count"] = self.write_failure_count - failures_before
+            record_logging_costs(self._costs, metrics)
+
+    def _open(self) -> TextIOWrapper:
+        """Observe actual stream opens without changing rotation ownership."""
+        started = perf_counter()
+        try:
+            return super()._open()
+        finally:
+            record_logging_costs(self._costs, {
+                "diagnostic_open_count": 1,
+                "diagnostic_open_ms": (perf_counter() - started) * 1000,
+            })
 
     def handleError(self, record: logging.LogRecord) -> None:
         """Keep logging's internal error path off the operator console."""
@@ -220,12 +263,17 @@ class _ConcurrentRotatingFileHandler(RotatingFileHandler):
     def _close_output_stream(self) -> None:
         if self.stream is None:
             return
+        started = perf_counter()
         try:
             self.stream.close()
         except OSError:
             pass
         finally:
             self.stream = None
+            record_logging_costs(self._costs, {
+                "diagnostic_close_count": 1,
+                "diagnostic_close_ms": (perf_counter() - started) * 1000,
+            })
 
     def _apply_private_output_permissions(self) -> None:
         if os.name == "nt":
@@ -318,6 +366,7 @@ class LocalDiagnosticRecorder:
         self._closed = False
         self._load_recorders: dict[str, LocalDiagnosticRecorder] = {}
         self._capture_setup_failures = 0
+        self._logging_costs = DiagnosticCostTracker()
         self._logger = logging.getLogger(f"impodo.local_diagnostics.{uuid4()}")
         self._logger.setLevel(logging.INFO)
         self._logger.propagate = False
@@ -326,6 +375,7 @@ class LocalDiagnosticRecorder:
             max_bytes=max_bytes,
             backup_count=backup_count,
             encoding="utf-8",
+            costs=self._logging_costs,
         )
         handler.setFormatter(logging.Formatter("%(message)s"))
         self._handler = handler
@@ -645,7 +695,39 @@ class LocalDiagnosticRecorder:
             recorder.capture_failure_count for recorder in self._load_recorders.values()
         )
 
+    def logging_costs_snapshot(self) -> dict[str, object]:
+        """Expose detached process-local logging costs without another log write."""
+        try:
+            snapshot = self._logging_costs.snapshot()
+            with self._lock:
+                children = tuple(self._load_recorders.items())
+            snapshot["load_recorders"] = {
+                "events" if name == LOAD_EVENT_LOG else "summary": recorder.logging_costs_snapshot()
+                for name, recorder in children
+            }
+            return snapshot
+        except Exception:  # noqa: BLE001 - optional costs cannot prevent export
+            return {"schema_version": 1, "scope": "process_recorder", "capture_complete": False,
+                    "child_process_coverage": "unavailable"}
+
+    def record_request_completion(
+        self, request_id: str, reported_ms: float, lifecycle_ms: float,
+    ) -> None:
+        """Retain request completion after logging, preserving reported duration."""
+        with logging_correlations({"request_id": request_id}):
+            record_logging_costs(self._logging_costs, {
+                "request_reported_ms": reported_ms,
+                "request_lifecycle_ms": lifecycle_ms,
+                "request_completed_count": 1,
+            })
+
     def _write(self, payload: dict[str, Any]) -> None:
+        with logging_correlations(payload):
+            self._write_observed(payload)
+
+    def _write_observed(self, payload: dict[str, Any]) -> None:
+        """Measure encoding, caller lock wait, and synchronous diagnostic emission."""
+        started = perf_counter()
         envelope = {
             "schema_version": DIAGNOSTIC_SCHEMA_VERSION,
             "recorded_at": datetime.now(UTC)
@@ -659,7 +741,13 @@ class LocalDiagnosticRecorder:
             sort_keys=True,
             separators=(",", ":"),
         )
+        encode_ms = (perf_counter() - started) * 1000
+        lock_started = perf_counter()
         with self._lock:
+            record_logging_costs(self._logging_costs, {
+                "diagnostic_encode_ms": encode_ms,
+                "diagnostic_thread_lock_wait_ms": (perf_counter() - lock_started) * 1000,
+            })
             if self._closed:
                 return
             try:
@@ -669,6 +757,10 @@ class LocalDiagnosticRecorder:
                 # Diagnostics must never make the local application unavailable.
                 self._handler.write_failure_count += 1
                 return
+            finally:
+                record_logging_costs(self._logging_costs, {
+                    "diagnostic_caller_ms": (perf_counter() - started) * 1000,
+                })
 
     @staticmethod
     def _apply_private_permissions(directory: Path, *paths: Path) -> None:

@@ -2,11 +2,21 @@
 
 ## Status and outcome
 
-**Status:** Ranked fifth in the cross-plan implementation order as of
-2026-10-28. The complete Contact vertical is implemented and live-qualified.
-Product, bill-of-material, empty-destination, interrupted-load, recovery, and
-measured multi-model qualification remain open. Cross-major transfer and
-whole-database upgrade are excluded rather than lower-priority work.
+**Status (2026-11-13):** The bounded transfer engine is implemented. Recorded
+live Contact qualification covers Odoo 19 relationships and Odoo 20 scalar
+transfers, including interruption and recovery in both LOCAL-to-REMOTE and
+REMOTE-to-LOCAL directions. Generic parent/company identities, explicit
+company mapping, Product and bill-of-material transfer qualification, broader
+destination and recovery scenarios, and measured multi-model qualification
+remain open. Cross-major transfer and whole-database upgrade are excluded.
+The [cross-plan roadmap](00-remaining-work.md) owns implementation priority.
+
+The [shared transfer and restore checklist](32-odoo-transfer-and-restore-checklist.md)
+owns the reconciled remaining work for this plan and
+[saved Odoo data and restoration](31-saved-odoo-data-and-restore.md). This plan
+owns the shared capture, identity, dependency, matching and execution engine.
+Plan 31 owns reusable saved versions and the restoration journey. A shared
+capability is implemented once and verified through both entry points.
 
 A data manager selects records from a supported Odoo 19 or final Odoo 20
 instance to move to another instance of the same major. The records may be
@@ -47,15 +57,18 @@ models for review, but the manager still saves the model choice explicitly.
 For a supporting model already in that scope, the manager can choose
 linked-only capture. A bounded protected closure follows eligible relationships
 from root records, resolves only the linked rows, and checks membership again
-before atomic publication. The manager confirms all eligible relationship
-fields as a group. Per-field edge approval and automatic model-scope mutation
-remain.
+before atomic publication. The manager confirms eligible relationship defaults
+as a group. The saved decisions remain inspectable by field, and bounded graph
+expansion stops at named exceptions that need a decision.
 When selected record types are captured together, publication now rejects
 links whose target row was excluded from the frozen set. The destination
 matching page supports a first text field and up to two more captured text or
 integer fields. Matching, approval, preflight, relationship resolution, and
-execution use the same ordered fields. The first field still bounds the
-destination read to 1,001 rows; a wide first-field match is blocked.
+execution use the same ordered fields. Destination reads use exact identity
+tuples in batches of at most 500, with one additional result per batch to
+detect truncation. This supports the current source bound of 10,000 rows per
+model. The separate 1,000-choice interactive value control is not a total
+destination-matching limit.
 Matching now reads all destination field definitions and their available
 required-field defaults. It blocks a proposed create when required inputs
 are neither captured nor automatically safe to leave to Odoo. Preflight
@@ -67,8 +80,10 @@ now require a qualified workflow handler before generic creates or updates.
 Existing destination records can still be reused. This guard does not detect
 every possible business action on a custom or standard model.
 These changes do not add a model-specific path or allow updates to the
-captured source instance. The remaining phases below describe unfinished
-capabilities.
+captured source instance. The phases below retain the accepted design and
+historical implementation notes. Their future-tense wording is not an
+outstanding-task list; use the shared checklist to distinguish delivered
+behavior from remaining implementation and qualification.
 
 On 2026-09-18, a read-only rehearsal used two distinct private Odoo
 `19.0+e` demo instances. The matching service classified one sampled Contact
@@ -250,7 +265,11 @@ or company context need a review control bound to exact destination default
 evidence. Generated child records need an explicit handler that predicts and
 reconciles their post-parent identities before the load is approved.
 
-### Proposal: resolve required create fields inside the transfer
+### Required create fields: delivered design and acceptance contract
+
+The following design records the implemented create-field providers and their
+acceptance requirements. Check its remaining model and live-qualification
+coverage through the shared checklist before planning another implementation.
 
 **Implementation status (2026-09-23):** Destination matching now handles exact
 scalar and Selection defaults, typed fixed values, and compatible captured
@@ -465,7 +484,15 @@ interrupted load resumes only work that read-back proves safe.
 passed for a partly populated destination, including required defaults,
 Company reuse, Contact creation, relationship read-back, ambiguous-key
 blocking, repeat matching, authenticated screenshots, and cleanup. Product,
-BOM, empty-destination, and interrupted-load qualification remain open.
+BOM and broader empty-destination qualification remained open at that date.
+
+**Qualification update (2026-10-31):** The
+[load workflow](../developer/workflow/06-load-into-odoo.md) records live Odoo 20
+scalar Contact transfers in both LOCAL-to-REMOTE and REMOTE-to-LOCAL
+directions. Controlled interruption after an accepted batch, durable reopen,
+recovery of the original journal, read-back and repeat matching passed. This
+does not qualify Product or BOM transfer, multi-model relationship recovery,
+or the complete Odoo 19 and 20 connector matrix.
 
 ## Phase 4: reduce operator work
 
@@ -478,12 +505,18 @@ without reusing credentials, source snapshots, or destination results.
 listing all supporting models or rebuilding the same rules. Only ambiguous
 matches and business decisions require manual work.
 
+Plan 31 already remembers capture configurations and destination restore
+choices for saved-data restoration. Verify ordinary migration reuse separately;
+those restore profiles do not establish that every ad hoc transfer can reuse
+the same choices.
+
 ## Phase 5: qualify model breadth, size, and cutover
 
-The current source limit of 10,000 rows per model and destination matching
-limit of 1,000 distinct keys per model constrain practical migrations.
-Replace large `in` requests with bounded key batches, measure memory and
-Odoo calls, and then raise limits by evidence.
+The current source limit remains 10,000 rows per model. Destination matching
+already issues bounded batches of at most 500 exact keys. Measure end-to-end
+time, memory, source and destination calls, and local database work at the
+current boundary before considering a higher limit. Existing batching is not
+evidence that every representative workload or platform is qualified.
 
 Run independent two-instance scenarios for Contacts, Products with generated
 variants, BOMs with lines and operations, and one transactional model with

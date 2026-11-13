@@ -223,6 +223,21 @@ through `ResolutionService`. `normalization.py` handles reviewable value groups
 through `NormalizationService`. Both publish new evidence rather than mutating
 the frozen source.
 
+For the bounded normalization route, Impodo resolves each mapped field's review
+policy and builds its group metadata once per evaluation. The cache belongs to
+that evaluation and is bounded by its compiled policy fields. Every effect
+retains its own row identity, protected displays, eligibility, and exact effect
+hash. Each returned metadata dictionary is independent, so a consumer
+cannot alter the cached group.
+
+The DuckDB normalization adapter also sends each distinct group seed once per
+effect batch. Its key includes the group identifier and all eight normalized
+metadata fields. Conflicting metadata therefore remains visible to the existing
+SQL consistency check, even when effects share an identifier. The adapter
+clears the seed dictionary at each batch boundary. Canonical JSON encoding,
+effect ordering, duplicate handling, transaction rollback, and canonical
+eligible-data hashing retain their existing contracts.
+
 ### Handoff to the shared Odoo comparison
 
 After normalization approval, `workspace_normalization.html` exposes
@@ -617,6 +632,14 @@ subphases, and terminal duration retain their scope. Inclusive and nested
 durations overlap and must not be added together. Collection failures remain
 separate from the saved preparation outcome.
 
+On the bounded normalization route, `normalization_effect_aggregation` measures
+construction and aggregation of the durable effect and finding facts.
+`normalization_eligible_hash` measures the canonical eligible-data hash. Both
+are nested within `normalization_aggregation`; that enclosing measurement also
+includes policy and review-group construction. These separate durations help
+identify which work dominates an attempt without changing the evidence being
+hashed.
+
 The existing diagnostic ZIP includes `performance.json` and
 `performance-summary.txt`. These members contain bounded, sanitized
 attempt-correlated records and explicit missing-history, sampling, and
@@ -680,6 +703,9 @@ operation result; an application request must not reopen worker-owned DuckDB.
 - [`tests/integration/duckdb/test_native_reference_serialization.py`](../../../tests/integration/duckdb/test_native_reference_serialization.py)
 - [`tests/domain/preparation/test_quality.py`](../../../tests/domain/preparation/test_quality.py)
 - [`tests/domain/preparation/test_normalization.py`](../../../tests/domain/preparation/test_normalization.py)
+- [`tests/application/workspace/preparation/test_normalization_metadata.py`](../../../tests/application/workspace/preparation/test_normalization_metadata.py)
+- [`tests/application/workspace/preparation/test_normalization_timing.py`](../../../tests/application/workspace/preparation/test_normalization_timing.py)
+- [`tests/integration/duckdb/test_normalization_seed_transport.py`](../../../tests/integration/duckdb/test_normalization_seed_transport.py)
 - [`tests/performance/test_preparation_scale.py`](../../../tests/performance/test_preparation_scale.py)
 - [`tests/performance/test_preparation_identity_groups.py`](../../../tests/performance/test_preparation_identity_groups.py)
 - [`tests/integration/web/test_preparation_workflow.py`](../../../tests/integration/web/test_preparation_workflow.py)

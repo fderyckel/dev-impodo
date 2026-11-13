@@ -163,6 +163,51 @@ class PreparationPerformanceSanitizerTests(unittest.TestCase):
 
 
 class PreparationPerformanceBundleTests(unittest.TestCase):
+    def test_normalization_subphases_survive_sanitized_export_as_nested_timings(
+        self,
+    ) -> None:
+        attempt_id = str(uuid4())
+        phases = ("normalization_effect_aggregation", "normalization_eligible_hash")
+        with TemporaryDirectory(prefix="impodo-performance-") as directory:
+            recorder = LocalDiagnosticRecorder(directory)
+            recorder.record_performance_event(event(attempt_id=attempt_id))
+            for sequence, phase in enumerate(phases, start=1):
+                recorder.record_performance_event(
+                    {
+                        **event(
+                            "phase_completed", sequence=sequence, attempt_id=attempt_id
+                        ),
+                        "phase": phase,
+                        "duration_ms": 10.5,
+                        "timing_scope": "nested",
+                        "outcome": "completed",
+                        "private_value": "NEVER_EXPORT_THIS",
+                    }
+                )
+            recorder.record_performance_event(
+                {
+                    **event("attempt_finished", sequence=3, attempt_id=attempt_id),
+                    "outcome": "succeeded",
+                    "measurement_complete": True,
+                }
+            )
+            recorder.close()
+            with ZipFile(
+                BytesIO(
+                    create_diagnostic_bundle(
+                        directory, build_contract=PROCESS_BUILD_CONTRACT
+                    )
+                )
+            ) as archive:
+                performance = json.loads(archive.read("performance.json"))
+                summary = archive.read("performance-summary.txt").decode()
+        timings = performance["attempts"][0]["phase_timings"]
+        self.assertEqual([timing["phase"] for timing in timings], list(phases))
+        self.assertTrue(all(timing["timing_scope"] == "nested" for timing in timings))
+        self.assertNotIn("NEVER_EXPORT_THIS", json.dumps(performance))
+        for phase in phases:
+            self.assertIn(f"{phase}: 10.5 ms (nested)", summary)
+
     def test_exports_execution_time_windows_facts_and_detects_missing_phases(
         self,
     ) -> None:

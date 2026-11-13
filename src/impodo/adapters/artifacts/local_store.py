@@ -41,6 +41,7 @@ from impodo.application.shared.artifacts import (
     ArtifactValidator,
     StoredArtifact,
 )
+from impodo.application.shared.io_performance import measure_file_io
 
 
 class LocalArtifactStore:
@@ -91,7 +92,10 @@ class LocalArtifactStore:
                             f"Source file exceeds {maximum_bytes} bytes"
                         )
                     digest.update(chunk)
-                    target.write(chunk)
+                    with measure_file_io("write") as transfer:
+                        written = target.write(chunk)
+                        if transfer is not None:
+                            transfer.add_bytes(written)
             if size == 0:
                 raise ArtifactStoreError("Source file is empty")
             validator(partial)
@@ -508,7 +512,10 @@ class LocalArtifactStore:
         """Publish one report from in-memory bytes via the partial-file boundary."""
 
         with self.prepare_report(workspace_id, run_id, filename) as partial:
-            partial.write_bytes(content)
+            with measure_file_io("write") as transfer:
+                written = partial.write_bytes(content)
+                if transfer is not None:
+                    transfer.add_bytes(written)
 
     @contextmanager
     def prepare_report(
@@ -859,9 +866,12 @@ def _require_portable_windows_path(path: Path) -> None:
 
 def _file_sha256(path: Path) -> str:
     digest = sha256()
-    with path.open("rb") as stream:
-        while chunk := stream.read(1024 * 1024):
-            digest.update(chunk)
+    with measure_file_io("hash") as transfer:
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                if transfer is not None:
+                    transfer.add_bytes(len(chunk))
+                digest.update(chunk)
     return f"sha256:{digest.hexdigest()}"
 
 

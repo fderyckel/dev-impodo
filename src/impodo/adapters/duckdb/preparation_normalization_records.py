@@ -216,7 +216,7 @@ class PreparationNormalizationRecords:
                     """
                 )
                 pending_effects: list[list[object]] = []
-                pending_group_seeds: list[list[object]] = []
+                pending_group_seeds: dict[tuple[str, ...], list[object]] = {}
                 bound_rows = PreparationNormalizationRecords._iter_bound_impacts_with_eligibility(
                     connection,
                     canonical_session_id,
@@ -243,12 +243,28 @@ class PreparationNormalizationRecords:
                         "rule_id": str(metadata["rule_id"]),
                         "target_field": str(metadata["target_field"]),
                     }
-                    metadata_hash = (
-                        "sha256:"
-                        + sha256(
-                            _canonical_json(metadata_values).encode("utf-8")
-                        ).hexdigest()
-                    )
+                    # Keep conflicting metadata distinct for the SQL consistency check.
+                    seed_key = (effect.group_id, *metadata_values.values())
+                    if seed_key not in pending_group_seeds:
+                        metadata_hash = (
+                            "sha256:"
+                            + sha256(
+                                _canonical_json(metadata_values).encode("utf-8")
+                            ).hexdigest()
+                        )
+                        pending_group_seeds[seed_key] = [
+                            canonical_session_id,
+                            effect.group_id,
+                            metadata_hash,
+                            metadata_values["dataset"],
+                            metadata_values["target_field"],
+                            metadata_values["rule_id"],
+                            metadata_values["kind"],
+                            metadata_values["outcome"],
+                            metadata_values["name"],
+                            metadata_values["explanation"],
+                            metadata_values["owner_label"],
+                        ]
                     pending_effects.append(
                         [
                             canonical_session_id,
@@ -263,21 +279,6 @@ class PreparationNormalizationRecords:
                             _canonical_json(effect.to_portable_dict()),
                         ]
                     )
-                    pending_group_seeds.append(
-                        [
-                            canonical_session_id,
-                            effect.group_id,
-                            metadata_hash,
-                            metadata_values["dataset"],
-                            metadata_values["target_field"],
-                            metadata_values["rule_id"],
-                            metadata_values["kind"],
-                            metadata_values["outcome"],
-                            metadata_values["name"],
-                            metadata_values["explanation"],
-                            metadata_values["owner_label"],
-                        ]
-                    )
                     if len(pending_effects) >= PREPARATION_SESSION_ROW_BATCH_SIZE:
                         PreparationNormalizationRecords._insert_prepared_normalization_effects(
                             connection,
@@ -285,7 +286,7 @@ class PreparationNormalizationRecords:
                         )
                         PreparationNormalizationRecords._insert_prepared_normalization_group_seeds(
                             connection,
-                            pending_group_seeds,
+                            pending_group_seeds.values(),
                         )
                         pending_effects.clear()
                         pending_group_seeds.clear()
@@ -296,8 +297,9 @@ class PreparationNormalizationRecords:
                     )
                     PreparationNormalizationRecords._insert_prepared_normalization_group_seeds(
                         connection,
-                        pending_group_seeds,
+                        pending_group_seeds.values(),
                     )
+                    pending_group_seeds.clear()
 
                 pending_findings: list[list[object]] = []
                 warning_issues = PreparationNormalizationRecords._iter_eligible_warning_issues(

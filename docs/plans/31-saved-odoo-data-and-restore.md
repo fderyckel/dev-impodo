@@ -1,7 +1,7 @@
 ---
 audience: developer
 document_type: plan
-status: completed
+status: partially-implemented
 ---
 
 # Save clean Odoo data and restore it after a database reset
@@ -17,7 +17,20 @@ The first implementation was completed on 12 November 2026. The current
 [user guide](../user/guides/saved-odoo-data.md) and
 [developer workflow](../developer/workflow/02-odoo-data.md#saved-odoo-data-and-repeat-restoration)
 own its operating instructions, source ownership, and verification boundaries.
-The remaining sections retain the accepted design behind that implementation.
+The first version is complete within the delivered scope below. The broader
+accepted design remains partially implemented and separately qualified.
+
+The [shared transfer and restore checklist](32-odoo-transfer-and-restore-checklist.md)
+owns the remaining work and its evidence. [Plan 05](05-odoo-to-odoo-migration.md)
+owns the shared capture, portable identity, matching, dependency and execution
+engine. This plan owns reusable capture configurations, dated data versions,
+restore policies, reset admission, archives and retention. Shared engine
+changes need acceptance coverage through both ordinary transfer and saved-data
+restoration.
+
+The remaining design sections record the complete accepted target. Future-tense
+requirements in those sections must be checked against the shared checklist
+before being treated as another implementation task.
 
 ## Delivered scope and qualification
 
@@ -309,19 +322,26 @@ expiry. Show which saved versions and referenced runs a deliberate deletion
 would affect. Continue enforcing storage budgets with a visible resolution
 instead of silently deleting the last usable version.
 
-## Existing components and implementation gaps
+## Reconciled implementation boundary
 
-| Responsibility | Starting point | Work required |
+| Responsibility | Delivered behavior | Remaining boundary |
 | --- | --- | --- |
-| Odoo capture | [Capture service](../../src/impodo/application/odoo_source_capture_service.py), [publication](../../src/impodo/application/odoo_capture_publication_service.py), and [dependency discovery](../../src/impodo/application/odoo_dependency_capture.py). | Reusable configuration revisions, complete refresh lifecycle, company coverage, and eligibility extensions. |
-| Immutable source ownership | [Source packages](../../src/impodo/application/data_version/source_packages.py) and [source snapshots](../../src/impodo/application/data_version/source_snapshots.py). | Retained reusable versions, coherent manifests, portable package import/export, and explicit lifecycle integration. |
-| Capture eligibility | [Capture predicates](../../src/impodo/domain/odoo_source_capture.py), [source policy](../../src/impodo/domain/odoo_source_policy.py), and [scope policy](../../src/impodo/domain/odoo_source_scope.py). | Qualify per-company values and report field completeness rather than silently accepting current exclusions. |
-| Destination checks | [Transfer review](../../src/impodo/application/transfer_review_service.py), [preflight](../../src/impodo/application/transfer_preflight_service.py), and [execution compilation](../../src/impodo/application/transfer_execution_service.py). | Compile field policies, schema adaptations, effective expectations, and a combined restore intent. |
-| Database reset | [Workbench destination binding](../../src/impodo/domain/workspace/workbench.py). | Dedicated offline-source restore admission and fresh target binding at the same address, while preserving ordinary transfer guards. |
-| Reusable rules | [Recipe compiler](../../src/impodo/application/recipe_compilation_service.py). | Share suitable portable rule compilation; do not remove the Odoo-source rejection without a complete replacement contract. |
-| Retention | [Retention domain](../../src/impodo/domain/shared/retention.py). | Protect deliberate saved versions from inactivity and successful-load deletion. |
+| Capture configuration and refresh | [Saved-data service](../../src/impodo/application/odoo_saved_data_service.py) revisions configurations and publishes complete immutable versions with durable retry evidence. | Added, changed and removed record comparisons are still required. Reviewed source rebind after a reset needs an explicit contract and acceptance coverage. |
+| Immutable ownership and portability | [Saved workspaces](../../src/impodo/application/odoo_saved_data_workspaces.py) project retained source data into fresh runs. Protected package export/import assigns new local ownership and keys. | Qualify one joined independent-installation import, complete destination restore, read-back and repeated restore without source access. |
+| Capture eligibility | The qualified capture policy exposes excluded coverage and supports admitted fields. | Company-dependent properties, translations, binary content and attachments remain excluded capability extensions. The first version does not establish a complete Chart of Accounts backup. |
+| Destination policies | [Restore compilation](../../src/impodo/domain/odoo_restore.py) and [restore composition](../../src/impodo/web/composition/saved_odoo_restore.py) apply field policies, schema decisions and effective verification through the shared transfer engine. | Generic parent/company identities and explicit source-to-destination company mapping remain shared engine work. |
+| Database reset and recovery | Restores use fresh workspaces, destination evidence and journals. Retained data can be opened without source access. | A local restore operation identity does not prove database generation. Qualify explicit reset declaration, stale-journal rejection, reused numeric IDs and source rebind at the same endpoint. |
+| Retention | Complete saved versions are pinned against ordinary expiry and successful-load cleanup. Retained versions currently block project deletion. | Add deliberate saved-version removal, affected-run disclosure and visible storage-budget resolution. |
+| Operator and release qualification | Controlled route and application tests cover both majors and local/remote fixtures. | Complete fresh browser visual review, live ORM round trips, joined restart/recovery cases and applicable platform/performance evidence. |
 
-## Implementation sequence
+Use the shared checklist for priorities and exit conditions. Preserve the
+first version's working behavior while completing these requirements.
+
+## Original implementation sequence
+
+The sequence below records the original design order. Several steps are now
+delivered; it must not be used as a fresh list of unfinished tasks. The shared
+checklist owns the next increments.
 
 1. Define domain contracts and acceptance fixtures for configuration revisions,
    immutable data versions, company mappings, field coverage, restore policies,

@@ -207,6 +207,14 @@ binding only for an Odoo source. Structural validation remains required, and
 Odoo source-company bindings retain their hash checks. These bounded reads
 reduce local work independently of the remote-read worker count.
 
+Comparison passes its verified workspace state to frozen-input construction
+within the same local phase. Source-selection readers receive their projection
+and the package used to validate it in one repository call. They use that
+package for catalogues and snapshot manifests instead of loading it again.
+This reuse ends with the call; later reads still validate package hashes,
+workspace ownership and dataset references. No database owner or cached package
+crosses the Odoo-read boundary.
+
 The diagnostic download includes `performance-summary.json` with retained
 comparison attempts and preparation evidence. Allowlisted measurements carry
 their operation and application build identities, workload counts, effective
@@ -220,6 +228,13 @@ network time. Source values, credentials, URLs, SQL parameters and filesystem
 paths remain excluded. Diagnostic capture failures do not change comparison
 or publication outcomes.
 
+The `source_package` phase records time spent loading and validating source
+metadata, and `source_package_reads` counts those loads. These observations
+survive diagnostic ZIP export alongside database, Odoo, workload and runtime
+measurements. They help distinguish repeated local reads from remote waiting
+when investigating a Windows observation. SQL statement counts remain isolated
+regression-test measurements; diagnostic bundles do not retain SQL text.
+
 The [record-read regressions](../../../tests/integration/odoo/test_record_read_concurrency.py)
 prove overlap, bounded submission, sequential pages, deterministic merging and
 failure behavior for Odoo 19 and 20. The
@@ -228,6 +243,10 @@ exercise both access modes and remote pinned-source forwarding. The
 [collector nesting tests](../../../tests/integration/web/test_preflight_timing_nesting.py)
 preserve existing instrumentation. The existing Recipe comparison recovery
 suite continues to cover governed publication and receipts.
+The [source-read regressions](../../../tests/integration/web/test_hierarchy_comparison_reads.py)
+bound repeated reads and reject changed package or dataset evidence. The
+[diagnostic export test](../../../tests/integration/web/test_source_read_diagnostics.py)
+checks retention of source-read costs with simulated Windows runtime metadata.
 
 Run `scripts/benchmark_preflight_reads.py --output <temporary-file.json>` for
 paired one- and two-worker measurements using fictional Odoo 19/20 transports

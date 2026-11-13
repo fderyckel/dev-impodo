@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
+from time import perf_counter
 
 from impodo.domain.project.foundation import require_hash
 from impodo.domain.shared.schema import (
@@ -14,6 +15,15 @@ from impodo.domain.shared.schema import (
 
 BUILD_CONTRACT_VERSION = 1
 _BUILD_FILE_SUFFIXES = frozenset({".css", ".html", ".js", ".py"})
+
+
+@dataclass(frozen=True, slots=True)
+class ApplicationBuildMeasurement:
+    """Describe the existing build-hash pass without paths or file contents."""
+
+    duration_ms: float
+    file_count: int
+    read_bytes: int
 
 
 class ApplicationBuildMismatchError(RuntimeError):
@@ -44,8 +54,18 @@ class ApplicationBuildContract:
 def calculate_application_build_contract() -> ApplicationBuildContract:
     """Hash the installed code and browser assets without reading project data."""
 
+    return _calculate_application_build_contract()[0]
+
+
+def _calculate_application_build_contract(
+) -> tuple[ApplicationBuildContract, ApplicationBuildMeasurement]:
+    """Measure the same byte reads used to produce the authoritative build."""
+
+    started = perf_counter()
     package_root = Path(__file__).resolve().parents[2]
     digest = sha256()
+    file_count = 0
+    read_bytes = 0
     for path in sorted(
         (
             item
@@ -60,19 +80,28 @@ def calculate_application_build_contract() -> ApplicationBuildContract:
         digest.update(len(relative).to_bytes(4, "big"))
         digest.update(relative)
         payload = path.read_bytes()
+        file_count += 1
+        read_bytes += len(payload)
         digest.update(len(payload).to_bytes(8, "big"))
         digest.update(payload)
-    return ApplicationBuildContract(
-        application_build_id=f"sha256:{digest.hexdigest()}",
-        workspace_schema_generation=WORKSPACE_SCHEMA_GENERATION,
-        workspace_schema_version=WORKSPACE_SCHEMA_VERSION,
+    return (
+        ApplicationBuildContract(
+            application_build_id=f"sha256:{digest.hexdigest()}",
+            workspace_schema_generation=WORKSPACE_SCHEMA_GENERATION,
+            workspace_schema_version=WORKSPACE_SCHEMA_VERSION,
+        ),
+        ApplicationBuildMeasurement(
+            duration_ms=max(0.0, perf_counter() - started) * 1000,
+            file_count=file_count,
+            read_bytes=read_bytes,
+        ),
     )
 
 
 # A process captures this once. A spawned worker imports the package again and
 # captures its own value, so a changed editable checkout cannot be mistaken for
 # the build that accepted the browser request.
-PROCESS_BUILD_CONTRACT = calculate_application_build_contract()
+PROCESS_BUILD_CONTRACT, PROCESS_BUILD_MEASUREMENT = _calculate_application_build_contract()
 
 
 def require_same_application_build(
