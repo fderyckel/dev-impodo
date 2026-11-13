@@ -31,6 +31,7 @@ from impodo.application.run.odoo_requirements import (
     OdooCheckRelationshipRequirement,
     OdooCheckSupportingRequirement,
 )
+from impodo.application.shared.performance import performance_phase
 from impodo.application.workspace.mapping.supporting_values import (
     MappingSupportingRelationship,
     MappingSupportingRequirement,
@@ -985,7 +986,8 @@ def _read_readiness_snapshots(
     connector = Json2ReadConnector(
         _target_json2_config(workspace_state, credential.secret)
     )
-    metadata = connector.get_model_metadata(metadata_requests)
+    with performance_phase("read_metadata"):
+        metadata = connector.get_model_metadata(metadata_requests)
     _validate_live_supplemental_metadata(
         schema,
         requirements,
@@ -997,8 +999,11 @@ def _read_readiness_snapshots(
         metadata,
         supporting_references,
     )
-    records = connector.get_records(record_requests)
-    metadata = connector.check_company_references(metadata, records)
+    with performance_phase("read_records"):
+        records = connector.get_records(
+            record_requests, max_workers=context.preflight_read_workers,
+        )
+        metadata = connector.check_company_references(metadata, records)
     return metadata, records
 
 
@@ -1067,10 +1072,13 @@ def _read_pinned_odoo_snapshots(
     connector = Json2ReadConnector(
         _target_json2_config(workspace_state, credential.secret)
     )
-    return (
-        connector.get_model_metadata(metadata_requests),
-        connector.get_records(record_requests),
-    )
+    with performance_phase("read_metadata"):
+        metadata = connector.get_model_metadata(metadata_requests)
+    with performance_phase("read_records"):
+        records = connector.get_records(
+            record_requests, max_workers=context.preflight_read_workers,
+        )
+    return metadata, records
 
 
 def _read_selection_metadata(

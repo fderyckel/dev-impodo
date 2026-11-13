@@ -41,6 +41,7 @@ class PreflightPublicationTimings:
 
     milliseconds: dict[str, float] = field(default_factory=dict)
     calls: dict[str, int] = field(default_factory=dict)
+    parent: PreflightPublicationTimings | None = field(default=None, repr=False)
 
     def record(self, phase: str, duration_ms: float) -> None:
         if phase not in PREFLIGHT_PUBLICATION_PHASES:
@@ -50,6 +51,8 @@ class PreflightPublicationTimings:
             float(duration_ms),
         )
         self.calls[phase] = self.calls.get(phase, 0) + 1
+        if self.parent is not None:
+            self.parent.record(phase, duration_ms)
 
 
 _CURRENT_PREFLIGHT_PUBLICATION_TIMINGS: ContextVar[
@@ -61,7 +64,9 @@ _CURRENT_PREFLIGHT_PUBLICATION_TIMINGS: ContextVar[
 def collect_preflight_publication_timings() -> Iterator[PreflightPublicationTimings]:
     """Install one timing collector in the current execution context."""
 
-    collector = PreflightPublicationTimings()
+    collector = PreflightPublicationTimings(
+        parent=_CURRENT_PREFLIGHT_PUBLICATION_TIMINGS.get(),
+    )
     token = _CURRENT_PREFLIGHT_PUBLICATION_TIMINGS.set(collector)
     try:
         yield collector

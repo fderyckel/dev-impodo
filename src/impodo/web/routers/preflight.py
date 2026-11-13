@@ -468,6 +468,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     work=compare_in_background,
                     operation_id=operation_id,
                 )
+                request.state.performance_operation_id = job.job_id
                 return RedirectResponse(
                     _preflight_progress_url(workspace_id, job.job_id),
                     status_code=303,
@@ -626,6 +627,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     f"/workspaces/{workspace_id}/summary",
                     status_code=303,
                 )
+            request.state.performance_operation_id = job.job_id
             return _render_preflight_progress(request, context, job)
 
         return await run_page_read(read_progress)
@@ -648,6 +650,7 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     },
                     status_code=410,
                 )
+            request.state.performance_operation_id = job.job_id
             return JSONResponse(
                 _preflight_job_payload(
                     job,

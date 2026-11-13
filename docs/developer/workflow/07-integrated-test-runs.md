@@ -495,6 +495,17 @@ target, read identity, and context, but does not require Authoring registration
 or reopen source data. Recipe application workspaces inherit their schema and
 source projection. Initial schema capture retains its registration checks.
 
+Recipe preparation uses the same child runtime and support measurements as
+Authoring. [`preparation_runtime.py`](../../../src/impodo/application/shared/preparation_runtime.py)
+selects and verifies the native thread count in that child.
+[`preparation_performance.py`](../../../src/impodo/web/composition/preparation_performance.py)
+observes the worker without changing its result.
+[`preparation_performance_diagnostics.py`](../../../src/impodo/web/preparation_performance_diagnostics.py)
+allowlists its evidence, and
+[`performance_bundle.py`](../../../src/impodo/web/performance_bundle.py)
+retains bounded summaries in the diagnostic download. These observations
+describe their measured scope; they do not establish a Windows speedup.
+
 ## Code references
 
 | Role | Code |

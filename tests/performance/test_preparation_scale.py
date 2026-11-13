@@ -1325,7 +1325,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
         parent_process = psutil.Process()
         parent_rss_before_jobs = parent_process.memory_info().rss
 
-        def run_attempt() -> tuple[float, float, int]:
+        def run_attempt() -> tuple[float, float, int, dict[str, object]]:
             job = manager.enqueue(
                 workspace_id,
                 workspace_state.name,
@@ -1344,8 +1344,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     try:
                         worker_process = psutil.Process(worker_pid)
                         memory = worker_process.memory_info()
-                        working_set = getattr(memory, "peak_wset", memory.rss)
-                        peak_worker_bytes = max(peak_worker_bytes, working_set)
+                        peak_worker_bytes = max(peak_worker_bytes, memory.rss)
                         cpu_times = worker_process.cpu_times()
                         worker_cpu_seconds = max(
                             worker_cpu_seconds,
@@ -1371,6 +1370,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 perf_counter() - started,
                 worker_cpu_seconds,
                 peak_worker_bytes,
+                manager.performance_evidence(job.job_id),
             )
 
         def storage_evidence() -> dict[str, int]:
@@ -1433,7 +1433,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 "set_based_projection_datasets": set_based_count,
             }
 
-        first_seconds, first_cpu_seconds, first_peak = run_attempt()
+        first_seconds, first_cpu_seconds, first_peak, first_performance = run_attempt()
         first_staging = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
         )
@@ -1464,7 +1464,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 source_file.stored_name,
             )
 
-        repeat_seconds, repeat_cpu_seconds, repeat_peak = run_attempt()
+        repeat_seconds, repeat_cpu_seconds, repeat_peak, repeat_performance = run_attempt()
         repeated_staging = self.context.preparation.staging.get_current_staging_summary(
             workspace_id
         )
@@ -1525,6 +1525,35 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
             "workers_exited=yes, source_reopened=no"
         )
         if os.environ.get("IMPODO_PREPARATION_WORKER_JSON") == "1":
+            thread_runtime: dict[str, dict[str, int]] = {}
+            worker_build_ids: dict[str, str] = {}
+            for attempt_name, evidence in (
+                ("first", first_performance),
+                ("repeat", repeat_performance),
+            ):
+                configuration = evidence.get("configuration")
+                environment = evidence.get("environment")
+                self.assertIsInstance(configuration, dict)
+                self.assertIsInstance(environment, dict)
+                assert isinstance(configuration, dict)
+                assert isinstance(environment, dict)
+                requested = configuration.get("polars_threads_requested")
+                effective = configuration.get("polars_threads_effective")
+                self.assertIs(type(requested), int)
+                self.assertIs(type(effective), int)
+                self.assertEqual(effective, requested)
+                build_id = environment.get("build_id")
+                self.assertIsInstance(build_id, str)
+                assert isinstance(requested, int)
+                assert isinstance(effective, int)
+                assert isinstance(build_id, str)
+                self.assertEqual(build_id, manager.build_contract.application_build_id)
+                thread_runtime[attempt_name] = {
+                    "requested_polars_threads": requested,
+                    "effective_polars_threads": effective,
+                }
+                worker_build_ids[attempt_name] = build_id
+            self.assertEqual(worker_build_ids["first"], worker_build_ids["repeat"])
             result = {
                 "columns": PREPARATION_SCALE_COLUMNS,
                 "dirty": PREPARATION_SCALE_DIRTY,
@@ -1532,6 +1561,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 "first": {
                     "cpu_seconds": first_cpu_seconds,
                     "peak_worker_mib": first_peak / (1024 * 1024),
+                    "performance_evidence": first_performance,
                     "storage": first_storage,
                     "wall_seconds": first_seconds,
                 },
@@ -1545,6 +1575,8 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                     "staging": first_staging.content_hash,
                 },
                 "mapped_fields": PREPARATION_SCALE_MAPPED_FIELDS,
+                "memory_measurement": "sampled_rss",
+                "memory_sample_interval_ms": 50,
                 "parent_rss": {
                     "after_first_mib": parent_rss_after_first / (1024 * 1024),
                     "after_repeat_mib": parent_rss_after_repeat / (1024 * 1024),
@@ -1560,6 +1592,7 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 "repeat": {
                     "cpu_seconds": repeat_cpu_seconds,
                     "peak_worker_mib": repeat_peak / (1024 * 1024),
+                    "performance_evidence": repeat_performance,
                     "storage": repeat_storage,
                     "wall_seconds": repeat_seconds,
                 },
@@ -1574,8 +1607,10 @@ class PreparationWorkflowScaleTests(unittest.TestCase):
                 },
                 "schema_version": 1,
                 "source_reopened": False,
+                "thread_runtime": thread_runtime,
                 "vectorization_report": vectorization_report,
                 "workers_exited": True,
+                "worker_build_ids": worker_build_ids,
                 "workload": PREPARATION_SCALE_WORKLOAD,
             }
             print(

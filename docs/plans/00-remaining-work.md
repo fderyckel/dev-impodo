@@ -5,9 +5,8 @@
 **Status:** Active roadmap. The maintainer closed Plan 01 on 2026-11-08.
 Its remaining qualification is tracked by the end-to-end scenario plan.
 
-This is the broad forward-looking roadmap. Detailed plans remain beside it
-while delivery or qualification is unfinished. The [documentation index](../README.md#plans)
-lists those plans and their remaining scope.
+This is the broad forward-looking roadmap. Detailed plans remain in this
+folder while delivery or qualification is unfinished.
 
 Completed behavior belongs in architecture, contracts, and user and developer
 workflow documentation. Use Git history for retired plans and keep new run evidence in its

@@ -174,6 +174,77 @@ comparison. Set `IMPODO_ATTENTION_SCREENSHOT` to
 `docs/images/user/16k-final-review-attention-export.png` when running that test
 with Playwright to refresh the fictional authenticated screenshot.
 
+### Bounded remote reads and performance evidence
+
+The desktop composition accepts `IMPODO_PREFLIGHT_READ_WORKERS=1` or `2` at
+startup. The default is one. An explicit `preflight_read_workers` composition
+argument takes precedence. The two-worker pilot applies to remote file-source
+and pinned Odoo-source comparisons. Local Odoo shell reads remain sequential.
+
+`Json2ReadConnector.get_records` submits at most the configured number of
+existing bounded record requests. Each request resolves its External IDs and
+reads its pages sequentially. The coordinator captures one target fingerprint,
+preserves canonical request order, merges identical overlapping records and
+External ID aliases, and rejects conflicting or incomplete evidence. Each
+reader owns its transport and performance collector. After a failure, the
+coordinator stops submitting requests, cancels queued work, and drains active
+reads under their existing timeouts. Partial results cannot publish a review.
+Metadata, company-reference checks, classification, and publication retain
+their existing sequential boundaries.
+
+With diagnostics enabled, `PreflightJobManager` binds an
+`OperationPerformance` collector in the comparison worker. Queue wait,
+verification, Odoo reads, classification, review building, publication and
+receipt finalization have separate measurements. Existing publication timers
+retain encoding, serialization and insertion detail. Bounded local operations
+add DuckDB connection, schema and lock costs without hiding outer benchmark
+collectors. Child readers return immutable measurements for the coordinator
+to merge; mutable collectors never cross threads.
+
+Workspace projection takes file details from the verified Data version package
+and skips the engine's redundant file mirror. It reads the saved source-company
+binding only for an Odoo source. Structural validation remains required, and
+Odoo source-company bindings retain their hash checks. These bounded reads
+reduce local work independently of the remote-read worker count.
+
+The diagnostic download includes `performance-summary.json` with retained
+comparison attempts and preparation evidence. Allowlisted measurements carry
+their operation and application build identities, workload counts, effective
+read concurrency, thread CPU time, and sampled process-wide resident memory.
+Phase durations can overlap and must not be added together. Memory observations
+are sampled values, not an operating-system peak or memory attributable to
+one job. Started phases survive an interrupted attempt when their log records
+remain available. Missing terminal events and unavailable measurements remain
+explicit. Server request timings do not measure browser rendering or client
+network time. Source values, credentials, URLs, SQL parameters and filesystem
+paths remain excluded. Diagnostic capture failures do not change comparison
+or publication outcomes.
+
+The [record-read regressions](../../../tests/integration/odoo/test_record_read_concurrency.py)
+prove overlap, bounded submission, sequential pages, deterministic merging and
+failure behavior for Odoo 19 and 20. The
+[reporting regressions](../../../tests/integration/web/test_preflight_performance_reporting.py)
+exercise both access modes and remote pinned-source forwarding. The
+[collector nesting tests](../../../tests/integration/web/test_preflight_timing_nesting.py)
+preserve existing instrumentation. The existing Recipe comparison recovery
+suite continues to cover governed publication and receipts.
+
+Run `scripts/benchmark_preflight_reads.py --output <temporary-file.json>` for
+paired one- and two-worker measurements using fictional Odoo 19/20 transports
+with configurable latency. It records raw wall time, CPU, sampled memory,
+request counts, fixture meaning, and exact source identities. It rejects a
+changed build during measurement. Its timings cover the connector read
+segment; live Windows and complete-workflow improvements require separate
+observations. Repository workflow dispatch remains manual.
+
+Add `--diagnostics-mode both` to measure recording overhead separately from
+the worker-count change. The report separates recording-enabled and disabled
+cohorts with the same fixtures. The enabled cohort writes real, sanitized
+diagnostics. Its timed segment includes collector construction, reads, phase
+and terminal capture, and closing the recorder; directory setup and result
+verification remain outside that segment. Temporary logs use the shared
+`impodo-trials` location and are removed after measurement.
+
 ### Comparison publication
 
 `summary.py` renders the current local result. `preparation.py` can create the

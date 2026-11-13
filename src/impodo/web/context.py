@@ -337,6 +337,7 @@ class WebContext:
     saved_odoo_data: SavedOdooDataService | None = None
     saved_odoo_jobs: SavedOdooDataJobManager | None = None
     saved_odoo_archive: OdooSavedDataArchiveService | None = None
+    preflight_read_workers: int = 1
 
     @property
     def local_stack(self) -> LocalStackService:

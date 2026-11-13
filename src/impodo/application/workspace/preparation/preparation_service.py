@@ -186,6 +186,7 @@ class PreparationService:
         progress: Callable[[PreparationPhase, int, int, str], None] | None = None,
         cancellation_checkpoint: Callable[[], None] | None = None,
         timing: PreparationTimingReporter | None = None,
+        performance: Callable[[dict[str, object]], None] | None = None,
         expected_mapping_hash: str | None = None,
     ) -> NormalizationRunSummary:
         """Prepare every frozen row for review without contacting Odoo.
@@ -290,6 +291,30 @@ class PreparationService:
                 current_ruleset=quality_ruleset,
                 reference_bundle=reference_bundle,
             )
+            if performance is not None:
+                try:
+                    workload: dict[str, object] = {
+                        "row_count": total_rows,
+                        "dataset_count": len(physical_selection.datasets),
+                        "column_count": sum(len(item.schema.columns) for item in source_snapshots),
+                        "mapped_field_count": sum(len(item.fields) for item in revision.definition.datasets),
+                        "relationship_count": sum(len(item.relationships) for item in revision.definition.datasets),
+                        "processing_route": next((item.behavior.value for item in capability.stages if item.stage == "transformation"), "UNKNOWN"),
+                        "stage_routes": {item.stage: item.behavior.value for item in capability.stages},
+                    }
+                    selected_file_ids = {
+                        require_file_source(item.source).file_id
+                        for item in physical_selection.datasets
+                        if item.source.origin is SourceOriginKind.FILE
+                    }
+                    selected_files = tuple(item for item in workspace_state.source_files if item.file_id in selected_file_ids)
+                    if selected_file_ids and len(selected_files) == len(selected_file_ids):
+                        workload["input_bytes"] = sum(item.size_bytes for item in selected_files)
+                    performance({"workload": workload})
+                except Exception:  # noqa: BLE001 - optional diagnostics cannot change preparation
+                    logging.getLogger(__name__).debug(
+                        "Optional preparation performance capture failed"
+                    )
             capability.require_supported()
         bounded_session_id: str | None = None
         bounded_canonical_run: StoredCanonicalStagingRun | None = None

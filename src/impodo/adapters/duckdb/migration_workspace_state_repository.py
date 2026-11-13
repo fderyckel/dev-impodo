@@ -137,16 +137,21 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
-        with self._connect(database_path) as connection:
-            self._ensure_workspace_database_schema(connection)
-            source_company = read_saved_source_company(connection)
-        workbench = self._get_workspace_unresolved(workspace_id)
-        project = self.foundation.get_project(workspace.project_id)
         package = self.foundation.get_source_package(workspace.data_version_id)
         if package is None:
             raise WorkspaceStateError(
                 "The MigrationWorkspace DataVersion source package is missing"
             )
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            source_company = (
+                read_saved_source_company(connection)
+                if package.origin is SourcePackageOrigin.ODOO else None
+            )
+        # The verified DataVersion package below owns these files; reading the
+        # engine mirror only to replace it would add one query per state read.
+        workbench = self._get_workspace_unresolved(workspace_id, include_source_files=False)
+        project = self.foundation.get_project(workspace.project_id)
         target = self.foundation.get_migration_run_target_setup(
             workspace.migration_run_id
         )

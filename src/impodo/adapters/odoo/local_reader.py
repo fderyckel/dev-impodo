@@ -980,12 +980,25 @@ def lookup_value(node):
         return [lookup_value(item) for item in node.elts]
     if isinstance(node, ast.Name) and node.id == hierarchy_company_field:
         return env.company.id
+    if hierarchy_company_field is not None and isinstance(node, ast.Name) and node.id == "allowed_company_ids":
+        return [env.company.id]
     if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "allowed_company_ids" and isinstance(node.slice, ast.Constant) and type(node.slice.value) is int and node.slice.value == 0:
         return env.company.id
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
         left, right = lookup_value(node.left), lookup_value(node.right)
         if isinstance(left, list) and isinstance(right, list):
             return left + right
+    if hierarchy_company_field is not None and isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+        values = [lookup_value(value) for value in node.values]
+        result = values[0]
+        for value in values[1:]:
+            if isinstance(node.op, ast.And):
+                if not result:
+                    break
+            elif result:
+                break
+            result = value
+        return result
     raise ValueError("Unsupported linked field rule")
 parent_model, parent_field = {relationship!r}
 hierarchy_company_field = {hierarchy_company_field!r}

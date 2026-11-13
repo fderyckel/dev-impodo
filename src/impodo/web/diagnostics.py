@@ -13,9 +13,9 @@ import json
 import logging
 import math
 import os
-import platform
 import re
 import sys
+from collections.abc import Mapping
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from io import BytesIO
@@ -36,7 +36,10 @@ from impodo.adapters.odoo.connectors import (
     Json2ReadFailureDiagnostic,
     observe_json2_read_failures,
 )
-from impodo.application.shared.build_contract import ApplicationBuildContract
+from impodo.application.shared.build_contract import (
+    PROCESS_BUILD_CONTRACT,
+    ApplicationBuildContract,
+)
 from impodo.application.workspace.execution.load_observation import (
     bind_load_observation,
     record_load_failure,
@@ -49,6 +52,17 @@ from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
     LOAD_SUMMARY_LOG,
     new_load_observation,
+)
+from impodo.web.performance_bundle import performance_bundle_members
+from impodo.web.performance_diagnostics import (
+    PERFORMANCE_EVENTS,
+    performance_summary,
+    runtime_performance_metadata,
+    sanitize_performance_record,
+)
+from impodo.web.preparation_performance_diagnostics import (
+    PERFORMANCE_EVENT,
+    sanitize_performance_event,
 )
 from impodo.web.supporting_access_diagnostics import sanitize_supporting_access
 from impodo.web.supporting_diagnostics import sanitize_supporting_failure
@@ -63,7 +77,7 @@ DEFAULT_BACKUP_COUNT = 5
 DEFAULT_SLOW_REQUEST_SECONDS = 2.0
 DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS = 0.25
 REQUEST_ID_HEADER = "X-Impodo-Request-ID"
-DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 3
+DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 4
 DEFAULT_MAX_BUNDLE_RECORDS = 5_000
 DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES = 64 * 1024
 _MAPPING_ACTIONS = {item.value for item in MappingMutationAction}
@@ -376,6 +390,7 @@ class LocalDiagnosticRecorder:
         exception_class: str | None = None,
         working_draft_version: int | None = None,
         mapping_operation_id: str | None = None,
+        performance_operation_id: str | None = None,
         validation_failure: object = None,
         supporting_access: object = None,
         mapping_action: str | None = None,
@@ -410,6 +425,9 @@ class LocalDiagnosticRecorder:
         safe_operation_id = _safe_mapping_operation_id(mapping_operation_id)
         if safe_operation_id is not None:
             payload["mapping_operation_id"] = safe_operation_id
+        safe_performance_id = _safe_mapping_operation_id(performance_operation_id)
+        if safe_performance_id is not None:
+            payload["performance_operation_id"] = safe_performance_id
         failure = sanitize_supporting_failure(validation_failure)
         if failure is not None:
             payload["validation_failure"] = failure
@@ -536,6 +554,34 @@ class LocalDiagnosticRecorder:
                 "odoo_error_type": odoo_error_type,
             }))
         self._write(payload)
+
+    def record_performance_event(self, observation: Mapping[str, object]) -> None:
+        """Persist execution-time worker facts without changing job outcomes."""
+        try:
+            payload = sanitize_performance_event(observation)
+            if payload is None:
+                self._capture_setup_failures += 1
+                return
+            self._write({"event": PERFORMANCE_EVENT, "performance": payload})
+        except Exception:  # noqa: BLE001 - optional diagnostics cannot affect business work
+            self._capture_setup_failures += 1
+
+    def record_performance(self, observation: Mapping[str, object]) -> None:
+        """Capture bounded job metrics; failed probes do not affect job truth."""
+        try:
+            payload = sanitize_performance_record(observation)
+            if payload is None:
+                return
+            payload["application_build_id"] = PROCESS_BUILD_CONTRACT.application_build_id
+            if payload["event"] == "performance_operation_completed":
+                payload["runtime"] = runtime_performance_metadata()
+            payload["process_id"] = os.getpid()
+            if isinstance(wall_ms := payload.get("wall_ms"), (int, float)):
+                payload["duration_ms"] = wall_ms
+                payload["slow"] = wall_ms >= self.slow_request_seconds * 1000
+            self._write(payload)
+        except Exception:  # noqa: BLE001 - diagnostics are optional observations
+            self._capture_setup_failures += 1
 
     def record_load_control(self, control: LoadControl) -> None:
         """Retain bounded policy, pause limits and counts without row evidence."""
@@ -729,6 +775,7 @@ class RequestDiagnosticsMiddleware:
                         state.get("diagnostic_working_draft_version")
                     ),
                     mapping_operation_id=state.get("diagnostic_mapping_operation_id"),
+                    performance_operation_id=state.get("performance_operation_id"),
                     validation_failure=state.get("diagnostic_validation_failure"),
                     supporting_access=state.get("diagnostic_supporting_access"),
                     mapping_action=state.get("diagnostic_mapping_action"),
@@ -818,12 +865,19 @@ def create_diagnostic_bundle(
         }
         or item.get("exception_class")
         or item.get("event") == "odoo_json2_read_failed"
+        or (item.get("event") == "performance_operation_completed" and item.get("outcome") in {"failed", "interrupted"})
         or (item.get("event") == "odoo_load_control" and item.get("state") in {"PAUSED", "STOPPED"})
         or (item.get("event") == "operation_stage_completed"
             and item.get("operation") == "odoo_load" and item.get("stage") == "write_result")
         or (isinstance(item.get("status_code"), int) and item["status_code"] >= 400)
     ][-100:]
     available_record_count = len(records)
+    performance_members, performance_coverage = performance_bundle_members(
+        records,
+        omitted_record_count=max(0, available_record_count - max_records),
+        capture_failure_count=capture_failure_count,
+    )
+    common_performance_summary = performance_summary(records)
     records = records[-max_records:]
     slow_records = [
         item
@@ -834,6 +888,8 @@ def create_diagnostic_bundle(
             "request_completed",
             "event_loop_delay_observed",
             "operation_stage_completed",
+            "performance_phase_completed",
+            "performance_operation_completed",
         }
     ][-100:]
     load_members, load_coverage = load_bundle_members(directory, failure_records, attempt_id=attempt_id)
@@ -849,18 +905,13 @@ def create_diagnostic_bundle(
             ),
             "workspace_schema_version": build_contract.workspace_schema_version,
         },
-        "runtime": {
-            "operating_system": platform.system() or "Unknown",
-            "python_version": (
-                f"{sys.version_info.major}.{sys.version_info.minor}."
-                f"{sys.version_info.micro}"
-            ),
-        },
+        "runtime": runtime_performance_metadata(),
         "record_count": len(records),
         "slow_record_count": len(slow_records),
         "failure_record_count": len(failure_records),
         "supporting_access_record_count": len(supporting_access_records),
         "load_evidence": load_coverage,
+        "preparation_performance_evidence": performance_coverage,
         "recording_failure_count_current_session": max(0, capture_failure_count),
         "coverage": {
             **input_issues,
@@ -886,6 +937,8 @@ def create_diagnostic_bundle(
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
         for name, content in load_members.items():
             archive.writestr(name, content)
+        for name, content in performance_members.items():
+            archive.writestr(name, content)
         archive.writestr(
             "supporting-access.json",
             json.dumps(supporting_access_records, ensure_ascii=True, sort_keys=True, indent=2),
@@ -896,6 +949,10 @@ def create_diagnostic_bundle(
             + "\n",
         )
         archive.writestr("diagnostics.jsonl", encoded_records)
+        archive.writestr(
+            "performance-summary.json",
+            json.dumps(common_performance_summary, ensure_ascii=True, sort_keys=True, indent=2) + "\n",
+        )
         archive.writestr(
             "recent-failures.json",
             json.dumps(failure_records, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
@@ -1093,6 +1150,16 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "recorded_at": recorded_at,
         "event": event,
     }
+    if event == PERFORMANCE_EVENT:
+        performance = sanitize_performance_event(value.get("performance"))
+        if performance is None:
+            return None
+        return {**safe, "performance": performance}
+    if event in PERFORMANCE_EVENTS:
+        performance = sanitize_performance_record(value)
+        if performance is None:
+            return None
+        safe.update(performance)
     if event == "odoo_load_control":
         safe.update(_sanitize_load_control(value))
     write_result = (
@@ -1145,6 +1212,9 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
     operation_id = _safe_mapping_operation_id(value.get("mapping_operation_id"))
     if operation_id is not None:
         safe["mapping_operation_id"] = operation_id
+    performance_id = _safe_mapping_operation_id(value.get("performance_operation_id"))
+    if performance_id is not None:
+        safe["performance_operation_id"] = performance_id
     failure = sanitize_supporting_failure(value.get("validation_failure"))
     if failure is not None:
         safe["validation_failure"] = failure

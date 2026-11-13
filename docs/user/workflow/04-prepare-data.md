@@ -223,6 +223,19 @@ repeat the same attempt from the old browser session.
 Save edits in your open tabs before restarting, then reopen the same project
 and workspace. You do not need to create a new project to use a preparation fix.
 
+## Share evidence about slow preparation
+
+If preparation takes much longer than expected, create a diagnostic bundle
+after the attempt and send that ZIP to the person investigating it. The bundle
+includes the preparation phases, elapsed time, processing settings, workload
+size, and available observations of CPU and memory use. This also works on
+Windows, so you can report a slow attempt without running a separate test.
+
+The performance summary excludes your source values, file paths, host name,
+and credentials. It marks missing or interrupted measurements explicitly.
+It helps locate expensive work; comparing different computers or unrelated
+deliveries does not by itself establish a performance improvement.
+
 ## What makes this work stale
 
 Any change to source evidence, Odoo schema, business keys, mapping version,

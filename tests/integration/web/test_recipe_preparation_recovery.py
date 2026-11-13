@@ -10,26 +10,13 @@ from impodo.domain.run.contracts import RecipeApplicationStatus
 from impodo.domain.serialization import content_hash
 from impodo.web.composition.preparation_job_manager import (
     PreparationJobManager,
-    _run_preparation_worker,
 )
 from impodo.web.run_commands import _preparation_workspace, publish_preparation_progress
 from tests.integration.web import test_fresh_data_controls as fixtures
 from tests.support.identity import resolve_local_actor
-
-
-class _WithoutTerminalEvents:
-    def __init__(self, events):
-        self.events = events
-
-    def put(self, event):
-        if event[0] not in {"succeeded", "review_required", "failed", "cancelled"}:
-            self.events.put(event)
-
-
-def _worker_without_final_notification(root, workspace_id, workspace, build, actor, events, cancel):
-    """Fault boundary in a real spawned child; preparation still commits normally."""
-
-    _run_preparation_worker(root, workspace_id, workspace, build, actor, _WithoutTerminalEvents(events), cancel)
+from tests.support.preparation_worker_faults import (
+    worker_without_final_notification as _worker_without_final_notification,
+)
 
 
 class RecipePreparationRecoveryBrowserTests(TestCase):

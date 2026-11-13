@@ -35,7 +35,7 @@ class Stage235PerformanceTests(ProjectSetupBrowserTestCase):
 
         for area, marker, opens, statements in (
             ("schema", "<title>Odoo data", 4, 70), ("mapping", "<title>Match data", 4, 120),
-            ("summary", "<h1>Review and compare</h1>", 4, 80),
+            ("summary", "<h1>Prepared data</h1>", 4, 80),
         ):
             with self.subTest(area=area):
                 response = self.bounded(

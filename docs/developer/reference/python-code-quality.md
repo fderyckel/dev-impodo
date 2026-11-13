@@ -141,6 +141,70 @@ not mix a broad formatting rewrite with a semantic change. New files should be
 formatted with Ruff, and an existing file should be formatted only in a
 separately reviewed scope.
 
+## Verify concurrency performance on Python 3.12
+
+Python 3.12 is the current implementation and benchmark target on macOS and
+Windows. Do not make a concurrency change depend on Python 3.14, free-threaded
+Python, or newer concurrency APIs without an explicit runtime decision.
+
+Every change to thread counts, worker counts, native thread pools, or parallel
+request dispatch requires focused correctness tests and before-and-after
+performance measurements. Use one fixed candidate and identical fixtures on
+each host, change one concurrency setting at a time, and repeat measurements
+at least three times. Keep first and repeat runs separate. Include related
+data, data with issues, wide inputs, and supported compatibility paths when
+those responsibilities are affected.
+
+Record end-to-end and phase elapsed time, CPU time, sampled process memory,
+effective concurrency, and applicable database or remote-request activity.
+Verify unchanged values, ordering, identities, evidence bindings, findings,
+cancellation, and recovery. Measure diagnostic collection overhead separately
+and preserve its failure isolation. A faster isolated query or a requested
+thread count alone does not prove a workflow improvement.
+
+Report macOS and Windows evidence separately. User diagnostic bundles provide
+operational observations; same-fixture controlled runs provide benchmark
+evidence. A missing platform, interrupted capture, or simulated Windows test
+does not qualify real Windows performance. Keep the existing default until
+repeatable gains and bounded resource use justify changing it. The
+[preparation performance workflow](../workflow/04-prepare-data.md#bounded-native-threads-and-performance-evidence)
+owns the current Stage 4 controls and benchmark.
+
+## Retain performance results from shared diagnostics
+
+Whenever the maintainer shares an Impodo diagnostic ZIP, inspect its available
+performance evidence even when the main question concerns another issue.
+Update one durable private file named **Impodo performance history** beside
+the user's diagnostic files. Read the current history before updating it and
+preserve the existing file identity. This is a standing working instruction;
+the maintainer does not need to request it again for each ZIP.
+
+- Record the original ZIP's filename and durable file reference, capture time,
+  analysis date, and evidence schema version. Keep one observation per attempt.
+  Deduplicate overlapping ZIPs using attempt ID and build. Merge more complete
+  later captures without counting the same attempt twice, and flag conflicts.
+- Retain available execution-time build, Python and native-library versions,
+  platform, machine capacity, workload shape and route, requested and effective
+  concurrency, durations, CPU time, sampled memory, database or remote-request
+  counts, outcome, and coverage. Preserve original units and distinguish nested
+  or inclusive timings.
+- Represent missing measurements as unavailable, never zero. Record an explicit
+  unavailable-performance entry for an older ZIP without capture. Keep failed,
+  cancelled, interrupted, and incomplete attempts distinct from successful runs.
+- Compare previous observations only when machine, input and mapping, phase,
+  runtime, and configuration establish comparability. Identify the intentionally
+  changed variable. Row counts or CPU specifications alone do not prove the
+  same workload or machine. Show absolute and percentage changes only when
+  valid; label other comparisons as contextual observations, not proven gains.
+- Keep macOS and Windows evidence separate. Include a brief history update in
+  the diagnostic response: what improved, regressed, remained inconclusive, or
+  needs a paired benchmark. Do not infer disk, antivirus, network, or server
+  causes solely from elapsed time.
+- Keep the private history and original ZIPs outside Git. Retain sanitized
+  operational measurements and provenance without source values, credentials,
+  paths, or machine names. If durable saving is unavailable, report that the
+  history was not updated. Do not automatically send records to other services.
+
 ## Upgrade tools deliberately
 
 Upgrade Ruff, Basedpyright, or uv in a dedicated change. Update the pin and

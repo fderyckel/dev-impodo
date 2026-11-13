@@ -423,6 +423,11 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                         "diagnostics.jsonl",
                         "manifest.json",
                         "slow-requests.json",
+                        "performance-summary.json",
+                        "performance.json",
+                        "performance-summary.txt",
+                        "performance.json",
+                        "performance-summary.txt",
                         "supporting-access.json",
                         "recent-failures.json",
                         "load-attempts.json",
@@ -440,7 +445,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
 
         self.assertIn('"mapping_operation_id": "a50bdad5-3d09-4445-9c76-45232b4013fd"', encoded)
         self.assertNotIn("private source value", encoded)
-        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 3)
+        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 4)
         self.assertEqual(
             manifest["application"]["workspace_schema_version"],
             PROCESS_BUILD_CONTRACT.workspace_schema_version,

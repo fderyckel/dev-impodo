@@ -126,6 +126,8 @@ def _value(node: ast.AST, company_id: int, company_field: str | None = None) -> 
         return [_value(item, company_id, company_field) for item in node.elts]
     if isinstance(node, ast.Name) and node.id == company_field:
         return company_id
+    if company_field is not None and isinstance(node, ast.Name) and node.id == "allowed_company_ids":
+        return [company_id]
     if (
         isinstance(node, ast.Subscript)
         and isinstance(node.value, ast.Name)
@@ -136,7 +138,21 @@ def _value(node: ast.AST, company_id: int, company_field: str | None = None) -> 
     ):
         return company_id
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left, right = _value(node.left, company_id, company_field), _value(node.right, company_id, company_field)
+        left = _value(node.left, company_id, company_field)
+        right = _value(node.right, company_id, company_field)
         if isinstance(left, list) and isinstance(right, list):
             return left + right
+    if company_field is not None and isinstance(node, ast.BoolOp) and isinstance(node.op, (ast.And, ast.Or)):
+        # Validate every branch before selecting a value. An unused branch
+        # cannot hide an unknown variable, attribute access, or executable call.
+        values = [_value(value, company_id, company_field) for value in node.values]
+        result = values[0]
+        for value in values[1:]:
+            if isinstance(node.op, ast.And):
+                if not result:
+                    break
+            elif result:
+                break
+            result = value
+        return result
     raise ValueError("Unsupported company-domain expression")

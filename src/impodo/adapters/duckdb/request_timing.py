@@ -57,6 +57,12 @@ _CURRENT_DUCKDB_TIMINGS: ContextVar[DuckDbRequestTimings | None] = ContextVar(
 )
 
 
+def current_duckdb_request_timings() -> DuckDbRequestTimings | None:
+    """Return the active collector so nested observers can preserve its costs."""
+
+    return _CURRENT_DUCKDB_TIMINGS.get()
+
+
 @contextmanager
 def collect_duckdb_request_timings() -> Iterator[DuckDbRequestTimings]:
     """Install one collector for the current async/thread execution context."""

@@ -3,12 +3,48 @@
 import unittest
 
 from impodo.domain.odoo.company_domains import (
+    hierarchy_parent_domain,
     linked_value_domain,
     operation_company_domain,
 )
+from tests.support.hierarchy_transport import odoo_hierarchy_domain
 
 
 class CompanyDomainTests(unittest.TestCase):
+    def test_odoo_generated_conditional_company_rule_keeps_both_restrictions(self):
+        for company_field in ("company_id", "x_legal_entity"):
+            expression = odoo_hierarchy_domain(company_field, "[('kind', '=', 'folder')]")
+            with self.subTest(company_field=company_field):
+                self.assertEqual(hierarchy_parent_domain(expression, 7, company_field), [
+                    [company_field, "in", [7, False]], ["kind", "=", "folder"],
+                    "|", [company_field, "=", False], [company_field, "=", 7],
+                ])
+                self.assertIsNone(linked_value_domain(expression, 7))
+                for invalid in (
+                    f"{company_field} and [('name', '=', 'ok')] or unknown",
+                    f"{company_field} and [('name', '=', 'ok')] or dangerous()",
+                    f"{company_field} and [('name', '=', 'ok')] or {company_field}.id",
+                    f"{company_field} and [('name', '=', 'ok')] or {{'name': 'bad'}}",
+                ):
+                    self.assertIsNone(hierarchy_parent_domain(invalid, 7, company_field))
+
+    def test_hierarchy_ownership_does_not_require_a_company_dependent_parent(self):
+        for company_field in ("company_id", "x_legal_entity"):
+            for company in (7, 105):
+                with self.subTest(company_field=company_field, company=company):
+                    scope = ["|", [company_field, "=", False], [company_field, "=", company]]
+                    self.assertEqual(hierarchy_parent_domain(None, company, company_field), scope)
+                    expression = f"[('{company_field}', 'in', [False, {company_field}])] + [('kind', '=', 'folder')]"
+                    self.assertEqual(hierarchy_parent_domain(expression, company, company_field), [
+                        [company_field, "in", [False, company]], ["kind", "=", "folder"], *scope,
+                    ])
+                    self.assertIsNone(linked_value_domain(expression, company))
+                    self.assertEqual(hierarchy_parent_domain(
+                        f"[('{company_field}', 'in', allowed_company_ids)]", company, company_field,
+                    ), [[company_field, "in", [company]], *scope])
+                    for invalid in ("[('name', '=', other)]", "__import__('os')", "[('name', '=', company_id.id)]"):
+                        self.assertIsNone(hierarchy_parent_domain(invalid, company, company_field))
+
     def test_linked_choices_keep_the_complete_company_and_field_rule(self):
         expression = "[('company_ids', 'parent_of', [allowed_company_ids[0]])] + [('account_type', '=', 'liability_payable')]"
         self.assertEqual(linked_value_domain(expression, 105), [

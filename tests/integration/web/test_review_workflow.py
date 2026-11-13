@@ -121,8 +121,11 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 # owners. Retention keeps repeated repository calls within
                 # those owners below this route-specific physical ceiling.
                 self.assertLessEqual(start_timings.connection_count, 6)
-                # Each phase now counts linkage-store and engine validation.
-                self.assertLessEqual(start_timings.schema_check_count, 4)
+                # Admission and the local command validate the Workspace
+                # reference independently. The command also validates its
+                # engine, Data version, and registry contracts once each.
+                # The protected-secret owner adds no schema validation.
+                self.assertLessEqual(start_timings.schema_check_count, 5)
 
                 progress_page = self.client.get(started_response.headers["location"])
                 repeated = self.client.post(

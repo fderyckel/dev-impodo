@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from functools import partial
 from threading import Condition, RLock, Thread
-from uuid import uuid4
+from time import perf_counter
+from uuid import UUID, uuid4
 
 from impodo.application.odoo_read_failures import (
     OdooReadFailure,
@@ -23,7 +24,15 @@ from impodo.application.preflight_attempts import (
     PreflightComparisonReceipt,
     PreflightComparisonRequest,
 )
-from impodo.application.preflight_timing import timed_preflight_publication
+from impodo.application.preflight_timing import (
+    collect_preflight_publication_timings,
+    timed_preflight_publication,
+)
+from impodo.application.shared.performance import (
+    OperationPerformance,
+    bind_performance,
+    performance_phase,
+)
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     bind_workspace_access_context,
@@ -141,7 +150,13 @@ class PreflightJobStateError(ValueError):
 class PreflightJobManager:
     """Keep non-secret control state in memory and serialize comparisons."""
 
-    def __init__(self, attempt_store: PreflightAttemptStore | None = None) -> None:
+    def __init__(
+        self,
+        attempt_store: PreflightAttemptStore | None = None,
+        *,
+        performance_sink: Callable[[Mapping[str, object]], None] | None = None,
+        configured_read_workers: int = 1,
+    ) -> None:
         self._lock = RLock()
         self._condition = Condition(self._lock)
         self._jobs: dict[str, PreflightJob] = {}
@@ -151,6 +166,9 @@ class PreflightJobManager:
         self._attempt_store = attempt_store
         self._stopping = False
         self._worker: Thread | None = None
+        self._performance_sink = performance_sink
+        self._configured_read_workers = configured_read_workers
+        self._queued_at: dict[str, float] = {}
 
     def reserve(
         self,
@@ -260,6 +278,7 @@ class PreflightJobManager:
                 return job
             self._jobs[job.job_id] = job
             self._pending.append((job.job_id, work))
+            self._queued_at[job.job_id] = perf_counter()
             self._scheduled.add(job.job_id)
             self._persist_phase(job, PreflightPhase.QUEUED)
             if self._worker is None:
@@ -367,6 +386,7 @@ class PreflightJobManager:
             pending_ids = tuple(job_id for job_id, _work in self._pending)
             self._pending.clear()
             for job_id in pending_ids:
+                queued_at = self._queued_at.pop(job_id, perf_counter())
                 self._finish_failed(
                     job_id,
                     OdooReadWorkflowError(
@@ -374,6 +394,14 @@ class PreflightJobManager:
                         "Impodo stopped before the comparison started",
                     ),
                 )
+                if self._performance_sink is not None:
+                    OperationPerformance(
+                        operation_id=_performance_identity(job_id),
+                        operation="preflight",
+                        sink=self._performance_sink,
+                        configured_workers=self._configured_read_workers,
+                        queue_wait_ms=(perf_counter() - queued_at) * 1000,
+                    ).finish(outcome="interrupted")
             self._condition.notify_all()
         if self._worker is not None:
             self._worker.join(timeout=0.25)
@@ -387,19 +415,65 @@ class PreflightJobManager:
                     return
                 job_id, work = self._pending.popleft()
                 access_context = self._jobs[job_id].access_context
-            try:
-                self._mark_running(job_id)
-                with bind_workspace_access_context(access_context):
-                    result = work(partial(self._update_phase, job_id))
-            except Exception as error:  # noqa: BLE001 - background-job boundary
-                with self._lock:
-                    self._finish_failed(job_id, error)
+                queued_at = self._queued_at.pop(job_id, perf_counter())
+            if self._performance_sink is not None:
+                self._observed_work(job_id, work, access_context, queued_at)
             else:
-                with self._lock:
-                    try:
+                self._run_work(job_id, work, access_context)
+
+    def _observed_work(
+        self,
+        job_id: str,
+        work: PreflightWork,
+        access_context: WorkspaceAccessContext,
+        queued_at: float,
+    ) -> None:
+        """Capture one worker's costs independently of the submitting request."""
+
+        collector = OperationPerformance(
+            operation_id=_performance_identity(job_id),
+            operation="preflight",
+            sink=self._performance_sink,
+            configured_workers=self._configured_read_workers,
+            queue_wait_ms=(perf_counter() - queued_at) * 1000,
+        )
+        with bind_performance(collector), collect_preflight_publication_timings() as publication:
+            self._run_work(job_id, work, access_context)
+        for phase, duration in publication.milliseconds.items():
+            collector.record_phase(
+                phase,
+                wall_ms=duration,
+                cpu_ms=None,
+                calls=publication.calls[phase],
+            )
+        job = self._jobs[job_id]
+        collector.finish(
+            outcome="succeeded" if job.status is PreflightJobStatus.SUCCEEDED else "failed",
+            failure_code=job.failure.code.value if job.failure is not None else None,
+        )
+
+    def _run_work(
+        self,
+        job_id: str,
+        work: PreflightWork,
+        access_context: WorkspaceAccessContext,
+    ) -> None:
+        """Run the governed job and verify its receipt before marking success."""
+
+        try:
+            self._mark_running(job_id)
+            with bind_workspace_access_context(access_context):
+                result = work(partial(self._update_phase, job_id))
+        except Exception as error:  # noqa: BLE001 - background-job boundary
+            with self._lock:
+                self._finish_failed(job_id, error)
+        else:
+            with self._lock:
+                try:
+                    with performance_phase("finalize"):
                         self._finish_succeeded(job_id, result)
-                    except Exception as error:  # noqa: BLE001 - receipt boundary
-                        self._store_failed(job_id, error)
+                except Exception as error:  # noqa: BLE001 - receipt boundary
+                    self._store_failed(job_id, error)
 
     def _mark_running(self, job_id: str) -> None:
         now = _now()
@@ -642,6 +716,15 @@ class PreflightJobManager:
                 job.workspace_id,
                 phase.value,
             )
+
+
+def _performance_identity(job_id: str) -> str:
+    """Keep legacy opaque job IDs out of diagnostics without rejecting work."""
+
+    try:
+        return str(UUID(job_id))
+    except ValueError:
+        return str(uuid4())
 
 
 def _now() -> datetime:

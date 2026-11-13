@@ -374,6 +374,22 @@ projection under `HIERARCHY_PARENT_CHOICES`. Ancestors are fetched in batches
 per depth, with a maximum of 20 levels. Company names come from `res.company`
 records rather than many2one display labels. Search results remain ephemeral.
 
+Company ownership and company-dependent property values use separate lookup
+contracts. A hierarchy's ordinary self-parent does not need
+`company_dependent=True`. The JSON-2 reader's `hierarchy_lookup_domain` uses
+the already captured parent-field rule and confirmed company context. The
+local reader receives `hierarchy_company_field` alongside its qualified
+self-parent. Both preserve the complete native field rule and append a
+predicate admitting the selected company and shared records. Only the
+captured company-field variable and the single allowed company are bound;
+unknown dynamic names, calls, and malformed domains stop before record reads.
+The interpreter also accepts Odoo's generated `company_id and ... or ...`
+wrapper for ordinary checked relationships. It binds only the captured
+company field and validates every branch before choosing the resulting
+domain. Unknown values in an unselected branch still reject the lookup.
+This adds no metadata or record read per source row. Company-property lookup
+guards used elsewhere remain unchanged.
+
 Generated source bindings retain this policy. The compiler requires the
 generated parent and company fields in the governed identity and emits
 compiled-plan contract v4/compiler v5 for these datasets. Existing prefix
@@ -908,6 +924,7 @@ operator workspace.
 - [`tests/domain/workspace/test_existing_hierarchy_rules.py`](../../../tests/domain/workspace/test_existing_hierarchy_rules.py)
 - [`tests/domain/preparation/test_existing_hierarchy_parents.py`](../../../tests/domain/preparation/test_existing_hierarchy_parents.py)
 - [`tests/integration/web/test_existing_hierarchy_parents.py`](../../../tests/integration/web/test_existing_hierarchy_parents.py)
+- [`tests/integration/odoo/test_hierarchy_parent_domains.py`](../../../tests/integration/odoo/test_hierarchy_parent_domains.py)
 - [`tests/e2e/hierarchy-editor.test.cjs`](../../../tests/e2e/hierarchy-editor.test.cjs)
 - [`tests/application/workspace/test_exact_join_authoring.py`](../../../tests/application/workspace/test_exact_join_authoring.py)
 - [`tests/integration/web/test_exact_join_workflow.py`](../../../tests/integration/web/test_exact_join_workflow.py)

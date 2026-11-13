@@ -792,6 +792,7 @@ class Json2ConnectorTests(unittest.TestCase):
                 "check_company_references",
                 "get_model_metadata",
                 "linked_lookup_domain",
+                "hierarchy_lookup_domain",
                 "get_records",
                 "probe_read_identity",
             },

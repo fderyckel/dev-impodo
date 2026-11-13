@@ -482,6 +482,10 @@ physical lineage, blocked new choices, and the review connection count.
 | Relational identity program | [`ColumnarIdentityResolverProgram`](../../../src/impodo/domain/compiler/columnar_transformation.py) |
 | Compiled bounded arithmetic | [`CompiledArithmeticFormula`](../../../src/impodo/domain/recipe/value_rules.py) |
 | Background jobs | [`PreparationJobManager`](../../../src/impodo/web/composition/preparation_job_manager.py) |
+| Bounded native thread configuration | [`configure_preparation_runtime`](../../../src/impodo/application/shared/preparation_runtime.py) |
+| Execution-time resource observations | [`PreparationPerformanceObservation`](../../../src/impodo/web/composition/preparation_performance.py) |
+| Preparation performance sanitation | [`sanitize_performance_event`](../../../src/impodo/web/preparation_performance_diagnostics.py) |
+| Performance diagnostic ZIP members | [`performance_bundle_members`](../../../src/impodo/web/performance_bundle.py) |
 | Process build contract | [`ApplicationBuildContract`](../../../src/impodo/application/shared/build_contract.py) |
 | Project-only worker wiring | [`create_preparation_worker`](../../../src/impodo/web/composition/preparation_worker.py) |
 | Quality publication | [`QualityService`](../../../src/impodo/application/workspace/preparation/quality_service.py) |
@@ -579,6 +583,70 @@ Preparation makes zero Odoo calls. Direct transformations should remain on the
 native columnar path where supported. Python fallback, derived datasets, and
 relationship materialization must use bounded batches with measured memory.
 
+### Bounded native threads and performance evidence
+
+The local preparation worker supports an explicit Polars thread limit on
+Python 3.12. Set `IMPODO_PREPARATION_THREADS` to `1`, `2`, or `4` before
+starting Impodo. The default remains one native thread. When that setting is
+absent, the worker preserves an existing positive `POLARS_MAX_THREADS` value.
+`configure_preparation_runtime` applies the selected value inside the child
+and checks the actual `polars.thread_pool_size()` before preparation opens its
+workspace stores. Invalid settings or an already initialized pool with a
+different size stop the attempt with an explicit configuration failure.
+The parent process keeps its existing environment and native pool.
+
+The local launcher still starts one preparation process by default. This
+setting changes the Polars pool within that process; it does not increase the
+preparation process count, change DuckDB thread limits, or contact Odoo.
+`server_supervisor.py` imports the local application composition only when the
+server child starts. Spawn replay can therefore reach the preparation runtime
+configuration before application adapters initialize a native pool.
+
+`PreparationPerformanceObservation` records execution-time build and runtime
+versions, operating-system and CPU architecture, available CPU and memory,
+requested and effective thread counts, and the workload shape. Workload
+counts and route classifications reuse the preparation capability inputs;
+collecting them adds no source scan or repository read. The worker also
+returns aggregate DuckDB connection, schema-check, and lock-wait observations.
+
+The existing supervisor loop samples parent and worker resident memory at
+most once per second. These are sampled RSS observations, not exact peaks or
+hard process-memory limits. Combined RSS is the sum from one sample and can
+count shared pages twice. Queue wait, process startup, child phases, nested
+subphases, and terminal duration retain their scope. Inclusive and nested
+durations overlap and must not be added together. Collection failures remain
+separate from the saved preparation outcome.
+
+The existing diagnostic ZIP includes `performance.json` and
+`performance-summary.txt`. These members contain bounded, sanitized
+attempt-correlated records and explicit missing-history, sampling, and
+terminal coverage. They retain no source values, file paths, host names,
+credentials, or arbitrary environment variables. The existing Stage 5
+`performance-summary.json` member keeps its separate comparison evidence.
+A Windows user's normal preparation can supply useful observations through
+the same user-initiated diagnostic export. A single observation does not prove
+a speedup or qualify Windows performance.
+
+The opt-in [preparation worker benchmark](../../../scripts/benchmark_preparation_workers.py)
+starts fresh production workers and checks actual first and repeat thread
+counts and application builds. `--thread-matrix` rotates the `1`, `2`, and `4`
+settings across repetitions and reports each configuration separately. For
+example, from the repository root with the checkout's selected `uv` runner:
+
+```powershell
+uv run --frozen --group quality python scripts/benchmark_preparation_workers.py --thread-matrix --runs 3 --rows 10000 --columns 30 --mapped-fields 20
+```
+
+The harness requires fixed source, identical fixtures, stable result hashes,
+matching runtime versions, and worker exit before accepting a comparison.
+It separates first preparation from repeat use of the immutable prepared
+snapshot and uses sampled RSS on both macOS and Windows. Its default requires
+a clean candidate; `--allow-dirty-worktree` permits diagnostic runs without
+turning them into qualification evidence. Measure collection overhead against
+the same workload and report actual macOS and Windows evidence separately.
+Retain the default until repeatable end-to-end gains, memory behavior, and
+correctness justify changing it.
+
 Review database writes for repeated single-row `execute` calls and source-row
 loops for hidden conversions. New paths must preserve deterministic hash and
 lineage parity before being called an optimization.
@@ -599,6 +667,12 @@ operation result; an application request must not reopen worker-owned DuckDB.
 - [`tests/domain/preparation/test_browser_arithmetic_formula.py`](../../../tests/domain/preparation/test_browser_arithmetic_formula.py)
 - [`tests/integration/columnar/test_polars_transformation.py`](../../../tests/integration/columnar/test_polars_transformation.py)
 - [`tests/application/workspace/preparation/test_jobs.py`](../../../tests/application/workspace/preparation/test_jobs.py)
+- [`tests/application/workspace/preparation/test_thread_runtime.py`](../../../tests/application/workspace/preparation/test_thread_runtime.py)
+- [`tests/application/workspace/preparation/test_worker_performance_integration.py`](../../../tests/application/workspace/preparation/test_worker_performance_integration.py)
+- [`tests/application/workspace/preparation/test_performance_cleanup.py`](../../../tests/application/workspace/preparation/test_performance_cleanup.py)
+- [`tests/integration/web/test_preparation_performance_observation.py`](../../../tests/integration/web/test_preparation_performance_observation.py)
+- [`tests/integration/web/test_preparation_performance_diagnostics.py`](../../../tests/integration/web/test_preparation_performance_diagnostics.py)
+- [`tests/performance/test_preparation_worker_benchmark.py`](../../../tests/performance/test_preparation_worker_benchmark.py)
 - [`tests/architecture/test_build_contract.py`](../../../tests/architecture/test_build_contract.py)
 - [`tests/architecture/test_workspace_schema_contract.py`](../../../tests/architecture/test_workspace_schema_contract.py)
 - [`tests/integration/duckdb/test_preparation_session.py`](../../../tests/integration/duckdb/test_preparation_session.py)

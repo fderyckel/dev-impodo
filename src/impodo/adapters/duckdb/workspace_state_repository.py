@@ -744,7 +744,11 @@ class WorkspaceStateRepository(DuckDbRepository):
             raise WorkspaceStateError("The selected Odoo company evidence changed")
         return selection
 
-    def _get_workspace_unresolved(self, workspace_id: str) -> WorkspaceState:
+    def _get_workspace_unresolved(
+        self, workspace_id: str, *, include_source_files: bool = True,
+    ) -> WorkspaceState:
+        """Read engine state, omitting files when the canonical owner supplies them."""
+
         database_path = (
             self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         )
@@ -764,7 +768,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                   FROM source_file
                  ORDER BY received_at, file_id
                 """
-            ).fetchall()
+            ).fetchall() if include_source_files else []
         return _workspace_from_rows(
             dict(zip(columns, row, strict=True)),
             source_rows,

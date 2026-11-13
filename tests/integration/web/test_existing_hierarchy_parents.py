@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import _read_databases
+from impodo.adapters.odoo.connectors import Json2ReadConnector
 from impodo.application.hierarchy_parent_lookup import HierarchyParentChoice
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.execution.planner import plan_preflight_requirements
@@ -34,12 +35,68 @@ from impodo.web.target_credentials import TargetCredentialRole, store_target_cre
 from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 from tests.support.hierarchy_odoo import HierarchyOdoo
+from tests.support.hierarchy_transport import HierarchyParentTransport, odoo_hierarchy_domain
 from tests.support.recipe_lifecycle import metadata_for_schema
 
 MODEL = "x.storage.place"
 
 
 class ExistingHierarchyParentWebTests(HierarchyWorkflowFixture):
+    def test_remote_picker_reads_ordinary_parents_through_the_real_json2_adapter(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace_id, form, schema = self.configure(major, "REMOTE")
+                form["hierarchy_company_id"] = "7"
+                form["hierarchy_start"] = "existing"
+                wire = HierarchyParentTransport(
+                    major, MODEL, "container_id", "company_id",
+                    odoo_hierarchy_domain("company_id", "[('kind', '=', 'folder')]"),
+                    before_call=lambda: self.assertFalse(getattr(_read_databases, "connections", None)),
+                )
+
+                def identity(state, credential, models):
+                    self.assertFalse(getattr(_read_databases, "connections", None))
+                    return OdooReadIdentity(
+                        schema.connection_target_hash, schema.read_principal_hash,
+                        schema.read_permission_hash, state.odoo_company.context_hash,
+                        tuple(models), "2026-11-13T00:00:00Z",
+                    )
+
+                with (
+                    patch.object(self.context, "readiness_reader", None),
+                    patch.object(self.context, "read_identity_probe", side_effect=identity),
+                    patch("impodo.web.composition.target_readers.Json2ReadConnector",
+                          side_effect=lambda config: Json2ReadConnector(config, transport=wire)),
+                ):
+                    prefix = f"/workspaces/{workspace_id}/derived-entities/hierarchy"
+                    with collect_duckdb_request_timings() as timings, count_duckdb_statements() as statements:
+                        response = self._post(prefix + "/parents", form)
+                    self.assertEqual(response.status_code, 200, response.text[:300])
+                    self.assertIn("Physical / Stock", response.text)
+                    self.assertLessEqual(timings.connection_count, 2 + 4 * 3)
+                    self.assertLessEqual(timings.schema_check_count, 10)
+                    self.assertLessEqual(len(statements), 220)
+                    reads = [(url, payload) for url, payload in wire.calls if url.endswith("/search_read")]
+                    self.assertEqual(len(reads), 3)
+                    self.assertEqual(reads[0][1]["domain"], [
+                        ["name", "ilike", "Stock"], ["active", "=", True],
+                        ["company_id", "in", [7, False]], ["kind", "=", "folder"],
+                        "|", ["company_id", "=", False], ["company_id", "=", 7],
+                    ])
+                    self.assertEqual(reads[0][1]["context"]["allowed_company_ids"], [7])
+                    self.assertEqual(reads[0][1]["limit"], 51)
+                    # Only one full metadata capture in each of the initial
+                    # and selected-company contexts; no per-record lookups.
+                    self.assertEqual(sum(url.endswith("/fields_get") for url, _ in wire.calls), 2)
+                    form["existing_parent_choice"] = HierarchyParentChoice(
+                        ("Physical", "Stock"), (None, "Example")
+                    ).value
+                    preview = self._post(prefix + "/preview", form)
+                    self.assertEqual(preview.status_code, 200, preview.text[:300])
+                    saved = self._post(prefix + "/save", form)
+                    self.assertEqual(saved.status_code, 303, saved.text[:300])
+                self.prepare_hierarchy(workspace_id)
+
     def test_missing_model_discovery_keeps_the_editor_and_inline_recovery(self):
         workspace_id, form, _schema = self.configure(20, "REMOTE")
         form["hierarchy_company_id"] = "7"
@@ -313,6 +370,7 @@ class ExistingHierarchyParentWebTests(HierarchyWorkflowFixture):
                     self.assertEqual(
                         options.get("lookup_relationship"), (MODEL, "container_id")
                     )
+                    self.assertEqual(options.get("hierarchy_company_field"), "company_id")
                 return read_records(state, metadata_requests, record_requests)
 
             self.enterContext(

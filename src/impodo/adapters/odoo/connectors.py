@@ -24,18 +24,31 @@ import os
 import re
 import socket
 import time
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections import deque
+from collections.abc import Callable, Generator, Iterator, Mapping, Sequence
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from http.client import HTTPException
 from pathlib import Path
+from threading import Event, Lock
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+from impodo.application.shared.performance import (
+    OperationPerformance,
+    PerformanceSnapshot,
+    bind_performance,
+    current_performance,
+    performance_count,
+    performance_merge,
+    performance_observe_workers,
+    performance_phase,
+)
 from impodo.domain.execution.write_diagnostics import OdooWriteErrorType
 from impodo.domain.mapping.create_field_policy import supports_create_default_capture
 from impodo.domain.mapping.source_record_identity import (
@@ -47,7 +60,10 @@ from impodo.domain.odoo.company import (
     OdooCompanyAccess,
     OdooCompanySelection,
 )
-from impodo.domain.odoo.company_domains import hierarchy_parent_domain, linked_value_domain
+from impodo.domain.odoo.company_domains import (
+    hierarchy_parent_domain,
+    linked_value_domain,
+)
 from impodo.domain.odoo.compatibility import OdooVersionProblem, recognize_odoo_version
 from impodo.domain.shared.models import (
     FieldMetadata,
@@ -185,6 +201,26 @@ class _Json2TransportFailure(ConnectorTransportError):
         super().__init__("Odoo JSON-2 read timed out or was unreachable")
         self.category = category
         self.attempt_count = attempt_count
+
+
+@dataclass(frozen=True, slots=True)
+class _RecordReadOutcome:
+    """One isolated request result and its value-free worker measurements."""
+
+    records: tuple[TargetRecord, ...] = ()
+    error: Exception | None = None
+    failures: tuple[Json2ReadFailureDiagnostic, ...] = ()
+    performance: PerformanceSnapshot | None = None
+
+
+@dataclass(slots=True)
+class _RecordReadControl:
+    """Synchronize only cancellation signals and actual in-flight counts."""
+
+    failed: Event = field(default_factory=Event)
+    lock: Lock = field(default_factory=Lock)
+    active: int = 0
+    peak: int = 0
 
 
 class SnapshotConnector:
@@ -503,6 +539,7 @@ class Json2ReadConnector:
         """
 
         self._config = config
+        self._transport_override = transport
         self._transport_bounds_response_bytes = transport is None
         self._transport = transport or (
             lambda url, headers, body, timeout, method: _urllib_transport(
@@ -1053,7 +1090,10 @@ class Json2ReadConnector:
         }
 
     def hierarchy_lookup_domain(
-        self, metadata: MetadataSnapshot, model_name: str, parent_field: str,
+        self,
+        metadata: MetadataSnapshot,
+        model_name: str,
+        parent_field: str,
         company_field: str,
     ) -> tuple[object, ...]:
         """Scope an ordinary self-parent using its captured rule and company field.
@@ -1068,16 +1108,24 @@ class Json2ReadConnector:
         key = (model_name, parent_field)
         if (
             not metadata.complete
-            or parent is None or parent.type != "many2one" or parent.relation != model_name
-            or company is None or company.type != "many2one" or company.relation != "res.company"
+            or parent is None
+            or parent.type != "many2one"
+            or parent.relation != model_name
+            or company is None
+            or company.type != "many2one"
+            or company.relation != "res.company"
             or key not in self._company_domains
-            or not isinstance(companies, (list, tuple)) or len(companies) != 1
-            or type(companies[0]) is not int or companies[0] <= 0
+            or not isinstance(companies, (list, tuple))
+            or len(companies) != 1
+            or type(companies[0]) is not int
+            or companies[0] <= 0
         ):
             raise ConnectorIncompleteResultError(
                 "Check the hierarchy's parent relationship and company before choosing a parent."
             )
-        domain = hierarchy_parent_domain(self._company_domains[key], companies[0], company_field)
+        domain = hierarchy_parent_domain(
+            self._company_domains[key], companies[0], company_field
+        )
         if domain is None:
             raise ConnectorIncompleteResultError(
                 "Odoo uses a parent field rule that Impodo cannot safely check. Review the parent relationship in Odoo."
@@ -1113,122 +1161,66 @@ class Json2ReadConnector:
             )
         return tuple(domain)
 
-    def get_records(self, requests: Sequence[RecordRequest]) -> RecordSnapshot:
+    def get_records(
+        self, requests: Sequence[RecordRequest], *, max_workers: int = 1,
+    ) -> RecordSnapshot:
         """Fetch all matching records through deterministic, paginated reads.
 
-        Each model request is ordered by ``id`` and read in configured pages.
-        Repeated identifiers across pages are rejected because they make
-        completeness uncertain.
+        At most ``max_workers`` existing bounded requests run concurrently.
+        Pages remain sequential within a request; results and failures are
+        consumed in canonical request order. One coordinator owns the pinned
+        fingerprint and merges evidence without sharing connector state.
         """
 
+        if type(max_workers) is not int or not 1 <= max_workers <= 4:
+            raise ConnectorConfigurationError("record read workers must be between 1 and 4")
         fingerprint = self.get_target_fingerprint()
         records_by_model: dict[str, dict[int, TargetRecord]] = {}
         fields_by_model: dict[str, tuple[str, ...]] = {}
-        external_models = {request.model for request in requests if request.external_ids}
-        for request in sorted(
+        external_models = frozenset(request.model for request in requests if request.external_ids)
+        ordered_requests = tuple(sorted(
             requests,
             key=lambda item: (
                 item.model,
                 canonical_json_bytes(portable_value(item.domain)),
                 item.limit if item.limit is not None else -1,
             ),
-        ):
-            bindings: dict[int, tuple[str, ...]] = {}
-            if request.external_ids:
-                binding_rows = self._post_read_method("ir.model.data", "search_read", {
-                    "domain": external_id_domain(request.external_ids),
-                    "fields": ["module", "name", "model", "res_id"],
-                    "offset": 0, "limit": len(request.external_ids) + 1,
-                    "order": "id asc", "context": dict(self._config.context),
-                })
-                bindings = external_id_bindings(request.model, request.external_ids, binding_rows)
-                request = replace(request, domain=(
-                    "&", ("id", "in", sorted(bindings)), *request.domain,
-                ) if request.domain else (("id", "in", sorted(bindings)),))
+        ))
+        for request in ordered_requests:
             if request.limit is not None and request.limit <= 0:
-                raise ConnectorConfigurationError(
-                    "record request limit must be positive"
-                )
+                raise ConnectorConfigurationError("record request limit must be positive")
             fields = tuple(dict.fromkeys(("id", *request.fields)))
             projected_fields = tuple(field for field in fields if field != "id")
             if request.model in external_models:
                 projected_fields = (*projected_fields, SOURCE_EXTERNAL_IDS_FIELD)
-            previous_fields = fields_by_model.setdefault(
-                request.model, projected_fields
-            )
+            previous_fields = fields_by_model.setdefault(request.model, projected_fields)
             if previous_fields != projected_fields:
                 raise ConnectorConfigurationError(
                     f"record chunks for {request.model} use different fields"
                 )
-            offset = 0
-            collected: list[TargetRecord] = []
-            while True:
-                remaining = (
-                    request.limit - len(collected)
-                    if request.limit is not None
-                    else self._config.page_size
-                )
-                if remaining <= 0:
-                    break
-                page_limit = min(self._config.page_size, remaining)
-                response = self._post_read_method(
-                    request.model,
-                    "search_read",
-                    {
-                        "domain": list(request.domain),
-                        "fields": list(fields),
-                        "offset": offset,
-                        "limit": page_limit,
-                        "order": "id asc",
-                        "context": dict(self._config.context),
-                    },
-                )
-                if not isinstance(response, list):
-                    raise ConnectorIncompleteResultError(
-                        f"search_read returned invalid data for {request.model}"
-                    )
-                for item in response:
-                    if "id" not in item:
+        outcomes = self._record_read_outcomes(ordered_requests, external_models, max_workers)
+        try:
+            for request, outcome in outcomes:
+                if outcome.error is not None:
+                    raise outcome.error
+                merged = records_by_model.setdefault(request.model, {})
+                for record in outcome.records:
+                    previous = merged.setdefault(record.odoo_id, record)
+                    if previous != record and request.model in external_models:
+                        old_values, new_values = dict(previous.values), dict(record.values)
+                        old_aliases = source_record_external_ids(old_values)
+                        new_aliases = source_record_external_ids(new_values)
+                        old_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                        new_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
+                        if old_values == new_values:
+                            merged[record.odoo_id] = replace(record, values=new_values | {SOURCE_EXTERNAL_IDS_FIELD: tuple(sorted(set(old_aliases) | set(new_aliases)))})
+                            continue
+                    if previous != record:
                         raise ConnectorIncompleteResultError(
-                            f"search_read omitted id for {request.model}"
+                            f"record chunks conflict for {request.model}"
                         )
-                    collected.append(
-                        TargetRecord(
-                            model=request.model,
-                            odoo_id=int(item["id"]),
-                            values={
-                                field: item.get(field)
-                                for field in request.fields
-                                if field in item
-                            } | ({SOURCE_EXTERNAL_IDS_FIELD: bindings.get(int(item["id"]), ())} if request.model in external_models else {}),
-                        )
-                    )
-                if len(response) < page_limit:
-                    break
-                offset += len(response)
-            unique = {record.odoo_id: record for record in collected}
-            if request.external_ids and set(unique) != set(bindings):
-                raise ConnectorIncompleteResultError("A source record External ID points to a missing or inaccessible Odoo record. Review it before loading; Impodo will not create a replacement.")
-            if len(unique) != len(collected):
-                raise ConnectorIncompleteResultError(
-                    f"pagination repeated records for {request.model}"
-                )
-            merged = records_by_model.setdefault(request.model, {})
-            for record_id, record in unique.items():
-                previous = merged.setdefault(record_id, record)
-                if previous != record and request.model in external_models:
-                    old_values, new_values = dict(previous.values), dict(record.values)
-                    old_aliases = source_record_external_ids(old_values)
-                    new_aliases = source_record_external_ids(new_values)
-                    old_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
-                    new_values.pop(SOURCE_EXTERNAL_IDS_FIELD, None)
-                    if old_values == new_values:
-                        merged[record_id] = replace(record, values=new_values | {SOURCE_EXTERNAL_IDS_FIELD: tuple(sorted(set(old_aliases) | set(new_aliases)))})
-                        continue
-                if previous != record:
-                    raise ConnectorIncompleteResultError(
-                        f"record chunks conflict for {request.model}"
-                    )
+        finally:
+            outcomes.close()
         records = {
             model: tuple(sorted(items.values(), key=lambda record: record.odoo_id))
             for model, items in sorted(records_by_model.items())
@@ -1238,6 +1230,184 @@ class Json2ReadConnector:
             records=records,
             requested_fields=fields_by_model,
         )
+
+    def _record_read_outcomes(
+        self,
+        requests: tuple[RecordRequest, ...],
+        external_models: frozenset[str],
+        max_workers: int,
+    ) -> Generator[tuple[RecordRequest, _RecordReadOutcome], None, None]:
+        """Bound submitted work and replay isolated telemetry on the owner."""
+
+        if max_workers == 1 or len(requests) <= 1:
+            performance_observe_workers(1 if requests else 0)
+            for request in requests:
+                with performance_phase("read_record_batch"):
+                    records = self._read_record_request(request, request.model in external_models)
+                yield request, _RecordReadOutcome(records=records)
+            return
+        control = _RecordReadControl()
+        pending: deque[tuple[RecordRequest, Future[_RecordReadOutcome]]] = deque()
+        remaining = iter(requests)
+        parent_performance = current_performance()
+        performance_spec = (
+            (parent_performance.operation_id, parent_performance.operation, parent_performance.configured_workers)
+            if parent_performance is not None else None
+        )
+        executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="impodo-odoo-read")
+
+        def submit(request: RecordRequest) -> None:
+            pending.append((request, executor.submit(
+                self._run_record_request,
+                request,
+                request.model in external_models,
+                control,
+                performance_spec,
+            )))
+
+        def observe(outcome: _RecordReadOutcome) -> None:
+            performance_merge(outcome.performance)
+            for failure in outcome.failures:
+                _observe_json2_read_failure(failure)
+
+        try:
+            for _ in range(min(max_workers, len(requests))):
+                submit(next(remaining))
+            while pending:
+                request, future = pending.popleft()
+                outcome = future.result()
+                observe(outcome)
+                yield request, outcome
+                if not control.failed.is_set() and (following := next(remaining, None)) is not None:
+                    submit(following)
+        finally:
+            # Do not leave network readers running after a failed comparison.
+            # Only queued work is cancelled; active calls retain their timeout.
+            for _request, future in pending:
+                future.cancel()
+            executor.shutdown(wait=True, cancel_futures=True)
+            performance_observe_workers(control.peak)
+            for _request, future in pending:
+                if not future.cancelled():
+                    observe(future.result())
+
+    def _run_record_request(
+        self,
+        request: RecordRequest,
+        external_model: bool,
+        control: _RecordReadControl,
+        performance_spec: tuple[str, str, int] | None,
+    ) -> _RecordReadOutcome:
+        """Use an isolated connector and return failures in request order."""
+
+        performance = (
+            OperationPerformance(operation_id=performance_spec[0], operation=performance_spec[1],
+                                 configured_workers=performance_spec[2])
+            if performance_spec is not None else None
+        )
+        child = Json2ReadConnector(self._config, transport=self._transport_override, now=self._now)
+        failures: list[Json2ReadFailureDiagnostic] = []
+        records: tuple[TargetRecord, ...] = ()
+        error: Exception | None = None
+        with control.lock:
+            control.active += 1
+            control.peak = max(control.peak, control.active)
+        try:
+            with (
+                bind_performance(performance),
+                observe_json2_read_failures(failures.append),
+                performance_phase("read_record_batch"),
+            ):
+                try:
+                    records = child._read_record_request(request, external_model)
+                except Exception as caught:  # noqa: BLE001 - ordered worker-result boundary
+                    control.failed.set()
+                    error = caught
+        finally:
+            with control.lock:
+                control.active -= 1
+        return _RecordReadOutcome(
+            records=records,
+            error=error,
+            failures=tuple(failures),
+            performance=performance.snapshot() if performance is not None else None,
+        )
+
+    def _read_record_request(
+        self, request: RecordRequest, external_model: bool,
+    ) -> tuple[TargetRecord, ...]:
+        """Read one original planner chunk, retaining sequential pagination."""
+
+        performance_count("rpc_batches")
+        bindings: dict[int, tuple[str, ...]] = {}
+        if request.external_ids:
+            binding_rows = self._post_read_method("ir.model.data", "search_read", {
+                "domain": external_id_domain(request.external_ids),
+                "fields": ["module", "name", "model", "res_id"],
+                "offset": 0, "limit": len(request.external_ids) + 1,
+                "order": "id asc", "context": dict(self._config.context),
+            })
+            bindings = external_id_bindings(request.model, request.external_ids, binding_rows)
+            request = replace(request, domain=(
+                "&", ("id", "in", sorted(bindings)), *request.domain,
+            ) if request.domain else (("id", "in", sorted(bindings)),))
+        fields = tuple(dict.fromkeys(("id", *request.fields)))
+        offset = 0
+        collected: list[TargetRecord] = []
+        while True:
+            remaining = (
+                request.limit - len(collected)
+                if request.limit is not None
+                else self._config.page_size
+            )
+            if remaining <= 0:
+                break
+            page_limit = min(self._config.page_size, remaining)
+            response = self._post_read_method(
+                request.model,
+                "search_read",
+                {
+                    "domain": list(request.domain),
+                    "fields": list(fields),
+                    "offset": offset,
+                    "limit": page_limit,
+                    "order": "id asc",
+                    "context": dict(self._config.context),
+                },
+            )
+            performance_count("rpc_pages")
+            if not isinstance(response, list):
+                raise ConnectorIncompleteResultError(
+                    f"search_read returned invalid data for {request.model}"
+                )
+            performance_count("rpc_rows", len(response))
+            for item in response:
+                if "id" not in item:
+                    raise ConnectorIncompleteResultError(
+                        f"search_read omitted id for {request.model}"
+                    )
+                collected.append(
+                    TargetRecord(
+                        model=request.model,
+                        odoo_id=int(item["id"]),
+                        values={
+                            field: item.get(field)
+                            for field in request.fields
+                            if field in item
+                        } | ({SOURCE_EXTERNAL_IDS_FIELD: bindings.get(int(item["id"]), ())} if external_model else {}),
+                    )
+                )
+            if len(response) < page_limit:
+                break
+            offset += len(response)
+        unique = {record.odoo_id: record for record in collected}
+        if request.external_ids and set(unique) != set(bindings):
+            raise ConnectorIncompleteResultError("A source record External ID points to a missing or inaccessible Odoo record. Review it before loading; Impodo will not create a replacement.")
+        if len(unique) != len(collected):
+            raise ConnectorIncompleteResultError(
+                f"pagination repeated records for {request.model}"
+            )
+        return tuple(unique.values())
 
     def _post_read_method(
         self, model: str, method: str, payload: Mapping[str, Any]
@@ -1252,6 +1422,10 @@ class Json2ReadConnector:
             raise ConnectorConfigurationError(
                 f"method {method!r} is not an approved read operation"
             )
+        if method in {"fields_get", "default_get"}:
+            performance_count("rpc_metadata_calls")
+        elif method == "search_read":
+            performance_count("rpc_record_calls")
         encoded_model = quote(model, safe=".")
         url = f"{self._config.base_url}/json/2/{encoded_model}/{quote(method, safe='')}"
         try:
@@ -1310,6 +1484,9 @@ class Json2ReadConnector:
             raise ConnectorConfigurationError("JSON-2 request exceeds the safe limit")
         transient_statuses = {429, 502, 503, 504}
         for attempt in range(self._config.retries + 1):
+            performance_count("rpc_calls")
+            if attempt:
+                performance_count("rpc_retries")
             try:
                 status, payload = self._transport(
                     url,
@@ -1333,6 +1510,7 @@ class Json2ReadConnector:
                     )
             except (TimeoutError, URLError) as exc:
                 if attempt >= self._config.retries:
+                    performance_count("rpc_failures")
                     raise _Json2TransportFailure(
                         category=_json2_transport_failure_category(exc),
                         attempt_count=attempt + 1,
@@ -1342,6 +1520,8 @@ class Json2ReadConnector:
             if status in transient_statuses and attempt < self._config.retries:
                 time.sleep(0.05 * (2**attempt))
                 continue
+            if status != 200:
+                performance_count("rpc_failures")
             return status, payload, attempt + 1
         raise ConnectorTransportError("Odoo JSON-2 read failed")
 

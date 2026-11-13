@@ -221,6 +221,7 @@ stages:
       - tests/domain/workspace/test_existing_hierarchy_rules.py
       - tests/domain/preparation/test_existing_hierarchy_parents.py
       - tests/integration/web/test_existing_hierarchy_parents.py
+      - tests/integration/odoo/test_hierarchy_parent_domains.py
       - tests/e2e/hierarchy-editor.test.cjs
       - tests/application/workspace/test_exact_join_authoring.py
       - tests/integration/web/test_exact_join_workflow.py
@@ -811,6 +812,10 @@ stages:
       - src/impodo/adapters/polars_transformation.py::PolarsTransformationAdapter
       - src/impodo/domain/compiler/columnar_transformation.py::ColumnarIdentityResolverProgram
       - src/impodo/web/composition/preparation_job_manager.py::PreparationJobManager
+      - src/impodo/application/shared/preparation_runtime.py::configure_preparation_runtime
+      - src/impodo/web/composition/preparation_performance.py::PreparationPerformanceObservation
+      - src/impodo/web/preparation_performance_diagnostics.py::sanitize_performance_event
+      - src/impodo/web/performance_bundle.py::performance_bundle_members
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
@@ -842,6 +847,12 @@ stages:
       - src/impodo/domain/preparation/staging_contracts.py::canonical_row_from_inclusion_decision
     tests:
       - tests/application/workspace/preparation/test_jobs.py
+      - tests/application/workspace/preparation/test_thread_runtime.py
+      - tests/application/workspace/preparation/test_worker_performance_integration.py
+      - tests/application/workspace/preparation/test_performance_cleanup.py
+      - tests/integration/web/test_preparation_performance_observation.py
+      - tests/integration/web/test_preparation_performance_diagnostics.py
+      - tests/performance/test_preparation_worker_benchmark.py
       - tests/architecture/test_build_contract.py
       - tests/architecture/test_workspace_schema_contract.py
       - tests/integration/duckdb/test_preparation_session.py

@@ -22,6 +22,7 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     GovernedArtifactStores,
 )
+from impodo.application.shared.performance import performance_count, performance_phase
 from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
@@ -1315,9 +1316,14 @@ class PreflightService:
             )
             return prepared
 
-        prepared = run_local(prepare)
+        with performance_phase("verify"):
+            prepared = run_local(prepare)
+        performance_count("prepared_rows", prepared.requirements.source_record_count)
+        performance_count("dataset_count", len(prepared.frozen.plan.datasets))
         _report_progress(progress, "READING")
-        metadata, records = reader(prepared.requirements)
+        with performance_phase("read_odoo"):
+            metadata, records = reader(prepared.requirements)
+        performance_count("target_rows", sum(len(rows) for rows in records.records.values()))
 
         def publish() -> ReadinessReport:
             self._require_reserved_comparison(
@@ -1386,7 +1392,8 @@ class PreflightService:
                     "Protected Odoo comparison support is unavailable. "
                     "Odoo was not contacted."
                 )
-            frozen = self._load_frozen_input(workspace_id)
+            with performance_phase("frozen_input"):
+                frozen = self._load_frozen_input(workspace_id)
             selection = self.sources.get_mapping_source_selection(workspace_id)
             if selection is None:
                 raise ReadinessError(
@@ -1405,7 +1412,8 @@ class PreflightService:
                 actor=actor,
                 run_id=str(uuid4()),
             )
-        frozen = self._load_frozen_input(workspace_id)
+        with performance_phase("frozen_input"):
+            frozen = self._load_frozen_input(workspace_id)
         current_reference_policy_hash = None
         if frozen.captured_schema is not None:
             version_decision = assess_odoo_operation(
@@ -1417,13 +1425,14 @@ class PreflightService:
                 current_reference_policy_hash = reference_policy_hash(
                     odoo_major_version
                 )
-        requirements = plan_preflight_requirements(
-            frozen.plan,
-            frozen.prepared.records,
-            reference_policy_hash=(
-                current_reference_policy_hash or REFERENCE_POLICY_HASH
-            ),
-        )
+        with performance_phase("plan"):
+            requirements = plan_preflight_requirements(
+                frozen.plan,
+                frozen.prepared.records,
+                reference_policy_hash=(
+                    current_reference_policy_hash or REFERENCE_POLICY_HASH
+                ),
+            )
         if any(not request.domain and not request.external_ids for request in requirements.record_requests):
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
@@ -1486,148 +1495,151 @@ class PreflightService:
                 "Readiness data came from a different Odoo target",
             )
         _report_progress(progress, "COMPARING")
-        result = self.engine.run(
-            frozen.plan,
-            frozen.prepared,
-            metadata,
-            records,
-            captured_schema=getattr(frozen, "captured_schema", None),
-        )
+        with performance_phase("compare"):
+            result = self.engine.run(
+                frozen.plan,
+                frozen.prepared,
+                metadata,
+                records,
+                captured_schema=getattr(frozen, "captured_schema", None),
+            )
         if not result.metadata_snapshot_hash or not result.record_snapshot_hash:
             raise OdooReadWorkflowError(
                 OdooReadFailureCode.RESPONSE_INCOMPLETE,
                 "Odoo snapshot evidence is incomplete",
             )
         _report_progress(progress, "BUILDING")
-        run_id = str(uuid4())
-        execution_snapshot = build_execution_snapshot(
-            preflight_run_id=run_id,
-            frozen=frozen,
-            result=result,
-        )
-        precision_issues = exact_numeric_precision_issues(
-            run_id,
-            execution_snapshot.rows,
-            execution_snapshot.datasets,
-        )
-        with timed_preflight_publication("execution_snapshot_serialization"):
-            execution_snapshot_content = (
-                execution_snapshot.to_json().encode("utf-8") + b"\n"
+        with performance_phase("build"):
+            run_id = str(uuid4())
+            execution_snapshot = build_execution_snapshot(
+                preflight_run_id=run_id,
+                frozen=frozen,
+                result=result,
             )
-        frozen_input_hash = frozen.content_hash
-        requirement_plan_hash = requirements.semantic_hash
-        manifest = result.to_portable_dict()
-        manifest["preflight_evidence"] = {
-            "frozen_input_hash": frozen_input_hash,
-            "normalization_run_id": frozen.normalization.run_id,
-            "normalization_content_hash": frozen.normalization.content_hash,
-            "normalization_lifecycle_version": (frozen.normalization.lifecycle_version),
-            "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
-            "compiled_migration_plan_hash": frozen.plan.semantic_hash,
-            "requirement_plan_hash": requirement_plan_hash,
-            "requirement_model_count": requirements.model_count,
-            "requirement_chunk_count": requirements.chunk_count,
-            "source_record_count": requirements.source_record_count,
-            "execution_snapshot_hash": execution_snapshot.semantic_hash,
-            "execution_snapshot_root_hash": execution_snapshot.root_hash,
-        }
-        with timed_preflight_publication("manifest_serialization"):
-            manifest_content = canonical_json_bytes(manifest) + b"\n"
-        del manifest
-        report = _readiness_report(
-            run_id,
-            workspace_state,
-            frozen.revision,
-            result,
-            frozen.dataset_labels,
-            frozen.source_field_labels,
-            actor,
-            frozen.staging,
-            frozen.quality,
-            frozen.normalization,
-            frozen_input_hash=frozen_input_hash,
-            requirement_plan_hash=requirement_plan_hash,
-            metadata_snapshot_hash=result.metadata_snapshot_hash,
-            record_snapshot_hash=result.record_snapshot_hash,
-        )
-        report = replace(
-            report,
-            manifest_hash="sha256:" + sha256(manifest_content).hexdigest(),
-            operation_id=operation_id,
-        )
-        execution_summary = build_execution_preview_summary(
-            report,
-            execution_snapshot,
-            execution_shape_ready=(
-                assess_odoo_operation(
-                    execution_snapshot.target_odoo_version,
-                    OdooOperation.WRITE,
-                ).allowed
-                and not execution_snapshot.relationship_plan.blockers
-                and not precision_issues
-            ),
-        )
-        execution_review = build_execution_review_projection(
-            report,
-            execution_snapshot,
-            execution_shape_ready=execution_summary.execution_shape_ready,
-        )
-        business_observation = observe_business_writes(
-            execution_snapshot,
-            authored_operations=tuple(
-                (dataset.name, name, rule.operation)
-                for dataset in frozen.plan.datasets
-                for name, rule in dataset.relations.items()
-            ),
-        )
-        decision_count = len(report.rows)
-        decision_rows = iter(report.rows)
-        report = replace(report, rows=())
-        del frozen, requirements, result
-        _report_progress(progress, "PUBLISHING")
-        try:
-            with timed_preflight_publication("manifest_artifact_write"):
-                self.artifacts.write_report(
-                    workspace_id,
-                    run_id,
-                    MANIFEST_NAME,
-                    manifest_content,
+            precision_issues = exact_numeric_precision_issues(
+                run_id,
+                execution_snapshot.rows,
+                execution_snapshot.datasets,
+            )
+            with timed_preflight_publication("execution_snapshot_serialization"):
+                execution_snapshot_content = (
+                    execution_snapshot.to_json().encode("utf-8") + b"\n"
                 )
-            with timed_preflight_publication(
-                "execution_snapshot_artifact_write"
-            ):
-                self.artifacts.write_report(
-                    workspace_id,
-                    run_id,
-                    EXECUTION_SNAPSHOT_NAME,
-                    execution_snapshot_content,
-                )
-            self.preflight.save_readiness_report(
-                workspace_id,
+            frozen_input_hash = frozen.content_hash
+            requirement_plan_hash = requirements.semantic_hash
+            manifest = result.to_portable_dict()
+            manifest["preflight_evidence"] = {
+                "frozen_input_hash": frozen_input_hash,
+                "normalization_run_id": frozen.normalization.run_id,
+                "normalization_content_hash": frozen.normalization.content_hash,
+                "normalization_lifecycle_version": (frozen.normalization.lifecycle_version),
+                "eligible_dataset_hash": frozen.normalization.eligible_dataset_hash,
+                "compiled_migration_plan_hash": frozen.plan.semantic_hash,
+                "requirement_plan_hash": requirement_plan_hash,
+                "requirement_model_count": requirements.model_count,
+                "requirement_chunk_count": requirements.chunk_count,
+                "source_record_count": requirements.source_record_count,
+                "execution_snapshot_hash": execution_snapshot.semantic_hash,
+                "execution_snapshot_root_hash": execution_snapshot.root_hash,
+            }
+            with timed_preflight_publication("manifest_serialization"):
+                manifest_content = canonical_json_bytes(manifest) + b"\n"
+            del manifest
+            report = _readiness_report(
+                run_id,
+                workspace_state,
+                frozen.revision,
+                result,
+                frozen.dataset_labels,
+                frozen.source_field_labels,
+                actor,
+                frozen.staging,
+                frozen.quality,
+                frozen.normalization,
+                frozen_input_hash=frozen_input_hash,
+                requirement_plan_hash=requirement_plan_hash,
+                metadata_snapshot_hash=result.metadata_snapshot_hash,
+                record_snapshot_hash=result.record_snapshot_hash,
+            )
+            report = replace(
                 report,
-                decision_rows=decision_rows,
-                decision_count=decision_count,
-                metadata_snapshot=metadata,
-                record_snapshot=records,
-                execution_summary=execution_summary,
-                execution_review=execution_review,
-                expected_workspace_revision=expected_workspace_revision,
-                actor=actor,
-                business_observation=business_observation,
+                manifest_hash="sha256:" + sha256(manifest_content).hexdigest(),
+                operation_id=operation_id,
             )
-        except PreflightPublicationCommittedError:
-            logging.getLogger(__name__).warning(
-                "Comparison committed; registration-file refresh needs retry"
+            execution_summary = build_execution_preview_summary(
+                report,
+                execution_snapshot,
+                execution_shape_ready=(
+                    assess_odoo_operation(
+                        execution_snapshot.target_odoo_version,
+                        OdooOperation.WRITE,
+                    ).allowed
+                    and not execution_snapshot.relationship_plan.blockers
+                    and not precision_issues
+                ),
             )
-        except Exception:
-            for filename in (MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME):
-                try:
-                    self.artifacts.delete_report(workspace_id, run_id, filename)
-                except Exception:
-                    logging.getLogger(__name__).exception(
-                        "Could not remove incomplete preflight evidence"
+            execution_review = build_execution_review_projection(
+                report,
+                execution_snapshot,
+                execution_shape_ready=execution_summary.execution_shape_ready,
+            )
+            business_observation = observe_business_writes(
+                execution_snapshot,
+                authored_operations=tuple(
+                    (dataset.name, name, rule.operation)
+                    for dataset in frozen.plan.datasets
+                    for name, rule in dataset.relations.items()
+                ),
+            )
+            decision_count = len(report.rows)
+            decision_rows = iter(report.rows)
+            report = replace(report, rows=())
+            del frozen, requirements, result
+        _report_progress(progress, "PUBLISHING")
+        with performance_phase("publish"):
+            try:
+                with timed_preflight_publication("manifest_artifact_write"):
+                    self.artifacts.write_report(
+                        workspace_id,
+                        run_id,
+                        MANIFEST_NAME,
+                        manifest_content,
                     )
-            raise
+                with timed_preflight_publication(
+                    "execution_snapshot_artifact_write"
+                ):
+                    self.artifacts.write_report(
+                        workspace_id,
+                        run_id,
+                        EXECUTION_SNAPSHOT_NAME,
+                        execution_snapshot_content,
+                    )
+                self.preflight.save_readiness_report(
+                    workspace_id,
+                    report,
+                    decision_rows=decision_rows,
+                    decision_count=decision_count,
+                    metadata_snapshot=metadata,
+                    record_snapshot=records,
+                    execution_summary=execution_summary,
+                    execution_review=execution_review,
+                    expected_workspace_revision=expected_workspace_revision,
+                    actor=actor,
+                    business_observation=business_observation,
+                )
+            except PreflightPublicationCommittedError:
+                logging.getLogger(__name__).warning(
+                    "Comparison committed; registration-file refresh needs retry"
+                )
+            except Exception:
+                for filename in (MANIFEST_NAME, EXECUTION_SNAPSHOT_NAME):
+                    try:
+                        self.artifacts.delete_report(workspace_id, run_id, filename)
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "Could not remove incomplete preflight evidence"
+                        )
+                raise
         return report
 
     def current_odoo_comparison(
@@ -1710,55 +1722,57 @@ class PreflightService:
                 "Protected Odoo comparison support is unavailable. Odoo was not contacted."
             )
         _report_progress(progress, "COMPARING")
-        publication = build_odoo_comparison_publication(
-            preparation=prepared,
-            provenance=self.odoo_provenance,
-            metadata=metadata,
-            records=records,
-            actor=actor,
-        )
+        with performance_phase("compare"):
+            publication = build_odoo_comparison_publication(
+                preparation=prepared,
+                provenance=self.odoo_provenance,
+                metadata=metadata,
+                records=records,
+                actor=actor,
+            )
         workspace_id = prepared.workspace_state.workspace_id
         run_id = prepared.run_id
         report = replace(publication.report, operation_id=operation_id)
         _report_progress(progress, "PUBLISHING")
-        try:
-            self.artifacts.write_report(
-                workspace_id,
-                run_id,
-                MANIFEST_NAME,
-                publication.portable_manifest,
-            )
-            self.artifacts.write_report(
-                workspace_id,
-                run_id,
-                ODOO_COMPARISON_ARTIFACT_NAME,
-                publication.protected.encrypted_bytes,
-            )
-            self.preflight.save_readiness_report(
-                workspace_id,
-                replace(report, rows=()),
-                decision_rows=iter(publication.rows),
-                decision_count=len(publication.rows),
-                metadata_snapshot=publication.metadata_snapshot,
-                record_snapshot=publication.redacted_record_snapshot,
-                expected_workspace_revision=expected_workspace_revision,
-                actor=actor,
-            )
-        except PreflightPublicationCommittedError:
-            logging.getLogger(__name__).warning(
-                "Comparison committed; registration-file refresh needs retry"
-            )
-        except Exception:
-            for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):
-                try:
-                    self.artifacts.delete_report(
-                        workspace_id, run_id, filename
-                    )
-                except Exception:
-                    logging.getLogger(__name__).exception(
-                        "Could not remove incomplete Odoo comparison evidence"
-                    )
-            raise
+        with performance_phase("publish"):
+            try:
+                self.artifacts.write_report(
+                    workspace_id,
+                    run_id,
+                    MANIFEST_NAME,
+                    publication.portable_manifest,
+                )
+                self.artifacts.write_report(
+                    workspace_id,
+                    run_id,
+                    ODOO_COMPARISON_ARTIFACT_NAME,
+                    publication.protected.encrypted_bytes,
+                )
+                self.preflight.save_readiness_report(
+                    workspace_id,
+                    replace(report, rows=()),
+                    decision_rows=iter(publication.rows),
+                    decision_count=len(publication.rows),
+                    metadata_snapshot=publication.metadata_snapshot,
+                    record_snapshot=publication.redacted_record_snapshot,
+                    expected_workspace_revision=expected_workspace_revision,
+                    actor=actor,
+                )
+            except PreflightPublicationCommittedError:
+                logging.getLogger(__name__).warning(
+                    "Comparison committed; registration-file refresh needs retry"
+                )
+            except Exception:
+                for filename in (MANIFEST_NAME, ODOO_COMPARISON_ARTIFACT_NAME):
+                    try:
+                        self.artifacts.delete_report(
+                            workspace_id, run_id, filename
+                        )
+                    except Exception:
+                        logging.getLogger(__name__).exception(
+                            "Could not remove incomplete Odoo comparison evidence"
+                        )
+                raise
         return report
 
     def _load_frozen_input(

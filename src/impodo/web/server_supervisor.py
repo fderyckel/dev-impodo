@@ -12,7 +12,7 @@ import webbrowser
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 from urllib.parse import quote
 
 import h11
@@ -20,12 +20,43 @@ import uvicorn
 from uvicorn.config import LOGGING_CONFIG
 from uvicorn.protocols.http.h11_impl import H11Protocol
 
-from .composition.local_app import create_local_app
 from .diagnostics import LocalDiagnosticRecorder
+
+if TYPE_CHECKING:
+    from fastapi import FastAPI
 
 MAX_AUTOMATIC_RESTARTS = 1
 SERVER_CHILD_GRACEFUL_SHUTDOWN_SECONDS = 20.0
 SERVER_CHILD_TERMINATE_SECONDS = 5.0
+
+
+def create_local_app(
+    project_root: Path,
+    *,
+    expected_host: str,
+    launch_token: str,
+    session_secret: str,
+    preflight_jobs_enabled: bool,
+    diagnostic_recorder: LocalDiagnosticRecorder | None,
+) -> FastAPI:
+    """Load application adapters only in the actual server child.
+
+    Spawn replays the console launcher before entering a preparation worker.
+    Importing native adapters there would initialize their thread pools before
+    the worker can apply its preparation-specific configuration. Keep the
+    factory seam patchable while deferring composition until the server runs.
+    """
+
+    from .composition.local_app import create_local_app as compose_local_app
+
+    return compose_local_app(
+        project_root,
+        expected_host=expected_host,
+        launch_token=launch_token,
+        session_secret=session_secret,
+        preflight_jobs_enabled=preflight_jobs_enabled,
+        diagnostic_recorder=diagnostic_recorder,
+    )
 
 
 class ClosedConnectionSafeH11Protocol(H11Protocol):

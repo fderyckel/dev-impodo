@@ -15,6 +15,7 @@ See ``docs/architecture/python-code-map.md`` and
 
 from __future__ import annotations
 
+import os
 import secrets
 from pathlib import Path
 from typing import cast
@@ -266,6 +267,7 @@ def create_local_app(
     local_odoo_reader: LocalOdooMetadataReader | None = None,
     preparation_jobs_enabled: bool = True,
     preflight_jobs_enabled: bool = False,
+    preflight_read_workers: int | None = None,
     odoo_capture_jobs_enabled: bool = True,
     recipe_run_jobs_enabled: bool = True,
     load_jobs_enabled: bool = True,
@@ -290,6 +292,13 @@ def create_local_app(
     ``app.state.context`` and passes that same context to every router. This
     function opens no project and contacts no Odoo target while composing.
     """
+
+    configured_read_workers = (
+        int(os.environ.get("IMPODO_PREFLIGHT_READ_WORKERS", "1"))
+        if preflight_read_workers is None else preflight_read_workers
+    )
+    if type(configured_read_workers) is not int or configured_read_workers not in (1, 2):
+        raise ValueError("Stage 5 read workers must be 1 or 2")
 
     def local_source_capture_factory(
         workspace_state: WorkspaceState,
@@ -572,7 +581,14 @@ def create_local_app(
         else None
     )
     preflight_jobs = (
-        PreflightJobManager(foundation_repository) if preflight_jobs_enabled else None
+        PreflightJobManager(
+            foundation_repository,
+            performance_sink=(
+                diagnostic_recorder.record_performance
+                if diagnostic_recorder is not None else None
+            ),
+            configured_read_workers=configured_read_workers,
+        ) if preflight_jobs_enabled else None
     )
 
     def accept_odoo_capture_publication(
@@ -753,6 +769,7 @@ def create_local_app(
             remote_connections=RemoteConnectionStatusService(),
         ),
     )
+    context.preflight_read_workers = configured_read_workers
     context.saved_odoo_data = SavedOdooDataService(
         repository=saved_odoo_repository,
         access=context.workspace_access, authorization=context.authorization,

@@ -3,22 +3,30 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from multiprocessing.context import SpawnContext
 from pathlib import Path
 from queue import Empty
 from threading import RLock, Thread
-from time import perf_counter
+from time import perf_counter, process_time
 from typing import TYPE_CHECKING, Any
 
 import duckdb
 
+from impodo.adapters.duckdb.request_timing import (
+    DuckDbRequestTimings,
+    collect_duckdb_request_timings,
+)
 from impodo.application.shared.build_contract import (
     PROCESS_BUILD_CONTRACT,
     ApplicationBuildContract,
     ApplicationBuildMismatchError,
     require_same_application_build,
+)
+from impodo.application.shared.preparation_runtime import (
+    PreparationRuntimeConfigurationError,
+    configure_preparation_runtime,
 )
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.preparation.job_models import (
@@ -31,14 +39,20 @@ from impodo.application.workspace.preparation.preparation_job_registry import (
     PreparationJobRegistry,
     PreparationJobStateError,
 )
-from impodo.application.workspace.preparation.recovery import RecoveredPreparation
 from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateError
 
+from .preparation_performance import (
+    PreparationPerformanceObservation,
+    execution_environment,
+)
+
 if TYPE_CHECKING:
+    from impodo.application.workspace.preparation.recovery import RecoveredPreparation
+
     from ..diagnostics import LocalDiagnosticRecorder
 
 
@@ -90,6 +104,8 @@ class PreparationJobManager:
             Callable[[PreparationJob, Actor], RecoveredPreparation | None] | None
         ) = None
         self._diagnostic_recorder = diagnostic_recorder
+        self._performance: dict[str, PreparationPerformanceObservation] = {}
+        self._worker_metrics_complete: set[str] = set()
 
     def set_status_listener(
         self,
@@ -161,6 +177,15 @@ class PreparationJobManager:
                 self.build_contract,
             )
             if created:
+                self._performance[job.job_id] = PreparationPerformanceObservation(
+                    job.job_id, total_rows, perf_counter(), self._record_performance,
+                )
+                for previous_id in tuple(self._performance):
+                    if len(self._performance) <= 100:
+                        break
+                    if previous_id not in self._workers and previous_id not in self._pending and previous_id != job.job_id:
+                        self._performance.pop(previous_id)
+                        self._worker_metrics_complete.discard(previous_id)
                 self._pending[job.job_id] = (job, actor)
                 self._schedule_locked()
         return job
@@ -200,6 +225,17 @@ class PreparationJobManager:
     def get(self, workspace_id: str, job_id: str) -> PreparationJob:
         return self.registry.get(workspace_id, job_id)
 
+    def performance_evidence(self, job_id: str) -> dict[str, object]:
+        """Return bounded value-free observations for a controlled benchmark."""
+        with self._lock:
+            observation = self._performance.get(job_id)
+        return observation.evidence() if observation is not None else {}
+
+    def _record_performance(self, payload: Mapping[str, object]) -> None:
+        """Keep optional diagnostic recording outside preparation truth."""
+        if self._diagnostic_recorder is not None:
+            self._diagnostic_recorder.record_performance_event(payload)
+
     def active(self, workspace_id: str) -> PreparationJob | None:
         return self.registry.active(workspace_id)
 
@@ -222,6 +258,8 @@ class PreparationJobManager:
             pending = self._pending.pop(job_id, None)
             if pending is not None:
                 stopped = self.registry.mark_cancelled(job_id)
+                if (observation := self._performance.get(job_id)) is not None:
+                    observation.finish("cancelled", False, failure_reason="CANCELLED")
                 self._notify(stopped, pending[1])
                 self._schedule_locked()
                 return stopped
@@ -253,6 +291,8 @@ class PreparationJobManager:
         for job_id in pending_ids:
             try:
                 self.registry.mark_cancelled(job_id)
+                if (observation := self._performance.get(job_id)) is not None:
+                    observation.finish("cancelled", False, failure_reason="CANCELLED")
             except PreparationJobStateError:
                 pass
         for worker in workers:
@@ -351,9 +391,16 @@ class PreparationJobManager:
         with self._lock:
             self._workers[job.job_id] = worker
         try:
+            if (observation := self._performance.get(job.job_id)) is not None:
+                observation.start(None, job.build_contract.application_build_id)
             process.start()
+            worker_pid = process.pid
+            if worker_pid is not None and (observation := self._performance.get(job.job_id)) is not None:
+                observation.attach_worker_pid(worker_pid)
             supervisor.start()
         except Exception:
+            if (observation := self._performance.get(job.job_id)) is not None:
+                observation.finish("failed", False, failure_reason="WORKER_START_FAILED")
             with self._lock:
                 self._workers.pop(job.job_id, None)
             self._notify(
@@ -376,6 +423,8 @@ class PreparationJobManager:
         terminal_received = False
         try:
             while process.is_alive():
+                if (observation := self._performance.get(job_id)) is not None:
+                    observation.sample()
                 try:
                     event = events.get(timeout=0.25)
                 except Empty:
@@ -417,10 +466,27 @@ class PreparationJobManager:
                             actor,
                         )
         finally:
-            events.close()
-            with self._lock:
-                self._workers.pop(job_id, None)
-                self._schedule_locked()
+            try:
+                if (observation := self._performance.get(job_id)) is not None:
+                    try:
+                        current = self.registry.get_by_id(job_id)
+                    except LookupError:
+                        observation.finish("interrupted", False, failure_reason="UNKNOWN")
+                    else:
+                        observation.finish(
+                            current.status.value.lower(),
+                            terminal_received and job_id in self._worker_metrics_complete,
+                            failure_reason=None if terminal_received else "WORKER_EXITED",
+                        )
+            except Exception:  # noqa: BLE001 - optional telemetry must never strand queued jobs
+                logging.getLogger(__name__).debug("Optional preparation final performance capture failed")
+            finally:
+                try:
+                    events.close()
+                finally:
+                    with self._lock:
+                        self._workers.pop(job_id, None)
+                        self._schedule_locked()
 
     def _handle_event(
         self,
@@ -430,7 +496,15 @@ class PreparationJobManager:
     ) -> bool:
         kind = str(event[0])
         if kind == "started":
+            if (observation := self._performance.get(job_id)) is not None:
+                observation.worker_started()
             self._notify(self.registry.mark_running(job_id), actor)
+            return False
+        if kind == "performance":
+            if isinstance(event[1], Mapping) and (observation := self._performance.get(job_id)) is not None:
+                observation.accept_worker_event(event[1])
+                if event[1].get("measurement_complete") is True:
+                    self._worker_metrics_complete.add(job_id)
             return False
         if kind == "progress":
             self.registry.update_progress(
@@ -443,6 +517,13 @@ class PreparationJobManager:
             return False
         if kind == "timing":
             self._record_timing_event(event)
+            if (observation := self._performance.get(job_id)) is not None:
+                stage = str(event[1])
+                observation.phase(
+                    stage, float(event[2]), str(event[3]),
+                    timing_scope="nested" if stage.islower() and stage != "total" else "inclusive",
+                    total_rows=int(event[6]) if int(event[6]) > 0 else None,
+                )
             return False
         if kind == "succeeded":
             self._notify(self.registry.mark_succeeded(job_id, str(event[1])), actor)
@@ -512,6 +593,15 @@ def _run_preparation_worker(
     completed_rows = 0
     total_rows = 0
     timing_finished = False
+    database_timings: DuckDbRequestTimings | None = None
+    performance_collection_failed = False
+
+    def emit_performance(payload: dict[str, object]) -> None:
+        nonlocal performance_collection_failed
+        try:
+            events.put(("performance", payload))
+        except Exception:  # noqa: BLE001 - optional diagnostic transport cannot change a job
+            performance_collection_failed = True
 
     def emit_timing(
         stage: str,
@@ -584,33 +674,62 @@ def _run_preparation_worker(
             outcome,
             reason,
         )
+        resources: dict[str, object] = {"cpu_seconds": process_time()}
+        payload: dict[str, object] = {
+            "resources": resources,
+            "measurement_complete": database_timings is not None and not performance_collection_failed,
+        }
+        if database_timings is not None:
+            payload["database"] = {
+                "connection_count": database_timings.connection_count,
+                "schema_check_count": database_timings.schema_check_count,
+                "lock_retry_count": database_timings.lock_retry_count,
+                "connect_ms": database_timings.connect_ms,
+                "schema_ms": database_timings.schema_ms,
+                "lock_wait_ms": database_timings.lock_wait_ms,
+            }
+        emit_performance(payload)
         timing_finished = True
 
     try:
         require_same_application_build(expected_build_contract)
+        runtime = configure_preparation_runtime()
+        emit_performance({
+            "environment": execution_environment(PROCESS_BUILD_CONTRACT.application_build_id),
+            "configuration": {
+                "polars_threads_requested": runtime.requested_threads,
+                "polars_threads_effective": runtime.effective_threads,
+                "source": runtime.source.value,
+                "worker_processes": 1,
+            },
+        })
         # Import lazily so multiprocessing imports only the workspace-scoped
         # worker composition. The child never opens the Recipe registry.
         from impodo.web.composition.preparation_worker import create_preparation_worker
-
-        preparation = create_preparation_worker(root, workspace=workspace)
 
         def cancellation_checkpoint() -> None:
             if cancel.is_set():
                 raise PreparationCancelled("Preparation cancelled")
 
-        normalization = preparation.prepare(
-            workspace_id,
-            actor=actor,
-            progress=progress,
-            cancellation_checkpoint=cancellation_checkpoint,
-            timing=diagnostic_timing,
-            expected_mapping_hash=workspace.mapping_content_hash,
-        )
+        with collect_duckdb_request_timings() as database_timings:
+            preparation = create_preparation_worker(root, workspace=workspace)
+            normalization = preparation.prepare(
+                workspace_id,
+                actor=actor,
+                progress=progress,
+                cancellation_checkpoint=cancellation_checkpoint,
+                timing=diagnostic_timing,
+                performance=emit_performance,
+                expected_mapping_hash=workspace.mapping_content_hash,
+            )
         finish_timing("succeeded")
         events.put(("succeeded", normalization.run_id))
     except PreparationCancelled:
         finish_timing("cancelled", "PREPARATION_CANCELLED")
         events.put(("cancelled",))
+    except PreparationRuntimeConfigurationError as error:
+        finish_timing("failed", error.failure_code)
+        events.put(("failed", error.failure_code, str(error)))
     except ApplicationBuildMismatchError as error:
         finish_timing("failed", error.failure_code)
         events.put(("failed", error.failure_code, str(error)))

@@ -628,6 +628,20 @@ class PreparationJobSchedulingTests(unittest.TestCase):
 
 
 class PreparationWorkerFailureTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # These tests exercise phase/error handling after bootstrap. Actual
+        # native initialization is verified in fresh spawned-process tests.
+        bootstrap = patch(
+            "impodo.web.composition.preparation_job_manager.configure_preparation_runtime",
+            return_value=SimpleNamespace(
+                requested_threads=1,
+                effective_threads=1,
+                source=SimpleNamespace(value="default"),
+            ),
+        )
+        bootstrap.start()
+        self.addCleanup(bootstrap.stop)
+
     def test_worker_emits_phase_subphase_and_total_timings(self) -> None:
         events = MagicMock()
         cancel = MagicMock()

@@ -412,6 +412,13 @@ wrong target fingerprint, or Odoo read failure. Follow the one recovery action
 shown on the page. Use **Support details** for the stable failure code; do not
 replace a key unless the page specifically asks for one.
 
+If a comparison or the move to its results takes unusually long, select
+**Create diagnostic bundle** in the page footer after the slow action, when
+that control is available. Share the downloaded ZIP with support. It includes
+timings, request counts and computer information that help investigate Windows
+and macOS delays. If the comparison is still running, its measurements may be
+incomplete. The performance records exclude your source values and credentials.
+
 ## What makes this work stale
 
 Source, schema, business-key, mapping, reusable-rule, parameter, control,

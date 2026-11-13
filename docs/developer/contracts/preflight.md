@@ -92,6 +92,16 @@ blocked with `HIERARCHY_EXISTING_ANCESTOR_NEEDS_ATTENTION`. The comparison uses
 the complete parent lineage and explicit company scope, including shared
 ancestors. A missing required parent never becomes a create decision.
 
+Authoring an existing hierarchy parent uses the captured ordinary self-parent
+relationship and its company ownership field. Company ownership does not
+require a company-dependent property value. The parent picker preserves Odoo's
+native field rule and restricts candidates to the confirmed company or shared
+records. Unknown dynamic field rules remain unqualified. Company-property
+compatibility checks retain the separate contract described below.
+The generated `and`/`or` company wrapper is qualified only with the captured
+company-field binding. All branches must contain supported literals and
+variables; the reader never executes the field expression as Python code.
+
 A remote reader performs one exact identity probe for captured models and, if
 needed, one combined identity probe for all authorized supporting models. A
 local reader receives only models named by the plan. Both paths group bounded
@@ -99,6 +109,17 @@ record requests by model and domain, so neither source-row count nor the number
 of supporting relations introduces a per-row Odoo call.
 
 ## Target evidence
+
+The desktop remote-read pilot permits one or two independent planned record
+requests at a time. Each request retains sequential pagination and the same
+approved model, fields, domain and company context. The coordinator binds one
+fingerprint, merges results in canonical request order, and performs dependent
+company checks after every record request succeeds. It retains duplicate-page,
+conflict, alias and completeness checks. A failed request cannot produce a
+partial current comparison. Local database owners remain closed during remote
+work, and publication retains its original transaction and freshness checks.
+Diagnostic collection is optional evidence of cost; it cannot authorize,
+reclassify, or change an operation's outcome.
 
 For a confirmed operation company, the browser captures company compatibility
 for company-dependent Many2one fields from Odoo's generated company-domain

@@ -9,16 +9,15 @@ set, wall time, database/project storage, stable hashes, and worker exit.
 from __future__ import annotations
 
 import argparse
-from datetime import datetime, timezone
-from hashlib import sha256
 import json
 import os
-from pathlib import Path
 import statistics
 import subprocess
 import sys
-from typing import Iterable
-
+from collections.abc import Iterable
+from datetime import UTC, datetime
+from hashlib import sha256
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 RESULT_PREFIX = "IMPODO_PREPARATION_WORKER_BENCHMARK_JSON="
@@ -41,6 +40,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--effect-fields", type=int, default=1)
     parser.add_argument("--products", type=int, default=16_000)
     parser.add_argument("--bom-lines", type=int, default=80_000)
+    parser.add_argument("--polars-threads", type=int, choices=(1, 2, 4), default=1)
+    parser.add_argument(
+        "--thread-matrix",
+        action="store_true",
+        help="Alternate 1, 2, and 4 preparation threads in each repetition.",
+    )
     parser.add_argument(
         "--workload",
         choices=("products", "bom", "customers", "product-bom", "documents"),
@@ -71,26 +76,47 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
             "intended revision or use --allow-dirty-worktree for a dry run"
         )
     results = []
+    thread_counts = (1, 2, 4) if arguments.thread_matrix else (arguments.polars_threads,)
     for run_number in range(1, arguments.runs + 1):
-        _require_worktree_unchanged(worktree_fingerprint)
-        try:
-            result = _run_once(
-                arguments,
-                revision=revision,
-                run_number=run_number,
-            )
-        except Exception as error:
+        offset = (run_number - 1) % len(thread_counts)
+        for threads in thread_counts[offset:] + thread_counts[:offset]:
             _require_worktree_unchanged(
                 worktree_fingerprint,
-                cause=error,
             )
-            raise
-        _require_worktree_unchanged(worktree_fingerprint)
-        results.append(result)
+            case_arguments = argparse.Namespace(**{**vars(arguments), "polars_threads": threads})
+            print(
+                f"Preparation benchmark repetition {run_number}/{arguments.runs}, "
+                f"Polars threads={threads}: starting",
+                file=sys.stderr,
+                flush=True,
+            )
+            try:
+                result = _run_once(
+                    case_arguments,
+                    revision=revision,
+                    run_number=run_number,
+                )
+            except Exception as error:
+                _require_worktree_unchanged(
+                    worktree_fingerprint,
+                    cause=error,
+                )
+                raise
+            _require_worktree_unchanged(worktree_fingerprint)
+            results.append(result)
+            print(
+                f"Preparation benchmark repetition {run_number}/{arguments.runs}, "
+                f"Polars threads={threads}: completed",
+                file=sys.stderr,
+                flush=True,
+            )
     comparable_results = tuple(results)
-    _require_comparable_results(comparable_results)
+    _require_comparable_results(
+        comparable_results,
+        across_thread_counts=arguments.thread_matrix,
+    )
     report = {
-        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "captured_at": datetime.now(UTC).isoformat(),
         "command": {
             "bom_lines": (
                 arguments.bom_lines if arguments.workload in {"product-bom", "documents"} else None
@@ -99,6 +125,7 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
             "dirty": arguments.dirty,
             "effect_fields": arguments.effect_fields,
             "mapped_fields": arguments.mapped_fields,
+            "polars_threads": list(thread_counts),
             "products": (
                 arguments.products if arguments.workload in {"product-bom", "documents"} else None
             ),
@@ -108,12 +135,17 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
                 else arguments.rows
             ),
             "runs": arguments.runs,
+            "thread_matrix": arguments.thread_matrix,
             "workload": arguments.workload,
         },
-        "result_schema_version": 1,
+        "result_schema_version": 2,
         "revision": revision,
         "runs": list(comparable_results),
-        "summary": summarize(comparable_results),
+        "summary": (
+            summarize_thread_matrix(comparable_results)
+            if arguments.thread_matrix
+            else summarize(comparable_results)
+        ),
         "worktree_fingerprint": worktree_fingerprint,
         "worktree_dirty": worktree_dirty,
     }
@@ -121,6 +153,38 @@ def run_fresh_processes(arguments: argparse.Namespace) -> dict[str, object]:
     if isinstance(vectorization, dict):
         report["vectorization_report"] = vectorization
     return report
+
+
+def summarize_thread_matrix(results: tuple[dict[str, object], ...]) -> dict[str, object]:
+    """Compare thread settings only after exact fixture and result parity checks."""
+
+    _require_comparable_results(results, across_thread_counts=True)
+    configurations: dict[str, dict[str, object]] = {}
+    for threads in (1, 2, 4):
+        matching = tuple(
+            result for result in results
+            if _thread_runtime(result)["first"]["requested_polars_threads"] == threads
+        )
+        if not matching:
+            raise PreparationWorkerBenchmarkError("Thread matrix is missing a configuration")
+        _require_comparable_results(matching)
+        configurations[str(threads)] = summarize(matching)
+    baseline = configurations["1"]
+    for summary in configurations.values():
+        for attempt in ("first", "repeat"):
+            metric = f"median_{attempt}_wall_seconds"
+            baseline_seconds = float(baseline[metric])
+            if baseline_seconds <= 0:
+                raise PreparationWorkerBenchmarkError("Baseline duration must be positive")
+            summary[f"{attempt}_wall_time_gain_percent"] = (
+                (baseline_seconds - float(summary[metric])) / baseline_seconds * 100
+            )
+    return {
+        "baseline_polars_threads": 1,
+        "configurations": configurations,
+        "run_count": len(results),
+        "semantics_unchanged": True,
+    }
 
 
 def summarize(results: Iterable[dict[str, object]]) -> dict[str, object]:
@@ -201,6 +265,7 @@ def _run_once(
             "IMPODO_PREPARATION_SCALE_ROWS": str(arguments.rows),
             "IMPODO_PREPARATION_SCALE_WORKLOAD": arguments.workload,
             "IMPODO_PREPARATION_WORKER_JSON": "1",
+            "IMPODO_PREPARATION_THREADS": str(arguments.polars_threads),
             "IMPODO_RUN_PREPARATION_SCALE": "1",
         }
     )
@@ -222,13 +287,50 @@ def _run_once(
             f"Worker benchmark child {run_number} failed:\n{tail}"
         )
     result = extract_result(combined_output)
+    _thread_runtime(result, expected=arguments.polars_threads)
     result["fresh_outer_process_run"] = run_number
     return result
 
 
+def _thread_runtime(
+    result: dict[str, object], *, expected: int | None = None,
+) -> dict[str, dict[str, int]]:
+    """Require actual child runtime evidence for both production preparations."""
+
+    runtime = result.get("thread_runtime")
+    if not isinstance(runtime, dict):
+        raise PreparationWorkerBenchmarkError("Missing worker thread runtime evidence")
+    parsed: dict[str, dict[str, int]] = {}
+    for attempt in ("first", "repeat"):
+        evidence = runtime.get(attempt)
+        if not isinstance(evidence, dict):
+            raise PreparationWorkerBenchmarkError(f"Missing {attempt} worker thread evidence")
+        requested = evidence.get("requested_polars_threads")
+        effective = evidence.get("effective_polars_threads")
+        if (
+            type(requested) is not int or requested not in (1, 2, 4)
+            or type(effective) is not int or effective != requested
+            or (expected is not None and requested != expected)
+        ):
+            raise PreparationWorkerBenchmarkError(
+                "Requested and effective preparation threads do not match"
+            )
+        parsed[attempt] = {
+            "requested_polars_threads": requested,
+            "effective_polars_threads": effective,
+        }
+    if parsed["first"] != parsed["repeat"]:
+        raise PreparationWorkerBenchmarkError("First and repeat worker configurations differ")
+    return parsed
+
+
 def _require_comparable_results(
     results: tuple[dict[str, object], ...],
+    *,
+    across_thread_counts: bool = False,
 ) -> None:
+    if not results:
+        raise PreparationWorkerBenchmarkError("At least one worker result is required")
     first = results[0]
     invariant_keys = (
         "columns",
@@ -236,11 +338,15 @@ def _require_comparable_results(
         "effect_fields",
         "hashes",
         "mapped_fields",
+        "memory_measurement",
+        "memory_sample_interval_ms",
         "platform",
+        "python",
         "revision",
         "rows",
         "runtime_versions",
         "vectorization_report",
+        "worker_build_ids",
         "workload",
     )
     first_fixture = _fixture(first)
@@ -254,6 +360,9 @@ def _require_comparable_results(
             raise PreparationWorkerBenchmarkError(
                 "Fresh worker fixtures are not byte-identical"
             )
+        runtime = _thread_runtime(result)
+        if not across_thread_counts and runtime != _thread_runtime(first):
+            raise PreparationWorkerBenchmarkError("Fresh worker thread configurations differ")
         if not result.get("workers_exited"):
             raise PreparationWorkerBenchmarkError("A worker did not exit")
         if result.get("source_reopened"):
@@ -295,6 +404,8 @@ def _parent_rss(result: dict[str, object]) -> dict[str, object]:
 
 
 def _validate_arguments(arguments: argparse.Namespace) -> None:
+    if type(arguments.polars_threads) is not int or arguments.polars_threads not in (1, 2, 4):
+        raise PreparationWorkerBenchmarkError("Polars threads must be 1, 2, or 4")
     if arguments.runs < 1 or arguments.rows < 1:
         raise PreparationWorkerBenchmarkError("Runs and rows must be positive")
     if arguments.columns < 3:
