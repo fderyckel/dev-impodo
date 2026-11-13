@@ -890,6 +890,18 @@ def build_schema_router(context: WebContext) -> APIRouter:
                     raise WorkspaceStateError(
                         f"{unknown[0]} is not in the refreshed Odoo model catalogue"
                     )
+            if workspace_state.source_mode is SourceMode.ODOO:
+                relationship_scope = (
+                    context.queries.get_current_odoo_relationship_scope(workspace_id)
+                )
+                if (
+                    relationship_scope is not None
+                    and frozenset(permitted_models)
+                    == frozenset(relationship_scope.root_models)
+                ):
+                    # The picker edits main records; automatic linked records
+                    # remain part of the complete saved discovery scope.
+                    permitted_models = workspace_state.intended_models
             saved_workspace_state = context.workspace_states.update_schema_scope(
                 workspace_id,
                 actor=actor,

@@ -138,7 +138,8 @@ def propose_guided_odoo_capture_plans(
 ) -> GuidedOdooCapturePlanProposal:
     """Return safe default capture plans without persisting or guessing.
 
-    Explicit roots and expanding related models receive full scalar evidence.
+    Explicit roots and expanding related models receive recommended scalar
+    business values, leaving Odoo's creation timestamp for deliberate selection.
     Existing-only leaves receive only their simple scalar identity.  A
     create-if-missing leaf additionally receives required writable scalar
     values and any scalar input required by a qualified Odoo create hook.
@@ -380,7 +381,7 @@ def _fields_for_mode(
         and is_odoo_capture_value_field(field)
     }
     if mode is GuidedOdooCaptureMode.FULL:
-        fields = tuple(sorted(eligible))
+        fields = recommended_odoo_capture_field_names(model)
         if fields:
             return fields, None
         return (), _no_capture_fields_issue(model)
@@ -392,8 +393,8 @@ def _fields_for_mode(
             model_label=model.label,
             reason=(
                 f"Impodo found no single safe matching rule for {model.label}. "
-                "Choose the field that identifies one record before Impodo "
-                "prepares this capture plan."
+                f"Review the fields to keep for {model.label}, then save and "
+                "continue. You will review its matching rule in Match data."
             ),
         )
 
@@ -455,15 +456,31 @@ def _is_writable_scalar(field: SchemaField) -> bool:
     )
 
 
+def recommended_odoo_capture_field_names(model: SchemaModel) -> tuple[str, ...]:
+    """Recommend business values without removing deliberate capture choices.
+
+    Odoo supplies ``create_date`` for newly created records. It stays eligible
+    for a deliberate source backup, while fresh plans start with business
+    fields. Read-only business values remain useful source evidence.
+    """
+
+    return tuple(sorted(
+        field.name
+        for field in model.fields
+        if field.name not in {"id", "write_date", "create_date"}
+        and is_odoo_capture_value_field(field)
+    ))
+
+
 def _no_capture_fields_issue(model: SchemaModel) -> GuidedOdooCapturePlanIssue:
     return GuidedOdooCapturePlanIssue(
         code=GuidedOdooCaptureIssueCode.NO_CAPTURE_FIELDS,
         model=model.name,
         model_label=model.label,
         reason=(
-            f"{model.label} has no scalar business fields eligible for bounded "
-            "source capture. Review whether this record type belongs in the "
-            "migration."
+            f"{model.label} has no recommended scalar business fields. Review "
+            "its eligible fields and choose what to keep, or change the "
+            "selected record types."
         ),
     )
 
@@ -489,4 +506,5 @@ __all__ = [
     "GuidedOdooCapturePlanIssue",
     "GuidedOdooCapturePlanProposal",
     "propose_guided_odoo_capture_plans",
+    "recommended_odoo_capture_field_names",
 ]

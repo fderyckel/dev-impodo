@@ -1,6 +1,41 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  for (const form of document.querySelectorAll("[data-capture-plan-form]")) {
+    form.addEventListener("invalid", (event) => {
+      const advancedOptions = event.target.closest("[data-capture-advanced-options]");
+      if (advancedOptions) advancedOptions.open = true;
+    }, true);
+    const fields = form.querySelector("[data-capture-fields]");
+    const tools = fields?.querySelector("[data-capture-field-tools]");
+    if (!tools) continue;
+    const selectAll = tools.querySelector("[data-capture-fields-select-all]");
+    const clear = tools.querySelector("[data-capture-fields-clear]");
+    const count = tools.querySelector("[data-capture-field-count]");
+    const eligibleFields = () => Array.from(fields.querySelectorAll(
+      'input[type="checkbox"][name="field_names"]:not(:disabled)'
+    ));
+    const updateSelection = () => {
+      const eligible = eligibleFields();
+      const selected = eligible.filter((field) => field.checked).length;
+      count.textContent = `${selected} of ${eligible.length} fields selected`;
+      selectAll.disabled = selected === eligible.length;
+      clear.disabled = selected === 0;
+    };
+    const chooseFields = (checked) => {
+      for (const field of eligibleFields()) {
+        field.checked = checked;
+      }
+      fields.dispatchEvent(new Event("change", { bubbles: true }));
+    };
+    selectAll.addEventListener("click", () => chooseFields(true));
+    clear.addEventListener("click", () => chooseFields(false));
+    fields.addEventListener("change", updateSelection);
+    form.addEventListener("reset", () => queueMicrotask(updateSelection));
+    updateSelection();
+    tools.hidden = false;
+  }
+
   const linkedDataForm = document.querySelector("[data-linked-data-form]");
   if (linkedDataForm) {
     const unsavedNotice = linkedDataForm.querySelector(

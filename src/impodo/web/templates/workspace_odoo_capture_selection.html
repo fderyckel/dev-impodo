@@ -1,5 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Odoo source selection · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_styles %}
+  <link rel="stylesheet" href="{{ url_for('static', path='/source-capture-fields.css') }}">
+{% endblock %}
 {% block page_scripts %}
   <script src="{{ url_for('static', path='/source-workflow.js') }}" defer></script>
 {% endblock %}
@@ -370,9 +373,8 @@
     <section class="form-card" id="capture-plan">
       <div class="page-heading compact">
         <div>
-          <p class="eyebrow">Closed selection contract</p>
-          <h2>Choose exactly what a later capture may read</h2>
-          <p>Numeric Odoo record identifiers and modification timestamps are reserved for protected provenance and cannot be selected here.</p>
+          <h2>Review fields to keep</h2>
+          <p>Keep the business values you want to re-export. Impodo suggests fields for a new plan.</p>
         </div>
       </div>
 
@@ -427,22 +429,26 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="model" value="{{ selected_model.name }}">
 
-          <div class="form-grid compact-grid">
-            <label>
-              Dataset name
-              <input name="dataset_name" value="{{ dataset_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" maxlength="63" required>
-              <small>A stable technical name used by later mapping evidence.</small>
-            </label>
-            <label>
-              Records per Odoo request
-              <select name="page_size">
-                {% for limit in capture_page_sizes %}
-                  <option value="{{ limit }}" {% if current and current.model == selected_model.name and current.page_size == limit %}selected{% elif not current and limit == 100 %}selected{% endif %}>{{ limit }}</option>
-                {% endfor %}
-              </select>
-              <small>Choose 10 for a constrained demo server, 100 for a cautious default, or 500 for a stronger server. This changes batch size, not the records included.</small>
-            </label>
-          </div>
+          <details class="technical-details" data-capture-advanced-options {% if error %}open{% endif %}>
+            <summary>Advanced capture options</summary>
+            <div class="form-grid compact-grid">
+              <label>
+                Dataset name
+                <input name="dataset_name" value="{{ dataset_name_default }}" pattern="[a-z][a-z0-9_]{0,62}" maxlength="63" required>
+                <small>A stable technical name used by later mapping evidence.</small>
+              </label>
+              <label>
+                Records per Odoo request
+                <select name="page_size">
+                  {% for limit in capture_page_sizes %}
+                    <option value="{{ limit }}" {% if current and current.model == selected_model.name and current.page_size == limit %}selected{% elif not current and limit == 100 %}selected{% endif %}>{{ limit }}</option>
+                  {% endfor %}
+                </select>
+                <small>Choose 10 for a constrained demo server, 100 for a cautious default, or 500 for a stronger server. This changes batch size, not the records included.</small>
+              </label>
+            </div>
+            <p class="muted">Odoo record identifiers and modification timestamps are kept separately as protected source evidence.</p>
+          </details>
 
           {% if selected_plan_is_root %}
             <p class="notice success"><strong>Main record type.</strong> Impodo keeps this role from the reviewed selection contract. You may optionally limit which matching source records are captured.</p>
@@ -482,12 +488,19 @@
             {% endif %}
           {% endif %}
 
-          <fieldset class="model-picker-list">
+          <fieldset class="model-picker-list" data-capture-fields>
             <legend>Eligible fields from {{ selected_model.label }}</legend>
+            {% if fields %}
+              <div class="capture-field-tools" data-capture-field-tools hidden>
+                <button class="button secondary compact" type="button" data-capture-fields-select-all>Select all fields</button>
+                <button class="button secondary compact" type="button" data-capture-fields-clear>Clear selection</button>
+                <p class="capture-field-count" data-capture-field-count role="status" aria-live="polite" aria-atomic="true"></p>
+              </div>
+            {% endif %}
             {% for field in fields %}
               <label class="model-choice">
                 <input type="checkbox" name="field_names" value="{{ field.name }}" {% if field.name in selected_field_names %}checked{% endif %}>
-                <span><strong>{{ field.label }}</strong><small>{{ field.name }} · {{ field.type }}</small></span>
+                <span><strong>{{ field.label }}</strong><small>{{ field.name }} · {{ field.type }}</small>{% if field.name == 'create_date' %}<small>Optional: Odoo supplies this when it creates destination records.</small>{% endif %}</span>
               </label>
             {% else %}
               <p>No scalar fields are eligible for bounded capture in this model.</p>
@@ -502,8 +515,8 @@
           {% endif %}
 
           <div class="actions">
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Back to Odoo fields</a>
-            <button class="button primary" type="submit" data-submitting-label="Saving capture plan..." {% if not fields %}disabled{% endif %}>Save bounded capture plan</button>
+            <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Change record types</a>
+            <button class="button primary" type="submit" data-submitting-label="Saving fields..." {% if not fields %}disabled{% endif %}>Save fields and continue</button>
           </div>
         </form>
       {% endif %}

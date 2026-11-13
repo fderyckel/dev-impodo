@@ -58,6 +58,7 @@ from impodo.application.workspace.odoo_capture_jobs import (
 from impodo.domain.guided_odoo_capture import (
     GuidedOdooCapturePlanDraft,
     propose_guided_odoo_capture_plans,
+    recommended_odoo_capture_field_names,
 )
 from impodo.domain.odoo.contracts import (
     ConnectorError,
@@ -2373,7 +2374,7 @@ def _render_odoo_capture_selection(
             if current is not None
             and selected_model is not None
             and current.model == selected_model.name
-            else frozenset()
+            else frozenset(recommended_odoo_capture_field_names(selected_model))
         )
         if selected_model is not None
         else frozenset()

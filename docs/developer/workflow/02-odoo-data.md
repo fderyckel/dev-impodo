@@ -182,6 +182,16 @@ key governance. `SchemaWorkspaceService` coordinates these operations through
 separate ports for the model catalogue, schema catalogue, source selection,
 and mapping invalidation.
 
+For Odoo sources, the main-record picker submits only relationship-scope roots.
+When those roots are unchanged, `prepare_schema_scope` passes the existing
+complete model set to `update_schema_scope`, retaining automatically linked
+records and current capture evidence. The same authorization, revision, and
+workspace-state checks still run. A genuine main-record change invalidates
+dependent work and captures the new field details through the existing path.
+The [main-record return regressions](../../../tests/integration/web/test_odoo_main_scope_return.py)
+cover both supported Odoo majors and local and remote metadata, including
+unchanged choices, changed choices, stale revisions, and bounded database work.
+
 After a live destination capture, `supporting_models.py` derives direct
 relationships from the selected schema. It classifies each relationship as
 reuse existing, checked default, Odoo managed, or review incoming. The Stage 2

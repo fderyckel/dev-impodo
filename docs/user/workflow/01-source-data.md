@@ -248,6 +248,16 @@ requires a fresh capture; existing accepted data does not acquire new fields.
    if you need to add an exact **Root record filter**, change the fields, or
    change the request size. A related plan remains limited to records reached
    through the reviewed links.
+
+   A new plan starts with business fields selected. **Created on** starts
+   unticked because Odoo supplies it when creating destination records. You
+   can still include it deliberately. Saved plans keep your existing choices.
+   Use **Select all fields**, **Clear selection**, or individual checkboxes
+   to adjust the current record type. The count shows your selection. Select
+   **Save fields and continue** to move to the next required action.
+
+   Open **Advanced capture options** only to change the dataset name or
+   request size. **Change record types** returns to the main-record choices.
 4. If Impodo included linked support, review **Relationship fields used to
    find linked records** and confirm **I reviewed the selected relationship
    fields above**. Then select **Count selected source records and continue**.

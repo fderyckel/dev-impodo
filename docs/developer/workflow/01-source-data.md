@@ -102,6 +102,19 @@ without displaying or replacing the other model's fields. The route holds the
 read credential in session state, counts every complete plan, runs one capture
 job, and publishes all frozen datasets through `OdooSourceCaptureService`.
 
+The capture-plan field list offers **Select all fields** and **Clear
+selection** with a live selected-field count. `source-workflow.js` applies
+these actions only to enabled `field_names` checkboxes in the current form.
+The browser preserves saved selections on entry and changes the selection
+without a request. New manual and full automatic plans use
+`recommended_odoo_capture_field_names` to select eligible business values
+without `create_date`. The creation timestamp remains eligible for deliberate
+selection, and saved choices remain exact. Read-only business fields retain
+their existing eligibility. **Save fields and continue** submits the selected
+fields through the existing validation and linked-data review guard. Dataset
+names and request sizes remain under **Advanced capture options**; an invalid
+control opens that disclosure before browser validation focuses it.
+
 `OdooCapturePublicationService` creates one tagged Parquet snapshot and one
 protected origin sidecar per model. `OdooProvenanceRepository` advances the
 complete manifest set, source selection, and snapshot pointers in one DuckDB
@@ -914,6 +927,8 @@ operator workspace.
 - [`tests/domain/test_odoo_relationship_scope.py`](../../../tests/domain/test_odoo_relationship_scope.py)
 - [`src/impodo/domain/guided_odoo_capture.py`](../../../src/impodo/domain/guided_odoo_capture.py)
 - [`tests/domain/test_guided_odoo_capture.py`](../../../tests/domain/test_guided_odoo_capture.py)
+- [`tests/domain/test_odoo_capture_field_defaults.py`](../../../tests/domain/test_odoo_capture_field_defaults.py)
+- [`tests/integration/web/test_odoo_capture_field_defaults.py`](../../../tests/integration/web/test_odoo_capture_field_defaults.py)
 - [`tests/application/test_source_workspace_service.py`](../../../tests/application/test_source_workspace_service.py)
 - [`tests/integration/duckdb/test_atomic_odoo_capture_publication.py`](../../../tests/integration/duckdb/test_atomic_odoo_capture_publication.py)
 - [`tests/integration/web/test_odoo_source_scope_presenter.py`](../../../tests/integration/web/test_odoo_source_scope_presenter.py)
@@ -947,6 +962,7 @@ operator workspace.
 - [`tests/integration/web/test_source_journey_overview.py`](../../../tests/integration/web/test_source_journey_overview.py)
 - [`tests/e2e/test_source_confirmation_guard.py`](../../../tests/e2e/test_source_confirmation_guard.py)
 - [`tests/e2e/test_source_journey.py`](../../../tests/e2e/test_source_journey.py)
+- [`tests/e2e/test_capture_field_selection.py`](../../../tests/e2e/test_capture_field_selection.py)
 - [`tests/e2e/test_source_save_recovery.py`](../../../tests/e2e/test_source_save_recovery.py)
 - [`tests/integration/web/test_target_workflow.py`](../../../tests/integration/web/test_target_workflow.py)
 

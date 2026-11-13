@@ -1,0 +1,17 @@
+.capture-field-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .7rem;
+}
+
+.capture-field-tools[hidden] {
+  display: none;
+}
+
+.capture-field-count {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--muted);
+}

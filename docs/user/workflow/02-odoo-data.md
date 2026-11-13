@@ -80,15 +80,21 @@ user's default company does not silently choose those values for you.
 8. For an Odoo source, continue to **Source data**. Impodo prepares the bounded
    relationship and field plans there and asks only about named exceptions.
 
+If you return and save the same main record types, Impodo keeps the linked
+records, captured fields, and saved plans. Changing the main selection starts
+a new review of the affected data.
+
 For an Odoo source, Impodo gives main records and profiled full-transfer
 children their eligible business values. Existing-only support receives its
 identity, while a minimum-create link receives identity and required values.
 Open **Edit saved capture plans** only to change that protected field surface,
-add a root filter, or change **Records per Odoo request**. Request size changes
-batching, not membership. Numeric Odoo record identifiers and modification
+add a root filter, or change **Records per Odoo request** under **Advanced
+capture options**. New plans leave **Created on** unticked; you can include it
+deliberately when you need the original creation date in the backup. Request
+size changes batching, not membership. Numeric Odoo record identifiers and modification
 timestamps remain protected provenance and are not selectable source values.
 
-![Current authenticated Odoo capture-plan editor with fictional Product fields.](../../images/user/08g-odoo-source-eligible-fields.png)
+![Odoo record-type selection with fictional migration data.](../../images/user/08-odoo-models.png)
 
 The Odoo supporting-data review uses direct relationships in the captured live
 schema. It keeps automatically reached support separate from the main record
