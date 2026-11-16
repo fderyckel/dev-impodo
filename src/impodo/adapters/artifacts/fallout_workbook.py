@@ -1,4 +1,4 @@
-"""Create a source-preserving Excel view of exact load fallout cells."""
+"""Create source-preserving Excel workbooks for saved load verification."""
 
 from __future__ import annotations
 
@@ -17,7 +17,11 @@ from openpyxl.styles import Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from impodo.application.fallout_workbook_port import FalloutWorkbookCell
-from impodo.domain.reconciliation import ReconciliationRowStatus, ReconciliationRun
+from impodo.domain.reconciliation import (
+    ReconciliationRowStatus,
+    ReconciliationRun,
+    ReconciliationRunStatus,
+)
 
 FALLOUT_FILL = "FCE8E7"
 FALLOUT_TEXT = "9F2F2F"
@@ -64,7 +68,9 @@ def build_fallout_workbook(
         )
         for issue in issues
     )
-    title = _unique_summary_title(workbook)
+    title = _unique_summary_title(
+        workbook, verified=report.status is ReconciliationRunStatus.VERIFIED,
+    )
     summary = workbook.create_sheet(title, 0)
     _write_summary(summary, report, issues)
     for issue in issues:
@@ -112,12 +118,16 @@ def _write_summary(worksheet, report, issues: tuple[FalloutWorkbookCell, ...]) -
     )
     worksheet.sheet_view.showGridLines = False
     worksheet.freeze_panes = "A8"
-    worksheet["A1"] = "Impodo load fallout"
+    worksheet["A1"] = "Impodo load verification"
     worksheet["A1"].font = Font(bold=True, size=18, color="494D46")
     worksheet["A2"] = (
-        f"Odoo accepted {written:,} written record(s), but {different:,} "
-        "record(s) have a different final value. A read-back difference is "
-        "not a rejected row."
+        "Odoo matches every field in the confirmed load review."
+        if report.status is ReconciliationRunStatus.VERIFIED
+        else (
+            f"Odoo accepted {written:,} written record(s), but {different:,} "
+            "record(s) have a different final value. A read-back difference is "
+            "not a rejected row."
+        )
     )
     worksheet["A3"] = (
         f"{report.verified_count:,} verified · {different:,} different · "
@@ -126,8 +136,12 @@ def _write_summary(worksheet, report, issues: tuple[FalloutWorkbookCell, ...]) -
         f"{len(issues):,} source-linked cell issue(s)"
     )
     worksheet["A4"] = (
-        "Do not reload these records. Review the highlighted cells and the "
-        "recommended action below."
+        "Verification complete. No corrections are needed."
+        if report.status is ReconciliationRunStatus.VERIFIED
+        else (
+            "Do not reload these records. Review the highlighted cells and the "
+            "recommended action below."
+        )
     )
     worksheet["A5"] = f"Verification: {report.reconciliation_id}"
     headers = (
@@ -199,8 +213,8 @@ def _csv_workbook(
     return workbook
 
 
-def _unique_summary_title(workbook) -> str:
-    base = "Impodo Fallout"
+def _unique_summary_title(workbook, *, verified: bool) -> str:
+    base = "Impodo Verification" if verified else "Impodo Fallout"
     if base not in workbook.sheetnames:
         return base
     index = 2

@@ -1,4 +1,4 @@
-"""Resolve authorized load fallout to frozen source cells and annotate a copy."""
+"""Export authorized load verification against unchanged frozen source cells."""
 
 from __future__ import annotations
 
@@ -124,8 +124,11 @@ class FalloutWorkbookService:
         selection = self._sources.get_source_selection(workspace_id)
         if staging is None or selection is None:
             raise WorkspaceError("The frozen source lineage is unavailable")
-        if staging.source_selection_hash != selection.content_hash:
-            raise WorkspaceError("The frozen source selection changed after the load")
+        if staging.physical_selection_hash != selection.content_hash:
+            raise WorkspaceError(
+                "The source tables for this load no longer match the saved "
+                "preparation. Open the original data version to export its workbook."
+            )
 
         execution_rows = {item.source_trace_id: item for item in snapshot.rows}
         canonical_rows = {item.row_id: item for item in staging.rows}
@@ -215,10 +218,16 @@ class FalloutWorkbookService:
                     )
                 )
 
+        if not used_file_ids:
+            used_file_ids.update(
+                item.source.file_id
+                for item in selection.datasets
+                if isinstance(item.source, FileSourceBinding)
+            )
         if len(used_file_ids) != 1:
             raise WorkspaceError(
-                "This verification spans multiple source files. Download each "
-                "file-specific workbook from Support details."
+                "This load uses several source files or has no source workbook. "
+                "Download the review workbook from the saved outcome."
             )
         file_id = next(iter(used_file_ids))
         source_file = source_files.get(file_id)
@@ -252,7 +261,7 @@ class FalloutWorkbookService:
                 cells=workbook_cells,
             )
         return GeneratedFalloutWorkbook(
-            filename=f"impodo-load-fallout-{report.reconciliation_id}.xlsx",
+            filename=f"impodo-load-results-{report.reconciliation_id}.xlsx",
             content=content,
             affected_cell_count=sum(bool(item.coordinate) for item in workbook_cells),
         )

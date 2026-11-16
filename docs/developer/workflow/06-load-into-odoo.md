@@ -604,6 +604,13 @@ show the BOM and component business keys for each affected line.
 `GET .../load/fallout.xlsx` joins the bound detail to frozen lineage and
 generates a derivative copy with an **Impodo Fallout** sheet, exact-cell links,
 highlights, and comments while leaving the accepted source artifact unchanged.
+It compares `physical_selection_hash` with the frozen physical source selection;
+the effective selection used for combined tables may have a different hash.
+When verification has no differences, the same export selects the single source
+workbook and adds an **Impodo Verification** sheet. The outcome offers
+**Download verified source workbook (.xlsx)** for that result, including after
+restart. Admission and generation share one bounded local page operation;
+export failures return to the saved outcome with an actionable error.
 
 The execution snapshot freezes captured `digits` metadata for numeric target
 fields. `ExecutionService` rejects a reviewed value that cannot be represented

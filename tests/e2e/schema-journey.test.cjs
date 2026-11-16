@@ -169,15 +169,47 @@ test("initial server errors take precedence and open their matching card", () =>
   assert.equal(view.root.dataset.step, "matching");
   assert.equal(view.cards[0].open, true);
   assert.equal(view.cards[1].open, false);
+  assert.equal(view.cards[0].children[1].focused, true);
 });
 
 test("only one matching editor is open without disabling hidden form values", () => {
-  const view = page();
+  const view = page({ prepare({ cards }) { cards[0].open = true; } });
   assert.equal(view.cards[1].open, true, "the first unfinished rule opens initially");
   view.cards[0].open = true;
   view.cards[0].listeners.get("toggle")();
   assert.equal(view.cards[1].open, false);
   assert.equal(view.cards[1].children[0].disabled, false);
+});
+
+test("the initial server recovery panel takes precedence over a saved query location", () => {
+  const view = page({ step: "records", url: "https://impodo.test/workspaces/one/schema?step=matching" });
+  assert.equal(view.root.dataset.step, "records");
+  assert.equal(view.panels.records.hidden, false);
+  assert.equal(view.panels.matching.hidden, true);
+});
+
+test("initial explicit field anchors reveal and focus their owning editor", () => {
+  const view = page({ url: "https://impodo.test/workspaces/one/schema#primary-field", prepare({ cards }) {
+    cards[0].children[0].id = "primary-field";
+  } });
+  assert.equal(view.root.dataset.step, "matching");
+  assert.equal(view.cards[0].open, true);
+  assert.equal(view.cards[0].children[0].focused, true);
+  assert.equal(view.cards[0].children[0].scrolled, true);
+  assert.equal(view.pushes.length, 0);
+});
+
+test("compact rule summaries reflect edits after the existing field editor updates", async () => {
+  const view = page();
+  const card = view.cards[0];
+  const selection = card.append(new Element("SPAN", { keySelectionSummary: "" }));
+  const summary = card.append(new Element("SMALL", { schemaRuleSummary: "" }));
+  selection.textContent = "Previous value";
+  view.root.listeners.get("change")({ target: card.children[0] });
+  selection.textContent = "Reference within Company";
+  await new Promise(queueMicrotask);
+  assert.equal(summary.textContent, "Reference within Company");
+  assert.equal(card.children[0].value, "unsaved-0");
 });
 
 test("native validation opens the first invalid panel and group per validation turn", async () => {

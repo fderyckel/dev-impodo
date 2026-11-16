@@ -77,9 +77,10 @@
     const restoreLocation = ({ initial = false } = {}) => {
       const url = new URL(window.location.href);
       const target = hashTarget(url);
-      if (target && reveal(target, { focusTarget: !initial })) return;
+      const supportingSave = ["#supporting-data-review", "#review-odoo-choices"].includes(url.hash);
+      if (target && reveal(target, { focusTarget: !initial || !supportingSave })) return;
       const step = url.searchParams.get("step");
-      show(validStep(step) ? step : initialStep, { focusHeading: !initial });
+      show(!initial && validStep(step) ? step : initialStep, { focusHeading: !initial });
     };
 
     for (const card of cards) {
@@ -88,9 +89,20 @@
       });
     }
     const cardWithError = cards.find((card) => card.querySelector("[data-key-server-error]"));
-    const initialCard = cardWithError || cards.find((card) => card.open) ||
-      cards.find((card) => card.dataset.keyConfirmed !== "true") || cards[0];
+    const initialCard = cardWithError || cards.find((card) => card.dataset.keyConfirmed !== "true") ||
+      cards.find((card) => card.open) || cards[0];
     for (const card of cards) card.open = card === initialCard;
+    const updateRuleSummary = (event) => {
+      const card = event.target.closest?.("[data-schema-key-card]");
+      if (!card) return;
+      window.queueMicrotask(() => {
+        const selection = card.querySelector("[data-key-selection-summary]");
+        const summary = card.querySelector("[data-schema-rule-summary]");
+        if (selection && summary) summary.textContent = selection.textContent;
+      });
+    };
+    root.addEventListener("input", updateRuleSummary);
+    root.addEventListener("change", updateRuleSummary);
 
     document.addEventListener("click", (event) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
@@ -130,7 +142,7 @@
     window.addEventListener("hashchange", () => restoreLocation());
     restoreLocation({ initial: true });
     const error = root.querySelector("[data-schema-load-error], [data-supporting-save-error], [data-key-server-error]");
-    if (error) reveal(error);
+    if (error) reveal(error, { focusTarget: error.hasAttribute("data-key-server-error") });
     root.impodoSchemaJourney = { show, reveal };
     return root.impodoSchemaJourney;
   };

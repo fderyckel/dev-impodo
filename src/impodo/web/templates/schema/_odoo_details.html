@@ -1,3 +1,4 @@
+{% if schema or workspace_state.intended_models or is_recipe_run_setup or schema_load_failed %}
 <section class="form-card schema-odoo-details" aria-label="Odoo details">
       <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
     {% if schema_journey.enabled %}
@@ -128,7 +129,7 @@
               Reconnect the saved local Odoo installation before checking these defaults.
             {% endif %}
           </div>
-        {% elif schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
+        {% elif is_recipe_run_setup and schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
           <small>{% if is_recipe_run_setup and setup_route_kind == 'production-runs' %}Impodo will check the fields and current supporting values, then open Production readiness to review write access.{% elif is_recipe_run_setup %}Impodo will check the fields and current supporting values, then create the Recipe work areas when everything is ready.{% endif %}</small>
         {% elif local_mode and workspace_state.intended_models and not local_stack.profile %}
           <small>The saved choices remain available. Find local Odoo before loading their details.</small>
@@ -149,3 +150,4 @@
       {% endif %}
     </div>
 </section>
+{% endif %}

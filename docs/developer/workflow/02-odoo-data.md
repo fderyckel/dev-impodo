@@ -114,6 +114,8 @@ performance owners.
 The [substep tests](../../../tests/integration/web/test_schema_journey.py)
 cover location defaults, sidebar status, passive navigation, and rejected
 confirmation for both supported majors with local and remote reads.
+The [interaction tests](../../../tests/e2e/schema-journey.test.cjs) cover
+unsaved values, browser history, direct links, and focused validation recovery.
 
 ### Matching-rule scope selection
 

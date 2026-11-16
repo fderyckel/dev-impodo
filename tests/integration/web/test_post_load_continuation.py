@@ -24,6 +24,7 @@ from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.browser_scenarios import POST_HEADERS
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_odoo import HierarchyOdoo
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
@@ -183,6 +184,69 @@ class PostLoadContinuationTests(HierarchyWorkflowFixture):
         self.assertEqual(reconciliation.status.value, "VERIFIED")
         self.context.corrections.publish_completed_load(workspace, actor=self.actor)
         return workspace, schema, target
+
+    def test_completed_load_downloads_verified_source_after_restart(self):
+        for major in (19, 20):
+            for mode in ("LOCAL", "REMOTE"):
+                with self.subTest(major=major, mode=mode):
+                    model = "res.partner" if major == 19 else "product.template"
+                    workspace, _schema, _target = self._initial_load(major, mode, model)
+                    state = self.context.queries.get(workspace)
+                    data_version_id = self.context.migration_workspaces.get(
+                        workspace, actor=self.actor,
+                    ).data_version_id
+                    source = state.source_files[0]
+                    with self.context.artifacts.materialize_source(
+                        data_version_id, source.stored_name,
+                    ) as original:
+                        original_bytes = original.read_bytes()
+                    self.reopen()
+                    outcome = self.client.get(f"/workspaces/{workspace}/load/outcome")
+                    self.assertEqual(outcome.status_code, 200, outcome.text)
+                    self.assertIn("Download verified source workbook (.xlsx)", outcome.text)
+                    with (
+                        collect_duckdb_request_timings() as timings,
+                        count_duckdb_statements() as statements,
+                    ):
+                        response = self.client.get(
+                            f"/workspaces/{workspace}/load/fallout.xlsx", follow_redirects=False,
+                        )
+                    self.assertEqual(response.status_code, 200, response.text[:200])
+                    self.assertIn(".xlsx", response.headers["content-disposition"])
+                    workbook = load_workbook(BytesIO(response.content))
+                    self.assertEqual(workbook["records"]["A2"].value, "A1")
+                    self.assertEqual(workbook["records"]["B2"].value, "Alpha")
+                    self.assertEqual(
+                        workbook["Impodo Verification"]["A4"].value,
+                        "Verification complete. No corrections are needed.",
+                    )
+                    workbook.close()
+                    # Registry, workspace identity, engine and Data version
+                    # each have one owner for admission and the complete export.
+                    self.assertLessEqual(timings.connection_count, 4)
+                    self.assertLessEqual(timings.schema_check_count, 4)
+                    catalogue = [sql for sql in statements if "duckdb_columns()" in sql]
+                    self.assertLessEqual(len(catalogue), 4)
+                    with self.context.artifacts.materialize_source(
+                        data_version_id, source.stored_name,
+                    ) as original:
+                        self.assertEqual(original.read_bytes(), original_bytes)
+                    if major == 19 and mode == "LOCAL":
+                        message = "Excel export was interrupted. Try the download again."
+                        with patch.object(
+                            self.context.fallout_workbooks, "_workbook_renderer",
+                            side_effect=ValueError(message),
+                        ):
+                            failed = self.client.get(
+                                f"/workspaces/{workspace}/load/fallout.xlsx",
+                                follow_redirects=False,
+                            )
+                        self.assertEqual(failed.status_code, 303)
+                        recovery = self.client.get(failed.headers["location"])
+                        self.assertEqual(recovery.status_code, 200)
+                        self.assertIn(message, recovery.text)
+                        retry = self.client.get(f"/workspaces/{workspace}/load/fallout.xlsx")
+                        self.assertEqual(retry.status_code, 200)
 
     def _continue(self, workspace, schema):
         async def capture(context, state, *, actor):

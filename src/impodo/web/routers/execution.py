@@ -81,7 +81,7 @@ from ..presenters.common import _flash, _render
 from ..presenters.navigation import build_load_workspace_navigation
 from ..request_identity import request_identity
 from ..run_commands import publish_reconciled_application
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 from ..target_credentials import (
     TargetCredential,
     TargetCredentialRole,
@@ -949,6 +949,7 @@ def build_execution_router(
             workspace_id,
             step="outcome",
             preview=preview,
+            error=request.session.pop("load_export_error", None),
         )
 
     @router.get(
@@ -1983,26 +1984,31 @@ def build_execution_router(
     async def download_fallout_workbook(request: Request, workspace_id: str):
         require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
-        try:
-            generated = await run_in_threadpool(
-                context.fallout_workbooks.generate,
-                workspace_id,
-                actor=actor,
-            )
-        except (WorkspaceError, OSError, ValueError) as error:
-            return Response(str(error), status_code=409, media_type="text/plain")
-        return Response(
-            generated.content,
-            media_type=(
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
-            headers={
-                "Content-Disposition": (
-                    f'attachment; filename="{generated.filename}"'
+
+        def download():
+            try:
+                generated = context.fallout_workbooks.generate(
+                    workspace_id, actor=actor,
+                )
+            except (WorkspaceError, OSError, ValueError) as error:
+                request.session["load_export_error"] = str(error)
+                return RedirectResponse(
+                    f"/workspaces/{workspace_id}/load/outcome", status_code=303,
+                )
+            return Response(
+                generated.content,
+                media_type=(
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 ),
-                "Cache-Control": "no-store",
-            },
-        )
+                headers={
+                    "Content-Disposition": (
+                        f'attachment; filename="{generated.filename}"'
+                    ),
+                    "Cache-Control": "no-store",
+                },
+            )
+
+        return await run_workspace_page_read(request, download)
 
     @router.get("/workspaces/{workspace_id}/load/fallout.csv")
     async def download_fallout(request: Request, workspace_id: str):

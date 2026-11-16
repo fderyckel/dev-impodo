@@ -1,7 +1,7 @@
 ---
 audience: developer
 document_type: plan
-status: approved
+status: implemented
 ---
 
 # Give Stage 2 a clear sequence
@@ -11,6 +11,12 @@ one decision at a time, and find the next action. It reorganizes the existing
 interface. It preserves the workflow, available features, saved decisions,
 checks, and Odoo access rules. The maintainer approved implementation on
 16 November 2026, with concise copy and the existing visual style.
+
+The three substeps, grouped editors, and shorter copy are implemented. Current
+instructions belong to the [Odoo data guide](../user/workflow/02-odoo-data.md).
+The sections below retain the approved design. Browser visual verification
+and replacement screenshots remain pending because the host blocked the
+isolated preview. The existing running Impodo session has not been restarted.
 
 ## Recommendation
 

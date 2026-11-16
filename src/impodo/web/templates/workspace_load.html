@@ -490,8 +490,10 @@
           {% endif %}
         </div>
         <div class="button-row">
-          {% if reconciliation.fallout_count %}
-            {% if fallout_detail_available %}
+          {% if fallout_detail_available %}
+            {% if reconciliation.status.value == 'VERIFIED' %}
+              <a class="button primary" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download verified source workbook (.xlsx)</a>
+            {% elif reconciliation.fallout_count %}
               <a class="button primary" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download highlighted source workbook (.xlsx)</a>
             {% endif %}
           {% endif %}

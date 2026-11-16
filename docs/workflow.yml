@@ -495,6 +495,7 @@ stages:
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_schema_journey.py
       - tests/integration/web/test_stage2_scope_selection.py
+      - tests/e2e/schema-journey.test.cjs
       - tests/e2e/schema-scope-fields.test.cjs
       - tests/integration/duckdb/test_workspace.py
       - tests/integration/odoo/test_local_reader.py
@@ -1275,6 +1276,7 @@ stages:
       - tests/integration/protected_evidence/test_target_credentials.py
       - tests/integration/web/test_correction_workflow.py
       - tests/integration/web/test_post_load_continuation.py
+      - tests/integration/web/test_fallout_workbook_download.py
       - tests/integration/columnar/test_continuation_fields.py
       - tests/application/test_correction_jobs.py
       - tests/application/test_correction_orchestration.py
