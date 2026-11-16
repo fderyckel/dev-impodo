@@ -322,6 +322,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"identity_origin_{dataset_index}_{identity_index}",
                     f"identity_dataset_{dataset_index}_{identity_index}",
                     f"identity_zero_root_{dataset_index}_{identity_index}",
+                    f"identity_blank_source_{dataset_index}_{identity_index}",
                     f"identity_resolver_key_{dataset_index}_{identity_index}",
                 }
             )
@@ -605,6 +606,15 @@ def _mapping_datasets_from_form(
                 and resolver.origin is ResolverOrigin.TARGET_CATALOG
             ):
                 null_policy = IdentityNullPolicy.EXPLICIT_SCOPE_NULL
+            blank_source = _text(form, f"identity_blank_source_{dataset_index}_{identity_index}") or None
+            if blank_source is not None:
+                if not is_scope or metadata is None or metadata.type != "many2one" or metadata.required:
+                    raise WorkspaceError("No linked value is only allowed for an optional linked matching scope")
+                if blank_source not in selected_sources:
+                    raise WorkspaceError("Choose a connected source column whose blank means no linked record")
+                if _checked(form, f"identity_zero_root_{dataset_index}_{identity_index}"):
+                    raise WorkspaceError("Choose either a zero parent marker or a blank linked scope")
+                null_policy = IdentityNullPolicy.OPTIONAL_SCOPE_NULL
             component = IdentityComponentMapping(
                 source_column_keys=selected_sources,
                 target_fields=(target_field,),
@@ -617,6 +627,7 @@ def _mapping_datasets_from_form(
                 ),
                 resolver=resolver,
                 null_policy=null_policy,
+                blank_source_column_key=blank_source,
                 selected_matching_field=selected_matching_field,
             )
             target = (

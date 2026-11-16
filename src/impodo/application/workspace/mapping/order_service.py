@@ -320,6 +320,8 @@ class MatchingIdentityLiveProbe:
     relational_components: tuple[IdentityRelationalLiveProbe, ...]
     mode: MappingTargetMode
     on_existing: str | None
+    empty_scope_indexes: tuple[int, ...] = ()
+    empty_scope_domain_terms: tuple[tuple[tuple[str, str | bool], ...], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -371,15 +373,16 @@ class _MatchingSourceTupleCache:
         *,
         identity: bool,
         reference_mappings: tuple[ReferenceKeyMapping | None, ...] = (),
+        blank_groups: tuple[tuple[int, int, str], ...] = (),
     ) -> tuple[tuple[str | None, ...], ...]:
         """Return a row-aligned projection, slicing a cached superset when safe."""
 
-        if any(mapping is not None and mapping.preparation is not None
-               for mapping in reference_mappings):
+        if blank_groups or any(mapping is not None and mapping.preparation is not None
+                               for mapping in reference_mappings):
             projected = reference_projection_columns(columns, reference_mappings)
             rows = self.read(workspace_id, dataset_id, projected, row_inclusion,
                              identity=identity)
-            return prepared_reference_rows(columns, projected, rows, reference_mappings)
+            return prepared_reference_rows(columns, projected, rows, reference_mappings or (None,) * len(columns), blank_groups=blank_groups)
 
         planned = self._prepared_columns.get(dataset_id, ())
         if planned and any(key not in columns for key in planned):
@@ -870,14 +873,20 @@ class MatchingOrderService:
                     seen_requests.add(identity)
                     record_requests.append(request)
         for probe in identity_probes:
-            for domain in _matching_key_domain_chunks(
+            domains = list(_matching_key_domain_chunks(
                 probe.domain_fields,
                 (
                     tuple(str(value) for value in key)
                     for key in probe.domain_keys
                     if all(value is not None for value in key)
                 ),
-            ):
+            ))
+            empty_groups: dict[tuple[str, ...], list[tuple[str | bool, ...]]] = defaultdict(list)
+            for terms in probe.empty_scope_domain_terms:
+                empty_groups[tuple(field for field, _value in terms)].append(tuple(value for _field, value in terms))
+            for fields, keys in empty_groups.items():
+                domains.extend(_matching_key_domain_chunks(fields, keys))
+            for domain in domains:
                 request = RecordRequest(
                     model=probe.target_model,
                     fields=projected_fields[probe.target_model],
@@ -2174,6 +2183,7 @@ class MatchingOrderService:
             len(source_columns) != len(set(source_columns))
             and not any(mapping is not None and mapping.preparation is not None
                         for mapping in reference_mappings)
+            and not any(component.blank_source_column_key is not None for component in dataset.target_scope)
         ):
             return None, _not_checkable_identity_result(
                 dataset_id=dataset.dataset_id,
@@ -2182,6 +2192,12 @@ class MatchingOrderService:
                 reason=MatchingIdentityNotCheckableReason.INDIRECT_IDENTITY,
             )
         try:
+            blank_groups = []
+            source_offset = 0
+            for component in (*dataset.target_identity, *dataset.target_scope):
+                if component.blank_source_column_key is not None:
+                    blank_groups.append((source_offset, len(component.source_column_keys), component.blank_source_column_key))
+                source_offset += len(component.source_column_keys)
             raw_source_keys = source_cache.read(
                 workspace_id,
                 dataset.dataset_id,
@@ -2189,6 +2205,7 @@ class MatchingOrderService:
                 dataset.row_inclusion,
                 identity=True,
                 reference_mappings=tuple(reference_mappings),
+                blank_groups=tuple(blank_groups),
             )
         except WorkspaceError:
             return None, _not_checkable_identity_result(
@@ -2202,6 +2219,8 @@ class MatchingOrderService:
 
         source_keys: list[tuple[str | None, ...]] = []
         domain_keys: list[tuple[str | None, ...]] = []
+        empty_scope_indexes: set[int] = set()
+        empty_scope_domains: list[tuple[tuple[str, str | bool], ...]] = []
         relational_source_keys: list[list[tuple[str, ...]]] = [
             [] for _item in relational_plans
         ]
@@ -2214,6 +2233,8 @@ class MatchingOrderService:
             domain_key: list[str | None] = []
             source_offset = 0
             current_target_index = 0
+            row_terms: list[tuple[str, str | bool | None]] = []
+            has_empty_scope = False
             for component in (*dataset.target_identity, *dataset.target_scope):
                 width = len(component.source_column_keys)
                 values = tuple(row[source_offset : source_offset + width])
@@ -2221,6 +2242,7 @@ class MatchingOrderService:
                 if component.resolver is None:
                     owner_key.extend(values)
                     domain_key.extend(values)
+                    row_terms.extend(zip(component.target_fields, values, strict=True))
                     current_target_index += len(component.target_fields)
                     continue
                 plan_index, plan = relational_plan_by_target_index[
@@ -2236,13 +2258,29 @@ class MatchingOrderService:
                     if normalized is not None
                     else None
                 )
+                if component.blank_source_column_key is not None:
+                    empty_scope_indexes.add(current_target_index)
+                    if all(value is None for value in values):
+                        has_empty_scope = True
+                        owner_key.append(canonical_json({"linked": None}))
+                        domain_key.extend(values)
+                        row_terms.append((plan.target_field, False))
+                        current_target_index += 1
+                        continue
+                    token = canonical_json({"linked": token}) if token is not None else None
                 owner_key.append(token)
                 domain_key.extend(normalized or values)
+                row_terms.extend(zip(
+                    (f"{plan.target_field}.{field}" for field in _relational_leaf_fields(plan)),
+                    normalized or values, strict=True,
+                ))
                 if token is not None and normalized is not None:
                     relational_source_keys[plan_index].append(normalized)
                 current_target_index += 1
             source_keys.append(tuple(owner_key))
             domain_keys.append(tuple(domain_key))
+            if has_empty_scope and all(value is not None for _field, value in row_terms):
+                empty_scope_domains.append(tuple((field, value) for field, value in row_terms if value is not None))
 
         relational_components: list[IdentityRelationalLiveProbe] = []
         try:
@@ -2277,6 +2315,8 @@ class MatchingOrderService:
                 relational_components=tuple(relational_components),
                 mode=dataset.mode,
                 on_existing=dataset.on_existing,
+                empty_scope_indexes=tuple(sorted(empty_scope_indexes)),
+                empty_scope_domain_terms=tuple(empty_scope_domains),
             ),
             None,
         )
@@ -2713,11 +2753,11 @@ def _relationship_source_key_counts(
 
 def _matching_key_domain_chunks(
     fields: tuple[str, ...],
-    keys: Iterable[tuple[str, ...]],
+    keys: Iterable[tuple[str | bool, ...]],
 ) -> tuple[list[object], ...]:
     """Build deterministic bounded exact domains outside every source-row loop."""
 
-    unique = tuple(sorted(set(keys)))
+    unique = tuple(sorted(set(keys), key=canonical_json))
     chunks: list[list[object]] = []
     for start in range(0, len(unique), MAX_KEYS_PER_RECORD_REQUEST):
         batch = unique[start : start + MAX_KEYS_PER_RECORD_REQUEST]
@@ -3193,14 +3233,14 @@ def _classify_identity_probe(
                 continue
             relation_id = _many2one_record_id(record.values.get(field))
             if relation_id is None:
-                values.append(None)
+                values.append(canonical_json({"linked": None}) if index in probe.empty_scope_indexes else None)
                 continue
             token_by_id = related_tokens_by_component[index]
             token = token_by_id.get(relation_id)
             if token is None:
                 unresolved_target_relation = True
                 break
-            values.append(token)
+            values.append(canonical_json({"linked": token}) if index in probe.empty_scope_indexes else token)
         if unresolved_target_relation:
             return _not_checkable_identity_result(
                 dataset_id=probe.dataset_id,
@@ -3220,6 +3260,7 @@ def _classify_identity_probe(
         duplicate_choices.extend(identity_duplicate_choices(
             index, dataset_id=probe.dataset_id, target_model=probe.target_model,
             display_fields=probe.domain_fields, display_keys=probe.domain_keys,
+            allow_empty_scope=bool(probe.empty_scope_indexes),
         ))
     return classify_indexed_matching_identity(
         index,

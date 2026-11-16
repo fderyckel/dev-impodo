@@ -56,6 +56,7 @@ from impodo.web.diagnostic_costs import (
     logging_cost_elapsed,
     record_logging_costs,
 )
+from impodo.web.diagnostic_settings import DiagnosticSettingsSnapshot
 from impodo.web.load_diagnostic_bundle import load_bundle_members
 from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
@@ -91,7 +92,7 @@ DEFAULT_BACKUP_COUNT = 5
 DEFAULT_SLOW_REQUEST_SECONDS = 2.0
 DEFAULT_DIAGNOSTIC_LOCK_TIMEOUT_SECONDS = 0.25
 REQUEST_ID_HEADER = "X-Impodo-Request-ID"
-DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 4
+DIAGNOSTIC_BUNDLE_SCHEMA_VERSION = 5
 DEFAULT_MAX_BUNDLE_RECORDS = 5_000
 DEFAULT_MAX_DIAGNOSTIC_LINE_BYTES = 64 * 1024
 _MAPPING_ACTIONS = {item.value for item in MappingMutationAction}
@@ -994,8 +995,9 @@ def create_diagnostic_bundle(
     attempt_id: str | None = None,
     capture_failure_count: int = 0,
     logging_costs: Mapping[str, object] | None = None,
+    settings_snapshot: DiagnosticSettingsSnapshot | None = None,
 ) -> bytes:
-    """Create a bounded ZIP whose contents cannot carry business data."""
+    """Create a bounded ZIP with allowlisted logs and saved configuration."""
 
     if max_records < 1:
         raise ValueError("Diagnostic bundle record limit must be positive")
@@ -1069,6 +1071,14 @@ def create_diagnostic_bundle(
     ][-100:]
     load_members, load_coverage = load_bundle_members(directory, failure_records, attempt_id=attempt_id)
     created_at = _utc_timestamp()
+    if settings_snapshot is None:
+        settings_members = {
+            "settings.json": b'{"settings_schema_version":1,"status":"unavailable","reason":"WORKSPACE_NOT_SELECTED"}\n',
+            "settings-summary.md": b"# Saved workspace settings\n\nWorkspace settings are unavailable. Create the bundle from a workspace page to include its saved choices.\n",
+        }
+        settings_coverage = {"status": "unavailable", "reason": "WORKSPACE_NOT_SELECTED"}
+    else:
+        settings_members, settings_coverage = settings_snapshot.bundle_members()
     manifest = {
         "diagnostic_bundle_schema_version": DIAGNOSTIC_BUNDLE_SCHEMA_VERSION,
         "created_at": created_at,
@@ -1086,6 +1096,7 @@ def create_diagnostic_bundle(
         "failure_record_count": len(failure_records),
         "supporting_access_record_count": len(supporting_access_records),
         "load_evidence": load_coverage,
+        "settings_evidence": settings_coverage,
         "preparation_performance_evidence": performance_coverage,
         "logging_performance_evidence": {
             key: logging_observation[key]
@@ -1103,7 +1114,7 @@ def create_diagnostic_bundle(
             "history_before_retained_logs": "unavailable; rotated records may have expired",
         },
         "privacy": (
-            "Operational and technical schema metadata only, including model and field identifiers. "
+            "Operational and saved configuration metadata, including source column names and Odoo model and field identifiers. "
             "Source rows, formulas, credentials, "
             "tokens, request bodies, headers, URLs, and query strings are omitted."
         ),
@@ -1115,6 +1126,8 @@ def create_diagnostic_bundle(
     )
     buffer = BytesIO()
     with ZipFile(buffer, "w", compression=ZIP_DEFLATED) as archive:
+        for name, content in settings_members.items():
+            archive.writestr(name, content)
         for name, content in load_members.items():
             archive.writestr(name, content)
         for name, content in performance_members.items():

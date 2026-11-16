@@ -54,6 +54,7 @@
         <form method="post" action="/diagnostics/bundle">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="attempt_id" value="{{ job.support_reference }}">
+          <input type="hidden" name="workspace_id" value="{{ job.workspace_id }}">
           <button class="button secondary" type="submit">Create diagnostic bundle</button>
         </form>
       </div>

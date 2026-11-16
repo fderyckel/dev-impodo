@@ -268,6 +268,8 @@
                         </label>
                         {% set reference_prefix = 'identity_reference_' ~ dataset_index ~ '_' ~ loop.index0 %}
                         {% include "mapping/_reference_preparation.html" %}
+                        {% set identity_index = loop.index0 %}
+                        {% include "mapping/_identity_blank_scope.html" %}
                       {% endif %}
                     </div>
                   {% endfor %}

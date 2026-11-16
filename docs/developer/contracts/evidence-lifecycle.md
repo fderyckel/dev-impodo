@@ -173,7 +173,7 @@ versions and content identity. A rejected or pending receipt never validates,
 submits, or otherwise authorizes mapping evidence. Pending means the outcome is
 still unknown and forbids automatic mutation replay.
 
-The exact current mapping contract is version 24. It binds an explicit
+The exact current mapping contract is version 26. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
 validation scans each affected physical dataset once across all relevant
 fields and embeds immutable `CategoricalCoverageEvidence` in validation
@@ -250,6 +250,16 @@ Creation-only requirements and default decisions do not apply. Compiled plan
 version 3 with compiler version 4 preserves that behavior through preparation,
 Final review, Recipe reuse and execution. Earlier mapping and compiled-plan
 contracts cannot contain this mode; their historical payloads remain readable.
+
+Mapping contract version 26 adds `optional_scope_null` and the explicit
+`blank_source_column_key` for optional many2one matching scopes. A blank in
+that connected source column means the relationship is absent. Supporting key
+columns may remain populated. A nonblank reference still requires its complete
+lookup key, and required target fields cannot accept this policy. An absent
+relationship remains part of collision identity and produces an exact empty
+relationship predicate, never an omitted condition. Compiled plan v5/compiler
+v6 and mapping Recipe v5 preserve this meaning through preparation, comparison,
+execution and rebinding. Earlier contracts cannot carry the new policy.
 
 Mapping contract version 13 added the optional captured projection used when
 Odoo creates a relationship target from an imported source record. Version 14

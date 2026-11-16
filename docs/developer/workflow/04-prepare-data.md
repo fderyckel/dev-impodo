@@ -417,8 +417,18 @@ or Odoo call inside either scope. Source-row accounting scans the ordinal column
 once per physical snapshot. Each group separately scans only its required keys
 and output columns once per participant, using 256 MB and two threads. Canonical
 pages contain at most 1,000 joined rows and database transport retains its byte
-budgets. The quality finding index has a 64 MiB encoded-finding budget before
-Python collection; exceeding it fails without whole-run fallback.
+budgets. The quality index shares a 64 MiB retained-evidence allowance across
+finding transport and its Python consumers. Exceeding it fails without
+whole-run fallback.
+
+Rows deliberately excluded by the confirmed row rule retain only their row IDs
+in the quality membership index. Their canonical decisions and physical lineage
+remain stored and appear in the complete review evidence. The allowance covers
+those IDs and their membership containers, without duplicating row metadata and
+lineage for every exclusion. Excluded parents still enter relationship safety
+checks. Actual row findings and run-level findings retain the full metadata
+needed to explain their decisions. This keeps a mostly excluded source from
+exhausting the allowance through repeated bookkeeping alone.
 
 The quality index verifies arbitrary physical lineage rather than requiring one
 physical row per output. Its accounting projection groups all canonical links

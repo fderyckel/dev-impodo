@@ -157,7 +157,7 @@ def validate_plan_metadata(
                         code="TARGET_IDENTITY_NULL_POLICY_INVALID",
                         message=(
                             f"identity scope field {field_name} is required; "
-                            "it cannot represent a hierarchy root"
+                            "it cannot represent an empty relationship"
                         ),
                         dataset=dataset.name,
                         field=field_name,

@@ -1734,6 +1734,34 @@ a generated hierarchy. Linked-field cards also offer the current table for
 self-referencing many2one fields. Semantic validation remains authoritative
 when a forged or stale form names another table.
 
+Optional many2one fields in `target_scope` can use `optional_scope_null` with
+an explicit `blank_source_column_key`. The **When the source is blank** control
+saves that decision through `identity_blank_source_*`. Metadata must declare
+the field optional, and the absence column must be connected to the component.
+Required fields and ordinary record identifiers retain rejection semantics.
+Hierarchy root policies remain separate.
+
+The selected absence column alone determines whether the complete relationship
+is empty. This permits a blank lot number alongside a populated product or
+company lookup scope. Populated references still require complete, unique
+related keys. Stage 3 groups exact empty-field queries separately from dotted
+related-key queries; it never drops an empty field from the matching domain.
+The existing shared source projection is reused, and lookups remain batched.
+
+Mapping v26, compiled plan v5/compiler v6, native program v9/compiler v15, and
+mapping Recipe v5 bind the decision. Recipe publication converts the absence
+column to a logical ID and application rebinds it to the new source columns.
+Python and native preparation preserve source values and emit the same empty
+scope. Final review and execution retain that scope in the business identity.
+Coverage includes both Odoo majors and local/remote fixtures in
+[`test_optional_linked_scope.py`](../../../tests/application/workspace/mapping/test_optional_linked_scope.py),
+native/oracle parity and Recipe rebinding in
+[`test_optional_linked_scope.py`](../../../tests/integration/columnar/test_optional_linked_scope.py),
+and form save/render recovery in
+[`test_optional_linked_scope.py`](../../../tests/integration/web/test_optional_linked_scope.py).
+An unrelated document/approver model uses the same contract in
+[`test_optional_reference_generality.py`](../../../tests/integration/columnar/test_optional_reference_generality.py).
+
 For an incoming relational component, its selected child source columns are
 the reference tuple and the referenced dataset's
 `source_identity_column_keys` are the lookup tuple. Their arity must match.

@@ -195,6 +195,7 @@ class _ReferenceInputPlan:
     mapping: ReferenceKeyMapping
     prepared_column_key: str
     target_field: str
+    blank_source_column_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1195,9 +1196,9 @@ def _compile_reference_inputs(mapping: DatasetMapping) -> tuple[_ReferenceInputP
             if component.resolver is None:
                 continue
             references = (*component.resolver.key_mappings, *component.resolver.scope_mappings)
-            if any(item.preparation is not None for item in references):
+            if component.blank_source_column_key is not None or any(item.preparation is not None for item in references):
                 inputs.extend(_ReferenceInputPlan(
-                    item, synthetic_identity_field(role, index, source_index), component.target_fields[0]
+                    item, synthetic_identity_field(role, index, source_index), component.target_fields[0], component.blank_source_column_key
                 ) for source_index, item in enumerate(references))
     for index, relation in enumerate(mapping.relationships):
         references = (*relation.resolver.key_mappings, *relation.resolver.scope_mappings)
@@ -2063,7 +2064,11 @@ def _prepare_relationship_values(
     issues: list[Issue] = []
     for reference in plan.reference_inputs:
         try:
-            proposed = prepare_reference_value(reference.mapping, values)
+            absent = reference.blank_source_column_key is not None and (
+                values.get(reference.blank_source_column_key) is None
+                or str(values.get(reference.blank_source_column_key)).strip() == ""
+            )
+            proposed = None if absent else prepare_reference_value(reference.mapping, values)
             values[reference.prepared_column_key] = proposed
             if impact_collector is not None and reference.mapping.preparation is not None:
                 raw = tuple(values.get(key) for key in preparation_source_keys(reference.mapping))

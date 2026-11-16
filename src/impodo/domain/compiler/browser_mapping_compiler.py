@@ -69,10 +69,10 @@ def _scalar_type(value: str) -> ScalarType:
 def _identity_source_fields(component: IdentityComponentMapping, role: str, index: int) -> tuple[str, ...]:
     """Keep prepared reference values private to their identity consumer."""
 
-    if component.resolver is not None and any(
+    if component.resolver is not None and (component.blank_source_column_key is not None or any(
         item.preparation is not None
         for item in (*component.resolver.key_mappings, *component.resolver.scope_mappings)
-    ):
+    )):
         return tuple(synthetic_identity_field(role, index, source_index)
                      for source_index, _ in enumerate(component.source_column_keys))
     return component.source_column_keys
@@ -359,6 +359,10 @@ def compile_browser_mapping(
                                 else None
                             ),
                             null_policy=item.null_policy.value,
+                            blank_source_field=(
+                                _identity_source_fields(item, "target_scope", index)[item.source_column_keys.index(item.blank_source_column_key)]
+                                if item.blank_source_column_key is not None else None
+                            ),
                         )
                         for index, item in enumerate(mapping.target_scope)
                     ),
@@ -368,9 +372,10 @@ def compile_browser_mapping(
             )
         )
     token = definition.content_hash.removeprefix("sha256:")[:24]
+    optional_scopes = any(item.blank_source_column_key is not None for dataset in definition.datasets for item in dataset.target_scope)
     return CompiledMigrationPlan(
-        contract_version=4 if any(item.hierarchy_parent is not None for item in profile_datasets) else 3,
-        compiler_version=5 if any(item.hierarchy_parent is not None for item in profile_datasets) else 4,
+        contract_version=5 if optional_scopes else 4 if any(item.hierarchy_parent is not None for item in profile_datasets) else 3,
+        compiler_version=6 if optional_scopes else 5 if any(item.hierarchy_parent is not None for item in profile_datasets) else 4,
         plan_id=f"browser_{token}",
         origin="browser_mapping",
         origin_hash=definition.content_hash,

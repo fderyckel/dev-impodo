@@ -392,6 +392,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         physical_rows: Mapping[str, Sequence[int]],
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
+        retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
     ):
         """Validate and summarize the direct quality index set-wise."""
 
@@ -400,6 +401,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
             physical_rows,
             numeric_fields=numeric_fields,
+            retained_excluded_coordinates=retained_excluded_coordinates,
         )
 
     def bounded_relationship_findings(

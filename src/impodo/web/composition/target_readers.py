@@ -1691,9 +1691,12 @@ def _capture_mapping_supporting_values(
                         workspace_id, source.dataset_id, projected, source.row_inclusion,
                         included_parent=parents.get(source.dataset_id),
                     )
+                blank_source = source.blank_source_column_key
                 rows = prepared_reference_rows(
                     source.source_column_keys, projected, source_rows[identity],
                     resolver_preparations(source.source_column_keys, source.reference_mappings),
+                    blank_groups=((0, len(source.source_column_keys), blank_source),)
+                    if isinstance(blank_source, str) else (),
                 )
                 translations = {
                     item.source_value: item.target_value

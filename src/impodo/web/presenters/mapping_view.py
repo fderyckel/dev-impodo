@@ -2459,6 +2459,7 @@ def _mapping_dataset_views(
                         "related_datasets": related_datasets,
                         "self_parent": self_parent,
                         "zero_root": bool(component and component.null_policy.value == "zero_as_scope_null"),
+                        "blank_source_column_key": component.blank_source_column_key if component else None,
                         "recommended_related_key_id": (
                             standard_related_key.key_id
                             if standard_related_key is not None

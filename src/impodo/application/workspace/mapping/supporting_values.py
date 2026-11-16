@@ -66,6 +66,7 @@ class MappingSupportingSource:
     blank_source_values: tuple[str, ...] = ()
     list_separator: str | None = None
     reference_mappings: tuple[ReferenceKeyMapping, ...] = ()
+    blank_source_column_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +116,7 @@ def plan_mapping_supporting_values(
         blank_source_values: tuple[str, ...] = (),
         allows_selected_field: bool = False,
         list_separator: str | None = None,
+        blank_source_column_key: str | None = None,
     ) -> None:
         if (
             resolver is None
@@ -159,6 +161,7 @@ def plan_mapping_supporting_values(
                             if any(item.preparation is not None for item in
                                    (*resolver.key_mappings, *resolver.scope_mappings)) else ()
                         ),
+                        blank_source_column_key=blank_source_column_key,
                     )
                 )
         if constant_values is not None:
@@ -200,6 +203,7 @@ def plan_mapping_supporting_values(
                     and metadata.exportable is not False
                     and metadata.company_dependent is not True
                 ),
+                blank_source_column_key=component.blank_source_column_key,
             )
         for relationship in dataset.relationships:
             metadata = fields.get(relationship.target_field)

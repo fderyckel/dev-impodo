@@ -334,7 +334,8 @@ class IdentityComponent(StrictModel):
     type: ScalarType = "string"
     normalize: NormalizationSpec = Field(default_factory=NormalizationSpec)
     resolve: ResolveSpec | None = None
-    null_policy: Literal["reject", "explicit_scope_null", "zero_as_scope_null"] = "reject"
+    null_policy: Literal["reject", "explicit_scope_null", "zero_as_scope_null", "optional_scope_null"] = "reject"
+    blank_source_field: str | None = None
 
     @model_validator(mode="after")
     def validate_arity(self) -> IdentityComponent:
@@ -350,6 +351,11 @@ class IdentityComponent(StrictModel):
             raise ValueError(
                 "explicit_scope_null requires a relational identity component"
             )
+        if self.null_policy == "optional_scope_null":
+            if self.blank_source_field not in self.source_fields:
+                raise ValueError("Choose the source field whose blank means no linked record")
+        elif self.blank_source_field is not None:
+            raise ValueError("A blank source field requires optional_scope_null")
         return self
 
 
@@ -484,7 +490,7 @@ def validate_dataset_graph(datasets: tuple[DatasetSpec, ...]) -> None:
         )
     for dataset in datasets:
         for component in dataset.target_identity.scope:
-            if component.null_policy == "reject":
+            if component.null_policy in {"reject", "optional_scope_null"}:
                 continue
             hierarchy_company = (
                 dataset.hierarchy_parent is not None

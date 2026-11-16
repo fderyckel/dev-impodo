@@ -403,8 +403,8 @@ def _dataset_identity_domain_chunks(
     chunk_size: int,
 ) -> list[list[Any]] | None:
     fields = _dataset_identity_fields(plan, dataset)
-    if not fields:
-        return _hierarchical_identity_domain_chunks(
+    if not fields or _has_nullable_identity_scope(plan, dataset):
+        return _nullable_identity_domain_chunks(
             plan,
             dataset,
             records,
@@ -425,7 +425,7 @@ def _dataset_identity_domain_chunks(
     return _key_domain_chunks(fields, keys, chunk_size)
 
 
-def _hierarchical_identity_domain_chunks(
+def _nullable_identity_domain_chunks(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     records: Iterable[PreparedRecord],
@@ -434,7 +434,7 @@ def _hierarchical_identity_domain_chunks(
     ],
     chunk_size: int,
 ) -> list[list[Any]] | None:
-    """Build bounded domains for identities that depend on a nullable hierarchy.
+    """Build bounded domains for identities with explicit empty relationships.
 
     A hierarchy cannot use one flattened field tuple for every row: a root is
     identified by ``(name, parent=False)``, while a child needs
@@ -445,7 +445,7 @@ def _hierarchical_identity_domain_chunks(
     behaviour for other identity shapes that cannot be narrowed safely.
     """
 
-    if not _has_hierarchical_identity_scope(plan, dataset):
+    if not _has_nullable_identity_scope(plan, dataset):
         return None
 
     expressions = []
@@ -471,13 +471,13 @@ def _hierarchical_identity_domain_chunks(
     ]
 
 
-def _has_hierarchical_identity_scope(
+def _has_nullable_identity_scope(
     plan: CompiledMigrationPlan,
     dataset: DatasetSpec,
     *,
     visiting: frozenset[str] = frozenset(),
 ) -> bool:
-    """Recognize a nullable hierarchy through incoming identity dependencies."""
+    """Recognize optional scopes through direct and incoming identity paths."""
 
     if dataset.name in visiting:
         return False
@@ -486,12 +486,14 @@ def _has_hierarchical_identity_scope(
         *dataset.target_identity.components,
         *dataset.target_identity.scope,
     ):
+        if component.null_policy == "optional_scope_null":
+            return True
         resolve = component.resolve
         if resolve is None or resolve.dataset is None:
             continue
         if resolve.dataset == dataset.name and component.null_policy != "reject":
             return True
-        if _has_hierarchical_identity_scope(
+        if _has_nullable_identity_scope(
             plan, plan.dataset(resolve.dataset), visiting=visiting
         ):
             return True

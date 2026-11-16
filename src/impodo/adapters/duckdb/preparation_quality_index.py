@@ -37,21 +37,50 @@ def _read_finding_projection(
     cursor: duckdb.DuckDBPyConnection,
     *,
     budget: QualityFindingBudget | None = None,
+    excluded_row_ids: set[str] | None = None,
+    retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
 ) -> tuple[tuple[object, ...], ...]:
-    """Bound Python finding transport independently of source row volume."""
+    """Bound findings, retaining base exclusions only as membership IDs.
+
+    Exclusion callers project disposition at offset four and row ID at one.
+    Their row decisions and physical lineage remain in canonical staging;
+    actual issues still travel through the ordinary finding projections.
+    Coordinates referenced by run-level findings keep their full metadata.
+    """
 
     rows: list[tuple[object, ...]] = []
     budget = budget or QualityFindingBudget(limit_bytes=QUALITY_FINDING_INDEX_MAX_BYTES)
     while batch := cursor.fetchmany(256):
+        excluded = (
+            {
+                str(row[1]) for row in batch
+                if row[4] == "EXCLUDED"
+                and (str(row[2]), int(row[3])) not in retained_excluded_coordinates
+            }
+            if excluded_row_ids is not None else set()
+        )
+        findings = (
+            [row for row in batch if str(row[1]) not in excluded]
+            if excluded_row_ids is not None else batch
+        )
         estimated_bytes = sum(
             512 + sum(len(value.encode("utf-8")) for value in row if isinstance(value, str))
-            for row in batch
+            for row in findings
         )
+        if excluded_row_ids is not None:
+            # Cover the ID and membership containers used during transport,
+            # relationship propagation and final eligible-set publication.
+            estimated_bytes += sum(
+                256 + len(row_id.encode("utf-8"))
+                for row_id in excluded if row_id not in excluded_row_ids
+            )
         try:
             budget.consume(estimated_bytes)
         except QualityFindingBudgetExceeded as error:
             raise WorkspaceError(str(error)) from error
-        rows.extend(batch)
+        rows.extend(findings)
+        if excluded_row_ids is not None:
+            excluded_row_ids.update(excluded)
     return tuple(rows)
 
 
@@ -185,6 +214,7 @@ class PreparationQualityIndex:
         physical_rows: Mapping[str, Sequence[int]],
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
+        retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
     ) -> dict[str, object] | None:
         """Validate prepared rows and arbitrary physical lineage using narrow facts."""
 
@@ -375,6 +405,7 @@ class PreparationQualityIndex:
                 """,
                 [session_id, session_id],
             ), budget=finding_budget)
+            excluded_row_ids: set[str] = set()
             exception_rows = _read_finding_projection(connection.execute(
                 """
                 SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
@@ -390,7 +421,8 @@ class PreparationQualityIndex:
                  ORDER BY row.ordinal
                 """,
                 [session_id],
-            ), budget=finding_budget)
+            ), budget=finding_budget, excluded_row_ids=excluded_row_ids,
+                retained_excluded_coordinates=retained_excluded_coordinates)
             precision_rows = PreparationQualityIndex._bounded_numeric_precision_rows(
                 self,
                 connection,
@@ -417,6 +449,7 @@ class PreparationQualityIndex:
                 "issue_rows": tuple(issue_rows),
                 "collisions": tuple(collisions),
                 "exception_rows": tuple(exception_rows),
+                "excluded_row_ids": excluded_row_ids,
                 "precision_rows": precision_rows,
                 "finding_budget": finding_budget,
             }

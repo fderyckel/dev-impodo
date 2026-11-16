@@ -1702,6 +1702,8 @@ class RecipeApplicationCompiler:
             value_type=str(item.get("value_type", "string")),
             resolver=(self._resolver(resolver, bindings) if resolver else None),
             null_policy=IdentityNullPolicy(str(item.get("null_policy", "reject"))),
+            blank_source_column_key=(bindings[str(item["blank_source_column_id"])]
+                                     if item.get("blank_source_column_id") else None),
             selected_matching_field=item.get("selected_matching_field", False),
         )
 

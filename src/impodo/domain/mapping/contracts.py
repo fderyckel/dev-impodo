@@ -38,9 +38,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 25
+MAPPING_CONTRACT_VERSION = 26
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -109,6 +109,7 @@ class IdentityNullPolicy(StrEnum):
     REJECT = "reject"
     EXPLICIT_SCOPE_NULL = "explicit_scope_null"
     ZERO_AS_SCOPE_NULL = "zero_as_scope_null"
+    OPTIONAL_SCOPE_NULL = "optional_scope_null"
 
 
 class RelationshipValueSource(StrEnum):
@@ -491,11 +492,17 @@ class IdentityComponentMapping:
     resolver: RelationshipResolver | None = None
     null_policy: IdentityNullPolicy = IdentityNullPolicy.REJECT
     selected_matching_field: bool = False
+    blank_source_column_key: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "source_column_keys", tuple(self.source_column_keys))
         object.__setattr__(self, "target_fields", tuple(self.target_fields))
         object.__setattr__(self, "null_policy", IdentityNullPolicy(self.null_policy))
+        if self.null_policy is IdentityNullPolicy.OPTIONAL_SCOPE_NULL:
+            if self.resolver is None or self.blank_source_column_key not in self.source_column_keys:
+                raise ValueError("Choose the source column whose blank means no linked record")
+        elif self.blank_source_column_key is not None:
+            raise ValueError("A blank source column requires an optional linked matching scope")
         if type(self.selected_matching_field) is not bool or (
             self.selected_matching_field and (
                 len(self.source_column_keys) != 1
@@ -505,7 +512,7 @@ class IdentityComponentMapping:
                 or len(self.resolver.key_mappings) != 1
                 or self.resolver.scope_mappings
                 or self.resolver.value_mappings
-                or self.null_policy is not IdentityNullPolicy.REJECT
+                or self.null_policy not in {IdentityNullPolicy.REJECT, IdentityNullPolicy.OPTIONAL_SCOPE_NULL}
             )
         ):
             raise ValueError("A selected identity matching field needs one exact source column and an existing Odoo record")
@@ -1092,6 +1099,12 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 26 and any(
+            component.null_policy is IdentityNullPolicy.OPTIONAL_SCOPE_NULL
+            for dataset in self.datasets
+            for component in (*dataset.target_identity, *dataset.target_scope)
+        ):
+            raise ValueError("Optional linked matching scopes require mapping contract v26")
         if self.contract_version < 25 and any(
             item.preparation is not None
             for dataset in self.datasets
@@ -1436,6 +1449,8 @@ def _dataset_mapping_to_dict(
         for component in payload.get(group, ()):
             if not component["selected_matching_field"]:
                 component.pop("selected_matching_field")
+            if component["blank_source_column_key"] is None:
+                component.pop("blank_source_column_key")
     for relationship in payload.get("relationships", ()):
         if not relationship["selected_matching_field"]:
             relationship.pop("selected_matching_field")
@@ -1796,6 +1811,8 @@ def _identity_component_from_dict(
     expected_fields = _contract_fields(IdentityComponentMapping)
     if "selected_matching_field" not in payload:
         expected_fields.remove("selected_matching_field")
+    if "blank_source_column_key" not in payload:
+        expected_fields.remove("blank_source_column_key")
     if contract_version < 17:
         expected_fields.remove("null_policy")
     _require_contract_fields(
@@ -1819,6 +1836,7 @@ def _identity_component_from_dict(
             payload.get("null_policy", IdentityNullPolicy.REJECT.value)
         ),
         selected_matching_field=payload.get("selected_matching_field", False),
+        blank_source_column_key=payload.get("blank_source_column_key"),
     )
 
 

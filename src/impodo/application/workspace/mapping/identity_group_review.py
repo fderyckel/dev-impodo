@@ -23,6 +23,7 @@ def identity_duplicate_choices(
     target_model: str,
     display_fields: tuple[str, ...],
     display_keys: tuple[tuple[str | None, ...], ...],
+    allow_empty_scope: bool = False,
 ) -> tuple[MatchingIdentityChoice, ...]:
     """Reuse normalized counters and row-aligned recursive business-key leaves."""
     if len(display_keys) != len(index.source_rows):
@@ -42,13 +43,13 @@ def identity_duplicate_choices(
         if key not in duplicate_keys:
             continue
         if len(display) != len(display_fields) or any(
-            value is None for value in display
+            value is None and not allow_empty_scope for value in display
         ):
             raise WorkspaceError(
                 "The complete identity is unavailable for group review"
             )
         positions[key].append(position)
-        display_by_key.setdefault(key, tuple(str(value).strip() for value in display))
+        display_by_key.setdefault(key, tuple("(no linked value)" if value is None else str(value).strip() for value in display))
 
     rows = []
     for key in sorted(duplicate_keys):
@@ -66,6 +67,7 @@ def identity_duplicate_choices(
                     "fields": display_fields,
                     "key": display_by_key[key],
                     "cause": cause.value,
+                    **({"matching_key": key} if allow_empty_scope else {}),
                 }
             )
             members = [("source", position) for position in positions[key]]

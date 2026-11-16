@@ -24,8 +24,9 @@ class RowInclusionPreparationScaleTests(unittest.TestCase):
     prepare = integration.RowInclusionPreparationTests.prepare
     assert_counts = integration.RowInclusionPreparationTests.assert_counts
 
-    def qualify(self, count):
-        self.configure(count)
+    def qualify(self, count, *, exclude_most=False):
+        self.configure(count, exclude_most=exclude_most)
+        included_count = 1 if exclude_most else count - 1
         started = perf_counter()
         previous_phase = None
 
@@ -44,12 +45,14 @@ class RowInclusionPreparationScaleTests(unittest.TestCase):
             count_duckdb_statements() as sql,
         ):
             self.prepare(progress=progress)
-        self.assert_counts(count)
-        self.assertEqual(self.review.included_count, count - 1)
+        self.assert_counts(count, included_count=included_count)
+        self.assertEqual(self.review.included_count, included_count)
         print(
             json.dumps(
                 {
                     "rows": count,
+                    "included_rows": included_count,
+                    "excluded_rows": count - included_count,
                     "seconds": round(perf_counter() - started, 3),
                     "peak_mib": round(memory.peak_bytes / (1024 * 1024), 1),
                     "connections": timing.connection_count,
@@ -78,6 +81,12 @@ class RowInclusionPreparationScaleTests(unittest.TestCase):
 
     def test_100000_rows_pass_full_preparation(self):
         self.qualify(100_000)
+
+    def test_reported_54191_rows_with_most_excluded_pass_full_preparation(self):
+        self.qualify(54_191, exclude_most=True)
+
+    def test_100000_rows_with_most_excluded_pass_full_preparation(self):
+        self.qualify(100_000, exclude_most=True)
 
 
 if __name__ == "__main__":

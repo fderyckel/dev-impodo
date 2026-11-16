@@ -6,13 +6,17 @@ import secrets
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
-from starlette.concurrency import run_in_threadpool
 
+from impodo.domain.shared.access import AuthorizationError
+from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
+
+from ..composition.page_reads import run_local_operation
 from ..context import LifecycleRouteContext
 from ..diagnostics import create_diagnostic_bundle
 from ..forms import _secure_form
 from ..load_diagnostics import safe_uuid
 from ..presenters.common import _render
+from ..request_identity import request_identity
 from ..security import require_session
 
 
@@ -42,26 +46,40 @@ def build_lifecycle_router(context: LifecycleRouteContext) -> APIRouter:
     @router.post("/diagnostics/bundle")
     async def diagnostic_bundle(request: Request):
         form = await request.form()
-        _secure_form(request, form, {"csrf_token", "attempt_id"})
+        _secure_form(request, form, {"csrf_token", "attempt_id", "workspace_id"})
         attempt_id = safe_uuid(form.get("attempt_id"))
         if form.get("attempt_id") and attempt_id is None:
             raise HTTPException(status_code=422, detail="Invalid support reference")
+        workspace_id = safe_uuid(form.get("workspace_id"))
+        if form.get("workspace_id") and workspace_id is None:
+            raise HTTPException(status_code=422, detail="Invalid workspace reference")
         recorder = request.app.state.diagnostic_recorder
         if recorder is None:
             raise HTTPException(
                 status_code=503,
                 detail="Local diagnostics are not available in this session",
             )
-        recorder.record_lifecycle("diagnostic_bundle_created")
-        recorder.flush()
-        payload = await run_in_threadpool(
-            create_diagnostic_bundle,
-            recorder.path.parent,
-            build_contract=request.app.state.build_contract,
-            attempt_id=attempt_id,
-            capture_failure_count=recorder.capture_failure_count,
-            logging_costs=recorder.logging_costs_snapshot(),
-        )
+        actor = request_identity(request, context.identity_resolver).actor
+
+        def create() -> bytes:
+            snapshot = context.settings_capture(workspace_id, actor) if workspace_id else None
+            recorder.record_lifecycle("diagnostic_bundle_created")
+            recorder.flush()
+            return create_diagnostic_bundle(
+                recorder.path.parent,
+                build_contract=request.app.state.build_contract,
+                attempt_id=attempt_id,
+                capture_failure_count=recorder.capture_failure_count,
+                logging_costs=recorder.logging_costs_snapshot(),
+                settings_snapshot=snapshot,
+            )
+
+        try:
+            payload = await run_local_operation(create)
+        except AuthorizationError as error:
+            raise HTTPException(status_code=403, detail="Workspace access is required") from error
+        except WorkspaceStateNotFoundError as error:
+            raise HTTPException(status_code=404, detail="Workspace not found") from error
         return Response(
             content=payload,
             media_type="application/zip",

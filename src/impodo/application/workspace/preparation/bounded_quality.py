@@ -106,6 +106,7 @@ class _QualityIndexBuilder(Protocol):
         physical_rows: Mapping[str, tuple[int, ...]],
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
+        retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
     ) -> Mapping[str, object] | None: ...
 
 
@@ -562,11 +563,20 @@ def build_bounded_quality_run(
     index_builder = getattr(staging.rows, "bounded_quality_index", None)
     if callable(index_builder):
         build_index = cast(_QualityIndexBuilder, index_builder)
-        index = (
-            build_index(physical_rows, numeric_fields=numeric_fields)
-            if numeric_fields
-            else build_index(physical_rows)
+        retained_excluded_coordinates = frozenset(
+            (item.dataset, item.source_row)
+            for item in staging.issues
+            if item.dataset and item.source_row is not None
         )
+        if retained_excluded_coordinates:
+            index = build_index(
+                physical_rows, numeric_fields=numeric_fields,
+                retained_excluded_coordinates=retained_excluded_coordinates,
+            )
+        elif numeric_fields:
+            index = build_index(physical_rows, numeric_fields=numeric_fields)
+        else:
+            index = build_index(physical_rows)
         if index is not None:
             if needs_identity_groups and not callable(getattr(staging.rows, "bounded_identity_group_findings", None)):
                 raise BoundedQualityUnsupported
@@ -978,6 +988,12 @@ def _build_indexed_quality_run(
         tuple[_IssueRow, set[tuple[str, int]]],
     ] = {}
     coordinate_ids: dict[tuple[str, int], str] = {}
+    base_excluded_ids = index.get("excluded_row_ids", frozenset())
+    if not isinstance(base_excluded_ids, (set, frozenset)) or any(
+        not isinstance(row_id, str) for row_id in base_excluded_ids
+    ):
+        raise BoundedQualityUnsupported
+    excluded_ids: set[str] = set(base_excluded_ids)
     retained_budget = index.get("finding_budget")
     finding_budget = (
         retained_budget
@@ -1162,17 +1178,20 @@ def _build_indexed_quality_run(
         }
         initially_unsafe = tuple(
             sorted(
-                row_id
-                for row_id, (row, _coordinates)
-                in row_metadata.items()
-                if _effective_disposition(
-                    row,
-                    (
-                        issue_map[issue_id]
-                        for issue_id in row_issue_ids.get(row_id, ())
-                    ),
-                )
-                in unsafe_dispositions
+                excluded_ids
+                | {
+                    row_id
+                    for row_id, (row, _coordinates)
+                    in row_metadata.items()
+                    if _effective_disposition(
+                        row,
+                        (
+                            issue_map[issue_id]
+                            for issue_id in row_issue_ids.get(row_id, ())
+                        ),
+                    )
+                    in unsafe_dispositions
+                }
             )
         )
         propagating_datasets = tuple(
@@ -1353,7 +1372,6 @@ def _build_indexed_quality_run(
         "blocked_count": disposition_counts[StagingDisposition.BLOCKED],
     }
     eligible_count = summary_counts["ready_count"]
-    excluded_ids: set[str] = set()
     quarantine: list[QuarantineEntry] = []
     for row_id, (row, coordinates) in row_metadata.items():
         base = QualityDisposition(row.disposition.value)

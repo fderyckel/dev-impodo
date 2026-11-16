@@ -433,6 +433,8 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
                         "load-attempts.json",
                         "load-events.jsonl",
                         "diagnosis.md",
+                        "settings.json",
+                        "settings-summary.md",
                     },
                 )
                 encoded = "\n".join(
@@ -445,7 +447,7 @@ class LocalDiagnosticRecorderTests(unittest.TestCase):
 
         self.assertIn('"mapping_operation_id": "a50bdad5-3d09-4445-9c76-45232b4013fd"', encoded)
         self.assertNotIn("private source value", encoded)
-        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 4)
+        self.assertEqual(manifest["diagnostic_bundle_schema_version"], 5)
         self.assertEqual(
             manifest["application"]["workspace_schema_version"],
             PROCESS_BUILD_CONTRACT.workspace_schema_version,

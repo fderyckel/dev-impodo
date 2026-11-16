@@ -139,6 +139,8 @@ if TYPE_CHECKING:
     from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
     from impodo.adapters.odoo.local_stack import LocalStackService
 
+    from .diagnostic_settings import DiagnosticSettingsSnapshot
+
 ConnectionTester = Callable[[WorkspaceState, str], TargetFingerprint]
 
 ReadIdentityProbe = Callable[
@@ -221,6 +223,8 @@ class LifecycleRouteContext:
     """Expose the one launch boundary used by lifecycle routes."""
 
     launch_token: str
+    identity_resolver: RequestIdentityResolver
+    settings_capture: Callable[[str, Actor], DiagnosticSettingsSnapshot]
 
 
 @dataclass(frozen=True, slots=True)

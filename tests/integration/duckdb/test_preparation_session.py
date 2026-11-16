@@ -88,8 +88,7 @@ class QualityRecordLabelTests(unittest.TestCase):
 
 class PreparationSessionRepositoryTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.temporary = tempfile.TemporaryDirectory(dir=ROOT / ".tmp")
+        self.temporary = tempfile.TemporaryDirectory()
         database = DuckDbWorkspaceDatabase(self.temporary.name)
         self.workspace_states = WorkspaceStateRepository(database)
         self.repository = PreparationSessionRepository(database)

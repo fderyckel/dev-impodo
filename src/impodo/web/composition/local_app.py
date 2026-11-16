@@ -94,6 +94,7 @@ from impodo.web.composition.target_writers import (
     _readback_reader,
     _write_executor,
 )
+from impodo.web.diagnostic_settings import capture_diagnostic_settings
 
 from ...adapters.artifacts.fallout_workbook import build_fallout_workbook
 from ...adapters.correction_review_pipeline import NativeCorrectionReviewPipeline
@@ -937,6 +938,8 @@ def create_local_app(
         lifecycle_router=build_lifecycle_router(
             LifecycleRouteContext(
                 launch_token=launch_token or secrets.token_urlsafe(32),
+                identity_resolver=resolved_identity_resolver,
+                settings_capture=lambda workspace_id, actor: capture_diagnostic_settings(context, workspace_id, actor),
             )
         ),
         install_transport_security=install_local_transport_security,

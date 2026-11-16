@@ -1,6 +1,6 @@
 """Download exact-cell workbooks from unchanged physical source evidence."""
 
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from datetime import UTC, datetime
 from hashlib import sha256
 from io import BytesIO
@@ -22,6 +22,9 @@ from impodo.domain.reconciliation import (
 from impodo.domain.source_binding import FileSourceBinding
 from impodo.domain.workspace.contracts import SourceDataset, SourceDatasetColumn
 from impodo.domain.workspace.workbench import OdooConnectionMode
+from tests.integration.web import (
+    test_recipe_preparation_current_result as recipe_fixtures,
+)
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
 from tests.support.database_probe import count_duckdb_statements
 
@@ -30,7 +33,8 @@ EFFECTIVE_HASH = "sha256:" + "b" * 64
 
 
 class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
-    def _evidence(self, workspace_id):
+    def _evidence(self, workspace_id, *, context=None, patches=None):
+        enter = patches.enter_context if patches is not None else self.enterContext
         source = Path(self.temporary.name) / "records.csv"
         source.write_bytes(b"Code,Name\nA1,Alpha\n")
         original = source.read_bytes()
@@ -109,29 +113,29 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
                 ),
             )
         )
-        service = self.app.state.context.fallout_workbooks
+        service = (context or self.app.state.context).fallout_workbooks
 
         @contextmanager
         def materialize(data_version_id, stored_name):
             self.assertEqual((data_version_id, stored_name), ("data-1", "records.csv"))
             yield source
 
-        self.enterContext(
+        enter(
             patch.object(type(service._reconciliation), "current", return_value=report)
         )
-        self.enterContext(
+        enter(
             patch.object(
                 type(service._reconciliation), "current_detail", return_value=detail
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 type(service._reconciliation.execution),
                 "get_run",
                 return_value=SimpleNamespace(preflight_run_id="preflight-1"),
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 type(service._preflight),
                 "execution_snapshot",
@@ -146,14 +150,14 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
                 ),
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 type(service._staging),
                 "get_canonical_staging_run",
                 return_value=staging,
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 service,
                 "_sources",
@@ -163,7 +167,7 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
                 ),
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 service,
                 "_workspaces",
@@ -181,7 +185,7 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
                 ),
             )
         )
-        self.enterContext(
+        enter(
             patch.object(
                 type(service._artifacts), "materialize_source", side_effect=materialize
             )
@@ -191,14 +195,15 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
     def test_combined_selection_exports_on_return_visits_for_both_odoo_versions(self):
         for major in (19, 20):
             for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
-                with self.subTest(major=major, mode=mode):
+                with self.subTest(major=major, mode=mode), ExitStack() as patches:
                     workspace_id, _, _ = self._mapping_ready_workspace(
                         scalar_field_count=0,
                         odoo_major=major,
                         connection_mode=mode,
                     )
                     source, original, _selection, _staging = self._evidence(
-                        workspace_id
+                        workspace_id,
+                        patches=patches,
                     )
                     for _visit in range(2):
                         with (
@@ -245,6 +250,29 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
             response.headers["location"], f"/workspaces/{workspace_id}/load/outcome"
         )
         self.assertEqual(source.read_bytes(), original)
+
+    def test_recipe_applications_can_download_for_both_odoo_versions(self):
+        for major in (19, 20):
+            with self.subTest(major=major), ExitStack() as patches:
+                fixture, application, *_ = (
+                    recipe_fixtures.RecipePreparationCurrentResultTests.prepared_case(
+                        self, major
+                    )
+                )
+                source, original, _, _ = self._evidence(
+                    application.workspace_id,
+                    context=fixture.context,
+                    patches=patches,
+                )
+                response = fixture.client.get(
+                    f"/workspaces/{application.workspace_id}/load/fallout.xlsx",
+                    follow_redirects=False,
+                )
+                self.assertEqual(response.status_code, 200, response.text[:200])
+                workbook = load_workbook(BytesIO(response.content))
+                self.assertEqual(workbook["records"]["B2"].value, "Alpha")
+                workbook.close()
+                self.assertEqual(source.read_bytes(), original)
 
     def test_denied_admission_does_not_open_protected_export_evidence(self):
         context = self.app.state.context

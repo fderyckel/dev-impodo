@@ -391,6 +391,11 @@ def _prepare_identity_component(
     """
 
     if component.resolve is not None:
+        if component.blank_source_field is not None and (
+            row.get(component.blank_source_field) is None
+            or str(row.get(component.blank_source_field)).strip() == ""
+        ):
+            return (None,)
         allows_null_scope = component.null_policy != "reject"
         incoming_key = _parse_reference_key(
             component.source_fields,

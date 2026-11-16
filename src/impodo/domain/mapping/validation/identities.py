@@ -70,8 +70,22 @@ def _validate_identity_component(
     for column in component.source_column_keys:
         _check_column(dataset, column, path, columns, issues)
     explicit_scope_null = (
-        component.null_policy is not IdentityNullPolicy.REJECT
+        component.null_policy in {IdentityNullPolicy.EXPLICIT_SCOPE_NULL, IdentityNullPolicy.ZERO_AS_SCOPE_NULL}
     )
+    if component.null_policy is IdentityNullPolicy.OPTIONAL_SCOPE_NULL and (
+        not is_scope or component.resolver is None
+        or len(component.target_fields) != 1
+        or any(
+            field not in fields or fields[field].type != "many2one" or fields[field].required
+            for field in component.target_fields
+        )
+    ):
+        issues.append(_issue(
+            "MAPPING_IDENTITY_NULL_POLICY_INVALID", f"{path}/null_policy",
+            "No linked value is only allowed for an optional linked matching scope.",
+            "Use Stop and review for required fields and record identifiers.",
+            dataset=dataset,
+        ))
     if explicit_scope_null and (not is_scope or component.resolver is None):
         issues.append(
             _issue(

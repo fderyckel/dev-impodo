@@ -1525,6 +1525,11 @@ def _compile_identity_group(
                 raw = pl.when(
                     raw.str.strip_chars().is_in(blank_source_values[component_index])
                 ).then(None).otherwise(raw)
+            if component.blank_source_column_key is not None:
+                absence_input = pl.col(source_value_column(inputs_by_key[component.blank_source_column_key].ordinal))
+                absent = absence_input.is_null() | (absence_input.str.strip_chars() == "")
+                raw = pl.when(absent).then(None).otherwise(raw)
+                reference_error = pl.when(absent).then(None).otherwise(reference_error)
             normalized, _ = _text_expression(raw, text_steps)
             normalized_expressions.append(normalized.alias(normalized_alias))
             value, parse_invalid = _conversion_expression(

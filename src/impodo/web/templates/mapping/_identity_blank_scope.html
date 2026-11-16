@@ -1,0 +1,12 @@
+{% if row.scope and row.metadata and not row.metadata.required and (not row.self_parent or row.selected_origin != 'dataset' or row.selected_dataset_id != view.source.dataset_id) %}
+  <label>
+    When the source is blank
+    <select name="identity_blank_source_{{ dataset_index }}_{{ identity_index }}">
+      <option value="">Stop and review</option>
+      {% for column in view.source.columns %}
+        <option value="{{ column.stable_key }}" {% if row.blank_source_column_key == column.stable_key %}selected{% endif %}>Match records with no linked value when {{ column.source_name }} is blank</option>
+      {% endfor %}
+    </select>
+    <small>Choose a source column connected to this matching field. Other linked values remain separate matches.</small>
+  </label>
+{% endif %}

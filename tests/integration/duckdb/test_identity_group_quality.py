@@ -4,15 +4,17 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import replace
+import json
 import unittest
 from unittest.mock import patch
 
 from impodo.application.workspace.preparation.bounded_quality import build_bounded_quality_run, materialize_staging_run
 from impodo.domain.preparation.quality import QualityOutcomePolicy, QualityRuleFamily, default_quality_ruleset, evaluate_quality
-from impodo.domain.shared.models import Issue, LogicalReference
+from impodo.domain.shared.models import Issue, LogicalReference, Severity
 from impodo.domain.staging.canonical_projection import canonical_prepared_session_row
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
-from impodo.domain.preparation.staging_contracts import StagingDatasetRole
+from impodo.domain.preparation.staging_contracts import StagingDatasetRole, StagingDisposition
+from impodo.domain.shared.models import canonical_json_bytes
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb import preparation_identity_group_quality as group_adapter
 from tests.integration.duckdb import test_preparation_session as session_fixtures
@@ -35,6 +37,7 @@ class IdentityGroupQualityTests(unittest.TestCase):
         bindings = replace(self.bindings, source_hashes={name: SOURCE_HASH for name in names})
         session = self.repository.begin_direct_session(self.workspace_state.workspace_id, bindings, actor=LOCAL_ACTOR)
         rows = []
+        run_issues = []
         counts = Counter()
         for ordinal, spec in enumerate(sorted(specifications, key=lambda item: item["dataset"])):
             dataset = spec["dataset"]
@@ -42,7 +45,10 @@ class IdentityGroupQualityTests(unittest.TestCase):
             source_row = counts[dataset] + 1
             identity = spec["key"] if isinstance(spec["key"], tuple) else (spec["key"],)
             issues = (Issue(code="SOURCE_REQUIRED_VALUE_MISSING", message="A value is required", dataset=dataset, row=source_row),) if spec.get("unsafe") else ()
-            rows.append(canonical_prepared_session_row(
+            if spec.get("warning"):
+                issues = (Issue(code="SOURCE_VALUE_WARNING", message="Review this value",
+                    severity=Severity.WARNING, dataset=dataset, row=source_row),)
+            row = canonical_prepared_session_row(
                 dataset=dataset, source_row=source_row, target_model=f"{model_prefix}.{dataset}",
                 source_identity=identity, target_identity=spec.get("identity", identity),
                 target_scope=spec.get("scope", ()), scalar_values=spec.get("scalars", {"x_amount": 1}),
@@ -50,12 +56,21 @@ class IdentityGroupQualityTests(unittest.TestCase):
                 mode="upsert", source_hash=SOURCE_HASH, source_selection_hash=SELECTION_HASH,
                 mapping_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH, field_sources={},
                 physical_dataset_id=f"dataset:{dataset}",
-            ))
+            )
+            if spec.get("excluded"):
+                payload = json.loads(row.row_json)
+                payload["disposition"] = StagingDisposition.EXCLUDED.value
+                row = replace(row, disposition=StagingDisposition.EXCLUDED,
+                              row_json=canonical_json_bytes(payload).decode())
+            rows.append(row)
+            if spec.get("run_issue"):
+                run_issues.append(Issue(code="SOURCE_REQUIRED_VALUE_MISSING",
+                    message="A value is required", dataset=dataset, row=source_row))
         self.repository.append_direct_rows(self.workspace_state.workspace_id, session.session_id, rows)
         stored = self.repository.finalize_direct_session(
             self.workspace_state.workspace_id, session.session_id,
             dataset_evidence={name: (f"dataset:{name}", StagingDatasetRole.DIRECT, counts[name], f"{model_prefix}.{name}") for name in names},
-            run_issues=(), control_totals=(), impact_report=TransformationImpactReport(
+            run_issues=run_issues, control_totals=(), impact_report=TransformationImpactReport(
                 mapping_content_hash=MAPPING_HASH, evaluated_count=0, changed_count=0,
                 fallback_count=0, null_count=0, invalid_count=0, provided_count=0,
                 unchanged_count=0, rows=(), detail_limit=0,
@@ -92,6 +107,23 @@ class IdentityGroupQualityTests(unittest.TestCase):
                 ], model)
                 self.assertEqual(actual.summary_counts["quarantined_count"], 3)
                 self.assertEqual(actual.summary_counts["ready_count"], 3)
+
+    def test_excluded_parent_still_propagates_to_ordinary_and_identity_links(self):
+        actual = self._assert_parity([
+            {"dataset": "documents", "key": "SKIPPED", "excluded": True},
+            {"dataset": "entries", "key": "GROUP", "scope": (_link("documents", "SKIPPED"),)},
+            {"dataset": "entries", "key": "ORDINARY", "references": {"x_parent": _link("documents", "SKIPPED")}},
+        ])
+        self.assertEqual(actual.summary_counts["quarantined_count"], 3)
+        self.assertEqual(len(actual.eligible_row_ids), 0)
+
+    def test_excluded_row_keeps_canonical_and_run_level_findings(self):
+        for source in ("warning", "run_issue"):
+            with self.subTest(source=source):
+                self._assert_parity([
+                    {"dataset": "documents", "key": "SKIPPED", "excluded": True, source: True},
+                    {"dataset": "documents", "key": "KEPT"},
+                ])
 
     def test_nested_groups_multiple_identity_parents_composite_keys_and_null_root(self):
         self._assert_parity([

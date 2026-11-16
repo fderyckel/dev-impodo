@@ -53,8 +53,8 @@ from .reference_expression import (
     compile_reference_preparation,
 )
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 8
-COLUMNAR_COMPILER_VERSION = 14
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 9
+COLUMNAR_COMPILER_VERSION = 15
 
 
 class _DatasetIdentified(Protocol):
@@ -481,6 +481,7 @@ class ColumnarIdentityComponentProgram:
     failure_code: str = "SOURCE_IDENTITY_INVALID"
     literal_values: tuple[str, ...] = ()
     reference_preparations: tuple[ColumnarReferencePreparation | None, ...] = ()
+    blank_source_column_key: str | None = None
 
     def __post_init__(self) -> None:
         if self.reference_preparations and len(self.reference_preparations) != len(self.source_columns):
@@ -655,10 +656,14 @@ class ColumnarTransformationProgram:
             for component in cast(list[dict[str, object]], payload[group]):
                 if not component.get("reference_preparations"):
                     component.pop("reference_preparations", None)
+                if component.get("blank_source_column_key") is None:
+                    component.pop("blank_source_column_key", None)
         for relationship in cast(list[dict[str, object]], payload["relationships"]):
             key = cast(dict[str, object], relationship["key"])
             if not key.get("reference_preparations"):
                 key.pop("reference_preparations", None)
+            if key.get("blank_source_column_key") is None:
+                key.pop("blank_source_column_key", None)
         return payload
 
     @classmethod
@@ -832,6 +837,7 @@ class ColumnarTransformationProgram:
                     if value is not None else None
                     for value in cast(Sequence[object], item.get("reference_preparations", ()))
                 ),
+                blank_source_column_key=(str(item["blank_source_column_key"]) if item.get("blank_source_column_key") is not None else None),
             )
 
         def relationship(value: object) -> ColumnarRelationshipProgram:
@@ -1680,6 +1686,7 @@ def _identity_component(
         required=(
             component.null_policy is IdentityNullPolicy.REJECT
         ),
+        blank_source_column_key=component.blank_source_column_key,
         failure_code=(
             "SOURCE_REQUIRED_VALUE_MISSING"
             if component.resolver is not None

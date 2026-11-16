@@ -40,6 +40,7 @@ def prepared_reference_rows(
     projected_columns: tuple[str, ...],
     rows: Iterable[tuple[str | None, ...]],
     mappings: tuple[ReferenceKeyMapping | None, ...],
+    *, blank_groups: tuple[tuple[int, int, str], ...] = (),
 ) -> tuple[tuple[str | None, ...], ...]:
     """Return exact component values; reject invalid or partial references.
 
@@ -58,6 +59,11 @@ def prepared_reference_rows(
         values = dict(zip(projected_columns, row, strict=True))
         prepared: list[str | None] = []
         for index, (column, mapping) in enumerate(zip(columns, mappings, strict=True)):
+            if any(start <= index < start + width and (
+                values.get(blank_key) is None or str(values.get(blank_key)).strip() == ""
+            ) for start, width, blank_key in blank_groups):
+                prepared.append(None)
+                continue
             if mapping is None or mapping.preparation is None:
                 prepared.append(values[column])
                 continue

@@ -611,6 +611,8 @@ workbook and adds an **Impodo Verification** sheet. The outcome offers
 **Download verified source workbook (.xlsx)** for that result, including after
 restart. Admission and generation share one bounded local page operation;
 export failures return to the saved outcome with an actionable error.
+The [workbook download regressions](../../../tests/integration/web/test_fallout_workbook_download.py)
+cover combined selections, repeat downloads, changed sources, and denied access.
 
 The execution snapshot freezes captured `digits` metadata for numeric target
 fields. `ExecutionService` rejects a reviewed value that cannot be represented

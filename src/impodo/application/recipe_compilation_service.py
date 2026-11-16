@@ -578,6 +578,8 @@ class RecipeCompiler:
             for item in (*resolver.key_mappings, *resolver.scope_mappings)
         ):
             contract_versions["mapping_recipe"] = 4
+        if any(component.blank_source_column_key is not None for dataset in revision.definition.datasets for component in dataset.target_scope):
+            contract_versions["mapping_recipe"] = 5
         if preparation is not None and any(isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None for rule in preparation.rules):
             contract_versions["source_preparation_recipe"] = 2
         recipe: dict[str, object] = {
@@ -936,6 +938,8 @@ class RecipeCompiler:
             "target_fields": list(item.target_fields),
             "value_type": item.value_type,
             "null_policy": item.null_policy.value,
+            **({"blank_source_column_id": self._column(dataset_id, item.blank_source_column_key, columns)}
+               if item.blank_source_column_key is not None else {}),
             "resolver": (
                 {
                     "origin": resolver.origin.value,

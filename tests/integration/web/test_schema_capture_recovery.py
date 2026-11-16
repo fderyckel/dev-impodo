@@ -9,8 +9,10 @@ from unittest.mock import Mock, patch
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.unit_of_work import _read_databases
 from impodo.domain.odoo.contracts import ConnectorTransportError
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
 from impodo.domain.workspace.errors import OdooModelCatalogRefreshRequired
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.routers.schema import (
     _capture_selected_schema_sync,
     _check_selected_schema_sync,
@@ -30,6 +32,12 @@ class SchemaCaptureRecoveryTests(ProjectSetupBrowserTestCase):
         super().setUp()
         self.context = self.app.state.context
         self.workspace, _ = self._registered_remote_schema_workspace()
+        identity = self.context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            self.context, self.workspace, OdooDatabaseBindingRole.SOURCE,
+            actor=identity.actor, scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
+        )
         self.credential = store_target_credential(
             self.secrets, self.workspace, TargetCredentialRole.READ,
             "fictional-read-key", persistent=False,
@@ -223,14 +231,14 @@ class SelectedSchemaCaptureTests(unittest.TestCase):
                     ("fresh-fields", "fresh-binding", "fresh-identity", None),
                 ])
 
-                def publish(*args, **kwargs):
+                def publish(*args, results=results, **kwargs):
                     self.assertIsNotNone(getattr(_read_databases, "connections", None))
                     result = next(results)
                     if isinstance(result, Exception):
                         raise result
                     return result
 
-                def read_fields(*args, **kwargs):
+                def read_fields(*args, reads=reads, **kwargs):
                     self.assertIsNone(getattr(_read_databases, "connections", None))
                     return next(reads)
 

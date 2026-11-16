@@ -818,6 +818,10 @@ stages:
       - tests/domain/test_relationship_health.py
       - tests/application/workspace/mapping/test_order_service.py
       - tests/application/workspace/mapping/test_matching_order_live_check.py
+      - tests/application/workspace/mapping/test_optional_linked_scope.py
+      - tests/integration/web/test_optional_linked_scope.py
+      - tests/integration/columnar/test_optional_linked_scope.py
+      - tests/integration/columnar/test_optional_reference_generality.py
       - tests/integration/duckdb/test_matching_order_repository.py
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/integration/duckdb/test_row_inclusion_review_repository.py

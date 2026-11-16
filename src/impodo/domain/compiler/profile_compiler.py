@@ -16,9 +16,10 @@ def compile_profile_document(profile: ProfileDocument) -> CompiledMigrationPlan:
     """Adapt one authoring profile at the runtime boundary."""
 
     payload = profile.model_dump(mode="json", exclude_none=True)
+    optional_scopes = any(item.null_policy == "optional_scope_null" for dataset in profile.datasets for item in dataset.target_identity.scope)
     return CompiledMigrationPlan(
-        contract_version=4 if any(item.hierarchy_parent is not None for item in profile.datasets) else 3,
-        compiler_version=5 if any(item.hierarchy_parent is not None for item in profile.datasets) else 4,
+        contract_version=5 if optional_scopes else 4 if any(item.hierarchy_parent is not None for item in profile.datasets) else 3,
+        compiler_version=6 if optional_scopes else 5 if any(item.hierarchy_parent is not None for item in profile.datasets) else 4,
         plan_id=profile.profile.id,
         origin="profile_document",
         origin_hash=compiled_profile_origin_hash(payload),

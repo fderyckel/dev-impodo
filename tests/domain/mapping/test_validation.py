@@ -316,12 +316,21 @@ class MappingSemanticValidatorTests(unittest.TestCase):
         self.assertEqual(first.validation_hash, second.validation_hash)
         self.assertEqual(
             definition.content_hash,
-            "sha256:24e754f9735bc8473d45621b97d9131e51568d6ea3fe65ed3d86e5ccb8df7194",
+            "sha256:89da61088a415128f8e1d45b77fdf547e1a955ecedf1a262ffeb80bfca450032",
         )
         # Fresh validation binds the current reference policy, including when
         # the portable mapping uses an older supported format.
         self.assertEqual(
             first.validation_hash,
+            "sha256:8769de3074ba4ba5a728a84d85c2e8160497f607266c13e1ff4943611ba3d63d",
+        )
+        previous = replace(definition, contract_version=25)
+        self.assertEqual(
+            previous.content_hash,
+            "sha256:24e754f9735bc8473d45621b97d9131e51568d6ea3fe65ed3d86e5ccb8df7194",
+        )
+        self.assertEqual(
+            self.validator.validate(previous, self.selection, self.schema, self.governance).validation_hash,
             "sha256:d03e0950214605f28cb6c496c3b0392673da461d0b3d46dffea0e5fa946d6c7c",
         )
         self.assertEqual(

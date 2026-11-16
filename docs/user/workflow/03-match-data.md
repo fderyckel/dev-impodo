@@ -278,6 +278,18 @@ matching rule are separate choices, even when both use **Reference**.
 
 ![Identify records connects the Reference source column with the Odoo Reference matching rule in one table task.](../../images/user/11s-stage3-identify-records.png)
 
+For an optional linked field under **Within**, review **When the source is
+blank**. The default is **Stop and review**. To represent a deliberately empty
+relationship, choose **Match records with no linked value when [column] is
+blank**, using a source column connected to that field.
+
+For example, use the lot-number column for an optional lot scope. A blank lot
+then matches stock with no lot; LOT-001 and LOT-002 remain separate matches.
+The product or company columns used to identify a supplied lot do not need to
+be blank. A supplied lot still needs one exact match. Missing or ambiguous
+matches and incomplete calculations need correction. Save progress and check
+matches again after changing this choice. Recipes retain the choice.
+
 In **Match tables**, **Check saved identities** tests your saved record choices.
 The detailed **Identity health** results under **Check and resolve** distinguish
 these states:
