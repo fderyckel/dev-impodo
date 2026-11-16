@@ -14,6 +14,7 @@ from typing import Protocol
 
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
+    ReferenceKeyMapping,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionPolicy,
@@ -64,6 +65,7 @@ class MappingSupportingSource:
     value_mappings: tuple[ValueMapping, ...] = ()
     blank_source_values: tuple[str, ...] = ()
     list_separator: str | None = None
+    reference_mappings: tuple[ReferenceKeyMapping, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +154,11 @@ def plan_mapping_supporting_values(
                         value_mappings=resolver.value_mappings,
                         blank_source_values=blank_source_values,
                         list_separator=list_separator,
+                        reference_mappings=(
+                            (*resolver.key_mappings, *resolver.scope_mappings)
+                            if any(item.preparation is not None for item in
+                                   (*resolver.key_mappings, *resolver.scope_mappings)) else ()
+                        ),
                     )
                 )
         if constant_values is not None:
@@ -259,6 +266,7 @@ def plan_mapping_supporting_values(
                     sources.get(identity, ()),
                     key=lambda item: (
                         item.dataset_id, item.source_column_keys, item.list_separator or "",
+                        repr(item.reference_mappings),
                     ),
                 )
             ),

@@ -20,6 +20,11 @@ from impodo.domain.odoo_relationship_scope import (
     relationship_scope_decisions,
 )
 from impodo.domain.odoo_source_scope import propose_related_odoo_data
+from impodo.domain.odoo_source_policy import odoo_source_policy_hash
+from impodo.domain.odoo_source_capture import (
+    OdooSourceCaptureConfigurationError,
+    plan_odoo_source_capture,
+)
 from impodo.domain.workspace.contracts import (
     OdooModelCatalog,
     OdooModelSummary,
@@ -755,6 +760,95 @@ class OdooRelationshipReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Impodo will read all matching main records", result.text)
         self.assertIn("Edit Main records", result.text)
         capture_schema.assert_awaited_once()
+
+    def test_linked_identity_publication_ignores_unreviewed_leaf_relationships(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace_state, schema, model_catalog = (
+                    self._guided_relationship_capture_workspace()
+                )
+                context = self.app.state.context
+                company = next(model for model in schema.models if model.name == "res.company")
+                relation = next(field for field in schema.models[0].fields if field.name == "company_id")
+                company = replace(
+                    company,
+                    fields=company.fields + tuple(
+                        replace(relation, name=f"unreviewed_{index}", relation="x.root", required=False)
+                        for index in range(51)
+                    ),
+                )
+                schema = replace(
+                    schema,
+                    models=tuple(company if model.name == company.name else model for model in schema.models),
+                    odoo_version=f"{major}.0",
+                    policy_hash=odoo_source_policy_hash(major),
+                    content_hash="sha256:" + "9" * 64,
+                )
+                model_catalog = replace(
+                    model_catalog,
+                    odoo_version=f"{major}.0",
+                    policy_hash=schema.policy_hash,
+                )
+                context.schema_workspace.schemas.save_odoo_model_catalog(
+                    workspace_state.workspace_id, model_catalog,
+                    actor=resolve_local_actor(context),
+                )
+                with (
+                    patch.object(context.queries, "get_odoo_schema_catalog", return_value=schema),
+                    patch.object(context.queries, "get_odoo_model_catalog", return_value=model_catalog),
+                    patch("impodo.web.routers.sources._open_incremental_related_schema_session", return_value=None),
+                    patch("impodo.web.routers.sources._prepare_related_schema_candidate", AsyncMock(return_value=schema)),
+                ):
+                    prepared = self._post(
+                        f"/workspaces/{workspace_state.workspace_id}/sources/odoo-related-data",
+                        {"csrf_token": self.csrf, "revision": str(workspace_state.revision)},
+                    )
+                self.assertEqual(prepared.status_code, 303, prepared.text[-4000:])
+                selections = context.queries.get_current_odoo_capture_selections(workspace_state.workspace_id)
+                self.assertEqual({selection.model for selection in selections}, {"x.root", "res.company"})
+                linked = next(selection for selection in selections if selection.model == "res.company")
+                self.assertEqual(linked.capture_role.value, "LINKED_ONLY")
+                self.assertEqual(linked.field_names, ("name",))
+                scope = context.queries.get_current_odoo_relationship_scope(workspace_state.workspace_id)
+                self.assertEqual(scope.root_models, ("x.root",))
+                self.assertEqual(scope.reference_models, frozenset({"res.company"}))
+                actual = plan_odoo_source_capture(
+                    linked, schema,
+                    reference_models=scope.reference_models,
+                    leaf_models=scope.leaf_models,
+                )
+                self.assertEqual(actual.relationship_projection, ())
+                with self.assertRaisesRegex(OdooSourceCaptureConfigurationError, "relationship projection"):
+                    plan_odoo_source_capture(linked, schema)
+                root = next(selection for selection in selections if selection.model == "x.root")
+                saved = self._post(
+                    f"/workspaces/{workspace_state.workspace_id}/sources/odoo-selection",
+                    {"csrf_token": self.csrf, "dataset_name": root.dataset_name,
+                     "model": root.model, "field_names": "name", "page_size": "100"},
+                )
+                self.assertEqual(saved.status_code, 303, saved.text[-1000:])
+                reopened = self.client.get(saved.headers["location"])
+                self.assertEqual(reopened.status_code, 200)
+                self.assertIn("1 main record type selected", reopened.text)
+                self.assertIn("1 automatic linked-value support record type", reopened.text)
+
+    def test_saved_main_fields_do_not_claim_the_pending_relationship_review_is_complete(self):
+        workspace_state, schema, _catalog = self._guided_relationship_capture_workspace()
+        context = self.app.state.context
+        root_schema = replace(schema, models=(schema.models[0],), content_hash="sha256:" + "8" * 64)
+        context.schema_workspace.schemas.save_odoo_schema_catalog(
+            workspace_state.workspace_id, root_schema, actor=resolve_local_actor(context),
+        )
+        context.sources.define_odoo_capture_selection(
+            workspace_state.workspace_id, dataset_name="main_records", model="x.root",
+            field_names=("name",), include_archived=True, page_size=100,
+            actor=resolve_local_actor(context),
+        )
+        page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/sources")
+        self.assertEqual(page.status_code, 200)
+        self.assertIn("Main record fields are saved", page.text)
+        self.assertNotIn("Capture-plan setup is complete", page.text)
+        self.assertIn("Complete the related-data review first", page.text)
 
     def test_saved_capture_summary_separates_main_records_from_linked_support(
         self,

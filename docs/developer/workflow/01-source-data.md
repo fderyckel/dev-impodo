@@ -654,6 +654,29 @@ revision, scope, schema, and capture plans unchanged. The same project can run
 the action again from its retained main record types; it does not need a new
 project or another main-record selection.
 
+Read-only discovery uses the shared
+[JSON-2 cooldown policy](02-odoo-data.md#entry-conditions). A temporary HTTP 429
+retries the failed read in place, retaining models already read by the same
+request. Final identity and publication checks still apply. Exhausting the
+retry count or wait budget leaves the previous saved evidence intact; a later
+form submission starts fresh discovery and respects the remaining process-local
+cooldown. The waiting request continues to use the existing submitting label;
+it does not expose a background progress page or resume across application
+restarts.
+
+`validate_odoo_capture_selection_reference` checks saved value fields, filters,
+policy limits and schema/access bindings at repository admission. It closes
+unreviewed outgoing relationships for that disposable validation request,
+including linked identity leaves. It does not reconstruct the capture graph
+from every model in the schema. Doing so could reject a valid identity-only
+plan when an unrelated catalogue exposes more than fifty links. Actual
+assessment and capture still call `plan_odoo_source_capture` with the reviewed
+relationship policy and enforce its relationship limit. The
+[relationship review tests](../../../tests/integration/web/test_odoo_relationship_review.py)
+cover publication, manual field saving and reopening with such a leaf for
+Odoo 19 and 20. The main error message distinguishes this local preparation
+failure from an unavailable Odoo server.
+
 `OdooSourceCaptureService` applies the same scope and complete-set checks before
 assessment or capture, so bypassing the browser cannot freeze an incomplete
 relationship graph.

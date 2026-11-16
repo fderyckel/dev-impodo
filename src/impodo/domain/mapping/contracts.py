@@ -23,6 +23,10 @@ from typing import Any
 from uuid import UUID
 
 from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.reference_preparation import (
+    ReferencePart,
+    ReferencePreparation,
+)
 from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.recipe.value_rules import (
     ScalarTransformPolicy,
@@ -34,9 +38,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 24
+MAPPING_CONTRACT_VERSION = 25
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -370,6 +374,7 @@ class ReferenceKeyMapping:
 
     source_column_key: str
     target_field: str
+    preparation: ReferencePreparation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1087,6 +1092,17 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 25 and any(
+            item.preparation is not None
+            for dataset in self.datasets
+            for resolver in (
+                *(component.resolver for component in (*dataset.target_identity, *dataset.target_scope)
+                  if component.resolver is not None),
+                *(relation.resolver for relation in dataset.relationships),
+            )
+            for item in (*resolver.key_mappings, *resolver.scope_mappings)
+        ):
+            raise ValueError("Prepared references require mapping contract v25")
         if self.contract_version < 24 and any(
             dataset.mode is MappingTargetMode.UPDATE for dataset in self.datasets
         ):
@@ -1405,6 +1421,13 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    for group in ("target_identity", "target_scope", "relationships"):
+        for component in payload.get(group, ()):
+            resolver = component.get("resolver")
+            if resolver is not None:
+                for item in (*resolver["key_mappings"], *resolver["scope_mappings"]):
+                    if item["preparation"] is None:
+                        item.pop("preparation")
     if payload["source_record_identity"] is None:
         payload.pop("source_record_identity")
     if payload["generated_ordering"] is None:
@@ -1914,12 +1937,14 @@ def _resolver_from_dict(
         key_mappings=tuple(
             _reference_key_mapping_from_dict(
                 item,
+                contract_version=contract_version,
             )
             for item in payload.get("key_mappings", ())
         ),
         scope_mappings=tuple(
             _reference_key_mapping_from_dict(
                 item,
+                contract_version=contract_version,
             )
             for item in payload.get("scope_mappings", ())
         ),
@@ -1997,13 +2022,41 @@ def _reference_lookup_from_dict(
 
 def _reference_key_mapping_from_dict(
     payload: Mapping[str, Any],
+    *,
+    contract_version: int,
 ) -> ReferenceKeyMapping:
+    expected = _contract_fields(ReferenceKeyMapping)
+    if "preparation" not in payload:
+        expected.remove("preparation")
     _require_contract_fields(
         payload,
-        _contract_fields(ReferenceKeyMapping),
+        expected,
         "Reference-key fields do not match the current contract",
     )
-    return ReferenceKeyMapping(**payload)
+    preparation = payload.get("preparation")
+    if preparation is not None and contract_version < 25:
+        raise ValueError("Prepared references require mapping contract v25")
+    return ReferenceKeyMapping(
+        source_column_key=str(payload["source_column_key"]),
+        target_field=str(payload["target_field"]),
+        preparation=(reference_preparation_from_dict(preparation)
+                     if preparation is not None else None),
+    )
+
+
+def reference_preparation_from_dict(payload: Mapping[str, Any]) -> ReferencePreparation:
+    """Decode the closed prepared-reference shape for mappings and Recipes."""
+
+    _require_contract_fields(payload, _contract_fields(ReferencePreparation),
+                             "Reference preparation fields do not match the current contract")
+    parts = []
+    for part in payload["parts"]:
+        _require_contract_fields(part, _contract_fields(ReferencePart),
+                                 "Reference part fields do not match the current contract")
+        parts.append(ReferencePart(**part))
+    return ReferencePreparation(formula=str(payload["formula"]),
+                                bindings=tuple(tuple(item) for item in payload["bindings"]),
+                                parts=tuple(parts))
 
 
 def _value_mapping_from_dict(

@@ -254,11 +254,9 @@
         ><strong data-formula-feedback-prefix>Must fix:</strong> <span data-formula-feedback-message>{{ formula_issue.display_message if formula_issue else '' }}</span></p>
         <small id="formula-help-{{ dataset_index }}-{{ field_index }}">
           Safe formulas only—no files, network, Odoo access, loops, or imported code.
-          Available values:
-          <code>value</code> (this field)
-          {% for column in view.source.columns %}
-            · <code>column_{{ column.ordinal }}</code> ({{ column.source_name }})
-          {% endfor %}
+          {% with formula_value_label='this field', formula_columns=none %}
+            {% include "mapping/_formula_source_values.html" %}
+          {% endwith %}
         </small>
       </details>
         </div>

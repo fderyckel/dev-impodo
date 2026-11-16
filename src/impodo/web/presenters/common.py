@@ -151,6 +151,7 @@ def _render(
             workspace_view=workspace_view,
             run_setup_complete=context.get("activation_complete"),
             fresh_data_complete=context.get("fresh_data_complete"),
+            schema_journey=context.get("schema_journey"),
             mapping_step=(
                 context["mapping_journey"]["step"]
                 if "mapping_journey" in context
@@ -284,6 +285,17 @@ def _plain_ui_error(message: str) -> tuple[str, str | None]:
         item in lowered for item in ("revision", "version", "stale", "changed since")
     ):
         plain = "This page is out of date. Reload it, review the latest information, and try again."
+    elif "capture plans do not match the prepared schema" in lowered:
+        plain = (
+            "Impodo could not finish preparing the capture plans. "
+            "Reload the page and try saving again. If it still fails, "
+            "contact support with the details below."
+        )
+    elif "odoo" in lowered and re.search(r"\bhttp\s+429\b", lowered):
+        plain = (
+            "Odoo is limiting requests. Wait before trying this action again. "
+            "Impodo will respect the remaining cooldown."
+        )
     elif "odoo" in lowered and re.search(r"\bhttp\s+404\b", lowered):
         plain = (
             "The requested Odoo operation was not available. Review Support details "

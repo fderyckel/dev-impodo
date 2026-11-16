@@ -66,6 +66,7 @@ from ..mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
     MappingDefinition,
+    ReferenceKeyMapping,
     ResolverOrigin,
     RowInclusionMode,
     RowInclusionPolicy,
@@ -75,6 +76,11 @@ from ..mapping.contracts import (
     relationship_input_columns,
 )
 from ..mapping.descriptions import transformation_rule_summary
+from ..mapping.reference_preparation import (
+    ReferencePreparationError,
+    preparation_source_keys,
+    prepare_reference_value,
+)
 from ..mapping.row_inclusion import (
     IncludedParentRows,
     compile_included_parent_rows,
@@ -111,7 +117,11 @@ from ..structural import (
     execute_structural_rules,
 )
 from .control_totals import _evaluate_control_totals
-from .fields import synthetic_field, synthetic_relationship_field
+from .fields import (
+    synthetic_field,
+    synthetic_identity_field,
+    synthetic_relationship_field,
+)
 from .scale import require_supported_browser_scale
 from .transformation_impact import (
     TransformationImpactReport,
@@ -181,6 +191,13 @@ class _RelationshipFieldPlan:
 
 
 @dataclass(frozen=True, slots=True)
+class _ReferenceInputPlan:
+    mapping: ReferenceKeyMapping
+    prepared_column_key: str
+    target_field: str
+
+
+@dataclass(frozen=True, slots=True)
 class _DatasetEvaluationPlan:
     dataset_id: str
     dataset_name: str
@@ -190,6 +207,7 @@ class _DatasetEvaluationPlan:
     relationship_fields: tuple[_RelationshipFieldPlan, ...]
     relationship_values: tuple[_RelationshipValuePlan, ...]
     scalar_fields: tuple[_ScalarFieldPlan, ...]
+    reference_inputs: tuple[_ReferenceInputPlan, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -367,7 +385,10 @@ class CompiledBrowserRowTransformer:
     ) -> tuple[SourceRow, tuple[Issue, ...]]:
         """Apply the row-local mapping rules after cross-row admission."""
 
-        _prepare_relationship_values(projected.values, self.evaluation_plan)
+        reference_issues = _prepare_relationship_values(
+            projected.values, self.evaluation_plan, source_row=projected.number,
+            impact_collector=impact_collector,
+        )
         _record_identity_preparation(
             projected.source_values,
             self.evaluation_plan,
@@ -380,10 +401,10 @@ class CompiledBrowserRowTransformer:
             source_row=projected.number,
             impact_collector=impact_collector,
         )
-        issues = _normalize_derived_references(
+        issues = (*reference_issues, *_normalize_derived_references(
             projected.values, self.derived_reference_plan,
             dataset=self.dataset_name, source_row=projected.number,
-        )
+        ))
         _apply_scalar_mappings(
             projected.values,
             self.evaluation_plan,
@@ -1043,7 +1064,12 @@ def _canonical_field_sources(
         }
         for component in (*mapping.target_identity, *mapping.target_scope):
             for target_field in component.target_fields:
-                fields[target_field] = component.source_column_keys
+                fields[target_field] = (
+                    tuple(dict.fromkeys(key
+                          for item in (*component.resolver.key_mappings, *component.resolver.scope_mappings)
+                          for key in preparation_source_keys(item)))
+                    if component.resolver is not None else component.source_column_keys
+                )
         for field in mapping.fields:
             if field.value_source is ScalarValueSource.ODOO_DEFAULT:
                 continue
@@ -1053,7 +1079,11 @@ def _canonical_field_sources(
                 else ((field.source_column_key,) if field.source_column_key else ())
             )
         for relationship in mapping.relationships:
-            fields[relationship.target_field] = relationship.source_column_keys
+            fields[relationship.target_field] = tuple(dict.fromkeys((
+                *relationship.source_column_keys,
+                *(key for item in (*relationship.resolver.key_mappings, *relationship.resolver.scope_mappings)
+                  for key in preparation_source_keys(item)),
+            )))
         result[dataset.name] = dict(sorted(fields.items()))
     return result
 
@@ -1151,7 +1181,30 @@ def _compile_dataset_evaluation_plan(
         relationship_fields=relationship_fields,
         relationship_values=relationship_values,
         scalar_fields=scalar_fields,
+        reference_inputs=_compile_reference_inputs(mapping),
     )
+
+
+def _compile_reference_inputs(mapping: DatasetMapping) -> tuple[_ReferenceInputPlan, ...]:
+    """Bind each prepared reference to one consumer-private output slot."""
+
+    inputs: list[_ReferenceInputPlan] = []
+    for role, components in (("target_identity", mapping.target_identity),
+                             ("target_scope", mapping.target_scope)):
+        for index, component in enumerate(components):
+            if component.resolver is None:
+                continue
+            references = (*component.resolver.key_mappings, *component.resolver.scope_mappings)
+            if any(item.preparation is not None for item in references):
+                inputs.extend(_ReferenceInputPlan(
+                    item, synthetic_identity_field(role, index, source_index), component.target_fields[0]
+                ) for source_index, item in enumerate(references))
+    for index, relation in enumerate(mapping.relationships):
+        references = (*relation.resolver.key_mappings, *relation.resolver.scope_mappings)
+        inputs.extend(_ReferenceInputPlan(
+            item, synthetic_relationship_field(index, source_index), relation.target_field
+        ) for source_index, item in enumerate(references) if item.preparation is not None)
+    return tuple(inputs)
 
 
 def _compile_scalar_arithmetic(
@@ -1205,6 +1258,8 @@ def _prepared_headers(
                 relationship_input_columns(relationship)
             )
         ),
+        *(item.prepared_column_key for item in _compile_reference_inputs(mapping)
+          if item.prepared_column_key.startswith("__impodo_identity_")),
     )
 
 
@@ -1515,7 +1570,10 @@ def _stage_derived_table(
                     values=review_values,
                 )
             )
-        _prepare_relationship_values(values, evaluation_plan)
+        issues.extend(_prepare_relationship_values(
+            values, evaluation_plan, source_row=generated_row,
+            impact_collector=impact_collector,
+        ))
         _record_identity_preparation(
             source_values,
             evaluation_plan,
@@ -1989,7 +2047,10 @@ def _record_identity_preparation(
 def _prepare_relationship_values(
     values: dict[str, object],
     plan: _DatasetEvaluationPlan,
-) -> None:
+    *,
+    source_row: int,
+    impact_collector: _TransformationImpactCollector | None = None,
+) -> tuple[Issue, ...]:
     """Copy each relationship input into its consumer-private prepared slot."""
 
     for relationship in plan.relationship_fields:
@@ -1999,6 +2060,26 @@ def _prepare_relationship_values(
             strict=True,
         ):
             values[prepared_column_key] = values.get(source_column_key)
+    issues: list[Issue] = []
+    for reference in plan.reference_inputs:
+        try:
+            proposed = prepare_reference_value(reference.mapping, values)
+            values[reference.prepared_column_key] = proposed
+            if impact_collector is not None and reference.mapping.preparation is not None:
+                raw = tuple(values.get(key) for key in preparation_source_keys(reference.mapping))
+                impact_collector.record(
+                    dataset=plan.dataset_name, source_row=source_row,
+                    source_column=" + ".join(preparation_source_keys(reference.mapping)),
+                    target_field=reference.target_field, raw_value=raw,
+                    proposed_value=proposed, rules="Prepare linked reference", outcome="changed",
+                )
+        except ReferencePreparationError as error:
+            values[reference.prepared_column_key] = None
+            issues.append(Issue(
+                code="REFERENCE_PREPARATION_INVALID", message=str(error), severity=Severity.ERROR,
+                dataset=plan.dataset_name, row=source_row, field=reference.target_field,
+            ))
+    return tuple(issues)
 
 
 def _apply_relationship_value_mappings(

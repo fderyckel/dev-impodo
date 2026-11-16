@@ -1,0 +1,8 @@
+<span data-formula-source-values>
+  Available values: <code>value</code> ({{ formula_value_label }})
+  {% if formula_columns is not none %}
+    {% for name, label in formula_columns %} · <code>{{ name }}</code> ({{ label }}){% endfor %}
+  {% else %}
+    {% for column in view.source.columns %} · <code>column_{{ column.ordinal }}</code> ({{ column.source_name }}){% endfor %}
+  {% endif %}
+</span>

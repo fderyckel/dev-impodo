@@ -433,6 +433,7 @@ stages:
     templates:
       - src/impodo/web/templates/workspace_schema.html
     code_references:
+      - src/impodo/web/presenters/schema_journey.py::resolve_schema_journey
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.capture
       - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.check_refresh
@@ -492,6 +493,7 @@ stages:
       - scripts/capture_saved_odoo_data.py::capture
     tests:
       - tests/integration/web/test_stage235_performance.py
+      - tests/integration/web/test_schema_journey.py
       - tests/integration/web/test_stage2_scope_selection.py
       - tests/e2e/schema-scope-fields.test.cjs
       - tests/integration/duckdb/test_workspace.py
@@ -642,6 +644,10 @@ stages:
       - src/impodo/application/workspace/preparation/grouped_exact_join_preparation.py::iter_bounded_preparation_source_batches
       - src/impodo/adapters/duckdb/row_inclusion_review_repository.py::RowInclusionReviewRepository
       - src/impodo/domain/mapping/contracts.py::ScalarConcatenation
+      - src/impodo/domain/mapping/reference_preparation.py::ReferencePreparation
+      - src/impodo/domain/mapping/reference_preparation.py::prepare_reference_value
+      - src/impodo/domain/compiler/reference_expression.py::compile_reference_preparation
+      - src/impodo/domain/recipe/value_rules.py::evaluate_reference_formula
       - src/impodo/domain/mapping/contracts.py::ConstantBusinessReference
       - src/impodo/domain/mapping/contracts.py::relationship_target_fields
       - src/impodo/domain/mapping/contracts.py::relationship_input_columns
@@ -1292,6 +1298,8 @@ stages:
       - tests/integration/odoo/test_editable_scalar_load_readback.py
       - tests/integration/web/test_json2_http_diagnostics.py
       - tests/integration/odoo/test_json2_read_failures.py
+      - tests/integration/odoo/test_read_pacing.py
+      - tests/integration/odoo/test_record_read_concurrency.py
       - tests/domain/workspace/test_odoo_relationship_compilation.py
       - tests/application/workspace/mapping/test_categorical_coverage.py
       - tests/application/workspace/test_transfer_order.py

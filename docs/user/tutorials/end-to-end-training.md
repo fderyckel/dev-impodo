@@ -286,8 +286,9 @@ name.
 
 ## 5. Choose Odoo records and matching rules
 
-Open **Odoo data**. Show the available Odoo record types, select only the
-approved scope, and load the selected Odoo details.
+Open **Odoo data**. Under **Choose records**, select the approved scope and
+select **Save record types**. Review **Related values**, then open
+**Matching rules** to confirm how existing records are found.
 
 For the training project, the scope is:
 
@@ -300,8 +301,6 @@ For the training project, the scope is:
 | Product Variant | product.product | Internal reference (default_code) |
 | Bill of Materials | mrp.bom | BoM reference (code) |
 | BoM Component | mrp.bom.line | BoM plus line sequence (bom_id, sequence) |
-
-![Stage 2 summary with suggested matching rules ready for one confirmation.](../../images/user/08b-odoo-business-keys.png)
 
 A matching rule answers: “How can Impodo find exactly one existing Odoo
 record?” It does not guarantee uniqueness merely because a sample looks

@@ -85,6 +85,10 @@ from ..forms import (
     _value_mappings_from_form,
     _value_match_decisions_from_form,
 )
+from .reference_preparation_forms import (
+    apply_reference_preparations,
+    reference_preparation_fields,
+)
 
 
 def _text_steps_from_form(
@@ -311,6 +315,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
             continue
         model = models[target_model]
         for identity_index in range(len(model.fields)):
+            allowed.update(reference_preparation_fields(f"identity_reference_{dataset_index}_{identity_index}"))
             allowed.update(
                 {
                     f"identity_source_{dataset_index}_{identity_index}",
@@ -383,6 +388,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
             if item.type in {"many2one", "many2many", "one2many"}
         ]
         for relation_index, _field in enumerate(relation_fields):
+            allowed.update(reference_preparation_fields(f"relation_reference_{dataset_index}_{relation_index}"))
             allowed.update(
                 {
                     f"relation_source_{dataset_index}_{relation_index}",
@@ -567,6 +573,10 @@ def _mapping_datasets_from_form(
                             else None
                         ),
                     )
+                resolver = apply_reference_preparations(
+                    form, f"identity_reference_{dataset_index}_{identity_index}",
+                    resolver, source_dataset,
+                )
             null_policy = (
                 (
                     IdentityNullPolicy.ZERO_AS_SCOPE_NULL
@@ -1094,6 +1104,10 @@ def _mapping_datasets_from_form(
                     ),
                     value_mappings=value_mappings,
                 )
+            resolver = apply_reference_preparations(
+                form, f"relation_reference_{dataset_index}_{relation_index}",
+                resolver, source_dataset,
+            )
             policy_text = _text(
                 form,
                 f"relation_categorical_policy_{dataset_index}_{relation_index}",

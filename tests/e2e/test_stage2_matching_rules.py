@@ -6,6 +6,7 @@ import re
 
 from tests.support.browser_scenarios import (
     POST_HEADERS,
+    OdooConnectionMode,
     ProjectSetupBrowserTestCase,
 )
 from tests.support.stage2_matching_rules import (
@@ -18,9 +19,13 @@ from tests.support.stage2_matching_rules import (
 
 
 class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
-    def _representative_workspace(self):
+    def _representative_workspace(
+        self, *, odoo_major=19, connection_mode=OdooConnectionMode.REMOTE,
+    ):
         workspace_id, _dataset, _key = self._mapping_ready_workspace(
             scalar_field_count=1,
+            odoo_major=odoo_major,
+            connection_mode=connection_mode,
         )
         schema = install_stage2_schema(
             self,
@@ -38,6 +43,43 @@ class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
             tuple(self.read_identity_calls),
             tuple(self.readiness_calls),
         )
+
+    def test_substeps_keep_every_rule_and_do_not_change_saved_evidence(self):
+        for major in (19, 20):
+            for mode in (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE):
+                with self.subTest(odoo_major=major, connection_mode=mode.value):
+                    workspace_id, schema = self._representative_workspace(
+                        odoo_major=major, connection_mode=mode,
+                    )
+                    queries = self.app.state.context.queries
+                    source = queries.get_source_selection(workspace_id)
+                    before_review = self._connector_calls()
+                    for step in ("records", "related", "matching"):
+                        page = self.client.get(
+                            f"/workspaces/{workspace_id}/schema?step={step}",
+                            follow_redirects=False,
+                        )
+                        self.assertEqual(page.status_code, 200, page.text)
+                        self.assertIn("data-schema-journey", page.text)
+                        self.assertIn(f'data-step="{step}"', page.text)
+                        for label in (
+                            "Choose records", "Related values", "Matching rules",
+                        ):
+                            self.assertIn(label, page.text)
+                        for index in range(len(schema.models)):
+                            self.assertIn(
+                                f'name="primary_key_field_{index}"', page.text,
+                            )
+                        self.assertEqual(
+                            queries.get_odoo_schema_catalog(workspace_id), schema,
+                        )
+                        self.assertEqual(
+                            queries.get_source_selection(workspace_id), source,
+                        )
+                        self.assertIsNone(
+                            queries.get_schema_governance(workspace_id),
+                        )
+                        self.assertEqual(self._connector_calls(), before_review)
 
     def test_standard_extended_and_custom_rules_confirm_once_without_odoo(
         self,

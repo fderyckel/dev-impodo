@@ -1,0 +1,242 @@
+<section class="form-card" id="odoo-data-choices">
+
+    {% if is_recipe_run_setup %}
+      {% if is_recipe_run_recovery %}
+        <div class="notice" role="status">
+          <strong>One check remains.</strong>
+          <p>
+            This run is waiting for {{ recipe_run_recovery.required_default_count }} required Odoo field{% if recipe_run_recovery.required_default_count != 1 %}s{% endif %} added by installed apps.
+            You cannot change the saved Recipe on this page. Select <strong>Check Odoo defaults and continue</strong> below.
+          </p>
+          <p>
+            Impodo will either show the current Odoo values for your confirmation or explain which field still needs a new Recipe value.
+          </p>
+          <form method="post" action="/projects/{{ migration_context.project_id }}/{{ setup_route_kind }}/{{ migration_context.migration_run_id }}/odoo/check">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="expected_workspace_revision" value="{{ migration_project.optimistic_revision }}">
+            <input type="hidden" name="operation_id" value="{{ operation_id }}">
+            <button class="button primary" type="submit" {% if odoo_check_disabled %}disabled{% endif %}>
+              Check Odoo defaults and continue
+            </button>
+          </form>
+          {% if odoo_check_disabled %}
+            <p>
+              <strong>Why this action is unavailable:</strong>
+              {% if workspace_state.source_mode.value == 'FILE' and not selection %}
+                the accepted fresh data is unavailable. Return to Fresh data and accept it again.
+              {% elif not odoo_check_models %}
+                the selected Recipe requirements are unavailable. Return to the run and review its saved Recipe versions.
+              {% elif schema and schema.pending_refresh %}
+                review the detected Odoo changes below first.
+              {% elif not local_reader_ready %}
+                reconnect the saved local Odoo installation below first.
+              {% endif %}
+            </p>
+          {% endif %}
+        </div>
+      {% endif %}
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Selected by the Recipes</p>
+          <h2>Odoo information this run needs</h2>
+          <p>The selected Recipe versions already define these record types, fields, and current supporting values. They cannot be changed for this run.</p>
+        </div>
+      </div>
+      <dl class="summary-list">
+        <div><dt>Odoo record types</dt><dd>{{ odoo_check_models|length }}</dd></div>
+        <div><dt>Supporting value sets</dt><dd>{{ odoo_check_supporting_values|length }}</dd></div>
+      </dl>
+      <div class="overview-stage-list">
+        {% for requirement in odoo_check_models %}
+          <section class="overview-stage-card complete">
+            <div>
+              <p class="eyebrow">Required Odoo information</p>
+              <h3>{{ requirement.label }}</h3>
+              <p>{{ requirement.fields|length }} required field{% if requirement.fields|length != 1 %}s{% endif %} for {{ requirement.recipe_names|join(', ') }}.</p>
+              <details>
+                <summary>Show required fields</summary>
+                <ul>
+                  {% for field in requirement.fields %}
+                    <li>{{ field.label }} <small><code>{{ field.name }}</code></small></li>
+                  {% endfor %}
+                </ul>
+                <p class="muted">Odoo record type: <code>{{ requirement.model_name }}</code></p>
+              </details>
+            </div>
+          </section>
+        {% endfor %}
+      </div>
+      {% if odoo_check_supporting_values %}
+        <details>
+          <summary>Current Odoo values the Recipes need</summary>
+          <p>Impodo will refresh these related records in one bounded check. You do not need to choose their tables or fields.</p>
+          <ul>
+            {% for requirement in odoo_check_supporting_values %}
+              <li>
+                <strong>{{ requirement.label }}</strong> for {{ requirement.recipe_names|join(', ') }}
+                <small>Matched by {{ requirement.key_fields|map(attribute='label')|join(', ') }}</small>
+              </li>
+            {% endfor %}
+          </ul>
+        </details>
+      {% else %}
+        <p class="muted">These Recipe versions do not require current values from a related Odoo record type.</p>
+      {% endif %}
+    {% else %}
+    <div class="page-heading compact">
+      <div>
+        <h2>Choose the Odoo data you need {{ decision_help("odoo-scope") }}</h2>
+      </div>
+      {% if not model_catalog %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+            Show available Odoo data
+          </button>
+        </form>
+      {% endif %}
+    </div>
+
+    {% if local_mode and not model_catalog %}
+      {% if local_stack.profile %}
+        {% if not local_access_verified %}
+          <div class="notice warning">
+            <strong>Local Odoo is ready to check.</strong>
+            Select <strong>Show available Odoo data</strong>. Impodo will only read the list of available business records.
+          </div>
+        {% endif %}
+      {% else %}
+        <div class="notice warning">
+          <strong>Find local Odoo first.</strong>
+          Impodo needs to know which Odoo installation on this computer to use.
+          <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <button class="button secondary" type="submit">Find local Odoo</button>
+          </form>
+        </div>
+      {% endif %}
+    {% endif %}
+
+    {% if workspace_state.intended_applications %}
+      <p>
+        Odoo areas: <strong>{{ workspace_state.intended_applications|join(", ") }}</strong>
+      </p>
+    {% endif %}
+
+    {% if model_catalog %}
+      {% if suggested_model_count %}
+        <div class="notice" role="status">
+          <strong>{{ suggested_model_count }} recommended supporting choice{% if suggested_model_count != 1 %}s{% endif %}.</strong>
+          Review the selection before saving.
+        </div>
+      {% endif %}
+      <details>
+        <summary>Has Odoo changed?</summary>
+        <p>Update this list only when Odoo apps or record types have changed.</p>
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+            Update available choices
+          </button>
+        </form>
+      </details>
+      {% if local_mode %}
+        {% if not local_access_verified and local_stack.profile %}
+          <div class="notice">
+            <strong>The saved Odoo list is being used.</strong>
+            Refresh only if Odoo has changed since this list was saved.
+          </div>
+        {% elif not local_stack.profile %}
+          <div class="notice">
+            <strong>The saved Odoo list is still available.</strong>
+            Find local Odoo only if you need to refresh the list.
+            <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button class="button secondary" type="submit">Find local Odoo to refresh</button>
+            </form>
+          </div>
+        {% endif %}
+      {% endif %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema" data-model-picker>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
+        <div class="model-picker-tools">
+          <label>
+            Search available Odoo data
+            <input
+              type="search"
+              data-model-search
+              placeholder="For example: Products or Contacts"
+              autocomplete="off"
+              aria-controls="model-picker-list"
+              aria-describedby="model-picker-count"
+            >
+          </label>
+          <div class="model-picker-filters">
+            {% if focus_model_count < model_choices|length %}
+              <label class="checkbox">
+                <input type="checkbox" data-show-all-models>
+                Show all available data
+              </label>
+            {% endif %}
+            <label class="checkbox">
+              <input type="checkbox" data-show-selected-models>
+              Show selected only
+            </label>
+          </div>
+          <p
+            class="muted"
+            id="model-picker-count"
+            role="status"
+            aria-live="polite"
+            data-model-count
+          ></p>
+        </div>
+        <fieldset class="model-picker-list" id="model-picker-list">
+          <legend>Odoo data available to this migration run</legend>
+          {% for choice in model_choices %}
+            <label
+              class="model-choice"
+              data-model-choice
+              data-in-focus="{{ 'true' if choice.in_focus else 'false' }}"
+              data-model-search-text="{{ choice.label|lower }} {{ choice.name|lower }} {{ choice.modules|join(' ')|lower }}"
+            >
+              <input
+                type="checkbox"
+                name="permitted_models"
+                value="{{ choice.name }}"
+                {% if choice.selected %}checked{% endif %}
+              >
+              <span>
+                <strong>{{ choice.label }}</strong>
+                {% if choice.suggested %}<small>Recommended supporting data</small>{% endif %}
+                {% if choice.automatic_supporting %}<small>Automatically linked; not a main record type</small>{% endif %}
+              </span>
+            </label>
+          {% endfor %}
+        </fieldset>
+        <p class="notice" role="status" data-model-empty hidden>
+          No selected Odoo data matches these filters.
+        </p>
+        <small>
+          Changing these choices clears later matching work that no longer applies.
+        </small>
+        <div class="actions">
+          <button class="button primary" type="submit" data-model-submit>Save record types</button>
+          <span class="muted" role="status" aria-live="polite" data-model-submit-status></span>
+        </div>
+      </form>
+    {% else %}
+      <div class="notice">
+        Show the available Odoo records to choose what to prepare.
+      </div>
+      {% if workspace_state.intended_models %}
+        <p>
+          Your saved record types are kept.
+        </p>
+      {% endif %}
+    {% endif %}
+    {% endif %}
+
+
+</section>

@@ -9,9 +9,8 @@ the fixture installs the captured schema.
 from __future__ import annotations
 
 import argparse
-from pathlib import Path
 import sys
-
+from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 if str(REPOSITORY_ROOT) not in sys.path:
@@ -33,13 +32,26 @@ from tests.support.stage2_matching_rules import (
     unresolved_stage2_model,
 )
 
-
 DEFAULT_OUTPUT_DIRECTORY = REPOSITORY_ROOT / "docs" / "images" / "user"
 
 
 def _show_decision(page, locator, *, offset: int = 80) -> None:
+    locator.evaluate(
+        """element => {
+          for (let current = element; current; current = current.parentElement) {
+            if (current.tagName === 'DETAILS') current.open = true;
+          }
+        }"""
+    )
     locator.scroll_into_view_if_needed()
     page.evaluate(f"window.scrollBy(0, -{offset})")
+
+
+def _rule_card(page, label: str):
+    question = f"How should Impodo find an existing {label}?"
+    return page.locator("[data-key-decision]").filter(
+        has=page.locator(f'summary[aria-label="{question}"]'),
+    )
 
 
 def _connector_calls(fixture) -> tuple[tuple[object, ...], ...]:
@@ -107,7 +119,36 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             )
             page = browser_context.new_page()
             schema_url = f"{base_url}/workspaces/{workspace_id}/schema"
-            page.goto(schema_url, wait_until="networkidle")
+            page.goto(f"{schema_url}?step=records", wait_until="networkidle")
+            journey = page.locator("[data-schema-journey]")
+            expect(journey).to_have_attribute("data-step", "records")
+            expect(page.get_by_role("button", name="Save record types", exact=True)).to_be_visible()
+            records = page.locator('.sidebar-subnav-link').filter(has_text="Choose records")
+            related = page.locator('.sidebar-subnav-link').filter(has_text="Related values")
+            matching = page.locator('.sidebar-subnav-link').filter(has_text="Matching rules")
+            matching.click()
+            expect(journey).to_have_attribute("data-step", "matching")
+            expect(page.locator("[data-schema-step-panel]:visible")).to_have_count(1)
+            expect(page.locator('form[action$="/schema/govern"] [data-primary-key-field]')).to_have_count(3)
+
+            product = _rule_card(page, "Product")
+            _show_decision(page, product)
+            product.locator("[data-key-editor]").evaluate("element => { element.open = true; }")
+            product.locator("[data-primary-key-field]").select_option("x_legacy_code")
+            related.click()
+            expect(journey).to_have_attribute("data-step", "related")
+            matching.click()
+            expect(product.locator("[data-primary-key-field]")).to_have_value("x_legacy_code")
+            page.go_back()
+            expect(journey).to_have_attribute("data-step", "related")
+            page.go_forward()
+            expect(journey).to_have_attribute("data-step", "matching")
+            expect(product.locator("[data-primary-key-field]")).to_have_value("x_legacy_code")
+            records.click()
+            expect(journey).to_have_attribute("data-step", "records")
+            matching.click()
+            page.reload(wait_until="networkidle")
+            expect(journey).to_have_attribute("data-step", "matching")
 
             summary = page.locator("#schema-governance")
             expect(summary).to_contain_text("Suggested")
@@ -115,9 +156,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             _show_decision(page, summary)
             _capture(page, output_directory / "08b-odoo-business-keys.png")
 
-            product = page.locator("[data-key-decision]").filter(
-                has_text="How should Impodo find an existing Product?"
-            )
+            product = _rule_card(page, "Product")
             expect(product).to_contain_text("Suggested and ready to confirm")
             expect(product).to_contain_text("duplicate references")
             _show_decision(page, product)
@@ -132,9 +171,8 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
             product.locator("[data-primary-key-field]").select_option(
                 "x_legacy_code"
             )
-            asset = page.locator("[data-key-decision]").filter(
-                has_text="How should Impodo find an existing Asset?"
-            )
+            asset = _rule_card(page, "Asset")
+            _show_decision(page, asset)
             asset.locator("[data-key-editor]").evaluate(
                 "element => { element.open = true; }"
             )
@@ -144,9 +182,7 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 name="Confirm suggested matching rules",
             ).click()
             page.wait_for_load_state("networkidle")
-            product = page.locator("[data-key-decision]").filter(
-                has_text="How should Impodo find an existing Product?"
-            )
+            product = _rule_card(page, "Product")
             expect(product).to_contain_text("Changed from suggestion")
             expect(product).to_contain_text("Legacy Reference")
             _show_decision(page, product)
@@ -155,18 +191,27 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 output_directory / "08e-odoo-matching-rule-override.png",
             )
 
+            asset = _rule_card(page, "Asset")
+            _show_decision(page, asset)
+            asset.locator("[data-key-editor]").evaluate("element => { element.open = true; }")
+            asset.locator("[data-primary-key-field]").select_option("code")
+            page.get_by_role("button", name="Confirm matching rules", exact=True).click()
+            page.wait_for_load_state("networkidle")
+            governance = fixture.app.state.context.queries.get_schema_governance(workspace_id)
+            if governance is None or len(governance.business_keys) != 3:
+                raise RuntimeError("Confirmation did not retain the complete matching-rule set")
+            product_rule = next(item for item in governance.business_keys if item.model == "product.template")
+            if product_rule.key_fields != ("x_legacy_code",):
+                raise RuntimeError("Confirmation lost the product rule edited before tab navigation")
+
             install_stage2_schema(
                 fixture,
                 workspace_id,
                 (*representative_stage2_models(), unresolved_stage2_model()),
                 hash_character="8",
             )
-            page.goto(schema_url, wait_until="networkidle")
-            unresolved = page.locator("[data-key-decision]").filter(
-                has_text=(
-                    "How should Impodo find an existing Unresolved Custom Record?"
-                )
-            )
+            page.goto(f"{schema_url}?step=matching", wait_until="networkidle")
+            unresolved = _rule_card(page, "Unresolved Custom Record")
             expect(unresolved).to_contain_text("Needs attention")
             expect(unresolved).to_contain_text(
                 "Impodo found no single safe recommendation"
@@ -176,6 +221,12 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
                 page,
                 output_directory / "08f-odoo-matching-rule-attention.png",
             )
+
+            page.set_viewport_size({"width": 390, "height": 844})
+            _show_decision(page, unresolved)
+            if page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1"):
+                raise RuntimeError("Matching-rule review overflows a narrow screen")
+            expect(unresolved).to_be_visible()
 
             browser_context.close()
             browser.close()
@@ -193,7 +244,10 @@ def capture(output_directory: Path, *, browser_channel: str) -> None:
 def capture_supporting_review(output_directory: Path, *, browser_channel: str) -> None:
     """Qualify keyboard, persistence and narrow layout with isolated source data."""
     from playwright.sync_api import expect, sync_playwright
-    from tests.integration.web.test_supporting_review import SupportingReviewBrowserTests
+
+    from tests.integration.web.test_supporting_review import (
+        SupportingReviewBrowserTests,
+    )
 
     output_directory.mkdir(parents=True, exist_ok=True)
     fixture = SupportingReviewBrowserTests(methodName="runTest")

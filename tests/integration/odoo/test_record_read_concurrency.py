@@ -25,6 +25,7 @@ from impodo.domain.odoo.contracts import (
     RecordRequest,
     bind_snapshot_hashes,
 )
+from tests.support.odoo_read_clock import ReadClock
 
 NOW = datetime(2026, 11, 13, tzinfo=UTC)
 
@@ -37,7 +38,10 @@ class RecordReadConcurrencyTests(unittest.TestCase):
             "context": {"allowed_company_ids": [7], "lang": "en_US"},
         }
         options.update(overrides)
-        return Json2ReadConnector(Json2Config(**options), transport=transport, now=lambda: NOW)
+        return Json2ReadConnector(
+            Json2Config(**options), transport=transport, now=lambda: NOW,
+            read_pacer=ReadClock().pacer(),
+        )
 
     def test_two_requests_overlap_keep_pages_sequential_and_pin_one_fingerprint(self):
         for major in (19, 20):

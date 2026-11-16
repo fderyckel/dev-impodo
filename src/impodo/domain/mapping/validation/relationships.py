@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from impodo.domain.mapping.reference_preparation import (
+    preparation_source_keys,
+    validate_reference_preparation,
+)
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
@@ -307,6 +311,29 @@ def _validate_resolver(
     target_scope_fields: tuple[str, ...] | None = None,
     validate_source_mappings: bool = True,
 ) -> None:
+    for mapping in (*resolver.key_mappings, *resolver.scope_mappings):
+        if mapping.preparation is None:
+            continue
+        try:
+            validate_reference_preparation(mapping)
+            if resolver.origin is not ResolverOrigin.TARGET_CATALOG:
+                raise ValueError("Prepared references require only existing Odoo records")
+            if relationship_metadata.type != "many2one":
+                raise ValueError("Prepare a reference only for a single linked record")
+            if resolver.value_mappings:
+                raise ValueError(
+                    "Use the prepared reference directly, or remove reference preparation "
+                    "before matching individual source choices"
+                )
+        except (ValueError, TypeError) as error:
+            issues.append(_issue(
+                "MAPPING_REFERENCE_PREPARATION_INVALID", path, str(error),
+                "Correct the reference formula or combined values, then check matches again.",
+                dataset=dataset, target_field=relationship_metadata.name,
+            ))
+        columns = {item.stable_key: item for item in context.source_datasets[dataset.dataset_id].columns}
+        for key in preparation_source_keys(mapping):
+            _check_column(dataset, key, path, columns, issues)
     uses_incoming = resolver.origin in {
         ResolverOrigin.DATASET,
         ResolverOrigin.TARGET_THEN_DATASET,

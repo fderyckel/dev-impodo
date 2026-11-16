@@ -1,0 +1,37 @@
+{% set groups = namespace(by_model={}) %}
+{% for row in supporting_review.rows %}
+  {% set choices = groups.by_model.setdefault(row.model, []) %}
+  {% set _ = choices.append({'index': loop.index0, 'row': row}) %}
+{% endfor %}
+{% for model_name, choices in groups.by_model.items() %}
+  {% set group = namespace(required=0, attention=0, errors=false, optional=0) %}
+  {% for choice in choices %}
+    {% set row = choice.row %}
+    {% if row.required %}{% set group.required = group.required + 1 %}{% endif %}
+    {% if row.save_error or row.needs_change or (row.required and not row.chosen) %}{% set group.attention = group.attention + 1 %}{% endif %}
+    {% if row.save_error %}{% set group.errors = true %}{% endif %}
+    {% if not row.required and not row.save_error and not row.needs_change %}{% set group.optional = group.optional + 1 %}{% endif %}
+  {% endfor %}
+  <details class="schema-related-group" data-schema-related-group {% if group.errors or loop.first %}open{% endif %}>
+    <summary>
+      <strong>{{ choices[0].row.model_label }}</strong>
+      <span class="muted">{{ choices|length }} related values{% if group.required %} · {{ group.required }} required{% endif %}</span>
+      {% if group.attention %}<span class="status attention">{{ group.attention }} need attention</span>{% endif %}
+    </summary>
+    <div class="supporting-review-list">
+      {% for choice in choices %}
+        {% if choice.row.required or choice.row.save_error or choice.row.needs_change %}{{ render_choice(choice.row, choice.index) }}{% endif %}
+      {% endfor %}
+      {% if group.optional %}
+        <details class="supporting-review-optional">
+          <summary>Optional related values ({{ group.optional }})</summary>
+          <div class="supporting-review-list">
+            {% for choice in choices %}
+              {% if not choice.row.required and not choice.row.save_error and not choice.row.needs_change %}{{ render_choice(choice.row, choice.index) }}{% endif %}
+            {% endfor %}
+          </div>
+        </details>
+      {% endif %}
+    </div>
+  </details>
+{% endfor %}

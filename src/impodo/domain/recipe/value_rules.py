@@ -553,6 +553,44 @@ def evaluate_formula(expression: str, context: Mapping[str, Any]) -> Any:
     return result
 
 
+def formula_input_names(
+    expression: str,
+    *,
+    allowed_names: set[str] | None = None,
+) -> tuple[str, ...]:
+    """Return validated source names without the names of called helpers."""
+
+    parsed = validate_formula(expression, allowed_names=allowed_names)
+    nodes = tuple(ast.walk(parsed))
+    functions = {
+        id(node.func) for node in nodes if isinstance(node, ast.Call)
+    }
+    return tuple(sorted({
+        node.id for node in nodes
+        if isinstance(node, ast.Name) and id(node) not in functions
+    }))
+
+
+def evaluate_reference_formula(
+    expression: str,
+    context: Mapping[str, Any],
+) -> str:
+    """Prepare reference text while preserving authored identifier spelling.
+
+    Source strings and string literals retain leading zeros. Numeric operators
+    still use the shared arithmetic conversion, but an expression must return
+    text; callers own required-input and blank-reference decisions.
+    """
+
+    parsed = validate_formula(expression, allowed_names=set(context))
+    result = _eval_node(parsed.body, context, preserve_text=True)
+    if not isinstance(result, str):
+        raise TypeError("reference formula must produce text")
+    if len(result) > MAX_RULE_TEXT_LENGTH:
+        raise ValueError("formula result is too long")
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class _ArithmeticInstruction:
     operation: str
@@ -760,14 +798,21 @@ def _formula_value(value: Any) -> Any:
     return rendered
 
 
-def _eval_node(node: ast.AST, context: Mapping[str, Any]) -> Any:
+def _eval_node(
+    node: ast.AST,
+    context: Mapping[str, Any],
+    *,
+    preserve_text: bool = False,
+) -> Any:
     if isinstance(node, ast.Constant):
+        if preserve_text and isinstance(node.value, str):
+            return node.value
         return _formula_value(node.value)
     if isinstance(node, ast.Name):
         return context[node.id]
     if isinstance(node, ast.BinOp):
-        left = _eval_node(node.left, context)
-        right = _eval_node(node.right, context)
+        left = _eval_node(node.left, context, preserve_text=preserve_text)
+        right = _eval_node(node.right, context, preserve_text=preserve_text)
         if isinstance(node.op, ast.Add) and isinstance(left, str) and isinstance(right, str):
             return left + right
         operations = {
@@ -779,17 +824,20 @@ def _eval_node(node: ast.AST, context: Mapping[str, Any]) -> Any:
         }
         return operations[type(node.op)](_number(left), _number(right))
     if isinstance(node, ast.UnaryOp):
-        value = _eval_node(node.operand, context)
+        value = _eval_node(node.operand, context, preserve_text=preserve_text)
         if isinstance(node.op, ast.Not):
             return not value
         return _number(value) if isinstance(node.op, ast.UAdd) else -_number(value)
     if isinstance(node, ast.BoolOp):
-        values = [_eval_node(item, context) for item in node.values]
+        values = [
+            _eval_node(item, context, preserve_text=preserve_text)
+            for item in node.values
+        ]
         return all(values) if isinstance(node.op, ast.And) else any(values)
     if isinstance(node, ast.Compare):
-        left = _eval_node(node.left, context)
+        left = _eval_node(node.left, context, preserve_text=preserve_text)
         for operation_node, comparator in zip(node.ops, node.comparators):
-            right = _eval_node(comparator, context)
+            right = _eval_node(comparator, context, preserve_text=preserve_text)
             comparison = {
                 ast.Eq: operator.eq,
                 ast.NotEq: operator.ne,
@@ -803,10 +851,17 @@ def _eval_node(node: ast.AST, context: Mapping[str, Any]) -> Any:
             left = right
         return True
     if isinstance(node, ast.IfExp):
-        branch = node.body if _eval_node(node.test, context) else node.orelse
-        return _eval_node(branch, context)
+        branch = (
+            node.body
+            if _eval_node(node.test, context, preserve_text=preserve_text)
+            else node.orelse
+        )
+        return _eval_node(branch, context, preserve_text=preserve_text)
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-        arguments = [_eval_node(item, context) for item in node.args]
+        arguments = [
+            _eval_node(item, context, preserve_text=preserve_text)
+            for item in node.args
+        ]
         return _call_formula_function(node.func.id, arguments)
     raise ValueError("unsupported formula operation")
 

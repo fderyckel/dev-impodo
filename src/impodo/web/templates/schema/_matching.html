@@ -1,0 +1,284 @@
+{% if schema %}
+    {% set revision_review = request.session.get('recipe_revision_review') %}
+    {% if is_recipe_run_setup and schema.origin.value != 'LOCAL_MANUAL' %}
+      {# A successful Recipe-run Odoo check redirects directly to Review and load. #}
+    {% elif revision_review and revision_review.pending_seed and revision_review.workspace_id == workspace_id and schema.origin.value == 'LIVE_API' and not schema.pending_refresh %}
+      {% if revision_review.coverage_required %}
+      <div class="actions">
+        <a class="button primary" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review advanced checks</a>
+      </div>
+      {% else %}
+      <form class="actions" method="post" action="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="action" value="start">
+        <button class="button primary" type="submit">Open Match data</button>
+      </form>
+      {% endif %}
+    {% else %}
+    {% if schema.origin.value == 'LOCAL_MANUAL' %}
+      <div class="notice warning">
+        This Odoo field list was entered manually for local development. Check it against Odoo with an authenticated live capture before confirming the field matches.
+      </div>
+    {% endif %}
+    {% if workspace_state.source_mode.value == 'ODOO' and not selection %}
+      {# The Odoo-source next action is shown beside the ready state above. #}
+    {% else %}
+    <form method="post" action="/workspaces/{{ workspace_id }}/schema/govern">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="expected_schema_hash" value="{{ schema.content_hash }}">
+      <input type="hidden" name="expected_business_key_policy_version" value="{{ business_key_policy_version }}">
+      <section class="form-card" id="schema-governance">
+        <div class="page-heading compact">
+          <div>
+            <h2>Tell Impodo how to find existing records {{ decision_help("odoo-identity") }}</h2>
+          </div>
+          {% if governance %}
+            <span class="status registered">Rules confirmed</span>
+          {% endif %}
+        </div>
+        <dl class="matching-rule-summary" aria-label="Matching rule progress">
+          <div><dt>Record types</dt><dd>{{ key_summary.total }}</dd></div>
+          <div><dt>Suggested</dt><dd>{{ key_summary.suggested }}</dd></div>
+          <div><dt>Confirmed</dt><dd>{{ key_summary.confirmed }}</dd></div>
+          <div><dt>Changed</dt><dd>{{ key_summary.changed }}</dd></div>
+          <div class="{% if key_summary.needs_attention %}attention{% endif %}"><dt>Needs attention</dt><dd>{{ key_summary.needs_attention }}</dd></div>
+        </dl>
+      </section>
+
+      {% for view in key_views %}
+        {% set model = view.model %}
+        {% set existing = view.existing %}
+        {% set recommendation = view.recommendation %}
+        <details
+          class="form-card catalog-card schema-key-card{% if view.has_submitted_draft %} has-unconfirmed-changes{% elif existing %} is-confirmed{% elif recommendation %} needs-confirmation{% else %} has-unconfirmed-changes{% endif %}"
+          data-key-decision
+          data-schema-key-card
+          data-key-confirmed="{{ 'true' if existing else 'false' }}"
+          data-field-labels='{{ view.field_labels|tojson }}'
+          {% if view.key_error or loop.first %}open{% endif %}
+        >
+          <summary class="schema-key-summary" aria-label="How should Impodo find an existing {{ model.label }}?">
+            <span>
+              <strong>{{ model.label }}</strong>
+              <small data-schema-rule-summary>{% if existing or view.has_submitted_draft %}{{ view.selection_summary }}{% elif recommendation %}{{ recommendation.title }}{% else %}Choose matching fields{% endif %}</small>
+            </span>
+            {% if view.has_submitted_draft %}
+              <span class="status attention" data-key-decision-status>Review change</span>
+            {% elif existing %}
+              <span class="status complete" data-key-decision-status>Rule confirmed</span>
+            {% elif recommendation %}
+              <span class="status current" data-key-decision-status>Suggested</span>
+            {% else %}
+              <span class="status attention" data-key-decision-status>Needs attention</span>
+            {% endif %}
+          </summary>
+          <div class="schema-key-content">
+
+          {% if view.key_error %}
+            <div class="notice error" role="alert" data-key-server-error>
+              {{ view.key_error }}
+            </div>
+          {% endif %}
+
+          <div class="key-decision-summary">
+            {% if view.has_submitted_draft %}
+              <p class="eyebrow">
+                {% if view.is_changed_from_suggestion %}Changed from suggestion{% else %}Ready to confirm after review{% endif %}
+              </p>
+              <p class="key-rule-title">{{ view.selection_summary }}</p>
+              {% if view.description %}<p>{{ view.description }}</p>{% endif %}
+            {% elif existing %}
+              <p class="eyebrow">Confirmed matching rule</p>
+              <p class="key-rule-title">
+                {% for field_name in existing.key_fields %}{{ view.field_labels.get(field_name, "Selected field") }}{% if not loop.last %} + {% endif %}{% endfor %}
+                {% if existing.scope_fields %}
+                  within {% for field_name in existing.scope_fields %}{{ view.field_labels.get(field_name, "selected area") }}{% if not loop.last %} + {% endif %}{% endfor %}
+                {% endif %}
+              </p>
+              {% if existing.description %}<p><strong>Meaning:</strong> {{ existing.description }}</p>{% endif %}
+            {% elif recommendation %}
+              <p class="eyebrow">Suggested and ready to confirm</p>
+              <p class="key-rule-title">{{ recommendation.title }}</p>
+              <details class="technical-details">
+                <summary>Why Impodo suggested this</summary>
+                <p>{{ recommendation.reason }}</p>
+                <p>{{ recommendation.evidence }}</p>
+              </details>
+              {% if recommendation.warning %}
+                <p class="key-warning">{{ recommendation.warning }}</p>
+              {% endif %}
+            {% else %}
+              <p class="eyebrow">Matching rule</p>
+              <p class="key-rule-title">Choose the field that identifies one {{ model.label|lower }}</p>
+              {% if view.recommendation_assessment.alternatives %}
+                <p>Odoo declares more than one possible unique rule. Choose the one that matches this migration.</p>
+                <ul>
+                  {% for alternative in view.recommendation_assessment.alternatives %}
+                    <li>{{ alternative.title }}</li>
+                  {% endfor %}
+                </ul>
+              {% else %}
+                <p>Impodo found no single safe recommendation for this model.</p>
+              {% endif %}
+            {% endif %}
+
+            <div
+              class="key-draft-selection"
+              data-key-draft-selection
+              {% if not view.key_fields or existing %}hidden{% endif %}
+            >
+              <strong>Ready to confirm:</strong>
+              <span data-key-selection-summary>{{ view.selection_summary }}</span>
+            </div>
+          </div>
+
+          <details
+            class="key-editor"
+            data-key-editor
+            {% if view.key_error or (not existing and not recommendation) %}open{% endif %}
+          >
+            <summary>
+              {% if existing %}Change matching rule{% elif recommendation %}Change suggested rule{% else %}Choose matching field{% endif %}
+            </summary>
+            <div class="form-grid key-simple-fields">
+              <label>
+                Matching field
+                <select
+                  name="primary_key_field_{{ loop.index0 }}"
+                  data-primary-key-field
+                  aria-describedby="key-field-error-{{ loop.index0 }}"
+                >
+                  <option value="">Choose a field</option>
+                  {% for field in view.field_choices %}
+                    <option
+                      value="{{ field.name }}"
+                      {% if view.key_fields|length == 1 and view.key_fields[0] == field.name %}selected{% endif %}
+                    >{{ field.label }}</option>
+                  {% endfor %}
+                </select>
+              </label>
+              {% with scope_index = loop.index0 %}
+                {% include "schema/_scope_picker.html" %}
+              {% endwith %}
+            </div>
+
+            <details class="key-technical-fields">
+              <summary>Support options for combined matching</summary>
+              <div class="form-grid">
+                <label>
+                  Matching field(s)
+                  <input
+                    name="key_fields_{{ loop.index0 }}"
+                    data-combined-key-fields
+                    value="{{ view.key_fields|join(', ') }}"
+                    placeholder="external_code, revision"
+                    aria-describedby="key-field-error-{{ loop.index0 }}"
+                  >
+                  <small>Comma-separated technical names, in matching order.</small>
+                </label>
+                <label>
+                  Meaning (optional)
+                  <input
+                    name="key_description_{{ loop.index0 }}"
+                    data-key-description
+                    value="{{ view.description }}"
+                    placeholder="Unique reference within company"
+                  >
+                </label>
+              </div>
+            </details>
+            <p
+              class="key-field-error"
+              id="key-field-error-{{ loop.index0 }}"
+              data-key-field-error
+              role="alert"
+              tabindex="-1"
+              hidden
+            ></p>
+            {% if existing %}
+              <div class="actions key-editor-actions">
+                <small>Confirms all matching rules.</small>
+                <button
+                  class="button primary"
+                  type="submit"
+                  data-key-card-submit
+                  {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
+                >Save changes and continue</button>
+              </div>
+            {% endif %}
+          </details>
+
+          <details data-field-catalog>
+            <summary>Review {{ model.fields|length }} available fields</summary>
+            <div class="field-catalog-tools">
+              <label>
+                Search fields
+                <input
+                  type="search"
+                  data-field-search
+                  placeholder="Search field names"
+                  autocomplete="off"
+                >
+              </label>
+              <label class="checkbox">
+                <input type="checkbox" data-show-readonly-fields>
+                Show fields that Odoo controls
+              </label>
+              <p class="muted" data-field-count></p>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead><tr><th>Field</th><th>Required by Odoo</th><th>Can be filled</th></tr></thead>
+                <tbody>
+                  {% for field in model.fields %}
+                    <tr
+                      data-field-row
+                      data-readonly="{{ 'true' if field.readonly else 'false' }}"
+                      data-field-search-text="{{ field.label|lower }} {{ field.name|lower }} {{ field.type|lower }} {{ field.relation|default('', true)|lower }}"
+                    >
+                      <th>{{ field.label }}</th>
+                      <td>{{ "Yes" if field.required else "No" }}</td>
+                      <td>{{ "No" if field.readonly else "Yes" }}</td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </details>
+          </div>
+        </details>
+      {% endfor %}
+
+      <div class="actions">
+        {% if schema_journey.enabled %}
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=related">Back to related values</a>
+        {% endif %}
+        <button
+          class="button primary"
+          type="submit"
+          {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
+        >
+          {% if key_summary.suggested and not key_summary.needs_attention %}Confirm suggested matching rules{% else %}Confirm matching rules{% endif %}
+        </button>
+        {% if governance and not workflow_issue_summary.must_fix_count %}
+          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
+        {% endif %}
+      </div>
+      {% if workflow_issue_summary.must_fix_count %}
+        <p class="notice warning" id="matching-rules-blocked-reason">
+          {% if supporting_review and supporting_review.error %}
+            <a href="/workspaces/{{ workspace_id }}/schema?step=related#supporting-data-review">Review related values</a> and save the required choices.
+          {% else %}
+            <a href="/workspaces/{{ workspace_id }}/schema?step=related#review-odoo-choices">Review Migration issues</a> before confirming.
+          {% endif %}
+        </p>
+      {% endif %}
+    </form>
+    {% endif %}
+    {% endif %}
+{% elif schema_journey.enabled %}
+  <section class="form-card">
+    <h2>Save record types first</h2>
+    <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
+  </section>
+{% endif %}

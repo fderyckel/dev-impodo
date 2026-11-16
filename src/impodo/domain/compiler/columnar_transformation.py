@@ -21,6 +21,7 @@ from enum import StrEnum
 from typing import Any, Protocol, cast
 
 from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.reference_preparation import preparation_source_keys
 from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.domain.workspace.contracts import (
@@ -34,6 +35,7 @@ from ..mapping.contracts import (
     IdentityComponentMapping,
     IdentityNullPolicy,
     MappingDefinition,
+    ReferenceKeyMapping,
     RelationshipValueSource,
     ResolverOrigin,
     RowInclusionMode,
@@ -45,9 +47,14 @@ from ..mapping.contracts import (
 )
 from ..mapping.descriptions import transformation_rule_summary
 from ..serialization import content_hash, portable
+from .reference_expression import (
+    ColumnarReferencePreparation,
+    UnsupportedReferenceExpression,
+    compile_reference_preparation,
+)
 
-COLUMNAR_PROGRAM_CONTRACT_VERSION = 7
-COLUMNAR_COMPILER_VERSION = 13
+COLUMNAR_PROGRAM_CONTRACT_VERSION = 8
+COLUMNAR_COMPILER_VERSION = 14
 
 
 class _DatasetIdentified(Protocol):
@@ -111,6 +118,8 @@ class ColumnarOperationKind(StrEnum):
     OMIT_ODOO_MANAGED = "omit_odoo_managed"
     INLINE_VALUE_MAPPING = "inline_value_mapping"
     REFERENCE_LOOKUP = "reference_lookup"
+    REFERENCE_PREPARATION = "reference_preparation"
+    UNSUPPORTED_REFERENCE_PREPARATION = "unsupported_reference_preparation"
     FORMULA = "formula"
     RENDER_TEXT = "render_text"
     TRIM = "trim"
@@ -221,6 +230,12 @@ COLUMNAR_CAPABILITY_MATRIX = (
         ColumnarOperationKind.REFERENCE_LOOKUP,
         "COLUMNAR_REFERENCE_LOOKUP_UNSUPPORTED",
         "Approved reference lookups still require the Python oracle.",
+    ),
+    _native(ColumnarOperationKind.REFERENCE_PREPARATION),
+    _oracle(
+        ColumnarOperationKind.UNSUPPORTED_REFERENCE_PREPARATION,
+        "COLUMNAR_REFERENCE_PREPARATION_UNSUPPORTED",
+        "This prepared reference formula requires the bounded Python evaluator.",
     ),
     _oracle(
         ColumnarOperationKind.FORMULA,
@@ -465,8 +480,11 @@ class ColumnarIdentityComponentProgram:
     required: bool = True
     failure_code: str = "SOURCE_IDENTITY_INVALID"
     literal_values: tuple[str, ...] = ()
+    reference_preparations: tuple[ColumnarReferencePreparation | None, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.reference_preparations and len(self.reference_preparations) != len(self.source_columns):
+            raise ValueError("Reference preparations must match the ordered identity components")
         if bool(self.source_columns) == bool(self.literal_values):
             raise ValueError(
                 "Columnar identity components require source columns or literals"
@@ -633,6 +651,14 @@ class ColumnarTransformationProgram:
         if self.compiler_version < 10:
             for relationship in cast(list[dict[str, object]], payload["relationships"]):
                 relationship.pop("blank_source_values", None)
+        for group in ("source_identity", "target_identity", "target_scope"):
+            for component in cast(list[dict[str, object]], payload[group]):
+                if not component.get("reference_preparations"):
+                    component.pop("reference_preparations", None)
+        for relationship in cast(list[dict[str, object]], payload["relationships"]):
+            key = cast(dict[str, object], relationship["key"])
+            if not key.get("reference_preparations"):
+                key.pop("reference_preparations", None)
         return payload
 
     @classmethod
@@ -800,6 +826,11 @@ class ColumnarTransformationProgram:
                     for value in cast(
                         Sequence[object], item.get("literal_values", ())
                     )
+                ),
+                reference_preparations=tuple(
+                    ColumnarReferencePreparation.from_portable_dict(cast(Mapping[str, object], value))
+                    if value is not None else None
+                    for value in cast(Sequence[object], item.get("reference_preparations", ()))
                 ),
             )
 
@@ -1281,6 +1312,9 @@ def _compile_dataset(
                         required=relationship.required,
                         failure_code="SOURCE_REQUIRED_VALUE_MISSING",
                         literal_values=constant_values,
+                        reference_preparations=_reference_preparations(
+                            target_mappings, columns, draft, f"{path}/key", resolver.origin
+                        ) if not constant_provider else (),
                     ),
                     compare=relationship.compare,
                     validate_only=relationship.validate_only,
@@ -1467,6 +1501,43 @@ def _source_identity_component(
     )
 
 
+def _reference_preparations(
+    mappings: tuple[ReferenceKeyMapping, ...],
+    columns: Mapping[str, SourceDatasetColumn],
+    draft: _CompilationDraft,
+    path: str,
+    origin: ResolverOrigin,
+) -> tuple[ColumnarReferencePreparation | None, ...]:
+    """Register every dependency while retaining one result per reference part."""
+
+    if not any(mapping.preparation is not None for mapping in mappings):
+        return ()
+    if origin is not ResolverOrigin.TARGET_CATALOG:
+        draft.use(ColumnarOperationKind.UNSUPPORTED_REFERENCE_PREPARATION, path)
+        return ()
+    preparations: list[ColumnarReferencePreparation | None] = []
+    for index, mapping in enumerate(mappings):
+        for key in preparation_source_keys(mapping):
+            _require_column(key, columns, draft)
+        try:
+            prepared = compile_reference_preparation(mapping)
+        except UnsupportedReferenceExpression:
+            prepared = None
+            draft.use(
+                ColumnarOperationKind.UNSUPPORTED_REFERENCE_PREPARATION,
+                f"{path}/preparation/{index}",
+                target_field=mapping.target_field,
+            )
+        if prepared is not None:
+            draft.use(
+                ColumnarOperationKind.REFERENCE_PREPARATION,
+                f"{path}/preparation/{index}",
+                target_field=mapping.target_field,
+            )
+        preparations.append(prepared)
+    return tuple(preparations)
+
+
 def _identity_component(
     component: IdentityComponentMapping,
     role: str,
@@ -1487,6 +1558,7 @@ def _identity_component(
     )
     draft.use(ColumnarOperationKind.TARGET_IDENTITY_NORMALIZATION, path)
     resolver_program = None
+    reference_preparations: tuple[ColumnarReferencePreparation | None, ...] = ()
     if component.resolver is not None:
         resolver = component.resolver
         parent_id = resolver.dataset_id
@@ -1504,6 +1576,7 @@ def _identity_component(
         )
         parent_source = datasets.get(parent_id) if parent_id is not None else None
         target_mappings = (*resolver.key_mappings, *resolver.scope_mappings)
+        reference_preparations = _reference_preparations(target_mappings, columns, draft, path, resolver.origin)
         target_source_keys = tuple(
             item.source_column_key for item in target_mappings
         )
@@ -1590,6 +1663,7 @@ def _identity_component(
     return ColumnarIdentityComponentProgram(
         role=role,
         source_columns=inputs,
+        reference_preparations=reference_preparations,
         source_label=" + ".join(item.source_name for item in inputs),
         target_fields=component.target_fields,
         value_type=component.value_type,

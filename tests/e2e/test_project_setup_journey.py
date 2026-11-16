@@ -646,8 +646,12 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertNotIn("Odoo areas included:", model_page.text)
         self.assertIn("Contact", model_page.text)
         self.assertIn("res.partner", model_page.text)
-        self.assertIn(
+        self.assertNotIn(
             "No Odoo area was selected, so all available business records are shown.",
+            model_page.text,
+        )
+        self.assertNotIn(
+            "Choose the kinds of Odoo information needed for this workspace.",
             model_page.text,
         )
         self.assertIn(

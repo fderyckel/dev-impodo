@@ -428,6 +428,11 @@ verify retained form choices and unchanged saved evidence. The
 [HTTP read tests](../../../tests/integration/odoo/test_json2_read_failures.py)
 and [diagnostic export tests](../../../tests/integration/web/test_json2_http_diagnostics.py)
 verify status classification, bounded retries, and redacted support evidence.
+The [read-pacing tests](../../../tests/integration/odoo/test_read_pacing.py)
+cover shared HTTP 429 cooldowns and retry budgets. The
+[parallel-read tests](../../../tests/integration/odoo/test_record_read_concurrency.py)
+preserve ordered results and the configured overlap for healthy targets.
+These read-only policies do not enable automatic write retries.
 Source capture can retain a non-stored, related, computed, or read-only
 relationship as provenance. Destination matching excludes that relationship
 from the generic write plan unless destination metadata proves it is a stored,

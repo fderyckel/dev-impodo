@@ -32,6 +32,11 @@ from impodo.application.run.odoo_requirements import (
     OdooCheckSupportingRequirement,
 )
 from impodo.application.shared.performance import performance_phase
+from impodo.application.workspace.mapping.prepared_references import (
+    prepared_reference_rows,
+    reference_projection_columns,
+    resolver_preparations,
+)
 from impodo.application.workspace.mapping.supporting_values import (
     MappingSupportingRelationship,
     MappingSupportingRequirement,
@@ -1665,16 +1670,30 @@ def _capture_mapping_supporting_values(
             tuple[str, tuple[str, ...], tuple[str, ...]],
             tuple[tuple[str, ...], ...],
         ] = {}
+        projections = {}
+        source_rows = {}
+        for requirement in requirements:
+            for source in requirement.sources:
+                identity = (source.dataset_id, source.row_inclusion)
+                columns = reference_projection_columns(
+                    source.source_column_keys,
+                    resolver_preparations(source.source_column_keys, source.reference_mappings),
+                )
+                projections[identity] = tuple(dict.fromkeys((*projections.get(identity, ()), *columns)))
         for requirement in requirements:
             values = set(requirement.constant_values)
             field_count = len((*requirement.key_fields, *requirement.scope_fields))
             for source in requirement.sources:
-                rows = context.categorical_coverage.source_included_key_tuples(
-                    workspace_id,
-                    source.dataset_id,
-                    source.source_column_keys,
-                    source.row_inclusion,
-                    included_parent=parents.get(source.dataset_id),
+                identity = (source.dataset_id, source.row_inclusion)
+                projected = projections[identity]
+                if identity not in source_rows:
+                    source_rows[identity] = context.categorical_coverage.source_included_key_tuples(
+                        workspace_id, source.dataset_id, projected, source.row_inclusion,
+                        included_parent=parents.get(source.dataset_id),
+                    )
+                rows = prepared_reference_rows(
+                    source.source_column_keys, projected, source_rows[identity],
+                    resolver_preparations(source.source_column_keys, source.reference_mappings),
                 )
                 translations = {
                     item.source_value: item.target_value

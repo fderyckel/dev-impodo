@@ -1,0 +1,20 @@
+<div class="mapping-condition-row" data-reference-part>
+  <label>Part type
+    <select data-reference-part-kind>
+      <option value="source" {% if part.kind == 'source' %}selected{% endif %}>Source column</option>
+      <option value="literal" {% if part.kind == 'literal' %}selected{% endif %}>Fixed text</option>
+    </select>
+  </label>
+  <label data-reference-part-source-label {% if part.kind != 'source' %}hidden{% endif %}>Source column
+    <select data-reference-part-source>
+      <option value="">Choose a source column</option>
+      {% for column in view.source.columns %}<option value="{{ column.stable_key }}" {% if part.source == column.stable_key %}selected{% endif %}>{{ column.source_name }}</option>{% endfor %}
+    </select>
+  </label>
+  <label data-reference-part-literal-label {% if part.kind != 'literal' %}hidden{% endif %}>Fixed text
+    <input type="text" value="{{ part.literal }}" maxlength="1000" data-reference-part-literal>
+  </label>
+  <button type="button" class="button secondary compact" data-reference-move-up>Move up</button>
+  <button type="button" class="button secondary compact" data-reference-move-down>Move down</button>
+  <button type="button" class="button secondary compact" data-reference-remove-part>Remove</button>
+</div>

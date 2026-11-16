@@ -81,6 +81,12 @@ from impodo.domain.shared.models import (
 
 from .company_checks import capture_company_checks
 from .external_identity import external_id_bindings, external_id_domain
+from .read_pacing import (
+    READ_RETRY_BUDGET_SECONDS,
+    SHARED_JSON2_READ_PACER,
+    Json2ReadPacer,
+    retry_after_seconds,
+)
 from .read_request_batches import bounded_record_requests
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
@@ -132,7 +138,10 @@ class Json2ReadFailureDiagnostic:
             raise ValueError("JSON-2 failure method is invalid")
         if self.category not in _JSON2_FAILURE_CATEGORIES:
             raise ValueError("JSON-2 failure category is invalid")
-        if not 1 <= self.attempt_count <= 100:
+        if not 0 <= self.attempt_count <= 100 or (
+            self.attempt_count == 0
+            and (self.category != "http" or self.http_status != 429)
+        ):
             raise ValueError("JSON-2 failure attempt count is invalid")
         if self.category == "http":
             if (
@@ -148,6 +157,19 @@ class Json2ReadFailureDiagnostic:
     def user_message(self) -> str:
         """Return a safe, actionable message without transport details."""
 
+        if self.http_status == 429:
+            attempts = (
+                "without sending a request"
+                if self.attempt_count == 0
+                else f"after {self.attempt_count} "
+                f"{'attempt' if self.attempt_count == 1 else 'attempts'}"
+            )
+            return (
+                f"Odoo is limiting read requests (HTTP 429). The {self.method} "
+                f"check for {self.model} could not finish {attempts}. "
+                "Wait before repeating this read; "
+                "Impodo will respect the remaining cooldown."
+            )
         if self.category == "http":
             outcome = (
                 "was unavailable with HTTP 404"
@@ -533,6 +555,7 @@ class Json2ReadConnector:
         *,
         transport: Transport | None = None,
         now: Callable[[], datetime] | None = None,
+        read_pacer: Json2ReadPacer | None = None,
     ) -> None:
         """Create an adapter with injectable HTTP and clock dependencies.
 
@@ -542,6 +565,13 @@ class Json2ReadConnector:
 
         self._config = config
         self._transport_override = transport
+        self._read_pacer = read_pacer or SHARED_JSON2_READ_PACER
+        self._read_target_hash = target_identity_hash(
+            connection_mode=config.connection_mode,
+            base_url=config.base_url,
+            database=config.database,
+        )
+        self._retry_after: float | None = None
         self._transport_bounds_response_bytes = transport is None
         self._transport = transport or (
             lambda url, headers, body, timeout, method: _urllib_transport(
@@ -551,12 +581,18 @@ class Json2ReadConnector:
                 timeout,
                 method,
                 maximum_bytes=config.max_response_bytes,
+                observe_retry_after=self._observe_retry_after,
             )
         )
         self._now = now or (lambda: datetime.now(UTC))
         self._fingerprint: TargetFingerprint | None = None
         self._fingerprint_limitations: tuple[str, ...] = ()
         self._company_domains: dict[tuple[str, str], object] = {}
+
+    def _observe_retry_after(self, value: str | None) -> None:
+        """Retain only a parsed cooldown from the read transport's 429 header."""
+
+        self._retry_after = retry_after_seconds(value, now=self._now())
 
     def get_target_fingerprint(self) -> TargetFingerprint:
         """Read and cache the Odoo version, database, time, and module versions.
@@ -1307,7 +1343,10 @@ class Json2ReadConnector:
                                  configured_workers=performance_spec[2])
             if performance_spec is not None else None
         )
-        child = Json2ReadConnector(self._config, transport=self._transport_override, now=self._now)
+        child = Json2ReadConnector(
+            self._config, transport=self._transport_override, now=self._now,
+            read_pacer=self._read_pacer,
+        )
         failures: list[Json2ReadFailureDiagnostic] = []
         records: tuple[TargetRecord, ...] = ()
         error: Exception | None = None
@@ -1493,9 +1532,11 @@ class Json2ReadConnector:
         """Send one authenticated request with bounded transient retries.
 
         Authentication/database headers are created only at this boundary.
-        Network failures and selected transient HTTP statuses use a short
-        exponential backoff; permanent responses return immediately. Return
-        the actual attempt count alongside the response for safe diagnostics.
+        Read throttling shares a target cooldown and adaptive start spacing.
+        Retry-After is respected within a two-minute retry window; a longer
+        cooldown stops this read without sending an early retry. Network and
+        other transient failures retain their existing short backoff. Return
+        the actual attempt count, including zero for a blocked new read.
         """
 
         headers = {
@@ -1507,16 +1548,39 @@ class Json2ReadConnector:
         if body is not None and len(body) > self._config.max_request_bytes:
             raise ConnectorRequestSizeError("JSON-2 read request exceeds the safe size limit")
         transient_statuses = {429, 502, 503, 504}
+        deadline = self._read_pacer.clock() + READ_RETRY_BUDGET_SECONDS
+        last_status, attempts_sent = 429, 0
+        last_payload: Any = None
+        last_transport_error: HTTPException | OSError | None = None
         for attempt in range(self._config.retries + 1):
+            if not self._read_pacer.wait(self._read_target_hash, deadline=deadline):
+                if not attempts_sent and self._read_pacer.clock() >= deadline:
+                    raise ConnectorTransportError(
+                        "The read retry window ended before a request could "
+                        "start. Try this read again."
+                    )
+                if attempts_sent:
+                    performance_count("rpc_failures")
+                if last_transport_error is not None:
+                    raise _Json2TransportFailure(
+                        category=_json2_transport_failure_category(last_transport_error),
+                        attempt_count=attempts_sent,
+                    ) from last_transport_error
+                return last_status, last_payload, attempts_sent
             performance_count("rpc_calls")
             if attempt:
                 performance_count("rpc_retries")
             try:
+                self._retry_after = None
+                attempts_sent += 1
                 status, payload = self._transport(
                     url,
                     headers,
                     body,
-                    self._config.timeout_seconds,
+                    min(
+                        self._config.timeout_seconds,
+                        max(0.001, deadline - self._read_pacer.clock()),
+                    ),
                     method,
                 )
                 # The production transport already bounds the raw body before
@@ -1533,6 +1597,7 @@ class Json2ReadConnector:
                         "JSON-2 response exceeds the safe limit"
                     )
             except (HTTPException, OSError) as exc:
+                last_transport_error = exc
                 if attempt >= self._config.retries:
                     performance_count("rpc_failures")
                     raise _Json2TransportFailure(
@@ -1541,7 +1606,17 @@ class Json2ReadConnector:
                     ) from exc
                 time.sleep(0.05 * (2**attempt))
                 continue
-            if status in transient_statuses and attempt < self._config.retries:
+            last_transport_error = None
+            last_status, last_payload = status, payload
+            if status == 429:
+                self._read_pacer.defer(
+                    self._read_target_hash,
+                    attempt=attempt,
+                    retry_after=self._retry_after,
+                )
+                if attempt < self._config.retries:
+                    continue
+            elif status in transient_statuses and attempt < self._config.retries:
                 time.sleep(0.05 * (2**attempt))
                 continue
             if status != 200:
@@ -1938,6 +2013,7 @@ def _urllib_transport(
     *,
     maximum_bytes: int = 8 * 1024 * 1024,
     capture_write_error_type: bool = False,
+    observe_retry_after: Callable[[str | None], None] | None = None,
 ) -> tuple[int, Any]:
     """Execute one JSON request without forwarding credentials on redirects.
 
@@ -1962,6 +2038,10 @@ def _urllib_transport(
             return response.status, json.loads(raw or b"null")
     except HTTPError as exc:
         with exc:
+            if exc.code == 429 and observe_retry_after is not None:
+                observe_retry_after(
+                    exc.headers.get("Retry-After") if exc.headers is not None else None
+                )
             return exc.code, (
                 _odoo_write_error_type(exc)
                 if capture_write_error_type and 400 <= exc.code < 600

@@ -144,6 +144,7 @@ owns route, retention, consistency, compatibility and verification details.
 
 | Code to find | Where to start |
 | --- | --- |
+| Odoo data substeps | `web/presenters/schema_journey.py` selects the panel from saved evidence and allowlisted view parameters. `schema.py` supplies the forms, and `navigation.py` shows the same location in the sidebar. |
 | Mapping rules and their row and columnar implementations | `domain/mapping` defines portable rules. `domain/mapping/scalar_values.py` evaluates a row, and `domain/compiler/columnar_transformation.py` and `adapters/polars_transformation.py` compile and run columnar transformations. |
 | Match data pages and save recovery | `web/presenters/mapping_view.py` builds the page. `web/presenters/mapping_journey.py` resolves task locations. `adapters/duckdb/mapping_repository.py` commits the mutation receipt with the change. |
 | Duplicate identities, relationship issues, and required values | Start in `application/workspace/mapping` with `identity_group_review.py`, `relationship_choice_review.py`, `duplicate_rows.py`, and `required_values.py`. The protected identity and relationship reviews page indexed results from the current check. |
@@ -244,6 +245,9 @@ describe which changes invalidate these bindings.
   select scoped adapters. The adapters batch reads by model and use separate
   write authority. `adapters/odoo/read_request_batches.py` partitions oversized
   read domains while preserving their conditions and result limits.
+  `adapters/odoo/read_pacing.py` coordinates bounded process-local read
+  cooldowns and adaptive spacing after HTTP 429 without retaining evidence,
+  credentials, or database connections.
   `application/workspace/execution/identity_lookups.py` resolves
   nested parent keys in groups and keeps numeric IDs within the target
   operation.

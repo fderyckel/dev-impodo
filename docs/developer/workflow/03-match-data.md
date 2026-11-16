@@ -1187,6 +1187,47 @@ inline **Must fix** feedback and saved-draft issue summaries. Browser checks
 are advisory authoring feedback only: `MappingWorkspaceService` and the domain
 semantic validator remain authoritative when JavaScript is absent or bypassed.
 
+### Prepared existing-record references
+
+Mapping contract v25 lets each `ReferenceKeyMapping` carry an optional
+[`ReferencePreparation`](../../../src/impodo/domain/mapping/reference_preparation.py).
+It prepares one related key or scope component while
+retaining the physical source columns as evidence. The editor offers ordered
+source and literal parts or a safe formula. Formula aliases retain explicit
+stable source-column bindings, so Recipe application can rebind a new delivery
+without interpreting an old ordinal as a different column. Prepared mappings
+use Recipe mapping contract v4; unprepared mappings retain their existing
+portable shape.
+
+The reference editor follows its existing-record matching controls. Both the
+ordinary field formula editor and linked reference editor render the same
+visible **Available values** legend, pairing each alias with its source heading.
+For saved references, this legend follows the retained stable bindings rather
+than the source's latest ordinal. An unselected reference rule shows the next
+choice instead of a generic matching-field placeholder.
+
+`prepare_reference_value` owns row evaluation and strict input completeness.
+All-empty source inputs remain null for the owning relationship's established
+policy. Partially populated inputs, invalid formulas, blank output, and
+non-text output fail before lookup. The shared safe interpreter's
+`evaluate_reference_formula` preserves text identifiers; ordinary scalar
+arithmetic retains its existing numeric conversions. Formula and output sizes
+remain bounded. Reference preparation is restricted to target-catalog
+resolution, because incoming fallback identities must retain their original
+keys.
+
+The browser compiler and staging evaluator use private prepared slots rather
+than replacing physical source values. Native text expressions compile through
+[`compile_reference_preparation`](../../../src/impodo/domain/compiler/reference_expression.py)
+and the Polars adapter; unsupported native
+expressions retain an explicit bounded fallback. Stage 3 projects only the
+required columns through its existing bounded read, prepares and groups lookup
+values before target requests, and retains the existing operation scope and
+read limits. Preparing a value does not authorize related-record creation or
+change missing-match and ambiguous-match policies. Review workbook rules show
+the preparation and its source headings while withholding restricted formula
+and literal details.
+
 The browser default-recovery actions save the reviewed `odoo_default`
 disposition before they validate the exact saved working draft. Individual,
 grouped, and freshly captured default decisions each trigger one complete

@@ -2181,6 +2181,15 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             "Impodo could not verify the saved Match data "
                             "operation receipt"
                         )
+                    saved_validation = (
+                        context.queries.get_mapping_validation(workspace_id, expected_parent)
+                        if expected_parent is not None else None
+                    )
+                    if (
+                        saved_validation is not None
+                        and saved_validation.mapping_content_hash != working_draft.content_hash
+                    ):
+                        saved_validation = None
                     return (
                         working_draft,
                         formula_issues,
@@ -2192,7 +2201,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             selection_refresh.governance if selection_refresh else governance,
                             None,
                             working_draft,
-                            validation=None,
+                            validation=saved_validation,
                             formula_issues=formula_issues,
                             recommendation=recommendation,
                         ),

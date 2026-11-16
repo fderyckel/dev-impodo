@@ -266,6 +266,8 @@
                             </div>
                           {% elif not row.related_keys %}<small>Add and confirm a matching rule for this linked Odoo model before using Odoo lookup.</small>{% endif %}
                         </label>
+                        {% set reference_prefix = 'identity_reference_' ~ dataset_index ~ '_' ~ loop.index0 %}
+                        {% include "mapping/_reference_preparation.html" %}
                       {% endif %}
                     </div>
                   {% endfor %}

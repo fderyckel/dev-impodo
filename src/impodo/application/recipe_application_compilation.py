@@ -18,6 +18,10 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from impodo.domain.coverage import CoverageScopeRevision, ReferenceBundle
 from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.mapping.generated_ordering import GeneratedOrdering
+from impodo.domain.mapping.reference_preparation import (
+    ReferencePart,
+    ReferencePreparation,
+)
 from impodo.domain.mapping.source_record_identity import SourceRecordIdentity
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.quality import (
@@ -1783,17 +1787,11 @@ class RecipeApplicationCompiler:
                 str(payload["target_model"]) if payload.get("target_model") else None
             ),
             key_mappings=tuple(
-                ReferenceKeyMapping(
-                    source_column_key=bindings[str(item["source_column_id"])],
-                    target_field=str(item["target_field"]),
-                )
+                self._reference_key(item, bindings)
                 for item in payload.get("target_key_mappings", ())
             ),
             scope_mappings=tuple(
-                ReferenceKeyMapping(
-                    source_column_key=bindings[str(item["source_column_id"])],
-                    target_field=str(item["target_field"]),
-                )
+                self._reference_key(item, bindings)
                 for item in payload.get("target_scope_mappings", ())
             ),
             value_mappings=tuple(
@@ -1807,6 +1805,32 @@ class RecipeApplicationCompiler:
                 str(payload["dataset_projection_field"])
                 if payload.get("dataset_projection_field")
                 else None
+            ),
+        )
+
+    @staticmethod
+    def _reference_key(item, bindings):
+        """Rebind prepared inputs by identity while retaining formula variable names."""
+
+        preparation = item.get("preparation")
+        return ReferenceKeyMapping(
+            source_column_key=bindings[str(item["source_column_id"])],
+            target_field=str(item["target_field"]),
+            preparation=(
+                ReferencePreparation(
+                    formula=preparation["formula"],
+                    bindings=tuple(
+                        (binding["name"], bindings[binding["source_column_id"]])
+                        for binding in preparation["bindings"]
+                    ),
+                    parts=tuple(
+                        ReferencePart(source_column_key=bindings[part["source_column_id"]])
+                        if "source_column_id" in part
+                        else ReferencePart(literal=part["literal"])
+                        for part in preparation["parts"]
+                    ),
+                )
+                if preparation is not None else None
             ),
         )
 

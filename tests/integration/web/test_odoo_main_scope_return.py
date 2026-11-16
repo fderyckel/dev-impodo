@@ -22,6 +22,7 @@ from impodo.domain.workspace.contracts import (
     SchemaOrigin,
 )
 from impodo.domain.workspace.workbench import OdooConnectionMode
+from impodo.web.presenters.schema import _render
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.browser_scenarios import (
     ProjectSetupBrowserTestCase,
@@ -206,8 +207,11 @@ class OdooMainScopeReturnTests(ProjectSetupBrowserTestCase):
                     workspace, _schema = self._expanded_workspace(major, mode)
                     workspace_id = workspace.workspace_id
                     before = self._saved_evidence(workspace_id)
-                    page = self.client.get(f"/workspaces/{workspace_id}/schema")
+                    with patch("impodo.web.presenters.schema._render", wraps=_render) as render:
+                        page = self.client.get(f"/workspaces/{workspace_id}/schema?step=matching")
                     self.assertEqual(page.status_code, 200, page.text)
+                    self.assertFalse(render.call_args.kwargs["schema_journey"]["enabled"])
+                    self.assertNotIn("data-schema-journey", page.text)
                     self.assertEqual(
                         _SelectedMainRecords(page.text).selected, {"x.root"}
                     )

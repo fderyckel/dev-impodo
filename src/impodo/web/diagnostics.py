@@ -559,7 +559,7 @@ class LocalDiagnosticRecorder:
                     failure.category,
                     fallback="unreachable",
                 ),
-                "attempt_count": max(1, min(100, int(failure.attempt_count))),
+                "attempt_count": max(0, min(100, int(failure.attempt_count))),
                 **(
                     {"odoo_status_code": failure.http_status}
                     if failure.http_status is not None
@@ -1365,7 +1365,7 @@ def _sanitize_diagnostic_record(value: Any) -> dict[str, Any] | None:
         "pass_number": (0, 100),
         "total_record_types": (0, 10_000),
         "new_record_types": (0, 10_000),
-        "attempt_count": (1, 100),
+        "attempt_count": (0, 100),
         "odoo_status_code": (100, 599),
     }
     for field, (minimum, maximum) in integer_fields.items():

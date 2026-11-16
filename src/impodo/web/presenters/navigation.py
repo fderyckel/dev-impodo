@@ -35,6 +35,7 @@ from ..workspace_journeys import (
     classify_workspace_journey,
 )
 from .mapping_journey import resolve_mapping_journey
+from .schema_journey import SchemaJourney, resolve_schema_journey
 
 
 @dataclass(frozen=True, slots=True)
@@ -257,6 +258,7 @@ def build_workspace_navigation(
     workspace_view: WorkspaceOwnerView | None = None,
     run_setup_complete: bool | None = None,
     fresh_data_complete: bool | None = None,
+    schema_journey: SchemaJourney | None = None,
     mapping_step: str | None = None,
     review_step: str | None = None,
     transfer_review_step: str | None = None,
@@ -271,6 +273,7 @@ def build_workspace_navigation(
         template_name,
         current_path=current_path,
         migration_project_name=migration_project_name,
+        schema_journey=schema_journey,
         mapping_step=mapping_step,
         review_step=review_step,
         transfer_review_step=transfer_review_step,
@@ -353,6 +356,7 @@ def _build_authoring_workspace_navigation(
     *,
     current_path: str = "",
     migration_project_name: str | None = None,
+    schema_journey: SchemaJourney | None = None,
     mapping_step: str | None = None,
     review_step: str | None = None,
     transfer_review_step: str | None = None,
@@ -969,6 +973,21 @@ def _build_authoring_workspace_navigation(
 
     schema_complete = facts.schema_complete
     schema_attention = facts.schema_attention
+    schema_journey = schema_journey or resolve_schema_journey(
+        {},
+        enabled=True,
+        records_complete=facts.schema_present and not schema_attention,
+        records_attention=schema_attention,
+        related_complete=facts.governance_present and not schema_attention,
+        matching_complete=schema_complete and not schema_attention,
+        schema_href=f"/workspaces/{workspace_id}/schema",
+    )
+    if template_name == "workspace_schema.html" and schema_journey["enabled"]:
+        viewed_page_label = next(
+            step["label"]
+            for step in schema_journey["steps"]
+            if step["key"] == schema_journey["step"]
+        )
     stages.append(
         _stage(
             workspace_id,
@@ -987,13 +1006,24 @@ def _build_authoring_workspace_navigation(
                 else ("Complete" if schema_complete else "Current")
             ),
             pages=(
-                _page(
-                    workspace_id,
-                    "schema",
-                    "Choose Odoo records",
-                    "/schema",
-                    complete=schema_complete,
-                ),
+                tuple(
+                    WorkflowPage(
+                        page_id=f"schema-{step['key']}",
+                        label=step["label"],
+                        href=step["href"],
+                        status=step["status"],
+                        status_label=step["status_label"],
+                        optional=step["status"] == "optional",
+                    )
+                    for step in schema_journey["steps"]
+                )
+                if schema_journey["enabled"]
+                else (
+                    _page(
+                        workspace_id, "schema", "Choose Odoo records", "/schema",
+                        complete=schema_complete,
+                    ),
+                )
             ),
         )
     )

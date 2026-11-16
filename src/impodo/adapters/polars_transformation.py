@@ -22,6 +22,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from impodo.adapters.polars_reference import prepared_reference_expressions
 from impodo.application.data_version.source_snapshots import (
     validate_source_snapshot_path,
 )
@@ -49,6 +50,7 @@ from ..domain.compiler.columnar_transformation import (
     ColumnarExpressionStep,
     ColumnarIdentityComponentProgram,
     ColumnarIdentityResolverProgram,
+    ColumnarInputColumn,
     ColumnarOperationKind,
     ColumnarRelationshipProgram,
     ColumnarScalarFieldProgram,
@@ -95,6 +97,7 @@ _ERROR_REQUIRED = "__required__"
 _ERROR_PREPARED_REQUIRED = "__prepared_required__"
 _ERROR_PARSE = "__parse__"
 _ERROR_PARTIAL_OPTIONAL_REFERENCE = "__partial_optional_reference__"
+_ERROR_REFERENCE_PREFIX = "__reference_preparation__:"
 
 
 def _required_step_argument[StepArgument](
@@ -478,24 +481,27 @@ def _compile_lazy_transformation(
         scalar_issue_expressions.append(_issue_expression("scalar", index, error))
 
     source_identity, source_prepared, source_values, source_issues = (
-        _compile_identity_group(program.source_identity, "source_identity")
+        _compile_identity_group(program.source_identity, "source_identity", source_inputs=program.inputs)
     )
     target_identity, target_prepared, target_values, target_issues = (
         _compile_identity_group(
             program.target_identity,
             "target_identity",
             identity_resolvers=_identity_resolvers(program, "target_identity"),
+            source_inputs=program.inputs,
         )
     )
     target_scope, scope_prepared, scope_values, scope_issues = _compile_identity_group(
         program.target_scope,
         "target_scope",
         identity_resolvers=_identity_resolvers(program, "target_scope"),
+        source_inputs=program.inputs,
     )
     relationships, relationship_prepared, relationship_values, relationship_issues = (
         _compile_identity_group(
             tuple(item.key for item in program.relationships),
             "relationship",
+            source_inputs=program.inputs,
             blank_source_values=tuple(
                 item.blank_source_values for item in program.relationships
             ),
@@ -575,20 +581,24 @@ def _execution_layout(
     source_identity = _compile_identity_group(
         program.source_identity,
         "source_identity",
+        source_inputs=program.inputs,
     )[0]
     target_identity = _compile_identity_group(
         program.target_identity,
         "target_identity",
         identity_resolvers=_identity_resolvers(program, "target_identity"),
+        source_inputs=program.inputs,
     )[0]
     target_scope = _compile_identity_group(
         program.target_scope,
         "target_scope",
         identity_resolvers=_identity_resolvers(program, "target_scope"),
+        source_inputs=program.inputs,
     )[0]
     relationships = _compile_identity_group(
         tuple(item.key for item in program.relationships),
         "relationship",
+        source_inputs=program.inputs,
         blank_source_values=tuple(
             item.blank_source_values for item in program.relationships
         ),
@@ -1429,6 +1439,7 @@ def _compile_identity_group(
     pre_normalization_mappings: Iterable[tuple[tuple[str, str], ...]] = (),
     blank_source_values: tuple[tuple[str, ...], ...] = (),
     identity_resolvers: Iterable[ColumnarIdentityResolverProgram] = (),
+    source_inputs: tuple[ColumnarInputColumn, ...] = (),
 ) -> tuple[
     tuple[_IdentityComponentLayout, ...],
     list[pl.Expr],
@@ -1440,6 +1451,7 @@ def _compile_identity_group(
     value_expressions: list[pl.Expr] = []
     issue_expressions: list[pl.Expr] = []
     error_index = 0
+    inputs_by_key = {item.stable_key: item for item in source_inputs}
     mappings_by_component = tuple(pre_normalization_mappings)
     resolvers_by_component = {
         item.component_index: item for item in identity_resolvers
@@ -1501,6 +1513,14 @@ def _compile_identity_group(
                 if source is not None
                 else pl.lit(literal_value, dtype=pl.String)
             )
+            reference_error = pl.lit(None, dtype=pl.String)
+            if component.reference_preparations:
+                preparation = component.reference_preparations[source_index]
+                if preparation is not None:
+                    raw, reference_error = prepared_reference_expressions(
+                        preparation,
+                        lambda key: pl.col(source_value_column(inputs_by_key[key].ordinal)),
+                    )
             if component_index < len(blank_source_values) and blank_source_values[component_index]:
                 raw = pl.when(
                     raw.str.strip_chars().is_in(blank_source_values[component_index])
@@ -1554,7 +1574,9 @@ def _compile_identity_group(
                     )
                 value_expressions.append(target_value.alias(target_value_alias))
             error = (
-                pl.when(pl.col(normalized_alias).is_null() & pl.lit(component.required))
+                pl.when(reference_error.is_not_null())
+                .then(pl.lit(_ERROR_REFERENCE_PREFIX) + reference_error)
+                .when(pl.col(normalized_alias).is_null() & pl.lit(component.required))
                 .then(pl.lit(_ERROR_REQUIRED))
                 .when(parse_invalid)
                 .then(pl.lit(_ERROR_PARSE))
@@ -2320,7 +2342,8 @@ def _row_issues(
                 if error is not None:
                     issues.append(
                         Issue(
-                            code=component.component.failure_code,
+                            code=("REFERENCE_PREPARATION_INVALID" if error.startswith(_ERROR_REFERENCE_PREFIX)
+                                  else component.component.failure_code),
                             message=_identity_error_message(
                                 error,
                                 item,
@@ -2370,7 +2393,8 @@ def _row_issues(
                 continue
             issues.append(
                 Issue(
-                    code=relationship.key.failure_code,
+                    code=("REFERENCE_PREPARATION_INVALID" if error.startswith(_ERROR_REFERENCE_PREFIX)
+                          else relationship.key.failure_code),
                     message=_identity_error_message(
                         error,
                         item,
@@ -2457,6 +2481,8 @@ def _identity_error_message(
     layout: _IdentityValueLayout,
     raw: tuple[object, int],
 ) -> str:
+    if error.startswith(_ERROR_REFERENCE_PREFIX):
+        return error.removeprefix(_ERROR_REFERENCE_PREFIX)
     if error == _ERROR_REQUIRED:
         return "required value is empty"
     if error == _ERROR_PARSE:

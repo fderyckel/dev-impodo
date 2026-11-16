@@ -30,6 +30,7 @@ from impodo.domain.workspace.contracts import SourceSelection
 
 from ..errors import ReadinessError
 from ..mapping.contracts import (
+    IdentityComponentMapping,
     MappingDefinition,
     RelationshipResolver,
     RelationshipValueSource,
@@ -39,7 +40,11 @@ from ..mapping.contracts import (
     relationship_target_fields,
 )
 from ..mapping.create_field_policy import required_create_hook_inputs
-from ..staging.fields import synthetic_field, synthetic_relationship_field
+from ..staging.fields import (
+    synthetic_field,
+    synthetic_identity_field,
+    synthetic_relationship_field,
+)
 from .contracts import CompiledMigrationPlan
 
 
@@ -59,6 +64,18 @@ def _scalar_type(value: str) -> ScalarType:
     if value == "datetime":
         return "datetime"
     raise ReadinessError(f"Unsupported browser scalar type: {value}")
+
+
+def _identity_source_fields(component: IdentityComponentMapping, role: str, index: int) -> tuple[str, ...]:
+    """Keep prepared reference values private to their identity consumer."""
+
+    if component.resolver is not None and any(
+        item.preparation is not None
+        for item in (*component.resolver.key_mappings, *component.resolver.scope_mappings)
+    ):
+        return tuple(synthetic_identity_field(role, index, source_index)
+                     for source_index, _ in enumerate(component.source_column_keys))
+    return component.source_column_keys
 
 
 def _null_policy(
@@ -317,7 +334,7 @@ def compile_browser_mapping(
                 target_identity=TargetIdentitySpec(
                     components=tuple(
                         IdentityComponent(
-                            source_fields=item.source_column_keys,
+                            source_fields=_identity_source_fields(item, "target_identity", index),
                             target_fields=item.target_fields,
                             type=_scalar_type(item.value_type),
                             normalize=identity_normalization,
@@ -328,11 +345,11 @@ def compile_browser_mapping(
                             ),
                             null_policy=item.null_policy.value,
                         )
-                        for item in mapping.target_identity
+                        for index, item in enumerate(mapping.target_identity)
                     ),
                     scope=tuple(
                         IdentityComponent(
-                            source_fields=item.source_column_keys,
+                            source_fields=_identity_source_fields(item, "target_scope", index),
                             target_fields=item.target_fields,
                             type=_scalar_type(item.value_type),
                             normalize=identity_normalization,
@@ -343,7 +360,7 @@ def compile_browser_mapping(
                             ),
                             null_policy=item.null_policy.value,
                         )
-                        for item in mapping.target_scope
+                        for index, item in enumerate(mapping.target_scope)
                     ),
                 ),
                 fields=scalar_fields,

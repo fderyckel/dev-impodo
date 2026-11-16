@@ -67,6 +67,7 @@ from ..target_credentials import (
     get_target_credential_status,
 )
 from .common import _render
+from .schema_journey import resolve_schema_journey
 from .supporting_models import supporting_model_plan_view
 from .supporting_review import supporting_review_view
 
@@ -810,9 +811,70 @@ def _render_schema(
         selected_models=selected_models,
         automatic_supporting_models=automatic_supporting_models,
     )
+    schema_current = bool(
+        schema is not None
+        and schema.origin is SchemaOrigin.LIVE_API
+        and schema.pending_refresh is None
+    )
+    related_error = bool(
+        supporting_review
+        and (supporting_review["error"] or supporting_review["save_error"])
+    )
+    related_complete = bool(
+        supporting_review and supporting_review["current"] and not related_error
+    )
+    related_optional = bool(
+        supporting_review
+        and not related_complete
+        and not related_error
+        and not any(row["required"] for row in supporting_review["rows"])
+    )
+    matching_failure = bool(
+        request.method == "POST"
+        and request.url.path.endswith("/schema/govern")
+        and status_code >= 400
+    )
+    preferred_step = ""
+    if schema_load_failed or (schema is not None and schema.pending_refresh):
+        preferred_step = "records"
+    elif supporting_save_error is not None or (
+        request.method == "POST" and "/schema/supporting/" in request.url.path
+    ):
+        preferred_step = "related"
+    elif key_drafts is not None or key_errors or (
+        request.method == "POST" and request.url.path.endswith("/schema/govern")
+    ):
+        preferred_step = "matching"
+    elif request.method == "POST":
+        preferred_step = "records"
+    schema_journey = resolve_schema_journey(
+        request.query_params,
+        enabled=workspace_state.source_mode.value == "FILE" and odoo_check_plan is None,
+        records_complete=schema_current,
+        records_attention=bool(
+            schema_load_failed or (schema is not None and not schema_current)
+        ),
+        related_complete=related_complete,
+        related_attention=related_error,
+        related_optional=related_optional,
+        matching_complete=bool(
+            schema_current
+            and governance
+            and not key_drafts
+            and key_summary["confirmed"] == key_summary["total"]
+            and not issue_summary.must_fix_count
+        ),
+        matching_attention=bool(
+            matching_failure or key_errors
+            or (schema_current and key_summary["needs_attention"])
+        ),
+        preferred_step=preferred_step,
+        schema_href=f"/workspaces/{workspace_id}/schema",
+    )
     return _render(
         request,
         "workspace_schema.html",
+        schema_journey=schema_journey,
         workspace_state=workspace_state,
         _read_credential_status=(workspace_state, read_credential_status),
         selection=selection,

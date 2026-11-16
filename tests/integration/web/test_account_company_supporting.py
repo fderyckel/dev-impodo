@@ -260,7 +260,11 @@ class AccountCompanySupportingTests(ProjectSetupBrowserTestCase):
                         collect_duckdb_request_timings() as check_timings,
                     ):
                         connector.return_value.get_model_metadata.side_effect = (
-                            lambda *_: (assert_released(), metadata)[1]
+                            lambda *_, include_create_defaults: (
+                                assert_released(),
+                                self.assertFalse(include_create_defaults),
+                                metadata,
+                            )[2]
                         )
                         connector.return_value.get_records.side_effect = lambda *_: (
                             assert_released(),

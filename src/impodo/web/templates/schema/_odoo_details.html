@@ -1,0 +1,151 @@
+<section class="form-card schema-odoo-details" aria-label="Odoo details">
+      <p id="odoo-details">{% if is_recipe_run_setup %}Recipe-required Odoo record types{% else %}Main Odoo record types selected{% endif %}: <strong>{% if is_recipe_run_setup %}{{ odoo_check_models|length }}{% else %}{{ odoo_root_model_count }}{% endif %}</strong>{% if not is_recipe_run_setup and automatic_supporting_model_count %} <small>Impodo also keeps {{ automatic_supporting_model_count }} linked record type{% if automatic_supporting_model_count != 1 %}s{% endif %} automatically.</small>{% endif %}</p>
+    {% if schema_journey.enabled %}
+    <details class="schema-capture-details" {% if not schema or schema_load_failed or schema.pending_refresh or schema.origin.value == 'LOCAL_MANUAL' %}open{% endif %}>
+      <summary>Odoo fields{% if schema %} <small>{{ schema_field_count }} available</small>{% endif %}</summary>
+    {% endif %}
+    {% if schema_load_failed %}
+      <div
+        class="notice error"
+        id="odoo-load-error"
+        role="alert"
+        tabindex="-1"
+        data-schema-load-error
+      >
+        <strong>{% if is_recipe_run_setup %}The Recipe requirements are saved, but their Odoo details could not be loaded.{% else %}Your Odoo choices were saved, but their details could not be loaded.{% endif %}</strong>
+        <p>Retry below; your choices are saved.</p>
+        {% if support_error %}
+          <details class="technical-details">
+            <summary>Support details</summary>
+            <code>{{ support_error }}</code>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
+    {% if schema and schema.pending_refresh %}
+      {% set pending = schema.pending_refresh %}
+      <section class="notice warning" id="odoo-schema-changes" role="alert">
+        <strong>Odoo details changed.</strong>
+        <p>Review these changes before replacing your saved Odoo details.</p>
+        <ul>
+          {% for change in pending.changes %}
+            <li>
+              <strong>{{ change.model_label }}{% if change.field_label %} · {{ change.field_label }}{% endif %}</strong>
+              — {{ change.description }}
+              <small><code>{{ change.model_name }}{% if change.field_name %}.{{ change.field_name }}{% endif %}</code></small>
+            </li>
+          {% endfor %}
+        </ul>
+        {% if pending.change_count > pending.changes|length %}
+          <p>{{ pending.change_count - pending.changes|length }} more change(s) are included in this checked snapshot.</p>
+        {% endif %}
+        <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture/confirm">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="expected_current_content_hash" value="{{ pending.expected_current_content_hash }}">
+          <input type="hidden" name="candidate_id" value="{{ pending.candidate_id }}">
+          <input type="hidden" name="candidate_semantic_hash" value="{{ pending.semantic_hash }}">
+          {% if carry_mapping %}
+          <input type="hidden" name="confirm_schema_refresh" value="1">
+          <input type="hidden" name="working_version" value="{{ refresh_draft.version if refresh_draft else '' }}">
+          <p>Apply these optional fields and keep your field matches and matching rules. Check your matches again before preparing data.</p>
+          <button class="button primary" type="submit">Apply new optional fields</button>
+          {% else %}
+          <label class="checkbox">
+            <input type="checkbox" name="confirm_schema_refresh" value="1" required>
+            I understand that using these updated Odoo details retires matching and prepared work that depends on the current details
+          </label>
+          <button class="button primary" type="submit">Use updated Odoo details</button>
+          {% endif %}
+        </form>
+      </section>
+    {% elif schema and schema.origin.value != 'LOCAL_MANUAL' %}
+      <div class="notice stack-ready" role="status">
+        <strong>Odoo details are ready.</strong>
+        {{ schema_field_count }} fields are available across {{ schema.models|length }} {% if is_recipe_run_setup %}Recipe-required record type(s){% else %}choice(s){% endif %}.
+      </div>
+    {% endif %}
+    {% if model_catalog or schema %}
+      <details class="technical-evidence">
+        <summary>Support details</summary>
+        {% if model_catalog %}
+          <p>
+            {{ model_catalog.models|length }} persistent models captured from
+            <code>{{ model_catalog.database }}</code> on Odoo {{ model_catalog.odoo_version }} at
+            {{ model_catalog.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+          </p>
+        {% endif %}
+        {% if schema and schema.origin.value != 'LOCAL_MANUAL' %}
+          <p>
+            {{ schema_field_count }} effective fields captured from
+            <code>{{ schema.database }}</code> at {{ schema.captured_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+            The snapshot includes inherited fields and is used without another Odoo call.
+            {% if schema.last_checked_at %}
+              Impodo last checked these details at {{ schema.last_checked_at.strftime("%Y-%m-%d %H:%M UTC") }}.
+            {% endif %}
+          </p>
+        {% endif %}
+      </details>
+    {% endif %}
+    {% if not is_recipe_run_recovery and (is_recipe_run_setup or schema_load_failed or schema or (not model_catalog and workspace_state.intended_models)) %}
+      <form method="post" action="{% if is_recipe_run_setup %}/projects/{{ migration_context.project_id }}/{{ setup_route_kind }}/{{ migration_context.migration_run_id }}/odoo/check{% else %}/workspaces/{{ workspace_id }}/schema/capture{% endif %}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        {% if is_recipe_run_setup %}
+          <input type="hidden" name="expected_workspace_revision" value="{{ migration_project.optimistic_revision }}">
+          <input type="hidden" name="operation_id" value="{{ operation_id }}">
+        {% endif %}
+        <div class="actions">
+          <button
+            class="button {% if not schema or schema.origin.value == 'LOCAL_MANUAL' or schema_load_failed %}primary{% else %}secondary{% endif %}"
+            type="submit"
+            {% if odoo_check_disabled %}disabled{% endif %}
+          >
+            {% if is_recipe_run_setup %}
+              Check this Odoo
+            {% elif schema_load_failed %}
+              Try loading details again
+            {% elif schema and schema.origin.value == 'LOCAL_MANUAL' %}
+              Check selected data with Odoo
+            {% elif schema and schema.pending_refresh %}
+              Check Odoo again
+            {% elif schema %}
+              Check for Odoo changes
+            {% else %}
+              Load saved Odoo data
+            {% endif %}
+          </button>
+        </div>
+        {% if odoo_check_disabled %}
+          <div class="notice warning">
+            {% if is_recipe_run_setup and not workspace_state.odoo_company %}
+              Before reading company-specific values for this run, <a href="/workspaces/{{ workspace_id }}/mapping#odoo-operation-company">choose its company in Match data</a>.
+            {% elif workspace_state.source_mode.value == 'FILE' and not selection %}
+              The accepted fresh data is unavailable. Return to Fresh data and accept it before checking Odoo.
+            {% elif is_recipe_run_setup and not odoo_check_models %}
+              The selected Recipe requirements are unavailable. Return to the run and review the saved Recipe versions.
+            {% elif schema and schema.pending_refresh %}
+              Review the detected Odoo changes above before checking these defaults.
+            {% elif not local_reader_ready %}
+              Reconnect the saved local Odoo installation before checking these defaults.
+            {% endif %}
+          </div>
+        {% elif schema and schema.origin.value != 'LOCAL_MANUAL' and not schema_load_failed %}
+          <small>{% if is_recipe_run_setup and setup_route_kind == 'production-runs' %}Impodo will check the fields and current supporting values, then open Production readiness to review write access.{% elif is_recipe_run_setup %}Impodo will check the fields and current supporting values, then create the Recipe work areas when everything is ready.{% endif %}</small>
+        {% elif local_mode and workspace_state.intended_models and not local_stack.profile %}
+          <small>The saved choices remain available. Find local Odoo before loading their details.</small>
+        {% endif %}
+      </form>
+    {% endif %}
+    {% if is_recipe_run_setup and local_mode and not local_reader_ready %}
+      <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="button primary" type="submit">Reconnect local Odoo</button>
+      </form>
+    {% endif %}
+    {% if schema_journey.enabled %}</details>{% endif %}
+    <div class="actions">
+      <a class="button secondary" href="{% if is_recipe_run_recovery %}/projects/{{ migration_context.project_id }}/runs/{{ migration_context.migration_run_id }}{% elif is_recipe_run_setup %}/projects/{{ migration_context.project_id }}/{{ setup_route_kind }}/{{ migration_context.migration_run_id }}/fresh-data{% else %}/workspaces/{{ workspace_id }}/{% if workspace_state.source_mode.value == 'ODOO' %}overview{% else %}datasets{% endif %}{% endif %}">{% if is_recipe_run_recovery %}Back to run{% elif is_recipe_run_setup %}Back to Fresh data{% elif workspace_state.source_mode.value == 'ODOO' %}Back to overview{% else %}Back to tables{% endif %}</a>
+      {% if schema_journey.enabled and schema and not schema_load_failed and not schema.pending_refresh %}
+        <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=related">Continue to related values</a>
+      {% endif %}
+    </div>
+</section>

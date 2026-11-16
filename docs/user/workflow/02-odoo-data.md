@@ -62,23 +62,23 @@ user's default company does not silently choose those values for you.
 
 ### Choose record types and supporting data
 
-1. Open **Odoo data**. In an Odoo-source project this is shown first as
-   **Odoo source data**.
-2. Select **Show available Odoo data**.
-3. Choose the top-level business record types included in the approved scope.
-4. Select **Save record types**. For a file source, Impodo opens the related
-   value choices when they are available.
-5. Under **Choose where related values come from**, choose a source for each
-   required relationship, then select **Save choices** below the list. Expand
-   **Supporting data Impodo found** to preview how Impodo handles direct
-   relationships.
-6. Review fields, types, required values, selections, and relationships.
-7. For a file-source migration, review the matching rule that Impodo prepared
-   for each supported writable record type. Change a rule when the proposed
-   identity does not fit the migration, resolve every **Needs attention** card,
-   then confirm the complete set once.
-8. For an Odoo source, continue to **Source data**. Impodo prepares the bounded
-   relationship and field plans there and asks only about named exceptions.
+When creating rules for a file-source migration, **Odoo data** has three
+substeps in the sidebar. Open a substep to review or change its choices.
+
+| Substep | What to do |
+| --- | --- |
+| **Choose records** | Select **Show available Odoo data**, choose the business record types, then select **Save record types**. Impodo loads their fields and opens the related-value review. |
+| **Related values** | Choose a source for each required relationship, then select **Save choices**. Open **Supporting data Impodo found** for the relationship preview. Select **Continue to matching rules** when ready. |
+| **Matching rules** | Review each record type's suggested rule and available fields. Correct any **Needs attention** item, then confirm the complete set once to continue to **Match data**. |
+
+Switching substeps keeps your unsaved entries in the open page. Use the save
+and confirmation buttons to keep your decisions. A substep becomes
+**Complete** when its saved choices satisfy the existing checks.
+
+For an Odoo source, open **Odoo source data**, choose the record types, and
+select **Save record types**. Continue to **Source data** for the bounded
+relationship and field plans. Recipe runs keep their saved requirements and
+the existing Odoo check.
 
 If you return and save the same main record types, Impodo keeps the linked
 records, captured fields, and saved plans. Changing the main selection starts
@@ -93,8 +93,6 @@ capture options**. New plans leave **Created on** unticked; you can include it
 deliberately when you need the original creation date in the backup. Request
 size changes batching, not membership. Numeric Odoo record identifiers and modification
 timestamps remain protected provenance and are not selectable source values.
-
-![Odoo record-type selection with fictional migration data.](../../images/user/08-odoo-models.png)
 
 The Odoo supporting-data review uses direct relationships in the captured live
 schema. It keeps automatically reached support separate from the main record
@@ -122,9 +120,9 @@ no preselected answer.
 ### Review support for accepted file data
 
 For a file-source migration, choose how each required relationship will be
-supplied, then select **Save choices**. For example, Contacts can
-reuse existing Odoo Countries without putting Countries into the migration's
-write scope. Opening or saving this review does not contact Odoo.
+supplied under **Related values**, then select **Save choices**. For example,
+Contacts can reuse existing Odoo Countries without putting Countries into the
+migration's write scope. Opening or saving this review does not contact Odoo.
 
 You can choose **Reuse existing Odoo records**, **Use the checked Odoo default**,
 or **Handled by Odoo** when the captured field supports that choice. You can
@@ -143,8 +141,6 @@ the standard Product variant relationship. Odoo creates those variants when
 it creates the Product, so you do not need a separate incoming variants table.
 Keep **Product · Product Category** connected to your category hierarchy table
 when those categories are incoming data. Then select **Save choices**.
-
-![The Product variant relationship has a saved Handled by Odoo choice and no incoming-table requirement.](../../images/user/08k-product-variant-support.png)
 
 After saving reuse choices, **Check existing Odoo values** explicitly
 reads their reviewed matching and display fields. Several relationships that
@@ -170,22 +166,19 @@ required relationships before allowing you to continue.
 Impodo preserves your accepted data and matching rules. It blocks
 confirmation until the required supporting choices are current.
 
-![Saved file-source choices reuse existing Countries for two Contact relationships without adding Countries to the write scope.](../../images/user/08i-file-supporting-choices.png)
-
 ### Choose how existing records are found
+
+Open **Matching rules** and select a record type to inspect its rule and
+available fields. Confirmation saves the complete set of rules.
 
 Select the question mark beside **Tell Impodo how to find existing records**
 to open this explanation while keeping your matching choices available in
 Impodo.
 
-![A question mark beside the Odoo matching-rule heading opens the explanation for choosing record identities.](../../images/user/08h-odoo-decision-help.png)
-
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved
 rule, select **Confirm suggested matching rules**. The suggested values are
 already in the form; you do not need to select a suggestion on every card.
-
-![Stage 2 summary with three suggested matching rules ready for one confirmation.](../../images/user/08b-odoo-business-keys.png)
 
 For a child record, **Within** can identify the owning parent. For example,
 Impodo proposes:
@@ -208,14 +201,10 @@ can legitimately appear more than once in one BoM, so **Component within Parent
 BoM** remains an advanced override rather than the default. Use **Change
 suggested rule** when the functional owner has approved a different identity.
 
-![Suggested Product matching rule with its Odoo-convention warning.](../../images/user/08d-odoo-matching-rule-warning.png)
-
 If you change a suggestion, Impodo keeps the changed values in the form when
 another card needs correction. After confirmation and reopening, the reviewed
 override remains the matching rule instead of being replaced by the original
 suggestion.
-
-![Advanced Product matching-rule override kept after validation.](../../images/user/08e-odoo-matching-rule-override.png)
 
 Impodo leaves a record type as **Needs attention** when Odoo exposes several
 possible unique rules or no reviewed rule. It does not guess from a field name
@@ -223,9 +212,7 @@ or translated label. A convention warning also remains visible because Prepare
 data and Final review must still prove that the actual values are populated and
 unique.
 
-![Unresolved custom record type shown as Needs attention.](../../images/user/08f-odoo-matching-rule-attention.png)
-
-After the first capture, **Check for Odoo changes** reads the same selected
+Under **Choose records**, **Check for Odoo changes** reads the same selected
 record types again. If their technical Odoo details are unchanged, Impodo
 records the successful check and keeps the current mapping and later review
 work. A new check time or translated display label does not replace that work.
@@ -255,8 +242,6 @@ category, rounding, and unit-type fields. Impodo shows the native fields from
 the connected database. It does not treat an Odoo 19 field as an automatic
 alias, and it does not treat a unit category and a reference unit as the same
 business concept.
-
-![Current Odoo record-type selection for a fictional data project workspace.](../../images/user/08-odoo-models.png)
 
 ## How Recipes reuse this work
 

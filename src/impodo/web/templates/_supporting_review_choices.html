@@ -47,6 +47,9 @@
     <input type="hidden" name="expected_version" value="{{ supporting_review.version }}">
     <input type="hidden" name="operation_id" value="{{ supporting_review.operation_id }}">
     <input type="hidden" name="choice_count" value="{{ supporting_review.rows|length }}">
+{% if schema_journey is defined and schema_journey.enabled and not inline_supporting_review %}
+  {% include "schema/_related_groups.html" %}
+{% else %}
 {% set optional = namespace(count=0) %}
 <div class="supporting-review-list">
   {% for row in supporting_review.rows %}
@@ -69,3 +72,5 @@
     </details>
   {% endif %}
 </div>
+
+{% endif %}

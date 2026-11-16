@@ -559,14 +559,20 @@
           <h2>{{ root_capture_selections|length }} main record type{% if root_capture_selections|length != 1 %}s{% endif %} selected</h2>
           {% if linked_capture_selections %}
             <p>Impodo also prepared {{ linked_capture_selections|length }} automatic linked-value support record type{% if linked_capture_selections|length != 1 %}s{% endif %}.</p>
+            <p>Impodo reads only the supporting records reached from your main records, using the reviewed handling for each link.</p>
           {% endif %}
         </div>
         <span class="status registered">{{ root_capture_selections|length }} main · {{ linked_capture_selections|length }} linked support</span>
       </div>
       {% if plans_complete %}
         <div class="notice success">
+          {% if related_data_scope.complete %}
           <strong>Capture-plan setup is complete.</strong>
           <p>You do not need to open and configure every record type. Review the summary below, then count the selected source records.</p>
+          {% else %}
+          <strong>Main record fields are saved.</strong>
+          <p>Finish the related-data review so Impodo can prepare only the supporting values needed for these records.</p>
+          {% endif %}
         </div>
       {% endif %}
       <div class="capture-history-list">

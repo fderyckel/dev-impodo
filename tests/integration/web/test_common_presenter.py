@@ -6,6 +6,22 @@ from impodo.web.presenters.common import _plain_ui_error
 
 
 class CommonPresenterTests(unittest.TestCase):
+    def test_capture_admission_failure_does_not_claim_odoo_is_unavailable(self):
+        raw = "Prepared Odoo capture plans do not match the prepared schema"
+        plain, support = _plain_ui_error(raw)
+        self.assertIn("could not finish preparing the capture plans", plain)
+        self.assertIn("Reload the page", plain)
+        self.assertNotIn("Confirm that Odoo is available", plain)
+        self.assertEqual(support, raw)
+
+    def test_http_429_explains_the_cooldown_in_the_main_message(self):
+        raw = "Odoo is limiting read requests (HTTP 429). Wait before repeating this read."
+        plain, support = _plain_ui_error(raw)
+        self.assertIn("Odoo is limiting requests", plain)
+        self.assertIn("remaining cooldown", plain)
+        self.assertNotIn("connection details", plain)
+        self.assertEqual(support, raw)
+
     def test_odoo_http_404_does_not_assert_the_server_is_unreachable(self) -> None:
         raw = (
             "Odoo JSON-2 fields_get read for x.missing.model "

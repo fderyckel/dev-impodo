@@ -1,5 +1,91 @@
 /* Odoo-data review decisions; shared workflow styles remain in workflow-pages.css. */
 
+[data-schema-journey] [data-schema-step-panel][hidden] {
+  display: none !important;
+}
+
+.schema-current-step {
+  margin: -.5rem 0 1.25rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.schema-key-card {
+  padding: 0;
+}
+
+.schema-key-summary,
+.schema-related-group > summary {
+  display: flex;
+  align-items: center;
+  gap: .75rem;
+  padding: 1rem;
+  list-style: none;
+}
+
+.schema-key-summary::before,
+.schema-related-group > summary::before {
+  content: "";
+  flex: 0 0 .45rem;
+  height: .45rem;
+  border-right: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  transform: rotate(-45deg);
+}
+
+.schema-key-card[open] > summary::before,
+.schema-related-group[open] > summary::before {
+  transform: rotate(45deg);
+}
+
+.schema-key-summary > span:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-key-summary strong,
+.schema-key-summary small {
+  display: block;
+}
+
+.schema-key-summary small {
+  margin-top: .25rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.schema-key-content {
+  padding: 0 1rem 1rem;
+}
+
+.schema-key-card[open] > summary,
+.schema-related-group[open] > summary {
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 1rem;
+}
+
+.schema-related-group {
+  margin: .75rem 0;
+  border: 1px solid var(--line);
+}
+
+.schema-related-group .supporting-review-list {
+  padding: 0 1rem 1rem;
+}
+
+.schema-related-group > summary .status {
+  margin-left: auto;
+}
+
+.schema-capture-details > summary small {
+  margin-left: .5rem;
+  color: var(--muted);
+}
+
+.schema-odoo-details .actions {
+  margin-top: 1rem;
+}
+
 .matching-rule-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(8.5rem, 1fr));
@@ -210,6 +296,11 @@ button.key-scope-chip:hover {
 }
 
 @media (max-width: 720px) {
+  .schema-key-summary,
+  .schema-related-group > summary {
+    flex-wrap: wrap;
+  }
+
   .key-simple-fields {
     grid-template-columns: 1fr;
     gap: 1rem;

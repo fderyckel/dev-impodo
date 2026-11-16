@@ -13,11 +13,13 @@ from dataclasses import dataclass
 
 from ..mapping.contracts import (
     MappingDefinition,
+    ReferenceKeyMapping,
     ScalarFieldMapping,
     ScalarValueSource,
     SelectionCondition,
     relationship_input_columns,
 )
+from ..mapping.reference_preparation import preparation_source_keys
 from ..mapping.row_inclusion_review import describe_row_inclusion_policy
 from ..workspace.contracts import SourceSelection
 
@@ -74,15 +76,24 @@ def workbook_mapping_rules(
             )
 
         for component in (*mapping.target_identity, *mapping.target_scope):
+            reference_mappings = (
+                (*component.resolver.key_mappings, *component.resolver.scope_mappings)
+                if component.resolver is not None else ()
+            )
+            source_keys = tuple(dict.fromkeys((
+                *component.source_column_keys,
+                *(key for item in reference_mappings for key in preparation_source_keys(item)),
+            )))
             for target in component.target_fields:
                 add(
                     target,
-                    component.source_column_keys,
+                    source_keys,
                     (
                         (
                             f"Identify records using this source key as {component.value_type}; "
                             f"missing-key policy: {component.null_policy.value}."
                         ),
+                        *_reference_preparation_steps(reference_mappings, labels, restricted),
                     ),
                 )
         for field in mapping.fields:
@@ -130,6 +141,8 @@ def workbook_mapping_rules(
                 steps.append(
                     f"Match {heading} to {relation.resolver.model or 'incoming record'}.{key.target_field}."
                 )
+            reference_mappings = (*relation.resolver.key_mappings, *relation.resolver.scope_mappings)
+            steps.extend(_reference_preparation_steps(reference_mappings, labels, restricted))
             if relation.constant_reference:
                 steps = [
                     "Use the same existing linked record for every included row: "
@@ -166,7 +179,10 @@ def workbook_mapping_rules(
             )
             add(
                 relation.target_field,
-                relationship_input_columns(relation),
+                tuple(dict.fromkeys((
+                    *relationship_input_columns(relation),
+                    *(key for item in reference_mappings for key in preparation_source_keys(item)),
+                ))),
                 tuple(steps),
             )
         for disposition in mapping.target_field_dispositions:
@@ -182,6 +198,34 @@ def workbook_mapping_rules(
                 ),
             )
     return result
+
+
+def _reference_preparation_steps(
+    mappings: tuple[ReferenceKeyMapping, ...], labels: Mapping[str, str], restricted: bool,
+) -> tuple[str, ...]:
+    """Expose saved reference preparation while withholding restricted literals."""
+
+    steps = []
+    for mapping in mappings:
+        preparation = mapping.preparation
+        if preparation is None:
+            continue
+        if restricted:
+            description = "Preparation details hidden for restricted data"
+        elif preparation.formula:
+            bindings = (("value", mapping.source_column_key), *preparation.bindings)
+            description = f"Formula {_literal(preparation.formula, False)}; inputs: " + ", ".join(
+                f"{name} = {labels.get(key, _UNAVAILABLE_SOURCE_HEADING)}"
+                for name, key in bindings
+            )
+        else:
+            description = "Combine in order: " + ", ".join(
+                labels.get(part.source_column_key, _UNAVAILABLE_SOURCE_HEADING)
+                if part.source_column_key is not None else _literal(part.literal, False)
+                for part in preparation.parts
+            )
+        steps.append(f"Prepare reference for {mapping.target_field}: {description}. Preserve text identifiers; block incomplete references.")
+    return tuple(steps)
 
 
 def _formula_source_ordinals(expression: str) -> set[int]:

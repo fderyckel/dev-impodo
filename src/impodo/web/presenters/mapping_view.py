@@ -124,6 +124,10 @@ from .mapping_impact import (
 from .mapping_journey import resolve_mapping_journey
 from .matching_health_issues import matching_health_workflow_issue_summary
 from .missing_parent_actions import missing_parent_source_key
+from .reference_preparation_forms import (
+    reference_preparation_editors,
+    reference_preparation_preview_row,
+)
 from .relationship_health import relationship_health_view
 from .required_values import matching_table_progress
 from .supporting_review import mapping_supporting_review_view
@@ -2389,6 +2393,11 @@ def _mapping_dataset_views(
                             metadata is not None
                             and metadata.type == "many2one"
                         ),
+                        "reference_preparations": reference_preparation_editors(
+                            component.resolver if component else None,
+                            selected_related_key, source_dataset,
+                            reference_preparation_preview_row(source_dataset, source_catalogs),
+                        ) if metadata is not None and metadata.type == "many2one" else (),
                         "selected_sources": (
                             component.source_column_keys
                             if component
@@ -2768,6 +2777,11 @@ def _mapping_dataset_views(
                     models,
                 ),
                 "selected_key": selected_relationship_key,
+                "reference_preparations": reference_preparation_editors(
+                    mapping.resolver if mapping else None,
+                    selected_relationship_key, source_dataset,
+                    reference_preparation_preview_row(source_dataset, source_catalogs),
+                ),
                 "can_choose_matching_field": can_choose_matching_field,
                 "chosen_matching_field": chosen_matching_field,
                 "chosen_matching_field_id": (

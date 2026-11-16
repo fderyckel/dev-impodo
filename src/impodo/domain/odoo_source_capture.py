@@ -789,22 +789,31 @@ def validate_odoo_capture_selection_reference(
 ) -> None:
     """Validate saved schema bindings without resolving an encrypted predicate.
 
-    This is only for repository admission. The sanitized request is discarded;
-    every live read must call ``plan_odoo_source_capture`` with the real
-    protected clauses and fail closed if they are unavailable.
+    Repository admission checks the value selection, bindings and limits. It
+    must not invent a relationship graph from all models in the schema: a
+    linked identity can have many unrelated relationships that its reviewed
+    leaf policy deliberately excludes. The sanitized request is discarded;
+    every live read must plan the actual reviewed graph with the real protected
+    clauses and fail closed if they are unavailable.
     """
 
-    if selection.protected_filter_artifact_hash is None:
-        plan_odoo_source_capture(selection, schema)
-        return
-    unfiltered_reference = replace(
-        selection,
-        contract_version=ODOO_CAPTURE_CONTRACT_VERSION,
-        protected_filter_artifact_hash=None,
-        content_hash="",
-        _calculate_content_hash=True,
+    reference = (
+        selection
+        if selection.protected_filter_artifact_hash is None
+        else replace(
+            selection,
+            contract_version=ODOO_CAPTURE_CONTRACT_VERSION,
+            protected_filter_artifact_hash=None,
+            content_hash="",
+            _calculate_content_hash=True,
+        )
     )
-    plan_odoo_source_capture(unfiltered_reference, schema)
+    plan_odoo_source_capture(
+        reference,
+        schema,
+        allowed_relationships=frozenset(),
+        reference_models=frozenset({selection.model}),
+    )
 
 
 def require_not_cancelled(probe: CancellationProbe | None) -> None:

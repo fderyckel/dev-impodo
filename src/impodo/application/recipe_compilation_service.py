@@ -60,6 +60,7 @@ from ..domain.mapping.contracts import (
     UnsupportedMappingContractError,
     relationship_target_fields,
 )
+from ..domain.mapping.reference_preparation import preparation_source_keys
 from ..domain.recipe.models import (
     RecipeConflictError,
     RecipeDraftIssue,
@@ -566,6 +567,17 @@ class RecipeCompiler:
                 supporting_choices, dataset_ids
             )
         contract_versions = dict(CURRENT_RECIPE_CONTRACT_VERSIONS)
+        if any(
+            item.preparation is not None
+            for dataset in revision.definition.datasets
+            for resolver in (
+                *(item.resolver for item in (*dataset.target_identity, *dataset.target_scope)
+                  if item.resolver is not None),
+                *(item.resolver for item in dataset.relationships),
+            )
+            for item in (*resolver.key_mappings, *resolver.scope_mappings)
+        ):
+            contract_versions["mapping_recipe"] = 4
         if preparation is not None and any(isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None for rule in preparation.rules):
             contract_versions["source_preparation_recipe"] = 2
         recipe: dict[str, object] = {
@@ -830,28 +842,14 @@ class RecipeCompiler:
                             *target_key_fields
                         ],
                         "target_key_mappings": [
-                            {
-                                "source_column_id": self._column(
-                                    dataset.dataset_id,
-                                    item.source_column_key,
-                                    columns,
-                                ),
-                                "target_field": item.target_field,
-                            }
+                            self._reference_key(item, dataset.dataset_id, columns)
                             for item in resolver.key_mappings
                         ],
                         "target_scope_fields": [
                             *target_scope_fields
                         ],
                         "target_scope_mappings": [
-                            {
-                                "source_column_id": self._column(
-                                    dataset.dataset_id,
-                                    item.source_column_key,
-                                    columns,
-                                ),
-                                "target_field": item.target_field,
-                            }
+                            self._reference_key(item, dataset.dataset_id, columns)
                             for item in resolver.scope_mappings
                         ],
                         **({"selected_matching_field": True} if relation.selected_matching_field else {}),
@@ -954,28 +952,14 @@ class RecipeCompiler:
                         value.target_field for value in resolver.key_mappings
                     ],
                     "target_key_mappings": [
-                        {
-                            "source_column_id": self._column(
-                                dataset_id,
-                                value.source_column_key,
-                                columns,
-                            ),
-                            "target_field": value.target_field,
-                        }
+                        self._reference_key(value, dataset_id, columns)
                         for value in resolver.key_mappings
                     ],
                     "target_scope_fields": [
                         value.target_field for value in resolver.scope_mappings
                     ],
                     "target_scope_mappings": [
-                        {
-                            "source_column_id": self._column(
-                                dataset_id,
-                                value.source_column_key,
-                                columns,
-                            ),
-                            "target_field": value.target_field,
-                        }
+                        self._reference_key(value, dataset_id, columns)
                         for value in resolver.scope_mappings
                     ],
                     "value_matches": [
@@ -987,6 +971,33 @@ class RecipeCompiler:
             ),
         }
 
+    def _reference_key(self, item, dataset_id, columns):
+        """Replace every prepared-reference dependency with a logical column ID."""
+
+        payload = {
+            "source_column_id": self._column(dataset_id, item.source_column_key, columns),
+            "target_field": item.target_field,
+        }
+        if item.preparation is not None:
+            preparation = item.preparation
+            payload["preparation"] = {
+                "formula": preparation.formula,
+                "bindings": [
+                    {"name": name,
+                     "source_column_id": self._column(dataset_id, key, columns)}
+                    for name, key in preparation.bindings
+                ],
+                "parts": [
+                    {"source_column_id": self._column(
+                        dataset_id, part.source_column_key, columns,
+                    )}
+                    if part.source_column_key is not None
+                    else {"literal": part.literal}
+                    for part in preparation.parts
+                ],
+            }
+        return payload
+
     def _used_columns(self, mappings, dataset_ids, columns):
         del dataset_ids
         used: dict[tuple[str, str], set[str]] = {}
@@ -994,6 +1005,10 @@ class RecipeCompiler:
             keys = set(dataset.source_identity_column_keys)
             for identity in (*dataset.target_identity, *dataset.target_scope):
                 keys.update(identity.source_column_keys)
+                if identity.resolver is not None:
+                    for item in (*identity.resolver.key_mappings,
+                                 *identity.resolver.scope_mappings):
+                        keys.update(preparation_source_keys(item))
             for field in dataset.fields:
                 if field.source_column_key is not None:
                     keys.add(field.source_column_key)
@@ -1008,11 +1023,12 @@ class RecipeCompiler:
             for relation in dataset.relationships:
                 keys.update(relation.source_column_keys)
                 keys.update(
-                    item.source_column_key
+                    key
                     for item in (
                         *relation.resolver.key_mappings,
                         *relation.resolver.scope_mappings,
                     )
+                    for key in preparation_source_keys(item)
                 )
             for key in keys:
                 self._column(dataset.dataset_id, key, columns)

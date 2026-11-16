@@ -211,6 +211,20 @@ requires a fresh capture; existing accepted data does not acquire new fields.
    and select the action again. You do not need to choose the main record types
    again or create another project.
 
+   If Odoo limits requests, Impodo pauses and retries the interrupted read
+   automatically while keeping the checks already completed in that attempt.
+   Leave the submitting page open. If the limit persists, Impodo shows a
+   request-limit message and keeps the previously saved plans. Wait before
+   selecting **Save linked-data choices** again; a new attempt also respects
+   the remaining cooldown.
+
+   Your main record types remain the transfer scope. For example, choosing
+   Product, Inventory Location, Product Category and Lot/Serial does not select
+   every account or unit of measure for transfer. Impodo retains only supporting
+   records reached from those main records. Existing-only setup, such as
+   accounts, must match the destination. Other linked values use only their
+   identity and any minimum required creation values under the reviewed policy.
+
    ![Impodo's one-click linked-data plan with the Advanced relationship matrix collapsed.](../../images/user/08h-odoo-linked-data-plan.png)
 
    **Keep linked value** does not follow optional relationships from its

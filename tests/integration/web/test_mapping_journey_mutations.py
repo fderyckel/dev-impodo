@@ -108,3 +108,23 @@ class MappingJourneyMutationTests(ProjectSetupBrowserTestCase):
                 self.assertIsNone(
                     self.app.state.context.queries.get_mapping_submission(workspace_id, revision.version)
                 )
+                draft = self.app.state.context.queries.get_mapping_working_draft(workspace_id)
+                saved = self.client.post(
+                    f"/workspaces/{workspace_id}/mapping/save?step=tables&task=links",
+                    json={"entries": [
+                        ["csrf_token", self.csrf], ["action", "save_progress"],
+                        ["operation_id", str(uuid4())],
+                        ["expected_parent_version", str(revision.version)],
+                        ["expected_working_draft_version", str(draft.version)],
+                        ["editable_dataset_id", dataset.dataset_id],
+                        ["target_model_0", "res.partner"], ["mode_0", "upsert"],
+                        ["source_identity_0", dataset.columns[0].stable_key],
+                        ["business_key_0", key.key_id],
+                        ["identity_source_0_0", dataset.columns[0].stable_key],
+                    ]},
+                    headers={**POST_HEADERS, "X-CSRF-Token": self.csrf},
+                )
+                self.assertEqual(saved.status_code, 200, saved.text)
+                self.assertEqual(saved.json()["table_progress"][dataset.dataset_id], {
+                    "status_label": "Needs attention", "status_class": "review",
+                })

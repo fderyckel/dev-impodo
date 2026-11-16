@@ -14,6 +14,12 @@ from uuid import uuid4
 from impodo.application.workspace.mapping.identity_group_review import (
     identity_duplicate_choices,
 )
+from impodo.application.workspace.mapping.prepared_references import (
+    prepared_check_columns,
+    prepared_reference_rows,
+    reference_projection_columns,
+    resolver_preparations,
+)
 from impodo.application.workspace.mapping.relationship_choice_review import (
     append_relationship_choices,
 )
@@ -28,6 +34,7 @@ from impodo.domain.mapping.contracts import (
     IdentityNullPolicy,
     MappingDefinition,
     MappingTargetMode,
+    ReferenceKeyMapping,
     RelationshipMapping,
     RelationshipValueSource,
     ResolverOrigin,
@@ -348,10 +355,12 @@ class _MatchingSourceTupleCache:
 
     def __init__(
         self, reader: MatchingOrderSourceKeys, parents: Mapping[str, IncludedParentRows],
+        prepared_columns: Mapping[str, tuple[str, ...]] | None = None,
     ) -> None:
         self._reader = reader
         self._parents = parents
         self._entries: list[_SourceTupleCacheEntry] = []
+        self._prepared_columns = prepared_columns or {}
 
     def read(
         self,
@@ -361,8 +370,23 @@ class _MatchingSourceTupleCache:
         row_inclusion: RowInclusionPolicy,
         *,
         identity: bool,
+        reference_mappings: tuple[ReferenceKeyMapping | None, ...] = (),
     ) -> tuple[tuple[str | None, ...], ...]:
         """Return a row-aligned projection, slicing a cached superset when safe."""
+
+        if any(mapping is not None and mapping.preparation is not None
+               for mapping in reference_mappings):
+            projected = reference_projection_columns(columns, reference_mappings)
+            rows = self.read(workspace_id, dataset_id, projected, row_inclusion,
+                             identity=identity)
+            return prepared_reference_rows(columns, projected, rows, reference_mappings)
+
+        planned = self._prepared_columns.get(dataset_id, ())
+        if planned and any(key not in columns for key in planned):
+            projected = tuple(dict.fromkeys((*planned, *columns)))
+            rows = self.read(workspace_id, dataset_id, projected, row_inclusion, identity=identity)
+            indexes = tuple(projected.index(key) for key in columns)
+            return tuple(tuple(row[index] for index in indexes) for row in rows)
 
         for entry in self._entries:
             if (
@@ -711,7 +735,14 @@ class MatchingOrderService:
             if any(item.row_inclusion.included_parent_field for item in draft.definition.datasets)
             else {}
         )
-        source_cache = _MatchingSourceTupleCache(self._source_keys, parents)
+        source_cache = _MatchingSourceTupleCache(self._source_keys, parents, {
+            dataset.dataset_id: prepared_check_columns(dataset, include_identity=(
+                dataset.target_model,
+                tuple(field for component in dataset.target_identity for field in component.target_fields),
+                tuple(field for component in dataset.target_scope for field in component.target_fields),
+            ) in confirmed_keys)
+            for dataset in draft.definition.datasets
+        })
         identity_probes: list[MatchingIdentityLiveProbe] = []
         identity_results: list[MatchingIdentityResult] = []
         for dataset in draft.definition.datasets:
@@ -1522,6 +1553,9 @@ class MatchingOrderService:
                 source_columns,
                 owner.row_inclusion,
                 identity=False,
+                reference_mappings=resolver_preparations(
+                    source_columns, (*resolver.key_mappings, *resolver.scope_mappings),
+                ),
             )
             raw_incoming = (
                 source_cache.read(
@@ -1647,6 +1681,10 @@ class MatchingOrderService:
                 relationship.source_column_keys,
                 owner.row_inclusion,
                 identity=False,
+                reference_mappings=resolver_preparations(
+                    relationship.source_column_keys,
+                    (*resolver.key_mappings, *resolver.scope_mappings),
+                ),
             )
         except WorkspaceError:
             return unchecked(
@@ -2070,12 +2108,19 @@ class MatchingOrderService:
         fields = {item.name: item for item in model.fields} if model else {}
 
         source_columns: list[str] = []
+        reference_mappings: list[ReferenceKeyMapping | None] = []
         domain_fields: list[str] = []
         relational_plans: list[IdentityRelationalLiveProbe] = []
         target_index = 0
         for component in (*dataset.target_identity, *dataset.target_scope):
             component_source_columns = component.source_column_keys
             source_columns.extend(component_source_columns)
+            reference_mappings.extend(
+                resolver_preparations(
+                    component_source_columns,
+                    (*component.resolver.key_mappings, *component.resolver.scope_mappings),
+                ) if component.resolver is not None else (None,) * len(component_source_columns)
+            )
             if component.resolver is None:
                 if len(component_source_columns) != len(component.target_fields):
                     return None, _not_checkable_identity_result(
@@ -2125,7 +2170,11 @@ class MatchingOrderService:
             relational_plans.append(plan)
             target_index += 1
 
-        if not source_columns or len(source_columns) != len(set(source_columns)):
+        if not source_columns or (
+            len(source_columns) != len(set(source_columns))
+            and not any(mapping is not None and mapping.preparation is not None
+                        for mapping in reference_mappings)
+        ):
             return None, _not_checkable_identity_result(
                 dataset_id=dataset.dataset_id,
                 target_model=dataset.target_model,
@@ -2139,6 +2188,7 @@ class MatchingOrderService:
                 tuple(source_columns),
                 dataset.row_inclusion,
                 identity=True,
+                reference_mappings=tuple(reference_mappings),
             )
         except WorkspaceError:
             return None, _not_checkable_identity_result(

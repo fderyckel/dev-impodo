@@ -241,6 +241,8 @@
                       <input type="hidden" name="relation_operation_{{ dataset_index }}_{{ relation_index }}" value="replace">
                     {% endif %}
                   </div>
+                  {% set reference_prefix = 'relation_reference_' ~ dataset_index ~ '_' ~ relation_index %}
+                  {% include "mapping/_reference_preparation.html" %}
                   </div>
                   <div class="policy-row">
                     <div data-relation-source-policy {% if relation_value_source != 'source' %}hidden{% endif %}>

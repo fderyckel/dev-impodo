@@ -316,14 +316,14 @@ DECISION_HELP_TARGETS = (
         "odoo-data",
         "Choose Odoo record types and supporting data",
         "choose-record-types-and-supporting-data",
-        "workspace_schema.html",
+        "schema/_records.html",
     ),
     _decision_help(
         "odoo-identity",
         "odoo-data",
         "Choose how existing records are found",
         "choose-how-existing-records-are-found",
-        "workspace_schema.html",
+        "schema/_matching.html",
     ),
     _decision_help(
         "source-identity",

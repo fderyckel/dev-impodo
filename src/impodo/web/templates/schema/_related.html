@@ -1,0 +1,70 @@
+    {% if supporting_model_plan.groups %}
+      <details class="technical-evidence" id="supporting-odoo-data">
+        <summary>Supporting data Impodo found <small>{{ supporting_model_plan.dependency_count }} direct relationship{{ 's' if supporting_model_plan.dependency_count != 1 else '' }}</small></summary>
+        <div class="overview-stage-list">
+          {% for group in supporting_model_plan.groups %}
+            <section class="overview-stage-card complete">
+              <div>
+                <p class="eyebrow">{{ group.status_label }}</p>
+                <h3>{{ group.title }}</h3>
+                <p>{{ group.description }}</p>
+                <ul>
+                  {% for related in group.models %}
+                    <li>
+                      <strong>{{ related.label }}</strong>
+                      {% if related.required %}<span class="status warning">Required relationship</span>{% endif %}
+                      {% if related.availability_relevant and not related.available %}<span class="status blocked">Not available in the current Odoo list</span>{% endif %}
+                      <div>
+                        {% for field in related.fields %}
+                          <small>{{ field.source_label }} · {{ field.field_label }}{% if field.required %} · required by Odoo{% endif %}</small>{% if not loop.last %}<br>{% endif %}
+                        {% endfor %}
+                      </div>
+                    </li>
+                  {% endfor %}
+                </ul>
+                <details class="technical-details">
+                  <summary>Support details</summary>
+                  <ul>
+                    {% for related in group.models %}
+                      {% for field in related.fields %}<li><code>{{ field.technical_name }}</code></li>{% endfor %}
+                    {% endfor %}
+                  </ul>
+                </details>
+              </div>
+            </section>
+          {% endfor %}
+        </div>
+        <p class="muted">
+          This preview does not add a related record type to the top-level transfer.
+          Moving a related record type as migration data remains a separate, explicit decision.
+        </p>
+      </details>
+    {% endif %}
+
+    <section id="review-odoo-choices" tabindex="-1" data-focus-on-hash aria-label="Review Odoo choices">
+      {% include "_supporting_data_review.html" %}
+      {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
+      {% if not supporting_review_is_only_issue %}
+        {% include "_workflow_issue_summary.html" %}
+      {% endif %}
+
+    </section>
+
+{% if schema_journey.enabled %}
+  {% if not schema %}
+    <section class="form-card">
+      <h2>Save record types first</h2>
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
+    </section>
+  {% else %}
+    {% if not supporting_review or not (supporting_review.rows or supporting_review.error or supporting_review.save_error) %}
+      <section class="form-card"><h2>Related values</h2><p>No related-value choices are required.</p></section>
+    {% endif %}
+    <div class="actions">
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Back to records</a>
+      {% if not workflow_issue_summary.must_fix_count %}
+        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema?step=matching">Continue to matching rules</a>
+      {% endif %}
+    </div>
+  {% endif %}
+{% endif %}

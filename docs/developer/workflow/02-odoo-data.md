@@ -36,7 +36,8 @@ and reaches schema capture before source records are frozen because eligible
 fields define what may be captured.
 
 The file-source sidebar links directly to **Odoo access** outside the six
-numbered stages. Stage 2 lists only **Choose Odoo records**. A Stage 1 lookup
+numbered stages. Stage 2 groups file Authoring into **Choose records**,
+**Related values**, and **Matching rules**. A Stage 1 lookup
 or hierarchy request carries one of two allowlisted return tokens through
 connection testing and local-stack setup. Saving a checked connection then
 refreshes the model list and returns to the requesting form. A missing key on
@@ -59,7 +60,60 @@ request values, and server response bodies remain excluded. A 404 identifies
 an unavailable operation without proving which server-side condition caused
 it.
 
+The read connector shares process-local cooldowns by hashed Odoo target. On
+HTTP 429 it parses only `Retry-After`, accepting seconds or an HTTP date.
+Retries wait at least that long and use a jittered exponential fallback of
+2, 4, 8, 16, then at most 30 seconds. The configured retry count still applies.
+Before each attempt, the connector checks a 120-second retry window that
+includes elapsed transport and cooldown time. A longer cooldown stops the
+read without sending an early retry. The remaining window also caps the next
+socket timeout; it is not a hard deadline for an already running HTTP call.
+A new read blocked entirely by that cooldown records zero actual attempts.
+
+After throttling, request starts to that target are spaced by one second,
+doubling up to eight seconds on repeated 429 responses. The recovery window
+expires sixty seconds after the last cooldown. Healthy targets retain their
+configured concurrency. Coordination retains only timing state for up to 256
+hashed targets; excess active targets conservatively share an overflow window.
+It does not coordinate separate application processes. No database owner or
+registry lock is held during a wait or an HTTP call. Write execution and its
+post-write recovery retain their separate retry contracts.
+
+The [read-pacing tests](../../../tests/integration/odoo/test_read_pacing.py)
+verify both supported majors, completed-model retention during retry, shared
+cooldowns, dates, malformed headers, budget exhaustion and privacy. The
+[parallel-read tests](../../../tests/integration/odoo/test_record_read_concurrency.py)
+continue to verify overlap, deterministic hashes and worker diagnostics.
+
 ## Implementation flow
+
+### Focused Odoo-data substeps
+
+`schema_journey.resolve_schema_journey` selects the file-Authoring panel from
+the requested `step`, recovery context, and existing saved evidence. It
+accepts only `records`, `related`, and `matching`. A recovery panel takes
+priority; otherwise an explicit valid step wins, followed by the first
+responsibility needing work. Sidebar status remains separate from the
+currently viewed panel. Neither the query parameter nor the status grants
+permission or confirms a choice.
+
+The schema presenter supplies this projection with the current page data.
+`workspace_schema.html` renders the forms through focused `schema/` partials.
+`schema-journey.js` reveals one panel at a time and opens the owner of an
+existing section link. Switching panels retains unsaved controls in the open
+document. Save, check, refresh, and confirmation remain explicit commands.
+Matching-rule confirmation still submits the complete rule set, including
+record types whose editor is collapsed.
+
+The existing Odoo-source handoff and pinned Recipe setup do not use these
+Authoring substeps. They retain their current scope, checks, and redirects.
+Panel selection uses saved page evidence and adds no Odoo request or database
+read. The existing bounded page and command operation scopes remain the
+performance owners.
+
+The [substep tests](../../../tests/integration/web/test_schema_journey.py)
+cover location defaults, sidebar status, passive navigation, and rejected
+confirmation for both supported majors with local and remote reads.
 
 ### Matching-rule scope selection
 
@@ -769,6 +823,7 @@ remains outside the migration write scope.
 | Workflow issue projection | [`issues.py`](../../../src/impodo/application/workspace/issues.py) |
 | Browser routes | [`schema.py`](../../../src/impodo/web/routers/schema.py) |
 | Browser presenter | [`schema.py`](../../../src/impodo/web/presenters/schema.py) |
+| Odoo-data substeps | [`schema_journey.py`](../../../src/impodo/web/presenters/schema_journey.py) and [`navigation.py`](../../../src/impodo/web/presenters/navigation.py) |
 | Supporting-data presenter | [`supporting_models.py`](../../../src/impodo/web/presenters/supporting_models.py) |
 | Browser review | [`workspace_schema.html`](../../../src/impodo/web/templates/workspace_schema.html) |
 | Matching-rule screenshot capture | [`capture_matching_rule_screenshots.py`](../../../scripts/capture_matching_rule_screenshots.py) |
@@ -931,6 +986,13 @@ database. Do not hard-code a standard-only catalogue when custom modules are in
 scope.
 
 ## Verification
+
+The Stage 2 substep screenshots have not been refreshed. The isolated browser
+fixture could not bind a loopback port, native browser access timed out, and
+Playwright was unavailable without network access. The user guide retains the
+unchanged Odoo-source relationship illustration and omits the previous
+file-Authoring layout images. The matching-rule capture helper now targets the
+substeps and collapsed editors for a later permitted capture.
 
 - [Restore field, membership, schema and value policies](../../../tests/domain/test_odoo_restore.py).
 - [Saved definitions, immutable versions, profiles and operation persistence](../../../tests/integration/duckdb/test_odoo_saved_data_repository.py).

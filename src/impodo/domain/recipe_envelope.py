@@ -5,6 +5,11 @@ from __future__ import annotations
 import json
 import re
 
+from impodo.domain.mapping.contracts import (
+    ReferenceKeyMapping,
+    reference_preparation_from_dict,
+)
+from impodo.domain.mapping.reference_preparation import validate_reference_preparation
 from impodo.domain.shared.models import assert_no_numeric_odoo_ids
 
 from .recipe.models import RecipeIntegrityError
@@ -115,15 +120,71 @@ def validate_recipe_envelope(envelope_bytes: bytes) -> dict[str, object]:
     except ValueError as error:
         raise RecipeIntegrityError(str(error)) from error
     contract_versions = recipe.get("contract_versions")
-    hierarchy_versions = {**CURRENT_RECIPE_CONTRACT_VERSIONS, "source_preparation_recipe": 2}
-    if contract_versions != CURRENT_RECIPE_CONTRACT_VERSIONS and contract_versions != hierarchy_versions:
+    supported_versions = tuple(
+        {**CURRENT_RECIPE_CONTRACT_VERSIONS,
+         "mapping_recipe": mapping_version,
+         "source_preparation_recipe": source_version}
+        for mapping_version in (3, 4) for source_version in (1, 2)
+    )
+    if contract_versions not in supported_versions:
         raise RecipeIntegrityError(
             "Recipe contract versions do not match the current contract"
         )
+    if "preparation" in set(_walk_keys(recipe.get("mapping"))):
+        if contract_versions["mapping_recipe"] != 4:
+            raise RecipeIntegrityError("Prepared references require mapping Recipe contract v4")
+        _validate_reference_preparations(recipe["mapping"])
     preparation = recipe.get("source_preparation")
-    if isinstance(preparation, dict) and any(isinstance(rule, dict) and rule.get("existing_parent") is not None for rule in preparation.get("rules", ())) and contract_versions != hierarchy_versions:
+    if isinstance(preparation, dict) and any(isinstance(rule, dict) and rule.get("existing_parent") is not None for rule in preparation.get("rules", ())) and contract_versions["source_preparation_recipe"] != 2:
         raise RecipeIntegrityError("Existing hierarchy parents require source-preparation Recipe contract v2")
     return envelope
+
+
+def _validate_reference_preparations(value: object) -> None:
+    """Reject malformed portable reference rules before applying a Recipe."""
+
+    if isinstance(value, list):
+        for item in value:
+            _validate_reference_preparations(item)
+    elif isinstance(value, dict):
+        if "preparation" in value:
+            preparation = value["preparation"]
+            try:
+                if not isinstance(preparation, dict) or set(preparation) != {
+                    "formula", "bindings", "parts",
+                }:
+                    raise ValueError("Prepared reference fields are invalid")
+                if not isinstance(preparation["formula"], str) or not isinstance(
+                    preparation["bindings"], list,
+                ) or not isinstance(preparation["parts"], list):
+                    raise TypeError("Prepared reference values are invalid")
+                bindings = preparation["bindings"]
+                parts = preparation["parts"]
+                if any(not isinstance(item, dict) or set(item) != {
+                    "name", "source_column_id",
+                } or any(not isinstance(part, str) for part in item.values())
+                       for item in bindings):
+                    raise ValueError("Prepared reference bindings are invalid")
+                if any(not isinstance(item, dict) or set(item) not in (
+                    {"source_column_id"}, {"literal"},
+                ) or any(not isinstance(part, str) for part in item.values())
+                       for item in parts):
+                    raise ValueError("Prepared reference parts are invalid")
+                rule = reference_preparation_from_dict({
+                    "formula": preparation["formula"],
+                    "bindings": [(item["name"], item["source_column_id"])
+                                 for item in bindings],
+                    "parts": [{"source_column_key": item.get("source_column_id"),
+                               "literal": item.get("literal")}
+                              for item in parts],
+                })
+                validate_reference_preparation(ReferenceKeyMapping(
+                    value["source_column_id"], value["target_field"], rule,
+                ))
+            except (ValueError, TypeError, KeyError) as error:
+                raise RecipeIntegrityError("Prepared reference rule is invalid") from error
+        for item in value.values():
+            _validate_reference_preparations(item)
 
 
 def _walk_keys(value: object):

@@ -12,7 +12,11 @@ from zipfile import ZipFile
 
 from starlette.concurrency import run_in_threadpool
 
-from impodo.adapters.odoo.connectors import Json2Config, Json2ReadConnector
+from impodo.adapters.odoo.connectors import (
+    Json2Config,
+    Json2ReadConnector,
+    Json2ReadFailureDiagnostic,
+)
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.domain.odoo.contracts import ConnectorTransportError, RecordRequest
 from impodo.web.diagnostics import (
@@ -24,6 +28,39 @@ from impodo.web.diagnostics import (
 
 
 class Json2HttpRequestDiagnosticsTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cooldown_blocked_read_keeps_zero_attempts_in_the_bundle(self):
+        with TemporaryDirectory() as temporary:
+            directory = Path(temporary).resolve()
+            recorder = LocalDiagnosticRecorder(directory)
+            recorder.record_json2_read_failure(
+                request_id="a0000000-0000-4000-8000-000000000001",
+                failure=Json2ReadFailureDiagnostic(
+                    model="account.tax",
+                    method="has_access",
+                    category="http",
+                    attempt_count=0,
+                    http_status=429,
+                ),
+            )
+            recorder.close()
+            payload = create_diagnostic_bundle(
+                directory, build_contract=PROCESS_BUILD_CONTRACT
+            )
+            with ZipFile(BytesIO(payload)) as archive:
+                for name in ("diagnostics.jsonl", "recent-failures.json"):
+                    encoded = archive.read(name).decode()
+                    records = (
+                        [json.loads(line) for line in encoded.splitlines()]
+                        if name.endswith("jsonl")
+                        else json.loads(encoded)
+                    )
+                    failure = next(
+                        item for item in records
+                        if item["event"] == "odoo_json2_read_failed"
+                    )
+                    self.assertEqual(failure["attempt_count"], 0)
+                    self.assertEqual(failure["odoo_status_code"], 429)
+
     async def test_http_failure_survives_request_and_bundle_redaction(self):
         for version in ("19.0", "20.0"):
             with self.subTest(version=version), TemporaryDirectory() as temporary:

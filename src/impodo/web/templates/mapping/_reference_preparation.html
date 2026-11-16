@@ -1,0 +1,54 @@
+<details class="advanced-rule" data-reference-preparation {% if row.reference_preparations|selectattr('mode', 'ne', 'source')|list %}open{% endif %}>
+  <summary>Prepare values before matching existing records</summary>
+  <p>Use with <strong>Only existing Odoo records</strong>.</p>
+  {% for editor in row.reference_preparations %}
+    {% set editor_prefix = reference_prefix ~ '_' ~ editor.index %}
+    <div class="provider-control" data-reference-editor>
+      {% if editor.target_field == 'matching value' %}
+        <p class="muted">Choose an Odoo matching rule above, then save progress.</p>
+      {% else %}
+        <strong>Matching field: {{ editor.target_field|replace('_', ' ') }}</strong>
+      {% endif %}
+      <label>Prepare this matching value using
+        <select name="{{ editor_prefix }}_mode" data-reference-mode>
+          <option value="source" {% if editor.mode == 'source' %}selected{% endif %}>One source column</option>
+          <option value="combine" {% if editor.mode == 'combine' %}selected{% endif %}>Combine columns and fixed text</option>
+          <option value="formula" {% if editor.mode == 'formula' %}selected{% endif %}>Advanced formula</option>
+        </select>
+      </label>
+      <input type="hidden" name="{{ editor_prefix }}_bindings" value="{{ editor.bindings_json }}" data-reference-bindings>
+      <input type="hidden" name="{{ editor_prefix }}_parts" value="{{ editor.parts_json }}" data-reference-parts>
+      <div data-reference-combine {% if editor.mode != 'combine' %}hidden{% endif %}>
+        <p>Add source columns and fixed text in the order they should appear. Impodo keeps text identifiers, including leading zeros.</p>
+        <div data-reference-part-list>
+          {% for part in editor.parts %}
+            {% include "mapping/_reference_part.html" %}
+          {% endfor %}
+        </div>
+        <template data-reference-part-template>
+          {% set part = {'kind': 'source', 'source': '', 'literal': ''} %}
+          {% include "mapping/_reference_part.html" %}
+        </template>
+        <button type="button" class="button secondary compact" data-reference-add-part>Add a part</button>
+        <small>A missing source part stops the row for review. Fixed text does not fill a missing source value.</small>
+      </div>
+      <div data-reference-formula {% if editor.mode != 'formula' %}hidden{% endif %}>
+        <label>Formula
+          <textarea name="{{ editor_prefix }}_formula" rows="3" maxlength="1000" spellcheck="false" aria-describedby="{{ editor_prefix }}_formula_help" data-reference-formula-value>{{ editor.formula }}</textarea>
+        </label>
+        <small>Join text with <code>concat(value, "-", column_2)</code>.</small>
+        <small id="{{ editor_prefix }}_formula_help">
+          {% with formula_value_label=editor.source_label, formula_columns=editor.formula_columns %}
+            {% include "mapping/_formula_source_values.html" %}
+          {% endwith %}
+        </small>
+      </div>
+      {% if editor.error %}<p class="notice warning" role="status"><strong>Review this reference:</strong> {{ editor.error }}</p>
+      {% elif editor.preview %}
+        <p>{% for label, value in editor.sample_inputs %}{{ label }}: <code>{{ value if value is not none else '(blank)' }}</code>{% if not loop.last %} · {% endif %}{% endfor %}</p>
+        <p role="status"><strong>Prepared reference from the first source example:</strong> <code>{{ editor.preview }}</code></p>
+      {% endif %}
+      <small>Save progress to check the formula and preview its result.</small>
+    </div>
+  {% endfor %}
+</details>

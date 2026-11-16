@@ -838,13 +838,59 @@ frozen source. The advanced formula control is unavailable for this provider,
 but the normal text cleanup and final checks still run after the values are
 combined.
 
-**Combine source columns** produces one scalar Odoo text value. It does not
-create a generated-table identity or a relationship key. To create related
-records from separate hierarchy fields, first use **Build a hierarchy** in
-Stage 1. This stage then suggests the generated table for its
-compatible self-parent relationship and for the consumer model's compatible
-many2one. Both relationships use complete generated path keys rather than a
-combined label or final record name.
+**Combine source columns** on an ordinary text field produces one Odoo text
+value. For a value used to find an existing linked record, use **Prepare values
+before matching existing records** in that linked field instead. When the
+related records themselves need to be created from separate hierarchy fields,
+use **Build a hierarchy** in Stage 1. The hierarchy supplies complete generated
+path keys to its parent and consumer relationships.
+
+### Prepare a reference before finding an existing linked record
+
+Use this when the related record already exists in Odoo, but its matching value
+is split across columns or needs additional fixed text. For example, a stock
+file contains Site `WH`, Warehouse `0100`, and Bin `100`, while the existing
+Odoo location has the complete name `WH/Stock/0100/100`.
+
+1. Choose the existing-record matching rule for the linked field. Select
+   **Only existing Odoo records** as the place to find the record.
+2. Select the base source column, then open **Prepare values before matching
+   existing records**. The same controls are available when the linked field
+   is part of the table's record matching rule.
+3. Under the related **Matching field**, choose **Combine columns and fixed
+   text** or **Advanced formula**. Each matching field and scope has its own
+   preparation. A direct source-column choice remains available.
+4. For a combination, use **Add a part** for each source column or fixed piece
+   of text, in order. For the example, use Site, `/Stock/`, Warehouse, `/`, and
+   Bin. Use the move controls to correct the order.
+5. For a formula, read **Available values** directly below the formula box.
+   Each `column_N` is shown beside its source-column name, as in the ordinary
+   field formula editor. With Site selected as the base and Warehouse and Bin
+   in columns 5 and 6, enter
+   `concat(value, "/Stock/", column_5, "/", column_6)`.
+   `value` means the selected base source value. Fixed text and text codes keep
+   their spelling and leading zeros. Formatting cannot recover zeros already
+   lost during source-file intake.
+6. Select **Save progress**, review the calculated reference, and select
+   **Check matches**. Correct missing inputs, invalid formulas, and incomplete
+   references before confirming. Review the later Odoo comparison for missing
+   or ambiguous related records.
+
+This preparation changes the lookup value, not the original source file or the
+related record. This option applies to single-record (many2one) links.
+Selecting an existing-only lookup never authorizes creating a
+missing related record. An entirely blank set of source inputs follows the
+linked field's normal blank policy; a partially blank reference stops for
+review even if the formula includes fixed text. A non-text formula result also
+needs correction. The safe formula language cannot access files, the network,
+or Odoo, and this preparation is available only for existing-record lookups.
+Use the prepared reference directly rather than combining it with individual
+source-choice translations in **Match values**.
+
+Saving a Recipe retains the preparation and the source columns it uses. The
+bindings follow those columns when a fresh delivery changes their order.
+Simple text combinations run through the native preparation route. Other
+supported safe formulas retain the bounded interpreter's existing limits.
 
 ### Preserve source spelling in a reusable list
 
