@@ -2,12 +2,15 @@
 
 from urllib.parse import urlencode
 
+from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.application.workspace.mapping.required_values import (
     FieldDecisionLocation,
     RequiredValueProvider,
     RequiredValuesProjection,
     ValueCoverageState,
+    project_required_values,
 )
+from impodo.domain.matching_order import MatchingOrderConfidence
 
 STATE_LABELS = {
     ValueCoverageState.CHOSEN: "Chosen · not checked",
@@ -24,6 +27,60 @@ PROVIDER_LABELS = {
     RequiredValueProvider.MANAGED: "Odoo-managed",
     RequiredValueProvider.MISSING: "Missing",
 }
+
+
+def matching_table_progress(
+    selection, schema, governance, revision, working_draft,
+    *, validation, formula_issues, recommendation,
+) -> dict[str, dict[str, str]]:
+    """Describe saved table setup using loaded required-value coverage only."""
+    # Setup readiness precedes checking; old check results cannot complete setup.
+    projection = project_required_values(
+        selection, schema, governance, revision, working_draft, None,
+    )
+    definition = (
+        working_draft.definition if working_draft else revision.definition if revision else None
+    )
+    mappings = {item.dataset_id: item for item in definition.datasets} if definition else {}
+    issues = {
+        issue.dataset_id
+        for issue in (validation.issues if validation else ())
+        if issue.severity == "error"
+    }
+    issues.update(issue.dataset_id for issue in formula_issues)
+    if recommendation:
+        issues.update(
+            dataset_id
+            for component in recommendation.components
+            if len(component) > 1 and any(
+                fact.confidence is MatchingOrderConfidence.CONFIRMED
+                and fact.owner_dataset in component
+                and fact.dependency_dataset in component
+                for fact in recommendation.facts
+            )
+            for dataset_id in component
+        )
+    coverage = {table.dataset_id: table for table in projection.tables}
+    progress = {}
+    for source in selection.datasets:
+        mapping = mappings.get(source.dataset_id)
+        table = coverage[source.dataset_id]
+        if source.dataset_id in issues:
+            label, status = "Needs attention", "review"
+        elif mapping is None:
+            label, status = "To do", ""
+        elif (
+            projection.inputs_current
+            and MatchingOrderService.ready_for_check(source, mapping)
+            and not any(table.count(state) for state in (
+                ValueCoverageState.MISSING, ValueCoverageState.ATTENTION, ValueCoverageState.STALE,
+            ))
+        ):
+            label, status = "Ready to check", "ready"
+        else:
+            label, status = "In progress", ""
+        progress[source.dataset_id] = {"status_label": label, "status_class": status}
+    return progress
 
 
 def required_values_view(

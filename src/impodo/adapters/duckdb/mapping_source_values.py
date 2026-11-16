@@ -257,7 +257,9 @@ class JoinedMappingSourceValues(LogicalSourceValues):
         ):
             raise WorkspaceError("The hierarchy source evidence changed; review Source data again")
         allowed = {item.stable_key for item in source.columns} | {
-            item.link.source_column_key for item in bindings
+            key for item in bindings
+            for key in (item.link.source_column_key, item.company_source_column_key)
+            if key is not None
         }
         available = {item.stable_key for item in output.columns}
         if any(key not in allowed or key not in available for key in column_keys if key != SOURCE_ROW_COLUMN):

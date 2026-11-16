@@ -71,7 +71,11 @@ def project_hierarchy_consumer_values(
 ) -> pl.DataFrame:
     """Read physical values and generated parent paths in original row order."""
     columns = {item.stable_key: item for item in snapshot.schema.columns}
-    virtual = {item.link.source_column_key: item for item in bindings}
+    virtual = {
+        key: item for item in bindings
+        for key in (item.link.source_column_key, item.company_source_column_key)
+        if key is not None
+    }
     keys = tuple(column_keys)
     if not keys or len(set(keys)) != len(keys) or any(
         key not in columns and key not in virtual and key != SOURCE_ROW_COLUMN
@@ -80,7 +84,8 @@ def project_hierarchy_consumer_values(
         raise SourceLoadError("Choose current hierarchy source columns")
     if maximum_values is not None and (len(keys) != 1 or maximum_values < 1):
         raise SourceLoadError("Choose one hierarchy source column and a positive limit")
-    active = tuple(binding for key, binding in virtual.items() if key in keys)
+    active = tuple({binding.rule.rule_id: binding
+        for key, binding in virtual.items() if key in keys}.values())
     levels = tuple(dict.fromkeys(
         key for binding in active for key in binding.rule.source_level_column_keys
     ))
@@ -121,9 +126,9 @@ def project_hierarchy_consumer_values(
                     }
                     values: dict[str, object] = {**raw, SOURCE_ROW_COLUMN: int(number)}
                     for binding in active:
-                        values[binding.link.source_column_key] = hierarchy_consumer_values(
+                        values.update({key: value for key, value in hierarchy_consumer_values(
                             binding, decoded
-                        )[binding.link.source_column_key]
+                        ).items() if key in virtual})
                     row = tuple(values[key] for key in keys)
                     if maximum_values is None:
                         rows.append(row)

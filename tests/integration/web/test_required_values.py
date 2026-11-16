@@ -9,6 +9,10 @@ from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.domain.mapping.contracts import (
     DatasetMapping,
     IdentityComponentMapping,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
     ScalarFieldMapping,
 )
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase, POST_HEADERS
@@ -18,6 +22,53 @@ from tests.support.required_values import required_values_workspace
 
 
 class RequiredValuesBrowserTests(ProjectSetupBrowserTestCase):
+    def test_table_cards_wait_for_required_scalar_and_linked_value_choices(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                workspace, dataset, key = self._mapping_ready_workspace(
+                    scalar_field_count=1, required_scalar_indexes=(0,),
+                    relationship_field_count=1, required_relationship_indexes=(0,),
+                    odoo_major=major,
+                )
+                context = self.app.state.context
+                mapping = DatasetMapping(
+                    dataset.dataset_id, "res.partner",
+                    source_identity_column_keys=(dataset.columns[0].stable_key,),
+                    target_identity=(IdentityComponentMapping(
+                        (dataset.columns[0].stable_key,), key.key_fields,
+                    ),),
+                )
+                version = None
+                for fields, relationships, state, label in (
+                    ((), (), "", "In progress"),
+                    ((ScalarFieldMapping("field_0000", dataset.columns[1].stable_key),), (), "", "In progress"),
+                    ((ScalarFieldMapping("field_0000", dataset.columns[1].stable_key),), (RelationshipMapping(
+                        target_field="relation_0000", kind="many2one",
+                        source_column_keys=(dataset.columns[0].stable_key,),
+                        resolver=RelationshipResolver(
+                            origin=ResolverOrigin.TARGET_CATALOG, model="res.partner",
+                            key_mappings=(ReferenceKeyMapping(dataset.columns[0].stable_key, "ref"),),
+                        ),
+                    ),), "ready", "Ready to check"),
+                    ((), (), "", "In progress"),
+                ):
+                    draft = context.mapping_workspace.save_working_draft(
+                        workspace, datasets=(replace(mapping, fields=fields, relationships=relationships),),
+                        expected_version=version, actor=resolve_local_actor(context),
+                    )
+                    version = draft.version
+                    with collect_duckdb_request_timings() as timings:
+                        page = self.client.get(f"/workspaces/{workspace}/mapping?step=tables")
+                    self.assertEqual(page.status_code, 200, page.text)
+                    card = re.search(
+                        rf'<a class="mapping-table-card[^>]*data-mapping-table-card="{dataset.dataset_id}".*?</a>',
+                        page.text, re.DOTALL,
+                    ).group(0)
+                    self.assertIn(f'data-mapping-table-state="{state}"', card)
+                    self.assertIn(f'<small data-mapping-table-status>{label}</small>', card)
+                    self.assertLessEqual(timings.connection_count, 8)
+                    self.assertLessEqual(timings.schema_check_count, 6)
+
     def test_providers_and_correction_anchors_reuse_current_evidence_without_values(
         self,
     ):

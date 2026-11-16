@@ -93,6 +93,7 @@ class PreparationWorkspace:
     mapping_content_hash: str | None = None
     target_mapping_schema_hash: str | None = None
     target_float_digits: tuple[tuple[str, str, tuple[int, int]], ...] = ()
+    target_company_binding_hash: str = ""
 
     def __post_init__(self) -> None:
         require_uuid(self.project_id, "project_id")
@@ -105,6 +106,8 @@ class PreparationWorkspace:
             require_hash(self.mapping_content_hash, "mapping_content_hash")
         if self.target_mapping_schema_hash is not None:
             require_hash(self.target_mapping_schema_hash, "target_mapping_schema_hash")
+        if self.target_company_binding_hash:
+            require_hash(self.target_company_binding_hash, "target_company_binding_hash")
         if self.target_float_digits and self.target_mapping_schema_hash is None:
             raise ValueError("Target float precision requires a bound schema")
         normalized_float_digits = tuple(sorted(self.target_float_digits))

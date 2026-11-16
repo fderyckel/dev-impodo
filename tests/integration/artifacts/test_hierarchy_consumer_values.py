@@ -36,6 +36,12 @@ class HierarchyConsumerValueTests(TestCase):
                     link.source_column_key,
                     "string",
                 ),
+                SourceDatasetColumn(
+                    len(source.columns) + 2,
+                    "Company from generated_groups",
+                    link.company_column_key,
+                    "string",
+                ),
             ),
         )
         selection = replace(physical, datasets=(consumer,))
@@ -68,6 +74,40 @@ class HierarchyConsumerValueTests(TestCase):
         self.assertEqual(len(sql), 1)
         self.assertNotIn('"value_2"', sql[0])
         self.assertNotIn("lookup_records", sql[0])
+
+    def test_confirmed_company_is_a_separate_original_row_value(self):
+        reader, _, selection, source, link, _, plan = self.fixture()
+        with (
+            collect_duckdb_request_timings() as timings,
+            count_duckdb_statements() as sql,
+        ):
+            frame = reader.project(
+                plan.workspace_id,
+                selection,
+                source.dataset_id,
+                (link.source_column_key, link.company_column_key),
+            )
+        self.assertEqual(
+            frame.rows(),
+            [
+                ('["global","catalog","0100"]', "North"),
+                ('["global","catalog","0100"]', "North"),
+                ('["global","catalog","0107"]', "North"),
+                (None, None),
+            ],
+        )
+        self.assertEqual(timings.connection_count, 1)
+        self.assertEqual(len(sql), 1)
+        self.assertEqual(
+            reader.counts(
+                plan.workspace_id,
+                selection,
+                source.dataset_id,
+                link.company_column_key,
+                10,
+            ),
+            {"North": 3},
+        )
 
     def test_choices_count_every_original_row_and_exclude_blank_paths(self):
         reader, _, selection, source, link, _, plan = self.fixture()

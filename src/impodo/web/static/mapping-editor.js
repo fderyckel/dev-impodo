@@ -299,6 +299,9 @@ document.addEventListener("DOMContentLoaded", () => {
       navigateToMappingResult,
       onCommitted: (operation, payload) => {
         valueMatch?.acceptSelectionRefreshes(operation);
+        if (operation.editGeneration === editGeneration) {
+          window.impodoMappingJourney?.updateTableProgress?.(payload.table_progress);
+        }
         return window.impodoMappingJourney?.committed?.(operation, payload);
       },
       hasNewerEdits: (operation) => operation.editGeneration !== editGeneration,
@@ -379,6 +382,7 @@ document.addEventListener("DOMContentLoaded", () => {
       }
       dirty = true;
       editGeneration += 1;
+      window.impodoMappingJourney?.markActiveTableDirty?.();
       if (saveStatus) {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");

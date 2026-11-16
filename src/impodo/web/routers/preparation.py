@@ -109,13 +109,23 @@ def build_preparation_router(context: WebContext) -> APIRouter:
                 "This may take longer; you can follow progress or cancel safely."
                 if physical_rows > 50_000 else ""
             )
-            return _render(
+            celebration = request.session.get("match_celebration")
+            show_match_celebration = (
+                can_prepare
+                and submission is not None
+                and celebration == [workspace_id, submission.mapping_content_hash]
+            )
+            response = _render(
                 request,
                 "workspace_prepare.html",
                 workspace_state=workspace_state,
                 can_prepare=can_prepare,
                 preparation_advisory=advisory,
+                show_match_celebration=show_match_celebration,
             )
+            if isinstance(celebration, list) and celebration[:1] == [workspace_id]:
+                request.session.pop("match_celebration", None)
+            return response
 
         return await run_page_read(project)
 

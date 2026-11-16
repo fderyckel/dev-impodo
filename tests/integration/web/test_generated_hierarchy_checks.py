@@ -49,6 +49,15 @@ class GeneratedHierarchyCheckTests(TestCase):
         fixture = self.fixture
         context, actor = fixture.context, fixture.actor
         workspace_id, form, schema = fixture.configure(major, mode)
+        if mode == "LOCAL":
+            # The fixture already supplies a local ORM reader. Supporting
+            # lookups must use the same selected synthetic local profile.
+            self.enterContext(
+                patch(
+                    "impodo.web.composition.target_readers._selected_local_profile",
+                    return_value=object(),
+                )
+            )
         form.update(hierarchy_company_id="7", hierarchy_start="existing")
         prefix = f"/workspaces/{workspace_id}/derived-entities/hierarchy"
         response = fixture._post(prefix + "/parents", form)
@@ -179,7 +188,8 @@ class GeneratedHierarchyCheckTests(TestCase):
                 request for request in calls if request.model == "res.company"
             ]
             self.assertEqual(len(company_reads), 1)
-            self.assertIn(("name", "in", ["Example"]), company_reads[0].domain)
+            self.assertIn(("name", "in", ("Example",)), company_reads[0].domain)
+        fixture.submit(workspace_id, (mapping,))
         staging, quality = fixture.prepare(workspace_id)
         self.assertEqual((quality.blocked_count, quality.quarantined_count), (0, 0))
         self.assertEqual(len(staging.rows), 6)

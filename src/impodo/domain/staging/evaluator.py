@@ -44,6 +44,7 @@ from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
     HierarchicalLookupRule,
+    HierarchyConsumerBinding,
     LookupRule,
     RelatedDatasetRule,
     _display_path,
@@ -290,6 +291,7 @@ class CompiledBrowserRowTransformer:
     ]
 
     included_parent: IncludedParentRows | None = None
+    hierarchy_sources: tuple[tuple[HierarchicalLookupRule, DerivedDatasetLink], ...] = ()
 
     def ordering_values(self, policy: GeneratedOrdering, rows: Iterable[SourceRow]) -> GeneratedOrderValues:
         """Capture only included typed sort keys before the bounded row pass."""
@@ -314,6 +316,14 @@ class CompiledBrowserRowTransformer:
             )
             for stable_key in self.effective_column_keys
         }
+        for hierarchy_rule, link in self.hierarchy_sources:
+            projected = hierarchy_consumer_values(
+                HierarchyConsumerBinding(hierarchy_rule, link), source_values,
+            )
+            source_values.update({
+                key: value for key, value in projected.items()
+                if key in self.effective_column_keys
+            })
         values = dict(source_values)
         for reference in self.derived_reference_plan:
             if reference.source_presence_key is not None:
@@ -1233,6 +1243,12 @@ def compile_browser_row_transformer(
         headers=headers,
         reference_indexes=reference_indexes or {},
         included_parent=included_parent,
+        hierarchy_sources=tuple(
+            (hierarchy_rule, link) for hierarchy_rule, link in lookup_bindings
+            if isinstance(hierarchy_rule, HierarchicalLookupRule)
+            and link.consumer_dataset_id == physical.dataset_id
+            and link.source_level_column_keys == hierarchy_rule.source_level_column_keys
+        ),
     )
 
 

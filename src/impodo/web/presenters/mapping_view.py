@@ -125,6 +125,7 @@ from .mapping_journey import resolve_mapping_journey
 from .matching_health_issues import matching_health_workflow_issue_summary
 from .missing_parent_actions import missing_parent_source_key
 from .relationship_health import relationship_health_view
+from .required_values import matching_table_progress
 from .supporting_review import mapping_supporting_review_view
 
 
@@ -537,8 +538,11 @@ def _render_mapping(
         matching_order_preference,
         display_order,
         dataset_views,
-        validation,
-        formula_authoring_issues,
+        matching_table_progress(
+            selection, schema, governance, revision, working_draft,
+            validation=validation, formula_issues=formula_authoring_issues,
+            recommendation=matching_order,
+        ) if selection is not None and schema is not None else {},
         context.matching_order,
         matching_order_check,
         matching_order_check_current,
@@ -1128,8 +1132,7 @@ def _matching_order_view(
     preference: MatchingOrderPreference | None,
     display_order: tuple[str, ...],
     dataset_views,
-    validation,
-    formula_authoring_issues,
+    table_progress,
     matching_order_service: MatchingOrderService,
     live_check,
     live_check_current: bool,
@@ -1148,45 +1151,13 @@ def _matching_order_view(
         for component in recommendation.components
         for dataset_id in component
     }
-    issue_dataset_ids = {
-        issue.dataset_id
-        for issue in (validation.issues if validation is not None else ())
-        if issue.severity == "error"
-    }
-    issue_dataset_ids.update(
-        issue.dataset_id for issue in formula_authoring_issues
-    )
-    cyclic_dataset_ids = {
-        dataset_id
-        for component in recommendation.components
-        if len(component) > 1
-        and any(
-            fact.confidence is MatchingOrderConfidence.CONFIRMED
-            and fact.owner_dataset in component
-            and fact.dependency_dataset in component
-            for fact in recommendation.facts
-        )
-        for dataset_id in component
-    }
     items = []
     for dataset_id in display_order:
         view = view_by_id.get(dataset_id)
         if view is None:
             continue
         source = view["source"]
-        mapping = view["mapping"]
-        if dataset_id in issue_dataset_ids or dataset_id in cyclic_dataset_ids:
-            status_label = "Needs attention"
-            status_class = "review"
-        elif matching_order_service.ready_for_check(source, mapping):
-            status_label = "Ready to check"
-            status_class = "ready"
-        elif mapping is not None:
-            status_label = "In progress"
-            status_class = ""
-        else:
-            status_label = "Ready now"
-            status_class = "ready"
+        progress = table_progress[dataset_id]
         reason, confidence = _matching_order_reason(
             dataset_id,
             recommendation,
@@ -1203,8 +1174,8 @@ def _matching_order_view(
                     if view["model"] is not None
                     else view["selected_model"]
                 ),
-                "status_label": status_label,
-                "status_class": status_class,
+                "status_label": progress["status_label"],
+                "status_class": progress["status_class"],
                 "reason": reason,
                 "confidence": confidence,
                 "active": view["active"],

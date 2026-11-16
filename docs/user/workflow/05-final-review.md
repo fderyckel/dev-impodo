@@ -359,6 +359,9 @@ Final review shows the action that owns the problem:
   whose saved evidence is no longer current.
 - **Try comparison again** appears for a temporary connection failure or an
   incomplete read-only response. It does not ask for a new key.
+- **Comparison request is too large** means Impodo could not divide a search
+  into small enough requests. Contact support with the job identifier and
+  support code shown below the message.
 - An internal storage or unexpected failure shows safe **Support details** and
   does not claim that the Odoo credential is wrong.
 

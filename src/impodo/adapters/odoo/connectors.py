@@ -81,6 +81,7 @@ from impodo.domain.shared.models import (
 
 from .company_checks import capture_company_checks
 from .external_identity import external_id_bindings, external_id_domain
+from .read_request_batches import bounded_record_requests
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100
@@ -105,6 +106,7 @@ from impodo.domain.odoo.contracts import (
     ConnectorConfigurationError,
     ConnectorError,
     ConnectorIncompleteResultError,
+    ConnectorRequestSizeError,
     ConnectorTransportError,
     MetadataRequest,
     MetadataSnapshot,
@@ -1336,6 +1338,28 @@ class Json2ReadConnector:
     def _read_record_request(
         self, request: RecordRequest, external_model: bool,
     ) -> tuple[TargetRecord, ...]:
+        """Read byte-bounded partitions of one original planner request."""
+
+        parts = bounded_record_requests(
+            request, context=self._config.context, page_size=self._config.page_size,
+            maximum_bytes=self._config.max_request_bytes,
+        )
+        if len(parts) == 1:
+            return self._read_record_request_chunk(parts[0], external_model)
+        records: dict[int, TargetRecord] = {}
+        for part in parts:
+            for record in self._read_record_request_chunk(part, external_model):
+                previous = records.setdefault(record.odoo_id, record)
+                if previous != record:
+                    raise ConnectorIncompleteResultError(
+                        f"record partitions conflict for {request.model}"
+                    )
+        ordered = tuple(records[key] for key in sorted(records))
+        return ordered[:request.limit] if request.limit is not None else ordered
+
+    def _read_record_request_chunk(
+        self, request: RecordRequest, external_model: bool,
+    ) -> tuple[TargetRecord, ...]:
         """Read one original planner chunk, retaining sequential pagination."""
 
         performance_count("rpc_batches")
@@ -1481,7 +1505,7 @@ class Json2ReadConnector:
             "User-Agent": "impodo",
         }
         if body is not None and len(body) > self._config.max_request_bytes:
-            raise ConnectorConfigurationError("JSON-2 request exceeds the safe limit")
+            raise ConnectorRequestSizeError("JSON-2 read request exceeds the safe size limit")
         transient_statuses = {429, 502, 503, 504}
         for attempt in range(self._config.retries + 1):
             performance_count("rpc_calls")

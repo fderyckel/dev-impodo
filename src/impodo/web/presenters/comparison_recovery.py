@@ -65,6 +65,14 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
         "Try the comparison again",
         "Odoo did not return all information required for the read-only comparison.",
     ),
+    OdooReadFailureCode.REQUEST_TOO_LARGE: (
+        "Impodo needs attention",
+        "Comparison request is too large",
+        (
+            "Impodo could not split a read-only comparison request into small enough batches. "
+            "Contact support with the reference below so the request can be handled safely."
+        ),
+    ),
     OdooReadFailureCode.SCHEMA_EVIDENCE_MISSING: (
         "Odoo data needs attention",
         "Capture the Odoo data structure",

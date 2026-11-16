@@ -249,6 +249,13 @@ def _preparation_workspace(
             data_version,
             run,
         )
+        target = context.migration_run_target_setup.get(
+            prepared_workspace.migration_run_id, actor=actor,
+        )
+        prepared_workspace = replace(
+            prepared_workspace,
+            target_company_binding_hash=target.company_binding_hash if target else "",
+        )
         projection = (
             context.data_version_source_projection.projections.repository
             .get_workspace_source_projection(workspace_id)

@@ -18,6 +18,7 @@ from impodo.application.preflight_jobs import PreflightJobManager
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import (
     ConnectorAuthenticationError,
+    ConnectorRequestSizeError,
     ConnectorTransportError,
 )
 from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
@@ -46,6 +47,19 @@ class ProgressControls(HTMLParser):
 
 
 class ComparisonProgressRecoveryTests(ProjectSetupBrowserTestCase):
+    def test_oversized_request_reports_impodo_batching_instead_of_connection_settings(self):
+        _workspace, page, status, _running = self.exercise(
+            ConnectorRequestSizeError("private source values must not appear")
+        )
+        self.assertIn("Comparison request is too large", page.text)
+        self.assertIn("Impodo could not split a read-only comparison request", page.text)
+        self.assertIn("ODOO_READ_REQUEST_TOO_LARGE", page.text)
+        self.assertNotIn("web address or database name", page.text)
+        self.assertNotIn("private source values", page.text)
+        self.assertEqual(status["failure_code"], "ODOO_READ_REQUEST_TOO_LARGE")
+        self.assertEqual(status["failure_title"], "Comparison request is too large")
+        self.assertNotIn("/target", status["failure_action_href"])
+
     def exercise(
         self,
         failure,

@@ -51,6 +51,15 @@ counts each distinct physical input table once across the complete chain.
 Historical evaluator-9 staging also remains readable with its original hash;
 new staging must use the current evaluator.
 
+Browser evaluator 12 materializes the selected hierarchy path on an original
+source before evaluating any scalar field, identity component or matching
+scope. A confirmed hierarchy company is a distinct optional source value on
+that original table; using it does not reinterpret a location path as a company
+name. Evaluator-11 evidence remains readable with its original hash, while
+current publication and recovery require the current evaluator. The
+[hierarchy scope regressions](../../../tests/domain/preparation/test_hierarchy_match_scope.py)
+cover these projections and the evaluator-11 read boundary.
+
 ## Canonical rows and lineage
 
 Every evaluated input produces a canonical result, including rows with blocking

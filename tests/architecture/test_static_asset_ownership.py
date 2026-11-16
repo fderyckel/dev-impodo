@@ -126,6 +126,7 @@ class StaticAssetOwnershipTests(unittest.TestCase):
             "workspace_schema.html": ("/schema-scope-fields.js", "/schema.js"),
             "workspace_normalization.html": ("/normalization.js", "/review.js"),
             "workspace_summary.html": ("/review.js",),
+            "workspace_prepare.html": ("/match-celebration.css", "/match-celebration.js"),
             "workspace_load.html": ("/execution.js",),
             "workspace_transformation_impact.html": (
                 "/transformation-impact.js",

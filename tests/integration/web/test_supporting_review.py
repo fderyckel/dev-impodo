@@ -157,6 +157,67 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
         self.assertRegex(page.text, r'<span class="status">\s*Optional\s*</span>')
         self.assertNotIn("matching-rules-blocked-reason", page.text)
 
+    def test_collapsed_optional_choices_save_and_reveal_errors(self):
+        model = self.schema.models[0]
+        country = next(field for field in model.fields if field.name == "country_id")
+        schema = replace(
+            self.schema,
+            content_hash="sha256:" + "8" * 64,
+            models=(
+                replace(
+                    model,
+                    fields=(
+                        *model.fields,
+                        replace(country, name="delivery_country_id", label="Delivery country", required=False),
+                        replace(country, name="parent_id", label="Parent contact", required=False, relation="res.partner"),
+                    ),
+                ),
+            ),
+        )
+        self.context.schema_workspace.schemas.save_odoo_schema_catalog(
+            self.workspace_id, schema, actor=self.actor
+        )
+        page, _form = self.page_and_form()
+        rows = page.context["supporting_review"]["rows"]
+        indexes = {row["field"]: index for index, row in enumerate(rows)}
+        disclosure = '<details class="supporting-review-optional">'
+        collapsed_at = page.text.index(disclosure)
+        form = dict(MappingForm(page.text, form_attribute="data-supporting-save-form").entries)
+        for index, row in enumerate(rows):
+            self.assertEqual(form[f"edge_{index}"], f"{row['model']}|{row['field']}")
+            if row["required"]:
+                self.assertLess(page.text.index(f'id="support-action-{index}"'), collapsed_at)
+            else:
+                self.assertGreater(page.text.index(f'id="support-action-{index}"'), collapsed_at)
+            form[f"action_{index}"] = "REUSE"
+        parent_index = indexes["parent_id"]
+        form[f"action_{parent_index}"] = "SKIP_OPTIONAL"
+        saved = self.save(form)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        committed = self.context.schema_workspace.supporting.current(
+            self.workspace_id, actor=self.actor
+        )
+        self.assertEqual(
+            {choice.field_name: choice.action.value for choice in committed.choices},
+            {row["field"]: form[f"action_{index}"] for index, row in enumerate(rows)},
+        )
+        reopened, _form = self.page_and_form()
+        retry = dict(MappingForm(reopened.text, form_attribute="data-supporting-save-form").entries)
+        self.assertEqual(retry[f"action_{parent_index}"], "SKIP_OPTIONAL")
+        retry[f"action_{parent_index}"] = "INCOMING"
+        retry[f"dataset_{parent_index}"] = "Wrong table"
+        rejected = self.save(retry)
+        self.assertEqual(rejected.status_code, 422, rejected.text)
+        self.assertTrue(rejected.context["supporting_review"]["rows"][parent_index]["save_error"])
+        collapsed_at = rejected.text.index(disclosure)
+        self.assertLess(rejected.text.index(f'id="support-action-{parent_index}"'), collapsed_at)
+        country_index = indexes["delivery_country_id"]
+        self.assertGreater(rejected.text.index(f'id="support-action-{country_index}"'), collapsed_at)
+        self.assertEqual(
+            self.context.schema_workspace.supporting.current(self.workspace_id, actor=self.actor),
+            committed,
+        )
+
     def test_committed_summary_rebuild_and_unchanged_decision_keep_evidence(self):
         _page, form = self.page_and_form()
         self.assertEqual(self.save(form).status_code, 303)

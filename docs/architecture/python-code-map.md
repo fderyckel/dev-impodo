@@ -242,7 +242,9 @@ describe which changes invalidate these bindings.
   values for source capture and destination transfer from native metadata.
   `web/composition/target_readers.py` and `target_writers.py`
   select scoped adapters. The adapters batch reads by model and use separate
-  write authority. `application/workspace/execution/identity_lookups.py` resolves
+  write authority. `adapters/odoo/read_request_batches.py` partitions oversized
+  read domains while preserving their conditions and result limits.
+  `application/workspace/execution/identity_lookups.py` resolves
   nested parent keys in groups and keeps numeric IDs within the target
   operation.
 - **Linux server.** `web/composition/server_cli.py` selects the process role.

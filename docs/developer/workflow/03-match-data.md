@@ -46,6 +46,25 @@ locations add no database reads and do not establish completion or authorization
 `mapping-journey.js` shows one step and one active table task. The table tasks
 cover rows, record identity, scalar values, and linked values. Hidden controls
 remain in the mapping form so a partial display cannot remove a saved choice.
+The table picker displays compact links above the editor. Its cards separate
+the active-table outline from saved setup status: neutral **To do** or
+**In progress**, green **Ready to check**, and red **Needs attention**.
+`matching_table_progress` in `web/presenters/required_values.py` combines the
+existing identity-readiness predicate with required-value coverage from loaded
+evidence. Current validation errors, formula issues, and confirmed dependency
+cycles take precedence. The save response returns the same status projection
+inside the existing local operation. Browser edits clear the active card's
+saved readiness; a committed save updates the cards when it covers the latest
+edits. Switching cards uses the existing save-before-navigation path.
+When new source choices or refreshed schema evidence make a working draft
+stale, the save handler preserves hidden choices from the same saved revision
+that the page displays. It compares posted decisions against that baseline and
+checks the edited mapping against current evidence before submission. Row
+confirmation still requires a current definition. The
+[source-choice recovery tests](../../../tests/integration/web/test_mapping_source_choice_recovery.py)
+exercise the real Company correction form with an inactive table's checked
+Odoo default, reject altered hidden decisions and stale row confirmation, and
+prepare the corrected rows for both Odoo versions and access modes.
 The field grid presents the Odoo field, its value provider, and the preview in
 three columns. Value conversion and cleanup stay under **Prepare values**.
 The catalogue's **More field options** disclosure owns filtering and Odoo-field
@@ -1609,6 +1628,17 @@ changed bytes. The [workflow regressions](../../../tests/integration/web/test_hi
 cover both majors and access modes, including a bad existing-record lookup
 that must return mapping findings rather than a snapshot-verification error.
 
+For an original hierarchy source with a confirmed company policy, the effective
+table also exposes **Company from &lt;hierarchy name&gt;** using the generated
+company column key. Its portable value is the company name confirmed in the
+Stage 1 hierarchy policy. The operating company alone does not select this
+field provider. `hierarchy_consumer_values` projects the path and company
+separately; the reader returns either or both in the same ordered snapshot
+scan. The
+[consumer preparation regressions](../../../tests/integration/web/test_hierarchy_consumer_preparation.py)
+cover both Odoo versions and access modes, corrected saved mappings, complete
+input beyond the preview, and Recipe compilation.
+
 `reviewed_exact_join_output` resolves a standalone join between frozen physical
 tables into a one-step execution plan, or selects the requested dataset's
 complete join group. It retains the original rules, dataset identities, and
@@ -1950,6 +1980,26 @@ current pointer, and confirmation tables through a forward-only migration.
 Navigation marks Match data complete only when the current revision has a
 submission with the same mapping ID and content hash. A draft or validation
 without matching submission does not unlock Prepare data.
+
+After successful confirmation redirects to Prepare data, the mapping route
+sets a session marker containing the workspace ID and submitted content hash.
+The preparation route checks that marker against the already-read submission
+and consumes it after rendering. Ordinary visits, refreshes, rejected commands,
+replayed mutation receipts, and another workspace cannot trigger the effect.
+Recipe confirmations that still require review do not set the marker.
+
+The preparation page owns
+[`match-celebration.js`](../../../src/impodo/web/static/match-celebration.js),
+[`match-celebration.css`](../../../src/impodo/web/static/match-celebration.css),
+and [`_match_celebration.html`](../../../src/impodo/web/templates/_match_celebration.html).
+They show **Good Job Hugo!**, falling confetti, and three soft colour pulses
+for five seconds. Continue or Escape dismisses the effect, and reduced-motion
+preferences replace animation with a still banner. Leaving or hiding the page
+removes it. Preparation still requires its existing explicit action. The marker
+and effect add no database access, remote requests, or changes to evidence.
+[`test_match_celebration.py`](../../../tests/integration/web/test_match_celebration.py)
+covers confirmation, one-time display, receipt replay, workspace isolation,
+and the unchanged database budgets for the affected requests.
 
 ## Invalidation and recovery
 

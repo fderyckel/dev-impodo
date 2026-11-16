@@ -41,7 +41,7 @@ matches remain separate actions.
    task. At the last task, **Save and match next table** moves to the next
    table. **Save and review matches** opens the checks after the last table.
    Captured Odoo records keep their protected identity and omit tasks that do
-   not apply. Use **Choose a table** to revisit a table and **Change table
+   not apply. Select a table card to revisit a table and **Change table
    order** when you need a different working sequence.
 3. **Check and resolve.** Select **Check matches** after completing the table
    choices. Correct the listed decisions using their field links, then return
@@ -53,6 +53,12 @@ matches remain separate actions.
    required warnings, then select **Confirm field matches** to continue to
    Prepare data. Optional Excel review, rule effects, and business checks are
    available here. Opening this step does not confirm or approve anything.
+
+When your confirmed matches open Prepare data, Impodo celebrates for five
+seconds with falling confetti, soft colour flashes, and **Good Job Hugo!**.
+Select **Continue** or press Escape to dismiss it sooner. If your device uses
+reduced motion, Impodo shows a still banner. Refreshing the page does not
+repeat the celebration. Select **Prepare data** when you are ready to start.
 
 Each field row shows **Odoo field**, **Use value from**, and **Preview**.
 Open **Prepare values** only when you need conversion, cleanup, rounding, or
@@ -474,10 +480,17 @@ remain authoritative for every relationship.
 ### Use the recommended table order
 
 In **Match tables**, the table heading shows **Table N of M**. Impodo puts a
-supporting table before a table whose saved relationship refers to it. Open
-**Choose a table** to revisit another table. Open **Change table order** to see
+supporting table before a table whose saved relationship refers to it. Select
+one of the cards above the editor to switch tables. Impodo saves your current
+edits first. Open **Change table order** to see
 **Recommended matching order**, the reasons for that order, and the reordering
 controls.
+
+Grey cards show **To do** or **In progress**. A green tick and **Ready to check**
+mean the table's required identity, field, and linked-value choices are saved.
+Red **Needs attention** points to an issue found in those choices. An outline
+marks the table you are editing. Select **Check and resolve** when you are
+ready to check the saved choices.
 
 The initial recommendation uses only saved local evidence: source-preparation
 relationships, saved incoming-table choices, and the Odoo structure captured
@@ -905,7 +918,20 @@ Choose **Selected categories path** when the generated hierarchy is named
 It supplies the related record's complete path, not another value such as its
 company name.
 
-For a combined table, Impodo carries this column from whichever
+If you confirmed a company while building the hierarchy under an existing Odoo
+parent, the original source table also offers **Company from categories**.
+The label uses your hierarchy's name. Choose this separate value for **Company**
+when the original records should use that confirmed hierarchy company. You can
+use it inside the Odoo matching rule as well as for a linked field. This keeps
+the existing matching rule and avoids adding a company column to the file.
+
+For example, with a hierarchy named `location_wiltz`, choose **Selected
+location_wiltz path** for **Parent Location** and **Company from location_wiltz**
+for **Company**. Select **Save progress**, run **Check matches**, and prepare
+the complete data again. Existing saved field choices remain available while
+you make this correction.
+
+For a combined table, Impodo carries the selected-path column from whichever
 input supplies the hierarchy: the primary table, a second table, or any later
 table. You do not need to include its original level fields in the combined
 table. The saved joins determine which hierarchy path belongs to each row.

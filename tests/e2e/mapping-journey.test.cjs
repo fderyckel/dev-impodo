@@ -86,6 +86,12 @@ function page({ url = "https://impodo.test/workspaces/one/mapping", company = fa
   }
   let active;
   for (const [index, id] of tableIds.entries()) {
+    const card = new Element({ mappingTableCard: id, mappingTableLink: "", mappingTableState: "" }, "A");
+    card.href = `https://impodo.test/workspaces/one/mapping?mapping_dataset=${index}`;
+    if (id === activeId) card.setAttribute("aria-current", "step");
+    card.append(new Element({ mappingTableStatus: "" }));
+    card.append(new Element({ mappingTableComplete: "" }));
+    panels.tables.append(card);
     const table = new Element({ mappingDataset: id, ...(id === activeId ? { mappingActiveTable: "" } : {}) });
     table.id = `mapping-dataset-${index}`;
     if (id === activeId) active = table;
@@ -229,6 +235,25 @@ test("ordinary save progress never advances the journey", () => {
   const { recover } = view.recovery();
   recover.applyMutationOutcome({ status: "committed" }, { action: "save_progress" });
   assert.equal(view.root.dataset.task, "rows");
+});
+
+test("saved table progress and unsaved edits keep selection separate from completion", () => {
+  const view = page({ tableIds: ["active", "other"] });
+  const cards = view.root.querySelectorAll("[data-mapping-table-card]");
+  view.journey.updateTableProgress({
+    active: { status_label: "Ready to check", status_class: "ready" },
+    other: { status_label: "Needs attention", status_class: "review" },
+  });
+  assert.equal(cards[0].dataset.mappingTableState, "ready");
+  assert.equal(cards[0].querySelector("[data-mapping-table-complete]").hidden, false);
+  view.journey.markActiveTableDirty();
+  assert.equal(cards[0].dataset.mappingTableState, "");
+  assert.equal(cards[0].querySelector("[data-mapping-table-status]").textContent, "In progress");
+  assert.equal(cards[0].querySelector("[data-mapping-table-complete]").hidden, true);
+  assert.equal(cards[0].getAttribute("aria-current"), "step");
+  assert.equal(cards[1].dataset.mappingTableState, "review");
+  view.journey.updateTableProgress(undefined);
+  assert.equal(cards[1].querySelector("[data-mapping-table-status]").textContent, "Needs attention");
 });
 
 for (const outcome of [

@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Prepare data · {{ migration_project.display_name }} · Impodo{% endblock %}
+{% block page_styles %}
+  {% if show_match_celebration %}<link rel="stylesheet" href="{{ url_for('static', path='/match-celebration.css') }}">{% endif %}
+{% endblock %}
+{% block page_scripts %}
+  {% if show_match_celebration %}<script src="{{ url_for('static', path='/match-celebration.js') }}" defer></script>{% endif %}
+{% endblock %}
 {% block content %}
+  {% if show_match_celebration %}{% include "_match_celebration.html" %}{% endif %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Prepare fresh data{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
@@ -21,7 +28,7 @@
       <p>Impodo prepares from the accepted Data version selected by this workspace. You can leave the progress page and return without losing the job.</p>
       <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button primary" type="submit">Prepare data</button>
+        <button class="button primary" type="submit" data-prepare-data>Prepare data</button>
       </form>
     {% else %}
       <h2>Confirm the field matches first</h2>

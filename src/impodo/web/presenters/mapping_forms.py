@@ -1404,7 +1404,16 @@ def _active_mapping_definition(
     selection,
     schema,
     governance,
+    *,
+    for_authoring: bool = False,
 ) -> MappingDefinition | None:
+    """Keep rendered saved choices available for rechecking current evidence.
+
+    Authoring uses the same retained revision as the page when a source or
+    schema change makes its draft stale. This baseline only preserves form
+    choices; strict actions still require current evidence.
+    """
+
     expected_schema_hash = (
         governance.content_hash if governance is not None else schema.content_hash
     )
@@ -1418,8 +1427,10 @@ def _active_mapping_definition(
     revision = context.queries.get_mapping_revision(workspace_id)
     if (
         revision is not None
-        and revision.definition.source_selection_hash == selection.content_hash
-        and revision.definition.schema_hash == expected_schema_hash
+        and (for_authoring or (
+            revision.definition.source_selection_hash == selection.content_hash
+            and revision.definition.schema_hash == expected_schema_hash
+        ))
     ):
         return revision.definition
     return None
@@ -1480,7 +1491,9 @@ def _merge_partial_mapping_datasets(
             )
             if parsed.target_field_dispositions != existing_dispositions:
                 raise WorkspaceError(
-                    "Mapping request changed a hidden Odoo-field decision"
+                    f"The required-field choices for {source_dataset.name} differ "
+                    "from the saved version. Reopen that table in Match data, "
+                    "then try saving again."
                 )
             merged.append(
                 replace(

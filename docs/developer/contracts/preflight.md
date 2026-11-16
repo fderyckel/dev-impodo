@@ -77,6 +77,12 @@ while every descendant extends the relationship path through its parent. The
 planner batches those expressions into bounded requests. It never falls back
 to the leaf name or an unrestricted read.
 
+The JSON-2 adapter also bounds the encoded bytes of each request. It may split
+positive search alternatives while preserving the complete original condition,
+Company context, and result limit. Overlapping results must agree. If one read
+condition cannot fit safely, comparison stops with `ODOO_READ_REQUEST_TOO_LARGE`;
+this is an Impodo request-size failure, not invalid Odoo connection details.
+
 Resolved incoming identities retain nested business references through every
 governed parent. Those references carry their ordered key and scope field
 names so execution can recheck the same lineage. Numeric parent IDs remain

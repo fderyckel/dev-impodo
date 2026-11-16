@@ -178,6 +178,7 @@ from ..presenters.mapping_view import (
     _render_mapping_field_catalog,
     _safe_spreadsheet_text,
 )
+from ..presenters.required_values import matching_table_progress
 from ..presenters.supporting_review import supporting_conflict_views
 from ..request_identity import request_identity
 from ..security import require_csrf, require_session, run_workspace_page_read
@@ -2019,6 +2020,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     selection,
                     schema,
                     governance,
+                    for_authoring=action != "confirm_rows",
                 )
                 selection_refresh = load_selection_refresh(
                     context, workspace_id, _text(form, "selection_refreshes"), actor=actor,
@@ -2184,6 +2186,16 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                         formula_issues,
                         next_dataset_index,
                         receipt,
+                        matching_table_progress(
+                            selection,
+                            selection_refresh.schema if selection_refresh else schema,
+                            selection_refresh.governance if selection_refresh else governance,
+                            None,
+                            working_draft,
+                            validation=None,
+                            formula_issues=formula_issues,
+                            recommendation=recommendation,
+                        ),
                     )
 
                 (
@@ -2191,6 +2203,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     formula_issues,
                     next_dataset_index,
                     receipt,
+                    table_progress,
                 ) = await run_local_operation(save_progress)
                 set_diagnostic_working_draft_version(
                     request,
@@ -2232,6 +2245,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                             "redirect_url": progress_return_url,
                             "saved_at": working_draft.updated_at.isoformat(),
                             "next_recommended_url": next_recommended_url,
+                            "table_progress": table_progress,
                             "authoring_issues": [
                                 issue.portable_dict() for issue in formula_issues
                             ],
@@ -2345,7 +2359,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 _flash(request, message)
             else:
-                await run_local_operation(
+                submission = await run_local_operation(
                     context.mapping_workspace.submit_current,
                     workspace_id,
                     datasets=datasets,
@@ -2379,6 +2393,10 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 else:
                     message = "Field matches confirmed."
                     mapping_return_url = f"/workspaces/{workspace_id}/prepare"
+                if mapping_return_url == f"/workspaces/{workspace_id}/prepare":
+                    request.session["match_celebration"] = [
+                        workspace_id, submission.mapping_content_hash,
+                    ]
                 message = _with_incoming_dependency_notice(
                     message,
                     dependency_repairs,

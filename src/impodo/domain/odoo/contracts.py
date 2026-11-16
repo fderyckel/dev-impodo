@@ -415,6 +415,12 @@ class ConnectorConfigurationError(ConnectorError):
     """Raised when connector configuration or snapshot binding is invalid."""
 
 
+class ConnectorRequestSizeError(ConnectorError):
+    """Stop an oversized read payload before transport without blaming its target."""
+
+    failure_code = "ODOO_READ_REQUEST_TOO_LARGE"
+
+
 class ConnectorAuthenticationError(ConnectorError):
     """Raised when Odoo rejects the supplied read credentials."""
 

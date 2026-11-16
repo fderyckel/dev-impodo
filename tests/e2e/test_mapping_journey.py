@@ -71,6 +71,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         self._choose_company()
         self.assertEqual(fixture.context.queries.get(workspace_id).odoo_company, fixture.access.choices[1])
         self.assertIsNone(fixture.context.queries.get_mapping_working_draft(workspace_id))
+        self._table_cards_on_first_entry(selection)
         self.item_key = next(key for key in fixture.context.queries.get_schema_governance(
             workspace_id
         ).business_keys if key.model == "x.item" and key.key_fields == ("ref",))
@@ -125,6 +126,28 @@ class MappingJourneyBrowserTests(unittest.TestCase):
     def _active_table(self):
         return self.page.locator("[data-mapping-active-table]")
 
+    def _card(self, dataset):
+        return self.page.locator(f'[data-mapping-table-card="{dataset.dataset_id}"]')
+
+    def _table_cards_on_first_entry(self, selection):
+        cards = self.page.get_by_role("navigation", name="Choose a table", exact=True)
+        expect(cards).to_be_visible()
+        self.assertEqual(cards.locator("details").count(), 0)
+        for dataset in selection.datasets:
+            expect(self._card(dataset)).to_contain_text("To do")
+            expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "")
+        active = cards.locator('[aria-current="step"]')
+        self.assertEqual(active.count(), 1)
+        self.assertEqual(active.evaluate("el => getComputedStyle(el).outlineStyle"), "solid")
+        self.page.set_viewport_size({"width": 390, "height": 844})
+        cards.scroll_into_view_if_needed()
+        self._settle_layout()
+        for card in cards.locator("[data-mapping-table-card]").all():
+            bounds = card.bounding_box()
+            self.assertGreaterEqual(bounds["x"], 0)
+            self.assertLessEqual(bounds["x"] + bounds["width"], 390)
+        self.page.set_viewport_size({"width": 1440, "height": 1024})
+
     def _task(self, key):
         return self._active_table().locator(f'[data-mapping-task-panel="{key}"]')
 
@@ -138,6 +161,8 @@ class MappingJourneyBrowserTests(unittest.TestCase):
             self.page.locator("[data-mapping-continue]").click()
         response = pending.value
         self.assertEqual(response.status, 200)
+        if task in {"identity", "fields", "links"}:
+            self.assertEqual(len(response.json()["table_progress"]), 2)
         operation_id = dict(response.request.post_data_json["entries"])["operation_id"]
         receipt = self.fixture.context.mapping_workspace.get_mutation_receipt(
             self.workspace_id, operation_id, actor=self.fixture.actor,
@@ -197,7 +222,15 @@ class MappingJourneyBrowserTests(unittest.TestCase):
             self._capture("11t-stage3-match-fields.png")
             self._saved_position_and_native_validation(dataset)
             self._formula_recovery(dataset)
+        else:
+            self._switch_cards_preserves_edits(dataset)
         self._save_continue(task="links")
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "" if first else "ready")
+        expect(self._card(dataset)).to_contain_text("In progress" if first else "Ready to check")
+        if not first:
+            self.assertEqual(self._card(dataset).evaluate(
+                "el => getComputedStyle(el).borderLeftColor"
+            ), "rgb(77, 124, 91)")
         if first:
             expect(self._task("links").get_by_role("heading", name=re.compile("^Connect linked values"))).to_be_in_viewport()
         # Linked records are optional here. Keep them omitted to exercise normal authoring.
@@ -213,6 +246,21 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         self.assertEqual(saved.source_identity_column_keys, (self._column(dataset, "Reference"),))
         self.assertEqual(next(field.literal_value for field in saved.fields if field.target_field == "note"), f"Reviewed {dataset.name}")
         self.assertIsNone(self.fixture.context.queries.get_mapping_revision(self.workspace_id))
+
+    def _switch_cards_preserves_edits(self, dataset):
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "")
+        other = self.page.locator(f'[data-mapping-table-card]:not([data-mapping-table-card="{dataset.dataset_id}"])')
+        other_id = other.get_attribute("data-mapping-table-card")
+        with self.page.expect_navigation(wait_until="networkidle"):
+            other.click()
+        expect(self._active_table()).to_have_attribute("data-mapping-dataset", other_id)
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "ready")
+        with self.page.expect_navigation(wait_until="networkidle"):
+            self._card(dataset).click()
+        expect(self._card(dataset)).to_have_attribute("aria-current", "step")
+        self._go_task("fields")
+        note = self._task("fields").locator('[data-scalar-mapping-row][data-target-field="note"]')
+        expect(note.locator("[data-literal-value]")).to_have_value(f"Reviewed {dataset.name}")
 
     def _saved_position_and_native_validation(self, dataset):
         with self.page.expect_response(lambda response: "/mapping/save" in response.url and response.request.method == "POST"):
@@ -251,6 +299,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
                 and response.request.method == "POST") as saved:
             self.page.locator("[data-save-mapping-progress]").click()
         self.assertEqual(saved.value.json()["status"], "committed")
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "review")
         expect(self.page.locator("[data-mapping-save-status]")).to_contain_text("needs attention")
         draft = self.fixture.context.queries.get_mapping_working_draft(self.workspace_id)
         saved_note = next(field for table in draft.definition.datasets
@@ -260,6 +309,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         expect(note.locator("[data-literal-value]")).to_have_value(f"Reviewed {dataset.name}")
         self._capture("11x-stage3-formula-recovery.png")
         formula.fill("")
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "")
         formula.blur()
         expect(note.locator("[data-formula-feedback]")).to_be_hidden()
         expect(self.page.locator("[data-check-mapping]")).to_be_enabled()
@@ -268,6 +318,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         with self.page.expect_navigation(wait_until="networkidle"):
             self.page.locator("[data-check-mapping]").click()
         expect(self.root).to_have_attribute("data-step", "check")
+        expect(self._card(dataset)).to_have_attribute("data-mapping-table-state", "review")
         blockers = self.page.locator("#next-step-blockers")
         expect(blockers).to_be_visible()
         expect(blockers).to_be_in_viewport()

@@ -320,7 +320,7 @@
           {% if flash %}
             <div class="notice success" role="status">{{ flash }}</div>
           {% endif %}
-          {% if workspace_state and workspace_state.source_mode.value == 'ODOO' and workspace_state.destination_configured and not workspace_state.destination_database_binding_current %}
+          {% if workspace_state and workspace_state.source_mode is defined and workspace_state.source_mode.value == 'ODOO' and workspace_state.destination_configured and not workspace_state.destination_database_binding_current %}
             <section class="notice warning" role="status" data-database-binding-review>
               <strong>Review the destination database before loading</strong>
               <p>This workspace has no current reviewed database binding. Saved source data and earlier load journals remain available.</p>

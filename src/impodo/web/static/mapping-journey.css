@@ -46,8 +46,9 @@
   font-size: .88rem;
 }
 
-.mapping-table-queue > details:first-child {
-  margin-left: auto;
+.mapping-table-cards {
+  flex-basis: 100%;
+  min-width: 0;
 }
 
 .mapping-table-queue > details[open] {
@@ -56,17 +57,57 @@
 
 .mapping-table-queue-list {
   display: grid;
-  gap: .4rem;
-  margin: .85rem 0 0;
-  padding-left: 1.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(12rem, 100%), 1fr));
+  gap: .65rem;
+  margin: .2rem;
+  padding: 0;
+  list-style: none;
 }
 
-.mapping-table-queue-list li {
-  padding: .4rem 0;
+.mapping-table-card {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--muted);
+  border-radius: .25rem;
+  background: var(--surface);
+  padding: .65rem .8rem;
+  color: var(--ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
 }
 
-.mapping-table-queue-list .status {
-  margin-left: .75rem;
+.mapping-table-card small {
+  color: var(--muted);
+  font-size: .8rem;
+}
+
+.mapping-table-card.ready {
+  border-left-color: #4d7c5b;
+  background: #f0f6f1;
+}
+
+.mapping-table-card.ready small,
+.mapping-table-card [data-mapping-table-complete] {
+  color: #386143;
+}
+
+.mapping-table-card.review {
+  border-left-color: var(--impodo-red);
+  background: #fff5f4;
+}
+
+.mapping-table-card.review small {
+  color: var(--impodo-red-dark);
+}
+
+.mapping-table-card[aria-current="step"],
+.mapping-table-card:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .mapping-journey-order-details .mapping-order {

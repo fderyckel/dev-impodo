@@ -434,23 +434,18 @@ def _hierarchical_identity_domain_chunks(
     ],
     chunk_size: int,
 ) -> list[list[Any]] | None:
-    """Build bounded domains for a nullable self-referencing identity scope.
+    """Build bounded domains for identities that depend on a nullable hierarchy.
 
     A hierarchy cannot use one flattened field tuple for every row: a root is
     identified by ``(name, parent=False)``, while a child needs
     ``(name, parent.name, parent.parent=False)`` and deeper rows extend that
-    path.  Compile each prepared lineage separately, then batch the resulting
-    expressions.  Returning ``None`` retains the fail-closed behaviour for all
-    other identity shapes that cannot be narrowed safely.
+    path. A separate table can depend on those same parent paths through its
+    incoming identity or scope. Compile each prepared lineage separately, then
+    batch the resulting expressions. Returning ``None`` retains the fail-closed
+    behaviour for other identity shapes that cannot be narrowed safely.
     """
 
-    supports_explicit_root = any(
-        component.null_policy != "reject"
-        and component.resolve is not None
-        and component.resolve.dataset == dataset.name
-        for component in dataset.target_identity.scope
-    )
-    if not supports_explicit_root:
+    if not _has_hierarchical_identity_scope(plan, dataset):
         return None
 
     expressions = []
@@ -474,6 +469,33 @@ def _hierarchical_identity_domain_chunks(
         _or_expressions(unique_expressions[start : start + chunk_size])
         for start in range(0, len(unique_expressions), chunk_size)
     ]
+
+
+def _has_hierarchical_identity_scope(
+    plan: CompiledMigrationPlan,
+    dataset: DatasetSpec,
+    *,
+    visiting: frozenset[str] = frozenset(),
+) -> bool:
+    """Recognize a nullable hierarchy through incoming identity dependencies."""
+
+    if dataset.name in visiting:
+        return False
+    visiting = visiting | {dataset.name}
+    for component in (
+        *dataset.target_identity.components,
+        *dataset.target_identity.scope,
+    ):
+        resolve = component.resolve
+        if resolve is None or resolve.dataset is None:
+            continue
+        if resolve.dataset == dataset.name and component.null_policy != "reject":
+            return True
+        if _has_hierarchical_identity_scope(
+            plan, plan.dataset(resolve.dataset), visiting=visiting
+        ):
+            return True
+    return False
 
 
 def _record_identity_domain_expression(

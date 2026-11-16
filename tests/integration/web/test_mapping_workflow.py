@@ -522,9 +522,11 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Match supporting tables first", page.text)
         self.assertIn("This page did not contact Odoo", page.text)
         self.assertIn("Starting order", page.text)
-        self.assertIn("Current table", page.text)
+        self.assertIn('class="mapping-table-cards" aria-label="Choose a table"', page.text)
+        self.assertNotIn('<summary>Choose a table</summary>', page.text)
+        self.assertIn(f'data-mapping-table-card="{_dataset.dataset_id}"', page.text)
         self.assertIn('aria-current="step"', page.text)
-        self.assertIn("Ready now", page.text)
+        self.assertIn('<small data-mapping-table-status>To do</small>', page.text)
 
     def test_table_order_can_be_saved_conflict_checked_and_reset(self) -> None:
         workspace_id, dataset, _business_key = self._mapping_ready_workspace(

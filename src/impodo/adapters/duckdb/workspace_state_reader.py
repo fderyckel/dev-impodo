@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
+import duckdb
+
 from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.workspace.workbench import (
+    SourceMode,
     WorkspaceState,
     WorkspaceStateError,
     WorkspaceStateNotFoundError,
@@ -15,6 +21,7 @@ from .schema.data_version_store import (
     DATA_VERSION_STORE_GENERATION,
     DATA_VERSION_STORE_VERSION,
 )
+from .schema.odoo_saved_source_company import read_saved_source_company
 from .serialization import _workspace_from_rows
 
 
@@ -56,11 +63,40 @@ class WorkspaceStateReader(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall()
-        return _workspace_from_rows(
-            dict(zip(columns, row, strict=True)),
-            source_rows,
-            workspace_id=self._workspace.workspace_id,
-        )
+            state = _workspace_from_rows(
+                dict(zip(columns, row, strict=True)),
+                source_rows,
+                workspace_id=self._workspace.workspace_id,
+            )
+            company = self._target_company(connection)
+            return replace(
+                state,
+                odoo_company=(read_saved_source_company(connection)
+                    if state.source_mode is SourceMode.ODOO else company),
+                destination_company=(company if state.source_mode is SourceMode.ODOO else None),
+            )
+
+    def _target_company(
+        self, connection: duckdb.DuckDBPyConnection,
+    ) -> OdooCompanySelection | None:
+        """Resolve the run's captured choice from this worker's protected copy."""
+
+        binding_hash = self._workspace.target_company_binding_hash
+        if not binding_hash:
+            return None
+        row = connection.execute(
+            "SELECT selection_json FROM odoo_company_binding WHERE binding_hash = ?",
+            [binding_hash],
+        ).fetchone()
+        if row is None:
+            raise WorkspaceStateError("The selected Odoo company evidence is missing")
+        try:
+            company = OdooCompanySelection.from_json(str(row[0]))
+        except (ValueError, TypeError) as error:
+            raise WorkspaceStateError("The selected Odoo company evidence is invalid") from error
+        if company.binding_hash != binding_hash:
+            raise WorkspaceStateError("The selected Odoo company evidence changed")
+        return company
 
     def _verify_data_version_store(self) -> None:
         path = (

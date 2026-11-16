@@ -39,6 +39,25 @@
       };
     });
     const currentTableId = activeTable?.dataset.mappingDataset;
+    const updateTableProgress = (progress) => {
+      for (const card of root.querySelectorAll("[data-mapping-table-card]")) {
+        const state = progress?.[card.dataset.mappingTableCard];
+        if (!state || typeof state.status_label !== "string" ||
+            !["", "ready", "review"].includes(state.status_class)) continue;
+        card.classList.remove("ready", "review");
+        if (state.status_class) card.classList.add(state.status_class);
+        card.dataset.mappingTableState = state.status_class;
+        const label = card.querySelector("[data-mapping-table-status]");
+        if (label) label.textContent = state.status_label;
+        const complete = card.querySelector("[data-mapping-table-complete]");
+        if (complete) complete.hidden = state.status_class !== "ready";
+      }
+    };
+    const markActiveTableDirty = () => {
+      if (currentTableId) updateTableProgress({
+        [currentTableId]: { status_label: "In progress", status_class: "" },
+      });
+    };
     const tableIds = JSON.stringify(tables.map((table) => table.id).sort());
     const reviewedKey = `impodo.mapping.reviewedTables:${window.location.pathname}`;
     const reviewedQuery = "mapping_reviewed";
@@ -380,6 +399,7 @@
     }
     render();
     return { show, reveal, continuationFor, committed, resultUrl, cancelContinuation,
+      updateTableProgress, markActiveTableDirty,
       get continuationUsed() { return continuationUsed; } };
   };
 

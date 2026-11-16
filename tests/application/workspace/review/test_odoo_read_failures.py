@@ -18,6 +18,7 @@ from impodo.domain.odoo.contracts import (
     ConnectorAuthorizationError,
     ConnectorConfigurationError,
     ConnectorIncompleteResultError,
+    ConnectorRequestSizeError,
     ConnectorTransportError,
 )
 from impodo.application.shared.secrets import SecretStoreError
@@ -45,6 +46,11 @@ class OdooReadFailureClassificationTests(unittest.TestCase):
                 ConnectorConfigurationError("invalid"),
                 OdooReadFailureCode.CONNECTION_DETAILS_INVALID,
                 OdooReadRecoveryKind.REVIEW_CONNECTION,
+            ),
+            (
+                ConnectorRequestSizeError("oversized"),
+                OdooReadFailureCode.REQUEST_TOO_LARGE,
+                OdooReadRecoveryKind.VIEW_SUPPORT_DETAILS,
             ),
             (
                 ConnectorTransportError("HTTP 503"),

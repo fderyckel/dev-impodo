@@ -1290,6 +1290,7 @@ cover Odoo 19 and 20, LOCAL and REMOTE modes, and Authoring and Recipe jobs.
 - [`tests/application/workspace/execution/test_reconciliation.py`](../../../tests/application/workspace/execution/test_reconciliation.py)
 - [`tests/integration/odoo/test_readback_retries.py`](../../../tests/integration/odoo/test_readback_retries.py)
 - [`tests/integration/web/test_load_workflow.py`](../../../tests/integration/web/test_load_workflow.py)
+- [Shared background-page layout](../../../tests/integration/web/test_background_page_layout.py)
 - [`tests/domain/preparation/test_hierarchy_identity.py`](../../../tests/domain/preparation/test_hierarchy_identity.py)
 - [`tests/integration/web/test_hierarchy_recipe.py`](../../../tests/integration/web/test_hierarchy_recipe.py)
 - [`tests/integration/web/test_hierarchy_recovery.py`](../../../tests/integration/web/test_hierarchy_recovery.py)

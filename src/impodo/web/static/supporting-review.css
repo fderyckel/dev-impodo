@@ -16,6 +16,17 @@
   margin-top: 1.25rem;
 }
 
+.supporting-review-optional {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 1rem 1.1rem;
+}
+
+.supporting-review-optional > summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
 .supporting-review-choice {
   margin: 0;
   border: 1px solid var(--line);

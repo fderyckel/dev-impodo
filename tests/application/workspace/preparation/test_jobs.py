@@ -313,6 +313,11 @@ class PreparationWorkspaceProjectionTests(unittest.TestCase):
             migration_runs=SimpleNamespace(
                 get=lambda migration_run_id, **kwargs: object()
             ),
+            migration_run_target_setup=SimpleNamespace(
+                get=lambda migration_run_id, **kwargs: SimpleNamespace(
+                    company_binding_hash="sha256:" + "3" * 64,
+                )
+            ),
             data_version_source_projection=SimpleNamespace(
                 projections=SimpleNamespace(
                     repository=SimpleNamespace(
@@ -333,6 +338,7 @@ class PreparationWorkspaceProjectionTests(unittest.TestCase):
             )
 
         self.assertEqual(result.source_package_hash, projection.package_hash)
+        self.assertEqual(result.target_company_binding_hash, "sha256:" + "3" * 64)
         self.assertEqual(
             result.source_dataset_ids,
             ("addresses", "customers"),

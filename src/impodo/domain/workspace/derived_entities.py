@@ -1490,7 +1490,12 @@ def mapping_source_selection(
         if item.dataset_id not in physical_dataset_ids
         or dataset_uses[item.dataset_id].is_map_eligible
     ]
-    hierarchy_links = tuple(binding.link for binding in hierarchy_consumer_bindings(plan))
+    consumer_bindings = hierarchy_consumer_bindings(plan)
+    hierarchy_links = tuple(binding.link for binding in consumer_bindings)
+    company_sources = {
+        binding.link.source_column_key: binding.company_source_column_key
+        for binding in consumer_bindings if binding.company_source_column_key is not None
+    }
     hierarchy_names = {
         _derived_dataset_link(rule, plan).source_column_key: rule.output_dataset_name
         for rule in (plan.rules if plan else ())
@@ -1526,6 +1531,17 @@ def mapping_source_selection(
                 )
                 known_keys.add(link.source_column_key)
                 known_names.add(name)
+                company_key = company_sources.get(link.source_column_key)
+                if company_key is not None and company_key not in known_keys:
+                    company_name = f"Company from {hierarchy_names[link.source_column_key]}"
+                    while company_name in known_names:
+                        company_name += " (generated)"
+                    columns.append(SourceDatasetColumn(
+                        ordinal=len(columns) + 1, source_name=company_name,
+                        stable_key=company_key, candidate_type="string",
+                    ))
+                    known_keys.add(company_key)
+                    known_names.add(company_name)
             augmented.append(replace(dataset, columns=tuple(columns)))
         effective = augmented
 
@@ -1615,6 +1631,12 @@ class HierarchyConsumerBinding:
     def source_name(self) -> str:
         return f"Selected {self.rule.output_dataset_name} path"
 
+    @property
+    def company_source_column_key(self) -> str | None:
+        """Expose confirmed hierarchy company evidence on its original source."""
+
+        return self.link.company_column_key if not self.carried else None
+
 
 def hierarchy_consumer_bindings(
     plan: DerivedEntityPlan | None,
@@ -1693,6 +1715,10 @@ def hierarchy_consumer_values(
                 strict=True,
             )
         },
+        **({binding.company_source_column_key: binding.rule.existing_parent.company_name
+            if evaluation is not None and evaluation.has_path else None}
+            if binding.company_source_column_key is not None
+            and binding.rule.existing_parent is not None else {}),
     }
 
 

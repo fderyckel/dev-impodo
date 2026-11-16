@@ -726,6 +726,7 @@ stages:
       - tests/application/workspace/test_derived_entities.py
       - tests/integration/web/test_mapping_impact_presenter.py
       - tests/integration/web/test_mapping_workflow.py
+      - tests/integration/web/test_match_celebration.py
       - tests/integration/web/test_combined_value_match_choices.py
       - tests/integration/web/test_value_choice_company_refresh.py
       - tests/application/workspace/mapping/test_value_match_choices.py
@@ -757,6 +758,7 @@ stages:
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py
       - tests/integration/web/test_mapping_form_roundtrip.py
+      - tests/integration/web/test_mapping_source_choice_recovery.py
       - tests/domain/preparation/test_lookup_blank_source.py
       - tests/domain/preparation/test_optional_many2one.py
       - tests/application/workspace/mapping/test_blank_relationship_choices.py
@@ -770,6 +772,7 @@ stages:
       - tests/integration/web/test_disconnection_messages.py
       - tests/integration/web/test_hierarchy_identity_reads.py
       - tests/integration/artifacts/test_hierarchy_consumer_values.py
+      - tests/integration/web/test_hierarchy_consumer_preparation.py
       - tests/integration/web/test_identity_choice_review.py
       - tests/integration/web/test_identity_group_review.py
       - tests/integration/web/test_duplicate_row_exclusions.py
@@ -927,6 +930,10 @@ stages:
       - tests/application/workspace/preparation/test_normalization_timing.py
       - tests/integration/duckdb/test_normalization_seed_transport.py
       - tests/integration/web/test_preparation_workflow.py
+      - tests/integration/web/test_background_page_layout.py
+      - tests/integration/web/test_hierarchy_worker_company.py
+      - tests/domain/preparation/test_hierarchy_match_scope.py
+      - tests/integration/web/test_hierarchy_consumer_preparation.py
       - tests/integration/web/test_hierarchy_causes.py
       - tests/integration/web/test_hierarchy_failures.py
       - tests/integration/web/test_summary_presenter.py
@@ -997,6 +1004,7 @@ stages:
       - src/impodo/adapters/artifacts/attention_workbook.py::build_attention_workbook
       - src/impodo/domain/preflight/mapping_summary.py::workbook_mapping_rules
       - src/impodo/domain/execution/planner.py::plan_preflight_requirements
+      - src/impodo/adapters/odoo/read_request_batches.py::bounded_record_requests
       - src/impodo/application/odoo_comparison_service.py::prepare_odoo_comparison
       - src/impodo/application/odoo_comparison_service.py::build_odoo_comparison_publication
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
@@ -1020,6 +1028,9 @@ stages:
       - tests/integration/web/test_final_review_navigation.py
       - tests/e2e/final-review-navigation.test.cjs
       - tests/integration/web/test_comparison_progress_recovery.py
+      - tests/domain/execution/test_hierarchy_requirements.py
+      - tests/integration/web/test_hierarchy_consumer_comparison.py
+      - tests/integration/odoo/test_read_request_batches.py
       - tests/e2e/comparison-progress.test.cjs
       - tests/application/workspace/review/test_preflight_jobs.py
       - tests/application/workspace/review/test_preflight.py
@@ -1045,6 +1056,7 @@ stages:
       - tests/integration/odoo/test_company_context_identity.py
       - tests/application/workspace/review/test_odoo_comparison.py
       - tests/integration/web/test_review_workflow.py
+      - tests/integration/web/test_background_page_layout.py
       - tests/integration/web/test_summary_presenter.py
       - tests/integration/web/test_deferred_scope_presenter.py
       - tests/integration/web/test_deferred_scope_routes.py
@@ -1210,6 +1222,7 @@ stages:
       - tests/application/workspace/execution/test_transfer_approval_admission.py
       - tests/integration/duckdb/test_retired_transfer_projection.py
       - tests/integration/web/test_transfer_evidence_notice.py
+      - tests/integration/web/test_background_page_layout.py
       - tests/domain/workspace/test_business_intent.py
       - tests/domain/workspace/test_business_intent_scope.py
       - tests/application/workspace/test_business_intent_service.py

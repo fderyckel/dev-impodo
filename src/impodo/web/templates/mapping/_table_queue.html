@@ -1,20 +1,19 @@
 <section class="form-card mapping-table-queue" aria-label="Tables to match">
-  {% if matching_order and matching_order.rows|length > 1 %}
-    <details>
-      <summary>Choose a table</summary>
+  {% if matching_order %}
+    <nav class="mapping-table-cards" aria-label="Choose a table">
       <ol class="mapping-table-queue-list">
         {% for item in matching_order.rows %}
-          <li{% if item.active %} aria-current="step"{% endif %}>
-            {% if item.active %}
-              <strong>{{ item.dataset_name }}</strong><span class="status">Current table</span>
-            {% else %}
-              <a href="{{ item.edit_url }}" data-mapping-table-link>{{ item.dataset_name }}</a>
-              <span class="status {{ item.status_class }}">{{ item.status_label }}</span>
-            {% endif %}
+          <li>
+            <a class="mapping-table-card {{ item.status_class }}" href="{{ item.edit_url }}"
+               data-mapping-table-link data-mapping-table-card="{{ item.dataset_id }}"
+               data-mapping-table-state="{{ item.status_class }}"{% if item.active %} aria-current="step"{% endif %}>
+              <strong>{{ item.dataset_name }} <span data-mapping-table-complete aria-hidden="true"{% if item.status_class != 'ready' %} hidden{% endif %}>✓</span></strong>
+              <small data-mapping-table-status>{{ item.status_label }}</small>
+            </a>
           </li>
         {% endfor %}
       </ol>
-    </details>
+    </nav>
   {% endif %}
   {% if matching_order %}
     <details class="mapping-journey-order-details">

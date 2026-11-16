@@ -49,7 +49,14 @@ failure merely to discover that no current source version exists.
 Before spawning, the route resolves and captures the Project, DataVersion,
 MigrationRun, and MigrationWorkspace identities. The application also captures
 the exact application build and workspace schema contract that accepted the
-request.
+request. It also captures the current run's company binding hash. The worker
+resolves that exact immutable selection from its own protected company
+evidence, verifies its hash, and restores the company context before checking
+hierarchies. Odoo-source workspaces retain their separate saved source company
+and destination company. Missing or altered evidence fails closed; a real
+change from the hierarchy's saved company still blocks preparation. The
+[hierarchy worker tests](../../../tests/integration/web/test_hierarchy_worker_company.py)
+exercise both supported Odoo versions and access modes with the registry locked.
 `preparation_worker.py` composes project-only adapters and validates that
 captured identity against the Project's immutable linkage; it cannot open the
 shared Recipe registry. Before it opens workspace evidence, the spawned worker
@@ -361,9 +368,19 @@ final join's immediate inputs. The
 verify those counts and the resulting category references through load and
 reconciliation.
 
-Browser evaluator 10 publishes this combined-hierarchy and physical-input
-accounting behavior. Evaluator-7, evaluator-8, and evaluator-9 staging remains
-readable with its original hashes; newly published staging uses evaluator 10.
+Browser evaluator 12 also projects the original table's selected hierarchy path
+before scalar fields, identity components and matching scopes are evaluated.
+The original source can separately use the company name confirmed in the
+hierarchy policy. Parent lookups and company lookups therefore receive their
+distinct values even when both belong to the target matching rule. The
+[scope regressions](../../../tests/domain/preparation/test_hierarchy_match_scope.py)
+cover custom nested models, product categories, repeated names under different
+parents, and historical staging hashes. The
+[consumer workflow regressions](../../../tests/integration/web/test_hierarchy_consumer_preparation.py)
+verify all original rows and generated parents together for both supported
+Odoo versions and access modes. Evaluator-7, evaluator-8, evaluator-9 and
+evaluator-11 staging remain readable with their original hashes; newly
+published staging uses evaluator 12.
 
 `prepare_bounded_grouped_exact_join_session` compiles the mapping once, retains
 evidence hashes outside its row loop, and appends each producer in stable
@@ -579,6 +596,15 @@ context, avoiding both registry and project database reads while a writer owns
 either file. Later stages remain locked while work is active or while required
 resolution or normalization decisions remain. Completion requires frozen,
 fully accounted prepared evidence for the current bindings.
+
+The shared page header accepts this minimal job-only workspace descriptor.
+It renders the destination-database review warning only when source-mode
+metadata is available; it does not fetch workspace data to fill that gap.
+Full Odoo workspace pages retain their existing warning, and destination
+admission remains authoritative. The
+[background-page layout tests](../../../tests/integration/web/test_background_page_layout.py)
+cover minimal job facts, file-source pages, and current or stale Odoo
+destination reviews without database access.
 
 ## Invalidation and recovery
 

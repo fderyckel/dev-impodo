@@ -45,6 +45,24 @@ qualification boundary and its grouped 500-ID reads.
 
 ## Implementation flow
 
+### Read planning for incoming hierarchies
+
+When a table identifies its records within parents supplied by another incoming
+table, the read planner follows that table's complete hierarchy. For example,
+separate category detail rows can match by name within generated parent
+categories. The planner builds exact domains from each prepared ancestor path,
+including the explicit empty parent at its root and any mapped Company scope.
+It batches those domains within the existing key limit. Missing, ambiguous,
+or cyclic parent references never produce an unrestricted read.
+
+The shared [read planner](../../../src/impodo/domain/execution/planner.py)
+uses the same rules for browser mappings and compiled profiles.
+[Domain tests](../../../tests/domain/execution/test_hierarchy_requirements.py)
+cover categories, account groups, and a custom hierarchy.
+[Comparison tests](../../../tests/integration/web/test_hierarchy_consumer_comparison.py)
+exercise preparation, publication, and the browser background job on Odoo 19
+and 20 in local and remote modes, using a synthetic read-only target.
+
 ### Focused review pages
 
 The summary presenter uses
@@ -191,6 +209,24 @@ coordinator stops submitting requests, cancels queued work, and drains active
 reads under their existing timeouts. Partial results cannot publish a review.
 Metadata, company-reference checks, classification, and publication retain
 their existing sequential boundaries.
+
+The JSON-2 reader also measures encoded request bytes. A planner chunk can
+contain fewer than 500 keys and still exceed the 64 KiB default because scoped
+hierarchy searches repeat complete ancestor paths. The
+[request partitioner](../../../src/impodo/adapters/odoo/read_request_batches.py)
+divides positive OR and IN alternatives, retaining all enclosing AND conditions,
+Company context, pagination, and the original result limit. Partitions execute
+sequentially within the original worker. Identical overlapping records merge;
+conflicting values stop the comparison. External-ID reads retain their existing
+alias verification path.
+
+An indivisible oversized read raises `ConnectorRequestSizeError` before
+transport. Final review reports **Comparison request is too large**, with
+support code `ODOO_READ_REQUEST_TOO_LARGE` and an instruction to contact support.
+It does not direct the operator to change the Odoo address or database.
+[Connector regressions](../../../tests/integration/odoo/test_read_request_batches.py)
+cover 201 hierarchical records, UTF-8 values, scopes, limits, overlap, and
+indivisible requests for both Odoo majors and JSON-2 access modes.
 
 With diagnostics enabled, `PreflightJobManager` binds an
 `OperationPerformance` collector in the comparison worker. Queue wait,
@@ -817,6 +853,7 @@ contact Odoo while writing them.
 - [Explicit company context and ordered identity checks](../../../tests/integration/odoo/test_company_context_identity.py)
 - [`tests/application/workspace/review/test_odoo_comparison.py`](../../../tests/application/workspace/review/test_odoo_comparison.py)
 - [`tests/integration/web/test_review_workflow.py`](../../../tests/integration/web/test_review_workflow.py)
+- [Shared background-page layout](../../../tests/integration/web/test_background_page_layout.py)
 - [`tests/integration/web/test_recipe_comparison_recovery.py`](../../../tests/integration/web/test_recipe_comparison_recovery.py)
 - [`tests/integration/web/test_odoo_transfer_journey.py`](../../../tests/integration/web/test_odoo_transfer_journey.py)
 - [`tests/integration/web/test_summary_presenter.py`](../../../tests/integration/web/test_summary_presenter.py)
