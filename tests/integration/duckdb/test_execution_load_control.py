@@ -12,6 +12,7 @@ from impodo.domain.execution.load_control import (
 )
 from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.execution.odoo_write import OdooWriteRejected
+from impodo.domain.execution.operator_errors import capture_operator_error
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     WriteFailureCode,
@@ -83,10 +84,17 @@ class ExecutionLoadControlTests(unittest.TestCase):
             diagnostic=OdooWriteDiagnostic(
                 WriteFailureCode.VALIDATION, "res.partner", "load", batch_size=2
             ),
+            operator_detail=capture_operator_error(
+                [{"type": "error", "message": "Fictional parent rejection", "rows": {"from": 1, "to": 1}}],
+                ({"name": "first-wire"}, {"name": "second-wire"}),
+            ),
         )
         retries = self.repository.record_rejected_batch(
             self.workspace_id, run.run_id, started, error
         )
+        _, parent = self.repository.operator_error_for_row(self.workspace_id, run.run_id, started[1].row_id)
+        self.assertEqual(parent.row_ids, tuple(row.row_id for row in started))
+        self.assertEqual(parent.detail.submitted[1]["name"], "second-wire")
         self.assertEqual(
             self.repository.get_load_control(self.workspace_id, run.run_id).windows, ()
         )
@@ -98,7 +106,11 @@ class ExecutionLoadControlTests(unittest.TestCase):
         failed = replace(
             child, status=ExecutionRowStatus.FAILED, diagnostic=error.diagnostic
         )
-        self.repository.record_outcomes(self.workspace_id, run.run_id, (failed,))
+        child_detail = capture_operator_error([{"type": "error", "message": "Fictional isolated rejection"}], ({"name": "first-wire"},))
+        self.repository.record_outcomes_with_detail(self.workspace_id, run.run_id, (failed,), child_detail)
+        _, saved_child = self.repository.operator_error_for_row(self.workspace_id, run.run_id, failed.row_id)
+        self.assertEqual(saved_child.row_ids, (failed.row_id,))
+        self.assertEqual(saved_child.detail.messages[0].text, "Fictional isolated rejection")
         saved = self.repository.get_load_control(self.workspace_id, run.run_id)
         self.assertEqual(saved.windows[0].recent, (True,))
         self.assertEqual(saved.isolation_calls, 1)
@@ -110,6 +122,7 @@ class ExecutionLoadControlTests(unittest.TestCase):
             evidence = connection.execute(
                 "SELECT rejection_json FROM execution_rejected_transport"
             ).fetchall()
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM execution_operator_error").fetchone(), (2,))
         self.assertEqual(len(evidence), 1)
         self.assertIn(started[1].row_id, evidence[0][0])
 

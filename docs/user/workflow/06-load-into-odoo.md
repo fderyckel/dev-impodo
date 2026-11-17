@@ -370,6 +370,14 @@ An Odoo request already in progress finishes first and its receipt is saved.
 Stopping keeps earlier accepted records and prevents subsequent write requests.
 Closing the browser is not a stop request.
 
+If Odoo limits requests, Impodo spaces out subsequent requests and shows
+**Waiting for Odoo's request limit** with the seconds until its next check.
+Your accepted records remain saved while it waits. If the required wait is
+too long for the current attempt, open the saved result and use **Check
+recovery** when offered before resuming. If a request was sent but its result
+is uncertain, use the offered verification action before another write.
+Keep working from the saved outcome instead of starting the full load again.
+
 ![A paused fictional load retains ten rejected records and offers guarded continuation or Stop further uploads.](../../images/user/18c-load-paused.png)
 
 ![Confirmation offers Stop at the first rejection or Set aside rejected records and continue.](../../images/user/18d-load-policy.png)
@@ -384,9 +392,19 @@ request can mark several records as rejected. The row message includes the
 affected field and position within the group when Odoo identifies them.
 If Odoo denies access, the outcome names the affected model. Ask your Odoo
 administrator to check the loading user's permissions and company access.
-If the message gives no specific cause, ask them to check the destination error
-at the time of the load. The support bundle includes technical details about
-the failed operation and excludes source values and raw Odoo error messages.
+Select **Review Odoo error** beside a rejected record to read Odoo's saved
+explanation and the values actually sent after preparation. A reported field
+is identified separately from other submitted fields shown for context. If
+Odoo gives a record-level explanation, the page says **Odoo did not identify
+a field**. A group rejection may concern another record in that request.
+
+The private page retains the failed attempt's values when you return later.
+It identifies missing or shortened detail. Older attempts may have no saved
+explanation; discarded text cannot be recovered from the code. Use **Review
+Match data** when offered to review the authoring rules, or review the source
+or destination rule named by Odoo. The support bundle includes technical
+details about the failed operation and excludes these private explanations
+and submitted values.
 
 If the load stops unexpectedly, use **Create diagnostic bundle** beside its
 **Support reference**. Share the ZIP with your support engineer or AI agent.

@@ -1444,19 +1444,13 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(compared.status_code, 303, compared.text)
         readiness_page = self.client.get(compared.headers["location"])
-        self.assertIn("Included in preparation", readiness_page.text)
+        self.assertIn('data-step="results"', readiness_page.text)
         self.assertIn("Set aside", readiness_page.text)
-        self.assertIn("Needs correction", readiness_page.text)
         self.assertIn("New in Odoo", readiness_page.text)
         self.assertIn("Different from Odoo", readiness_page.text)
         self.assertIn("Already matches", readiness_page.text)
         self.assertIn("Needs attention", readiness_page.text)
-        self.assertIn('id="quality-rows"', readiness_page.text)
         self.assertIn("Ready", readiness_page.text)
-        self.assertIn("Needs a decision", readiness_page.text)
-        self.assertIn("Needs correction", readiness_page.text)
-        self.assertIn("Rows", readiness_page.text)
-        self.assertIn("Support details", readiness_page.text)
         self.assertIn("Create review workbook", readiness_page.text)
         self.assertIn("Keep these rules for another data version", readiness_page.text)
         self.assertIn(
@@ -1474,14 +1468,27 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             "It does not save the rules for reuse.",
             readiness_page.text,
         )
-        self.assertIn("Odoo remains unchanged", readiness_page.text)
-        self.assertIn("prepared rows safely saved", readiness_page.text)
-        self.assertIn("data-staging-summary", readiness_page.text)
-        self.assertIn("<summary>Support details</summary>", readiness_page.text)
-        self.assertIn("data-preflight-compare", readiness_page.text)
+        prepared_page = self.client.get(
+            f"/workspaces/{workspace_id}/summary?step=prepared"
+        )
+        self.assertEqual(prepared_page.status_code, 200)
+        self.assertIn('data-step="prepared"', prepared_page.text)
+        self.assertIn("Included in preparation", prepared_page.text)
+        self.assertIn("Needs a decision", prepared_page.text)
+        self.assertIn("Needs correction", prepared_page.text)
+        self.assertIn('id="quality-rows"', prepared_page.text)
+        self.assertIn("prepared rows safely saved", prepared_page.text)
+        self.assertIn("data-staging-summary", prepared_page.text)
+        self.assertIn("<summary>Support details</summary>", prepared_page.text)
+        comparison_page = self.client.get(
+            f"/workspaces/{workspace_id}/summary?step=compare"
+        )
+        self.assertEqual(comparison_page.status_code, 200)
+        self.assertIn('data-step="compare"', comparison_page.text)
+        self.assertIn("data-preflight-compare", comparison_page.text)
         self.assertIn(
             "Comparing with Odoo... Keep this page open.",
-            readiness_page.text,
+            comparison_page.text,
         )
 
         report = self.app.state.context.preflight.current_report(workspace_id)
@@ -1633,8 +1640,8 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Final review complete", final_review.text)
         self.assertNotIn("Preview the Odoo load", final_review.text)
         self.assertLess(
-            final_review.text.index("Checked rows"),
             final_review.text.index("Final review complete"),
+            final_review.text.index("Checked rows"),
         )
         load_landing = self.client.get(
             f"/workspaces/{workspace_id}/load",
@@ -1924,30 +1931,30 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
 
         with self.subTest("persisted readiness paging"):
             first_page = self.client.get(
-                f"/workspaces/{workspace_id}/summary"
+                f"/workspaces/{workspace_id}/summary?step=results&view=attention"
             )
             self.assertEqual(
                 first_page.text.count("data-readiness-row"),
                 20,
             )
-            self.assertIn("Rows 1-20 of 201", first_page.text)
-            self.assertIn("Page 1 of 11", first_page.text)
+            self.assertIn("Rows 1-20 of 120", first_page.text)
+            self.assertIn("Page 1 of 6", first_page.text)
             self.assertIn("Rows per page:", first_page.text)
             for size in (10, 20, 50, 100):
                 self.assertIn(f">{size}</a>", first_page.text)
             self.assertIn("ROW-0020", first_page.text)
             self.assertNotIn("ROW-0021", first_page.text)
             self.assertIn(
-                'href="?status=attention#readiness-rows"',
+                'href="?step=results&amp;view=attention&amp;status=attention#readiness-rows"',
                 first_page.text,
             )
             for status in ("create", "update", "unchanged"):
                 self.assertIn(
-                    f'href="?status={status}#readiness-rows"',
+                    f'href="?step=results&amp;view=changes&amp;status={status}#readiness-rows"',
                     first_page.text,
                 )
             self.assertIn(
-                'href="?quality_status=quarantined#quality-rows"',
+                'href="?step=results&amp;view=outside#records-outside-load"',
                 first_page.text,
             )
             next_match = re.search(
@@ -1961,27 +1968,34 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
             self.assertEqual(next_query["page"], ["2"])
 
             second_page = self.client.get(
-                f"/workspaces/{workspace_id}/summary?page=2"
+                f"/workspaces/{workspace_id}/summary?step=results&view=attention&page=2"
             )
             self.assertEqual(
                 second_page.text.count("data-readiness-row"),
                 20,
             )
-            self.assertIn("Rows 21-40 of 201", second_page.text)
+            self.assertIn("Rows 21-40 of 120", second_page.text)
             self.assertIn("ROW-0021", second_page.text)
             self.assertIn("ROW-0040", second_page.text)
             self.assertNotIn("ROW-0001", second_page.text)
 
             clamped_page = self.client.get(
-                f"/workspaces/{workspace_id}/summary?page=999"
+                f"/workspaces/{workspace_id}/summary?step=results&view=attention&page=999"
             )
             self.assertEqual(
                 clamped_page.text.count("data-readiness-row"),
-                1,
+                20,
             )
-            self.assertIn("Rows 201-201 of 201", clamped_page.text)
-            self.assertIn("Page 11 of 11", clamped_page.text)
-            self.assertIn("ROW-0201", clamped_page.text)
+            self.assertIn("Rows 101-120 of 120", clamped_page.text)
+            self.assertIn("Page 6 of 6", clamped_page.text)
+            self.assertIn("ROW-0120", clamped_page.text)
+            changes_page = self.client.get(
+                f"/workspaces/{workspace_id}/summary?step=results&view=changes"
+            )
+            self.assertEqual(changes_page.text.count("data-readiness-row"), 20)
+            self.assertIn("Rows 1-20 of 81", changes_page.text)
+            self.assertIn("ROW-0121", changes_page.text)
+            self.assertNotIn("ROW-0001", changes_page.text)
 
             filtered_page = self.client.get(
                 f"/workspaces/{workspace_id}/summary",

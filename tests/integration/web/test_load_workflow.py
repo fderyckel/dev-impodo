@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.workspace.execution.progress import execution_progress
 from impodo.domain.execution.models import ExecutionRowAttempt
 from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
 from impodo.domain.reconciliation import ReconciliationRow, ReconciliationRowStatus
@@ -749,17 +750,20 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             can_load=True,
         )
         attempts = (
-            SimpleNamespace(
-                operation="CREATE",
-                status=ExecutionRowStatus.COMMITTED,
+            ExecutionRowAttempt(
+                row_id="create", dataset="contacts", source_row=1,
+                target_model="res.partner", operation="CREATE", field_names=("name",),
+                proposed_external_id="", status=ExecutionRowStatus.COMMITTED,
             ),
-            SimpleNamespace(
-                operation="UPDATE",
-                status=ExecutionRowStatus.COMMITTED,
+            ExecutionRowAttempt(
+                row_id="update", dataset="contacts", source_row=2,
+                target_model="res.partner", operation="UPDATE", field_names=("name",),
+                proposed_external_id="", status=ExecutionRowStatus.COMMITTED,
             ),
         )
         completed_run = SimpleNamespace(
             load_control=None,
+            workspace_id=workspace_state.workspace_id,
             run_id="11111111-1111-4111-8111-111111111111",
             total_count=2,
             planned_count=0,
@@ -768,7 +772,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         )
 
         def execute(_project_id, **kwargs):
-            kwargs["progress"](completed_run)
+            kwargs["progress"](execution_progress(completed_run))
             return completed_run
 
         preview_reads_outside_event_loop = []

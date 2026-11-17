@@ -14,7 +14,9 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from dataclasses import field as dataclass_field
+from datetime import UTC, datetime
 from functools import partial
 from http.client import HTTPException
 from typing import Any
@@ -39,9 +41,11 @@ from impodo.domain.execution.odoo_write import (
     MAX_IDENTITY_LOOKUP_KEYS,
     MAX_PROJECTED_RECEIPT_IDS,
     OdooIdentityLookupUnavailable,
+    OdooRequestDeferred,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
+from impodo.domain.execution.operator_errors import capture_operator_error
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     OdooWriteErrorType,
@@ -51,6 +55,12 @@ from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIE
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
+from .request_pacing import (
+    REQUEST_WAIT_BUDGET_SECONDS,
+    SHARED_JSON2_REQUEST_PACER,
+    Json2RequestPacer,
+    retry_after_seconds,
+)
 from .write_diagnostics import import_rejection_diagnostic
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
@@ -65,6 +75,47 @@ class Json2WriteExecutor:
     config: Json2Config
     scope: OdooApiScope
     transport: Transport = _WRITE_TRANSPORT
+    request_pacer: Json2RequestPacer = dataclass_field(default_factory=lambda: SHARED_JSON2_REQUEST_PACER)
+    _retry_after: float | None = dataclass_field(default=None, init=False, repr=False)
+    _write_admitted: bool = dataclass_field(default=False, init=False, repr=False)
+    _operator_message: str = dataclass_field(default="", init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Observe only the parsed Retry-After value on the production transport."""
+        if self.transport is _WRITE_TRANSPORT:
+            self.transport = partial(
+                _urllib_transport, capture_write_error_type=True,
+                observe_retry_after=self._observe_retry_after,
+                observe_operator_error=self._observe_operator_error,
+            )
+
+    def _observe_retry_after(self, value: str | None) -> None:
+        self._retry_after = retry_after_seconds(value, now=datetime.now(UTC))
+
+    def _observe_operator_error(self, message: str) -> None:
+        self._operator_message = message
+
+    def _rejection(self, diagnostic: OdooWriteDiagnostic, messages: object, values: Sequence[Mapping[str, Any]]) -> OdooWriteRejected:
+        """Keep private capture failure independent of a known Odoo rejection."""
+        try:
+            detail = capture_operator_error(messages, values, secrets=(self.config.api_key,))
+        except (ValueError, TypeError, UnicodeError, RecursionError):
+            return OdooWriteRejected(diagnostic.summary, diagnostic=replace(diagnostic, operator_detail_status="CAPTURE_FAILED"))
+        status = "WITHHELD" if detail.withheld else "TRUNCATED" if detail.truncated else "AVAILABLE" if detail.messages else "UNAVAILABLE"
+        return OdooWriteRejected(diagnostic.summary, diagnostic=replace(diagnostic, operator_detail_status=status), operator_detail=detail)
+
+    def admit_write(self) -> None:
+        """Wait before journalling a write; a refused admission sent nothing."""
+        if not self.request_pacer.wait(
+            self.target_hash,
+            deadline=self.request_pacer.clock() + REQUEST_WAIT_BUDGET_SECONDS,
+            minimum_interval=self.config.minimum_request_interval_seconds,
+        ):
+            raise OdooRequestDeferred(
+                "Odoo's request cooldown exceeds this waiting window. "
+                "The next request was not sent. Check recovery before resuming."
+            )
+        self._write_admitted = True
 
     @property
     def target_hash(self) -> str:
@@ -294,7 +345,7 @@ class Json2WriteExecutor:
             diagnostic = import_rejection_diagnostic(
                 messages, model=model, fields=field_names, batch_size=len(rows)
             )
-            raise OdooWriteRejected(diagnostic.summary, diagnostic=diagnostic)
+            raise self._rejection(diagnostic, messages, rows)
         if (
             not isinstance(identifiers, list)
             or any(type(item) is not int or item <= 0 for item in identifiers)
@@ -503,8 +554,23 @@ class Json2WriteExecutor:
         attempts = 1 if write else max(1, self.config.retries + 1)
         status: int | None = None
         response: object = None
+        deadline = self.request_pacer.clock() + REQUEST_WAIT_BUDGET_SECONDS
         for attempt in range(attempts):
+            if write:
+                if not self._write_admitted:
+                    self.admit_write()
+                self._write_admitted = False
+            elif not self.request_pacer.wait(
+                self.target_hash, deadline=deadline,
+                minimum_interval=self.config.minimum_request_interval_seconds,
+            ):
+                raise OdooRequestDeferred(
+                    "Odoo's request cooldown exceeds this waiting window. "
+                    "The next lookup was not sent. Check recovery before resuming."
+                )
             try:
+                self._retry_after = None
+                self._operator_message = ""
                 status, response = self.transport(
                     url,
                     headers,
@@ -533,9 +599,20 @@ class Json2WriteExecutor:
                     ) from error
                 time.sleep(2**attempt)
                 continue
+            if status == 429:
+                self.request_pacer.defer(
+                    self.target_hash, attempt=attempt, retry_after=self._retry_after,
+                )
+                if not write:
+                    if attempt + 1 < attempts:
+                        continue
+                    raise OdooRequestDeferred(
+                        "Odoo is limiting lookup requests. No write was sent for "
+                        "this lookup. Check recovery after the cooldown."
+                    )
             if (
                 not write
-                and status in {408, 425, 429, 500, 502, 503, 504}
+                and status in {408, 425, 500, 502, 503, 504}
                 and attempt + 1 < attempts
             ):
                 time.sleep(2**attempt)
@@ -559,6 +636,14 @@ class Json2WriteExecutor:
             )
             if unknown:
                 raise OdooWriteOutcomeUnknown(diagnostic.summary, diagnostic=diagnostic)
+            if self._operator_message:
+                if method == "load":
+                    names, data = payload.get("fields", []), payload.get("data", [])
+                    raw_values = tuple({str(k): v for k, v in zip(names, row, strict=True) if k != "id"} for row in data) if isinstance(names, list) and isinstance(data, list) else ({},)
+                else:
+                    raw_values = payload.get("vals_list") if method == "create" else (payload.get("vals", {}),) * batch_size
+                values = tuple(row for row in raw_values if isinstance(row, Mapping)) if isinstance(raw_values, (list, tuple)) else ({},)
+                raise self._rejection(diagnostic, [{"type": "error", "message": self._operator_message}], values or ({},))
             raise OdooWriteRejected(diagnostic.summary, diagnostic=diagnostic)
         if status in {401, 403}:
             raise OdooWriteRejected("Odoo did not authorize this load")

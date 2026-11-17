@@ -650,6 +650,9 @@
                     {% endif %}
                     {% if row.differing_fields %}<small>Different: {{ row.differing_fields|join(', ') }}</small>{% endif %}
                     {% if row.message %}<small>{{ row.message }}</small>{% endif %}
+                    {% if row.execution_status == 'FAILED' or row.execution_status == 'PARTIALLY_APPLIED' %}
+                      <a href="/workspaces/{{ workspace_id }}/load/errors/{{ reconciliation.execution_run_id }}/{{ row.row_id }}">Review Odoo error</a>
+                    {% endif %}
                     {% if row.retry_safe %}<small>Safe to plan again after a fresh comparison.</small>{% endif %}
                   </td>
                 </tr>
@@ -710,6 +713,9 @@
                     {{ row.status.value|replace('_', ' ')|lower }}
                     {% if row.safe_error %}<small>{{ row.safe_error }}</small>
                     {% elif row.diagnostic %}<small>{{ row.diagnostic.summary }}</small>{% endif %}
+                    {% if row.status.value in ('FAILED', 'PARTIALLY_APPLIED') %}
+                      <a href="/workspaces/{{ workspace_id }}/load/errors/{{ preview.current_run.run_id }}/{{ row.row_id }}">Review Odoo error</a>
+                    {% endif %}
                   </td>
                 </tr>
               {% endfor %}

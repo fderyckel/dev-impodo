@@ -11,8 +11,9 @@ status: in-progress
 **Status:** Ranked eleventh in the cross-plan implementation order as of
 2026-10-28. Generic admission, route diagnostics, narrow indexed quality,
 compiled bounded arithmetic, native relational identity, set-based canonical
-projection, and the 50,000-row worker qualification are implemented. Explicit
-consumer ports, bounded error-heavy finding publication, native Decimal
+projection, and the 50,000-row worker qualification are implemented. Quality
+reader capabilities and index results now have consumer-owned typed contracts. Complete
+prepared-evidence read contexts, bounded error-heavy finding publication, native Decimal
 qualification, browser recovery checks, and clean reproducible measurements
 remain open. Broader 100,000-row related workloads remain long-term deferred
 in the [remaining-work roadmap](00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
@@ -27,7 +28,7 @@ publication, and broader workload and platform release measurements.
 | Step | Current progress |
 | --- | --- |
 | 0: Baseline | Route diagnostics identify each table and unsupported rule. Generic regression tests compare the old scan with the shortcut. Controlled scale and timing qualification remain open. |
-| 1: Storage access and admission | Incoming identity groups are detected before transformation, and publication validates canonical records across both storage representations. The explicit consumer-port refactor remains open. |
+| 1: Storage access and admission | Incoming identity groups are detected before transformation, and publication validates canonical records across both storage representations. Quality readers use independent capability contracts and an explicit index-result packet, with count and fact-shape checks inside the existing adapter operation. A shared adapter-bound validated read context remains open; the packet does not certify whole-run evidence or permit cross-operation reuse. |
 | 2: Narrow checks | Exact mapping and published-hash bindings allow indexed quality checks to skip the full-row identity scan. Broader value projections and bounded finding publication remain open. |
 | 3: Arithmetic | Common arithmetic now reuses compiled instructions on the bounded Python route. Native decimal formula qualification remains open. |
 | 4: Relational identity | Direct complete-group quality uses narrow projections and a database-owned graph. Compiler v9 and Polars evaluate qualified incoming, target-catalog, and hybrid identity references; clean datasets now use exact set-based DuckDB canonical projection within the existing 50,000-row boundary. Larger complete-route scale remains open. |

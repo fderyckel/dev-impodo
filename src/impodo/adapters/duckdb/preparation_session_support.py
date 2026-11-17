@@ -11,6 +11,9 @@ from uuid import UUID
 import duckdb
 
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.workspace.preparation.prepared_quality_projection import (
+    PreparedQualityProjection,
+)
 from impodo.domain.preparation.normalization import NormalizationEffect
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
@@ -140,7 +143,7 @@ class PreparationSessionViewRepository(Protocol):
         self,
         *args,
         **kwargs,
-    ) -> dict[str, object] | None: ...
+    ) -> PreparedQualityProjection | None: ...
 
     def _bounded_relationship_findings(
         self,
@@ -393,7 +396,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
         retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
-    ):
+    ) -> PreparedQualityProjection | None:
         """Validate and summarize the direct quality index set-wise."""
 
         return self._repository._bounded_quality_index(

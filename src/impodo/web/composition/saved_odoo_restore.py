@@ -22,8 +22,8 @@ from impodo.application.schema_workspace_service import _schema_field_from_metad
 from impodo.application.transfer_order_service import TransferOrderService
 from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.application.transfer_review_service import TransferReviewService
-from impodo.application.workspace.execution.service import execution_api_scope
 from impodo.domain.execution.models import ExecutionRunStatus
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.odoo_database_binding import (
     OdooDatabaseBinding,
     OdooDatabaseBindingRole,

@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from impodo.domain.execution.load_control import LoadControl, can_set_aside
 from impodo.domain.execution.models import ExecutionRowAttempt
 from impodo.domain.execution.odoo_write import (
+    OdooWriteAdmission,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -46,6 +47,12 @@ class LoadControlRepository(Protocol):
     ) -> tuple[ExecutionRowAttempt, ...]: ...
 
 PreparedCreate = tuple[ExecutionRow, dict[str, Any], tuple[FieldIntent, ...]]
+
+
+def admit_write(executor: OdooWriteExecutor) -> None:
+    """Let native adapters wait before persisting an in-flight write receipt."""
+    if isinstance(executor, OdooWriteAdmission):
+        executor.admit_write()
 
 
 class DependentCompletions:
@@ -99,6 +106,7 @@ def create_transport_results(
     pending = deque([tuple(prepared)])
     while pending:
         group = pending.popleft()
+        admit_write(executor)
         begin(tuple(item[0] for item in group))
         try:
             values: tuple[Mapping[str, Any], ...] = tuple(item[1] for item in group)

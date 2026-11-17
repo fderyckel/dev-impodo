@@ -132,6 +132,7 @@ from impodo.application.workspace.derived_entities import (
     DerivedEntityWorkspaceService,
     ExactJoinGroupEvaluator,
 )
+from impodo.application.workspace.execution.journal import ExecutionJournalRepository
 from impodo.application.workspace.execution.load_transport import LoadControlRepository
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationExecutionRepository,
@@ -140,7 +141,6 @@ from impodo.application.workspace.execution.reconciliation import (
     ReconciliationService,
 )
 from impodo.application.workspace.execution.service import (
-    ExecutionJournalRepository,
     ExecutionService,
     ExecutionWorkspaceRepository,
     ReadCredentialBindingProvider,

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from threading import Condition, RLock, Thread
+from time import perf_counter
 from uuid import uuid4
 
+from impodo.application.shared.remote_wait import observe_remote_wait
 from impodo.application.workspace.access import (
     WorkspaceAccessContext,
     bind_workspace_access_context,
@@ -21,21 +24,24 @@ from impodo.application.workspace.execution.job_models import (
     LoadJobStatus,
     LoadPhase,
 )
+from impodo.domain.execution.load_control import LoadHalted
 from impodo.domain.execution.models import (
-    ExecutionRowStatus,
     ExecutionRun,
     ExecutionRunStatus,
 )
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
 from impodo.domain.shared.access import Actor
 
+from .job_projection import project_load_progress, project_load_verification
 from .load_observation import (
     LoadObservation,
     bind_load_observation,
     current_load_observation,
+    emit_load_evidence,
     observe_load_stage,
     record_load_failure,
 )
+from .progress import ExecutionProgress, execution_progress
 
 
 class LoadJobNotFoundError(LookupError):
@@ -56,9 +62,10 @@ class LoadJobResult:
     completion_warning_code: str = ""
 
 
-LoadProgress = Callable[[ExecutionRun], None]
+LoadProgress = Callable[[ExecutionProgress], None]
+LoadVerification = Callable[[], None]
 LoadWork = Callable[
-    [WorkspaceAccessContext, LoadProgress, LoadProgress],
+    [WorkspaceAccessContext, LoadProgress, LoadVerification],
     LoadJobResult,
 ]
 
@@ -75,6 +82,7 @@ class LoadJobManager:
         self._condition = Condition(self._lock)
         self._jobs: dict[str, LoadJob] = {}
         self._observations: dict[str, LoadObservation] = {}
+        self._wait_started: dict[str, float] = {}
         self._pending: deque[tuple[str, Actor, LoadWork]] = deque()
         self._stopping = False
         self._worker: Thread | None = None
@@ -161,7 +169,7 @@ class LoadJobManager:
             )
             if recovery_run is not None:
                 job = replace(
-                    _job_from_run(job, recovery_run, phase=LoadPhase.CHECKING_TARGET),
+                    project_load_progress(job, execution_progress(recovery_run), phase=LoadPhase.CHECKING_TARGET),
                     message="Checking saved Odoo results before resuming",
                 )
             previous = self.latest(workspace_id)
@@ -278,7 +286,11 @@ class LoadJobManager:
                     observer.emit("worker_started")
             with bind_load_observation(observer):
                 try:
-                    with bind_workspace_access_context(access_context), observe_load_stage("worker"):
+                    with (
+                        bind_workspace_access_context(access_context),
+                        observe_load_stage("worker"),
+                        observe_remote_wait(partial(self._report_waiting, job_id)),
+                    ):
                         result = work(
                             access_context,
                             partial(self._report_writing, job_id),
@@ -334,22 +346,43 @@ class LoadJobManager:
                 "Could not publish Recipe load progress"
             )
 
-    def _report_writing(self, job_id: str, run: ExecutionRun) -> None:
+    def _report_writing(self, job_id: str, progress: ExecutionProgress) -> None:
         with self._lock:
             job = self._jobs[job_id]
             if job.terminal:
                 return
-            self._store(_job_from_run(job, run, phase=LoadPhase.WRITING))
+            self._store(project_load_progress(job, progress))
 
-    def _report_verifying(self, job_id: str, run: ExecutionRun) -> None:
+    def _report_waiting(self, job_id: str, seconds: float | None) -> None:
+        """Expose paced waits and honor a durable stop before the next write."""
         with self._lock:
             job = self._jobs[job_id]
             if job.terminal:
                 return
-            updated = _job_from_run(job, run, phase=LoadPhase.VERIFYING)
-            self._store(
-                replace(updated, progress_percent=max(90, updated.progress_percent))
+            if seconds is None and (started := self._wait_started.pop(job_id, None)) is not None:
+                emit_load_evidence(
+                    "stage_finished", stage="request_wait", outcome="COMPLETED",
+                    duration_ms=(perf_counter() - started) * 1000,
+                )
+            if job.load_control_state == "STOP_REQUESTED":
+                if seconds is not None:
+                    raise LoadHalted("USER_STOP")
+                return
+            if seconds is not None:
+                self._wait_started.setdefault(job_id, perf_counter())
+            message = (
+                f"Waiting for Odoo's request limit; next check in {math.ceil(seconds)} seconds"
+                if seconds is not None
+                else LOAD_PHASE_LABELS[job.phase]
             )
+            self._store(replace(job, message=message, updated_at=_now()))
+
+    def _report_verifying(self, job_id: str) -> None:
+        with self._lock:
+            job = self._jobs[job_id]
+            if job.terminal:
+                return
+            self._store(project_load_verification(job))
 
     def _finish_succeeded(
         self,
@@ -369,6 +402,8 @@ class LoadJobManager:
             message = "Upload paused after repeated failures; review the saved results"
         elif job.load_control_state == "STOPPED":
             message = "Upload stopped with partial results"
+        elif result.completion_warning_code == "LOAD_ODOO_REQUEST_DEFERRED":
+            message = "Odoo load waiting; check recovery before resuming"
         return self._store(
             replace(
                 job,
@@ -418,137 +453,6 @@ class LoadJobManager:
     def _store(self, job: LoadJob) -> LoadJob:
         self._jobs[job.job_id] = job
         return job
-
-
-def _job_from_run(job: LoadJob, run: ExecutionRun, *, phase: LoadPhase) -> LoadJob:
-    """Project durable journal states into non-sensitive browser counters."""
-
-    committed = {
-        ExecutionRowStatus.COMMITTED,
-        ExecutionRowStatus.PARTIALLY_APPLIED,
-    }
-    unfinished_statuses = {
-        ExecutionRowStatus.PLANNED,
-        ExecutionRowStatus.IN_FLIGHT,
-        ExecutionRowStatus.RETRY_READY,
-    }
-    incomplete_statuses = unfinished_statuses | {
-        ExecutionRowStatus.PARTIALLY_APPLIED,
-    }
-    attention_statuses = {
-        ExecutionRowStatus.FAILED,
-        ExecutionRowStatus.BLOCKED,
-        ExecutionRowStatus.OUTCOME_UNKNOWN,
-    }
-    relationship_pending_count = 0
-    completed_rows = 0
-    created_count = 0
-    updated_count = 0
-    attention_count = 0
-    unfinished_first_pass = 0
-    rejected_count = 0
-    blocked_count = 0
-    unattempted_count = 0
-    scheduled_component_set: set[int] = set()
-    active_components: set[int] = set()
-    # Progress used to scan the complete journal independently for every
-    # counter.  Keep one pass so even a deliberately coarse progress snapshot
-    # has linear work with a small constant.
-    for row in run.rows:
-        status = row.status
-        rejected_count += status is ExecutionRowStatus.FAILED or (status is ExecutionRowStatus.PARTIALLY_APPLIED and row.diagnostic is not None)
-        blocked_count += status is ExecutionRowStatus.BLOCKED
-        unattempted_count += status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY}
-        component = getattr(row, "schedule_component", -1)
-        if status is ExecutionRowStatus.PARTIALLY_APPLIED:
-            relationship_pending_count += 1
-        if status not in incomplete_statuses:
-            completed_rows += 1
-        if row.operation == "CREATE" and status in committed:
-            created_count += 1
-        if row.operation == "UPDATE" and status is ExecutionRowStatus.COMMITTED:
-            updated_count += 1
-        if status in attention_statuses:
-            attention_count += 1
-        if status in unfinished_statuses:
-            unfinished_first_pass += 1
-        if component >= 0:
-            scheduled_component_set.add(component)
-            if status in unfinished_statuses:
-                active_components.add(component)
-    if run.status is not ExecutionRunStatus.RUNNING:
-        attention_count += relationship_pending_count
-    effective_phase = (
-        LoadPhase.RELATIONSHIPS
-        if phase is LoadPhase.WRITING
-        and unfinished_first_pass == 0
-        and (relationship_pending_count or job.phase is LoadPhase.RELATIONSHIPS)
-        else phase
-    )
-    settled_first_pass = run.total_count - unfinished_first_pass
-    settled_fraction = settled_first_pass / run.total_count if run.total_count else 0.0
-    percent = min(
-        82,
-        8 + round(74 * max(0.0, min(1.0, settled_fraction))),
-    )
-    if effective_phase is LoadPhase.RELATIONSHIPS:
-        relationship_total = max(
-            job.relationship_total_count,
-            relationship_pending_count,
-        )
-        relationship_completed = max(
-            0,
-            relationship_total - relationship_pending_count,
-        )
-        relationship_fraction = (
-            relationship_completed / relationship_total if relationship_total else 1.0
-        )
-        percent = min(
-            89,
-            82 + round(7 * max(0.0, min(1.0, relationship_fraction))),
-        )
-    scheduled_components = tuple(sorted(scheduled_component_set))
-    group_count = max(job.load_group_count, len(scheduled_components))
-    if active_components:
-        active_component = min(active_components)
-        group_number = scheduled_components.index(active_component) + 1
-    elif group_count:
-        group_number = group_count
-    else:
-        group_number = 0
-    message = LOAD_PHASE_LABELS[effective_phase]
-    if effective_phase is LoadPhase.WRITING and group_number and group_count:
-        message = f"Sending load group {group_number} of {group_count} to Odoo"
-    control = run.load_control
-    if control is not None and control.state.value == "PAUSED":
-        message = "Upload paused after repeated failures; review the saved results"
-    elif control is not None and control.state.value == "STOP_REQUESTED":
-        message = "Stopping after the current request"
-    return replace(
-        job,
-        phase=effective_phase,
-        message=message,
-        total_rows=run.total_count,
-        completed_rows=completed_rows,
-        created_count=created_count,
-        updated_count=updated_count,
-        attention_count=attention_count,
-        relationship_pending_count=relationship_pending_count,
-        relationship_total_count=max(
-            job.relationship_total_count,
-            relationship_pending_count,
-        ),
-        load_group_number=group_number,
-        load_group_count=group_count,
-        progress_percent=max(job.progress_percent, percent),
-        execution_run_id=run.run_id,
-        load_control_state=("STOP_REQUESTED" if job.load_control_state == "STOP_REQUESTED" and control is not None and control.state.value == "RUNNING" else control.state.value if control else ""),
-        load_pause_reason=control.reason if control else "",
-        rejected_count=rejected_count,
-        blocked_count=blocked_count,
-        unattempted_count=unattempted_count,
-        updated_at=_now(),
-    )
 
 
 def _now() -> datetime:

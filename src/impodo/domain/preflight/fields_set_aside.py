@@ -36,7 +36,11 @@ class FieldSetAside:
 
 @dataclass(frozen=True, slots=True)
 class FieldSetAsideEvidence:
-    """Field findings and rules derived from the verified preparation input."""
+    """Verified field findings, rules, and explicitly unrecorded coverage.
+
+    An empty findings collection does not establish complete coverage. The
+    producer records known gaps independently of the findings it can recover.
+    """
 
     findings: tuple[FieldSetAside, ...]
     source_labels: Mapping[tuple[str, str], str]
@@ -44,6 +48,7 @@ class FieldSetAsideEvidence:
     null_omissions: Mapping[str, tuple[str, ...]]
     upsert_datasets: frozenset[str]
     target_models: Mapping[str, str]
+    coverage_gaps: tuple[str, ...]
 
 
 _PREPARATION_REASONS = {
@@ -146,4 +151,8 @@ def field_set_aside_evidence(
             dataset.name for dataset in plan.datasets if dataset.target.mode in {"upsert", "update"}
         ),
         target_models={dataset.name: dataset.target.model for dataset in plan.datasets},
+        coverage_gaps=(
+            "Choices to leave source columns unmapped are not recorded.",
+            "Original source values are not retained for every omission.",
+        ),
     )

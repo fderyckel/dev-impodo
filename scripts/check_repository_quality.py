@@ -21,6 +21,10 @@ CHECKS: tuple[tuple[str, tuple[str, ...]], ...] = (
         ),
     ),
     (
+        "Maintainability review",
+        (sys.executable, "scripts/maintainability_review.py"),
+    ),
+    (
         "Architecture tests",
         (
             sys.executable,

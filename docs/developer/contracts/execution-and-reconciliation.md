@@ -341,9 +341,8 @@ reported only when all inspected errors identify the same valid range and the
 message list was not truncated. This does not identify a faulty source row
 when Odoo rejects a whole batch.
 
-The import adapter inspects bounded server messages transiently. It stores a
-fingerprint and message count, never arbitrary message text or submitted
-values. Field names must belong to the reviewed request. An unrecognized or
+The public diagnostic stores a fingerprint and message count, never arbitrary
+message text or submitted values. Field names must belong to the reviewed request. An unrecognized or
 missing error retains operation context and a generic rejection code; it must
 not invent a root cause. Create, update, completion, and uncertain outcomes
 have a generic fallback when no structured diagnostic is supplied.
@@ -367,6 +366,49 @@ remaining groups together. The bundle includes those entries in
 their saved explanations. Both projections use the loaded execution journal
 without opening another database connection or making an Odoo request.
 A historic error that was discarded cannot be reconstructed.
+
+## Private rejection explanations
+
+[`OperatorErrorDetail`](../../../src/impodo/domain/execution/operator_errors.py)
+version 1 retains selected Odoo user messages and the actual submitted values
+separately from the value-free journal. The JSON-2 adapter captures bounded
+`load` errors and the `message` member of bounded HTTP error responses; it
+never retains the response body, debug traceback, headers, or SQL diagnostics.
+Known credentials and protected inputs are redacted. Unsafe internal text is
+withheld explicitly. Capture is limited to twenty messages, 8,192 UTF-8 bytes
+per explanation, 2,048 bytes per submitted value, a 64 KiB submitted-value
+budget, a 256 KiB detail contract, and a 512 KiB receipt including membership.
+Truncation remains visible.
+
+Workspace schema 8 adds `execution_operator_error` through an atomic version 7
+upgrade. The [private companion](../../../src/impodo/adapters/duckdb/execution_operator_errors.py)
+binds each receipt to its run, snapshot hash, transport batch, and exact ordered
+row membership. Target model, operation, source position and attempt remain
+owned by the existing execution row. Private content has its own verified
+hash and never changes historical execution snapshot hashes. Rejected parent
+batches retain their receipt when isolation produces later child attempts.
+Known outcome and detail are saved in one short transaction. If private capture
+or insertion fails, save the known outcome with `CAPTURE_FAILED`; repeating
+that local transaction never repeats the Odoo call.
+
+[`ExecutionService.operator_error`](../../../src/impodo/application/workspace/execution/service.py)
+requires workspace view and protected-evidence authority before repository
+access. The load error page uses one bounded synchronous page read, selects
+one saved row and its matching receipt, and sends `Cache-Control: no-store`.
+It renders escaped text and saved submitted values without consulting today's
+mapping or source. A missing, damaged, or unsupported receipt is unavailable;
+it cannot be reconstructed from the reason code.
+
+Only structured fields belonging to the submitted request establish field
+attribution. Otherwise the page says **Odoo did not identify a field**. For
+multiple records, batch explanations and positions remain distinct from
+source positions; another member's explanation never establishes this row's
+cause. The exact saved row identity remains bound to the reviewed snapshot.
+The adjacent list pages twenty rows at a time through saved ordinals and is
+also linked from transfer and correction outcomes. The detail page links to
+Match data or Destination matching where authoring permits it. Existing preparation, comparison, approval and recovery rules
+continue to govern any correction. Diagnostic ZIPs and progress carry only
+bounded availability flags, never the private explanation or submitted values.
 
 Confirmed load actions also create an opaque diagnostic attempt before
 submission checks. The shared load manager carries that observation explicitly

@@ -8,11 +8,16 @@ from pathlib import Path
 
 import duckdb
 
+from impodo.application.workspace.preparation.prepared_quality_projection import (
+    PreparedQualityProjection,
+    PreparedQualityProjectionError,
+)
 from impodo.domain.preparation.quality_budget import (
     QUALITY_FINDING_INDEX_MAX_BYTES,
     QualityFindingBudget,
     QualityFindingBudgetExceeded,
 )
+from impodo.domain.preparation.staging_contracts import StagingDisposition
 from impodo.domain.workspace.errors import WorkspaceError
 
 from ...domain.prepared_snapshot import PreparedSnapshot
@@ -215,7 +220,7 @@ class PreparationQualityIndex:
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
         retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
-    ) -> dict[str, object] | None:
+    ) -> PreparedQualityProjection | None:
         """Validate prepared rows and arbitrary physical lineage using narrow facts."""
 
         database_path = (
@@ -431,28 +436,33 @@ class PreparationQualityIndex:
                 numeric_fields,
                 finding_budget=finding_budget,
             )
-            return {
-                "row_count": row_count,
-                "physical_row_count": expected_physical,
-                "direct_accounting": (
-                    expected_physical == row_count
-                    and int(lineage_counts[1]) == row_count
-                    and int(lineage_counts[5]) == expected_physical
-                ),
-                "disposition_counts": {
-                    "CANDIDATE": int(header[3]),
-                    "REFERENCE": int(header[4]),
-                    "BLOCKED": int(header[5]),
-                    "QUARANTINED": int(header[6]),
-                    "EXCLUDED": int(header[7]),
-                },
-                "issue_rows": tuple(issue_rows),
-                "collisions": tuple(collisions),
-                "exception_rows": tuple(exception_rows),
-                "excluded_row_ids": excluded_row_ids,
-                "precision_rows": precision_rows,
-                "finding_budget": finding_budget,
-            }
+            try:
+                return PreparedQualityProjection(
+                    row_count=row_count,
+                    physical_row_count=expected_physical,
+                    direct_accounting=(
+                        expected_physical == row_count
+                        and int(lineage_counts[1]) == row_count
+                        and int(lineage_counts[5]) == expected_physical
+                    ),
+                    disposition_counts={
+                        StagingDisposition.CANDIDATE: int(header[3]),
+                        StagingDisposition.REFERENCE: int(header[4]),
+                        StagingDisposition.BLOCKED: int(header[5]),
+                        StagingDisposition.QUARANTINED: int(header[6]),
+                        StagingDisposition.EXCLUDED: int(header[7]),
+                    },
+                    issue_rows=issue_rows,
+                    collisions=collisions,
+                    exception_rows=exception_rows,
+                    excluded_row_ids=frozenset(excluded_row_ids),
+                    precision_rows=precision_rows,
+                    finding_budget=finding_budget,
+                )
+            except PreparedQualityProjectionError as error:
+                raise WorkspaceError(
+                    "Prepared data-check facts are incomplete. Prepare data again."
+                ) from error
 
     @staticmethod
     def _bounded_numeric_precision_rows(

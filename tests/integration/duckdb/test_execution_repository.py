@@ -23,6 +23,8 @@ from impodo.domain.execution.models import (
     ProjectedOdooReceipt,
 )
 from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.domain.execution.operator_errors import capture_operator_error, OperatorErrorPersistenceError
+from tests.support.database_probe import count_duckdb_statements
 from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
@@ -113,6 +115,70 @@ class ExecutionRepositoryTests(unittest.TestCase):
         reopened = ExecutionRepository(self.database).get_run(self.workspace_state.workspace_id, run.run_id)
         self.assertIsNotNone(reopened)
         self.assertEqual(reopened.rows[0], failed)
+
+    def test_private_rejection_survives_reopen_without_entering_public_projection(self):
+        run = self._run()
+        workspace = self.workspace_state.workspace_id
+        self.repository.start_run(workspace, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)[0]
+        detail = capture_operator_error(
+            [{"type": "error", "message": "Fictional rule rejected wire-value", "field": "name"}],
+            ({"name": "wire-value"},),
+        )
+        diagnostic = OdooWriteDiagnostic(WriteFailureCode.VALIDATION, "res.partner", "load", operator_detail_status="AVAILABLE")
+        failed = replace(started, status=ExecutionRowStatus.FAILED, safe_error=diagnostic.summary, diagnostic=diagnostic)
+        self.repository.record_outcomes_with_detail(workspace, run.run_id, (failed,), detail)
+        reopened = ExecutionRepository(self.database)
+        saved_row, receipt = reopened.operator_error_for_row(workspace, run.run_id, failed.row_id)
+        self.assertEqual(saved_row, failed)
+        self.assertEqual(receipt.snapshot_hash, run.snapshot_hash)
+        self.assertEqual(receipt.row_ids, (failed.row_id,))
+        self.assertEqual(receipt.detail, detail)
+        self.assertNotIn("wire-value", "\n".join(row.to_json() for row in reopened.get_run(workspace, run.run_id).rows))
+        path = reopened.workspace_directory(workspace) / "workspace-engine.duckdb"
+        with reopened._connect(path) as connection:
+            connection.execute("UPDATE execution_operator_error SET detail_hash = 'changed'")
+        self.assertEqual(reopened.operator_error_for_row(workspace, run.run_id, failed.row_id), (failed, None))
+        self.assertIsNone(reopened.operator_error_for_row(workspace, run.run_id, "other-row"))
+
+    def test_private_capture_write_failure_preserves_known_outcome_and_other_receipts(self):
+        run = self._run()
+        workspace = self.workspace_state.workspace_id
+        self.repository.start_run(workspace, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)[0]
+        diagnostic = OdooWriteDiagnostic(WriteFailureCode.VALIDATION, "res.partner", "load", operator_detail_status="AVAILABLE")
+        failed = replace(started, status=ExecutionRowStatus.FAILED, safe_error=diagnostic.summary, diagnostic=diagnostic)
+        detail = capture_operator_error([{"type": "error", "message": "Fictional rule"}], ({"name": "private-value"},))
+        with patch("impodo.adapters.duckdb.execution_repository.write_operator_error", side_effect=OperatorErrorPersistenceError("injected")):
+            self.repository.record_outcomes_with_detail(workspace, run.run_id, (failed,), detail)
+        reopened = ExecutionRepository(self.database)
+        saved, receipt = reopened.operator_error_for_row(workspace, run.run_id, failed.row_id)
+        self.assertEqual(saved.status, ExecutionRowStatus.FAILED)
+        self.assertEqual(saved.diagnostic.operator_detail_status, "CAPTURE_FAILED")
+        self.assertIsNone(receipt)
+        self.assertEqual(reopened.get_run(workspace, run.run_id).rows[1], run.rows[1])
+
+    def test_rejected_row_navigation_is_bounded_and_keeps_exact_saved_positions(self):
+        run = self._run()
+        run = replace(run, rows=tuple(replace(run.rows[0], row_id="sha256:" + f"{i:064x}", source_row=i + 90) for i in range(45)))
+        workspace = self.workspace_state.workspace_id
+        self.repository.start_run(workspace, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, run.rows, phase="CREATE", batch=0)
+        failed = tuple(replace(row, status=ExecutionRowStatus.FAILED) for row in started)
+        self.repository.record_outcomes(workspace, run.run_id, failed)
+        with count_duckdb_statements() as statements:
+            saved_run, page = self.repository.operator_error_rows(workspace, None, after=-1)
+        self.assertEqual(saved_run, run.run_id)
+        self.assertEqual(len(page), 21)
+        self.assertEqual(page[0][1].source_row, 90)
+        self.assertEqual(len(statements), 2)
+        self.assertIn("LIMIT 21", statements[-1])
+        _, next_page = self.repository.operator_error_rows(workspace, run.run_id, after=page[19][0])
+        self.assertEqual(next_page[0][1].source_row, 110)
+        with count_duckdb_statements() as statements:
+            self.assertEqual(self.repository.operator_error_for_row(workspace, run.run_id, failed[0].row_id), (failed[0], None))
+        self.assertEqual(len(statements), 1)
+        self.assertIsNone(self.repository.operator_error_rows(workspace, str(uuid4()), after=-1))
 
     def _run(self) -> ExecutionRun:
         rows = tuple(

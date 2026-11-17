@@ -81,13 +81,13 @@ from impodo.domain.shared.models import (
 
 from .company_checks import capture_company_checks
 from .external_identity import external_id_bindings, external_id_domain
-from .read_pacing import (
-    READ_RETRY_BUDGET_SECONDS,
-    SHARED_JSON2_READ_PACER,
-    Json2ReadPacer,
+from .read_request_batches import bounded_record_requests
+from .request_pacing import (
+    REQUEST_WAIT_BUDGET_SECONDS,
+    SHARED_JSON2_REQUEST_PACER,
+    Json2RequestPacer,
     retry_after_seconds,
 )
-from .read_request_batches import bounded_record_requests
 
 _TECHNICAL_MODEL = re.compile(r"^[a-z_][a-z0-9_.]{0,127}$")
 _MAX_IDENTITY_MODELS = 100
@@ -429,6 +429,7 @@ class Json2Config:
     max_response_bytes: int = 8 * 1024 * 1024
     context: Mapping[str, Any] = field(default_factory=dict)
     relevant_modules: tuple[str, ...] = ()
+    minimum_request_interval_seconds: float = 0.0
 
     def __post_init__(self) -> None:
         """Enforce connection-mode URL rules and valid pagination."""
@@ -476,6 +477,8 @@ class Json2Config:
             )
         if self.page_size < 1:
             raise ConnectorConfigurationError("page_size must be positive")
+        if not 0.0 <= self.minimum_request_interval_seconds <= 60.0:
+            raise ConnectorConfigurationError("Odoo request interval must be between 0 and 60 seconds")
         if self.max_request_bytes < 1 or self.max_response_bytes < 1:
             raise ConnectorConfigurationError(
                 "JSON-2 request and response limits must be positive"
@@ -555,7 +558,7 @@ class Json2ReadConnector:
         *,
         transport: Transport | None = None,
         now: Callable[[], datetime] | None = None,
-        read_pacer: Json2ReadPacer | None = None,
+        request_pacer: Json2RequestPacer | None = None,
     ) -> None:
         """Create an adapter with injectable HTTP and clock dependencies.
 
@@ -565,8 +568,8 @@ class Json2ReadConnector:
 
         self._config = config
         self._transport_override = transport
-        self._read_pacer = read_pacer or SHARED_JSON2_READ_PACER
-        self._read_target_hash = target_identity_hash(
+        self._request_pacer = request_pacer or SHARED_JSON2_REQUEST_PACER
+        self._request_target_hash = target_identity_hash(
             connection_mode=config.connection_mode,
             base_url=config.base_url,
             database=config.database,
@@ -1345,7 +1348,7 @@ class Json2ReadConnector:
         )
         child = Json2ReadConnector(
             self._config, transport=self._transport_override, now=self._now,
-            read_pacer=self._read_pacer,
+            request_pacer=self._request_pacer,
         )
         failures: list[Json2ReadFailureDiagnostic] = []
         records: tuple[TargetRecord, ...] = ()
@@ -1548,13 +1551,16 @@ class Json2ReadConnector:
         if body is not None and len(body) > self._config.max_request_bytes:
             raise ConnectorRequestSizeError("JSON-2 read request exceeds the safe size limit")
         transient_statuses = {429, 502, 503, 504}
-        deadline = self._read_pacer.clock() + READ_RETRY_BUDGET_SECONDS
+        deadline = self._request_pacer.clock() + REQUEST_WAIT_BUDGET_SECONDS
         last_status, attempts_sent = 429, 0
         last_payload: Any = None
         last_transport_error: HTTPException | OSError | None = None
         for attempt in range(self._config.retries + 1):
-            if not self._read_pacer.wait(self._read_target_hash, deadline=deadline):
-                if not attempts_sent and self._read_pacer.clock() >= deadline:
+            if not self._request_pacer.wait(
+                self._request_target_hash, deadline=deadline,
+                minimum_interval=self._config.minimum_request_interval_seconds,
+            ):
+                if not attempts_sent and self._request_pacer.clock() >= deadline:
                     raise ConnectorTransportError(
                         "The read retry window ended before a request could "
                         "start. Try this read again."
@@ -1579,7 +1585,7 @@ class Json2ReadConnector:
                     body,
                     min(
                         self._config.timeout_seconds,
-                        max(0.001, deadline - self._read_pacer.clock()),
+                        max(0.001, deadline - self._request_pacer.clock()),
                     ),
                     method,
                 )
@@ -1609,8 +1615,8 @@ class Json2ReadConnector:
             last_transport_error = None
             last_status, last_payload = status, payload
             if status == 429:
-                self._read_pacer.defer(
-                    self._read_target_hash,
+                self._request_pacer.defer(
+                    self._request_target_hash,
                     attempt=attempt,
                     retry_after=self._retry_after,
                 )
@@ -2014,6 +2020,7 @@ def _urllib_transport(
     maximum_bytes: int = 8 * 1024 * 1024,
     capture_write_error_type: bool = False,
     observe_retry_after: Callable[[str | None], None] | None = None,
+    observe_operator_error: Callable[[str], None] | None = None,
 ) -> tuple[int, Any]:
     """Execute one JSON request without forwarding credentials on redirects.
 
@@ -2043,13 +2050,13 @@ def _urllib_transport(
                     exc.headers.get("Retry-After") if exc.headers is not None else None
                 )
             return exc.code, (
-                _odoo_write_error_type(exc)
+                _odoo_write_error_type(exc, observe_operator_error=observe_operator_error)
                 if capture_write_error_type and 400 <= exc.code < 600
                 else None
             )
 
 
-def _odoo_write_error_type(error: HTTPError) -> OdooWriteErrorType | None:
+def _odoo_write_error_type(error: HTTPError, *, observe_operator_error: Callable[[str], None] | None = None) -> OdooWriteErrorType | None:
     """Extract only a known exception name from a small JSON error body."""
     maximum_bytes = 64 * 1024
     try:
@@ -2058,6 +2065,8 @@ def _odoo_write_error_type(error: HTTPError) -> OdooWriteErrorType | None:
             return None
         payload = json.loads(raw)
         if isinstance(payload, dict):
+            if observe_operator_error is not None and isinstance(payload.get("message"), str):
+                observe_operator_error(payload["message"])
             return OdooWriteErrorType(payload.get("name"))
     except (HTTPException, OSError, ValueError, RecursionError):
         return None

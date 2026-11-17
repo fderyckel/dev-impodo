@@ -276,6 +276,7 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
             return "metadata", "records"
 
         return SimpleNamespace(
+            preflight_read_workers=1,
             secret_store=self.store,
             target_credential_workspace=(
                 lambda _workspace_id, **_kwargs: self.workspace_state
@@ -583,7 +584,9 @@ class RemoteReadinessCredentialTests(unittest.TestCase):
                     self.assertEqual(metadata.reference_evidence[0].snapshot_id, saved_contract.snapshot_id)
                     self.assertEqual(connector.call_args.args[0].api_key, "replacement-secret")
                     remote.get_model_metadata.assert_called_once_with((metadata_request,))
-                    remote.get_records.assert_called_once_with((record_request,))
+                    remote.get_records.assert_called_once_with(
+                        (record_request,), max_workers=1,
+                    )
                     self.assertEqual(self.probe_calls, [
                         ("replacement-secret", ("product.template",)),
                         ("replacement-secret", (relation_model,)),
@@ -1180,8 +1183,9 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
         )
         source_values = {
             ("operations", ("operation_bom",)): (("BOM-A",),),
-            ("lines", ("line_bom",)): (("BOM-A",), ("BOM-B",)),
-            ("lines", ("item",)): (("ITEM-1",), ("ITEM-2",)),
+            ("lines", ("line_bom", "item")): (
+                ("BOM-A", "ITEM-1"), ("BOM-B", "ITEM-2"),
+            ),
         }
         fingerprint = TargetFingerprint(
             target_hash=target_hash,
@@ -1241,10 +1245,13 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
                 ),
             )
 
+        source_calls = []
+
         def included_source_keys(
             _workspace, dataset_id, columns, _rows, *, included_parent=None
         ):
             self.assertIsNone(included_parent)
+            source_calls.append((dataset_id, tuple(columns)))
             return source_values[(dataset_id, tuple(columns))]
 
         captures = []
@@ -1270,6 +1277,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
         )
 
         self.assertEqual(len(calls), 1)
+        self.assertCountEqual(source_calls, list(source_values))
         metadata_requests, record_requests = calls[0]
         self.assertEqual(
             tuple(request.model for request in metadata_requests),

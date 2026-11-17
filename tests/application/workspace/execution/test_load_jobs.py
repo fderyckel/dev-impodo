@@ -6,6 +6,7 @@ from threading import Event
 import time
 import unittest
 
+from impodo.application.workspace.execution.progress import execution_progress
 from impodo.application.workspace.execution.load_jobs import (
     LoadJobManager,
     LoadJobResult,
@@ -16,6 +17,7 @@ from impodo.domain.execution.models import (
     ExecutionRun,
     ExecutionRunStatus,
 )
+from impodo.domain.execution.load_control import LoadControl, LoadControlState
 from impodo.domain.project.foundation import MigrationIdentifierConfusionError
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.application.workspace.execution.job_models import LoadJobStatus, LoadPhase
@@ -112,6 +114,39 @@ def _wait_for_terminal(manager: LoadJobManager, job_id: str):
 
 
 class LoadJobManagerTests(unittest.TestCase):
+    def test_verification_retains_saved_counts_pause_message_and_configured_groups(self):
+        manager = LoadJobManager()
+        verifying, release = Event(), Event()
+        run = replace(_run(terminal=True), load_control=LoadControl(
+            state=LoadControlState.PAUSED, reason="CONSECUTIVE_REJECTIONS",
+        ))
+
+        def work(_access, writing, verification):
+            writing(execution_progress(run))
+            verification()
+            verifying.set()
+            release.wait(2)
+            return LoadJobResult(run.run_id, False)
+
+        try:
+            queued = manager.enqueue(
+                WORKSPACE_ID, "Saved load", target_database="migration",
+                target_server="odoo.example.test", target_environment="Test",
+                total_rows=3, load_group_count=5, access_context=_access_context(),
+                actor=LOCAL_ACTOR, work=work,
+            )
+            self.assertTrue(verifying.wait(2))
+            job = manager.get(WORKSPACE_ID, queued.job_id)
+            self.assertEqual(job.phase, LoadPhase.VERIFYING)
+            self.assertEqual(job.created_count, 2)
+            self.assertEqual(job.updated_count, 1)
+            self.assertEqual(job.attention_count, 1)
+            self.assertEqual((job.load_group_number, job.load_group_count), (5, 5))
+            self.assertEqual(job.message, "Upload paused after repeated failures; review the saved results")
+        finally:
+            release.set()
+            manager.shutdown()
+
     def test_rejects_mismatched_access_context_before_queueing(self) -> None:
         manager = LoadJobManager()
 
@@ -142,8 +177,9 @@ class LoadJobManagerTests(unittest.TestCase):
 
         def work(access_context, report_writing, report_verifying):
             self.assertEqual(access_context, _access_context())
-            report_writing(_run(terminal=False))
-            report_verifying(_run(terminal=True))
+            report_writing(execution_progress(_run(terminal=False)))
+            report_writing(execution_progress(_run(terminal=True)))
+            report_verifying()
             return LoadJobResult(
                 execution_run_id="11111111-1111-4111-8111-111111111111",
                 verification_complete=True,
@@ -202,10 +238,11 @@ class LoadJobManagerTests(unittest.TestCase):
         release = Event()
 
         def work(_access_context, report_writing, report_verifying):
-            report_writing(_run(terminal=False))
+            report_writing(execution_progress(_run(terminal=False)))
             relationship_phase.set()
             release.wait(1)
-            report_verifying(_run(terminal=True))
+            report_writing(execution_progress(_run(terminal=True)))
+            report_verifying()
             return LoadJobResult(
                 execution_run_id="11111111-1111-4111-8111-111111111111",
                 verification_complete=False,
@@ -317,7 +354,7 @@ class LoadJobManagerTests(unittest.TestCase):
         )
 
         def work(_access_context, report_writing, _report_verifying):
-            report_writing(in_flight)
+            report_writing(execution_progress(in_flight))
             writing_phase.set()
             release.wait(1)
             return LoadJobResult(

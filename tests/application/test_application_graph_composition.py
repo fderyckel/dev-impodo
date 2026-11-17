@@ -313,6 +313,7 @@ class ApplicationGraphCompositionTests(unittest.TestCase):
             odoo_capture=Mock(),
         )
         infrastructure = WebInfrastructureDependencies(
+            odoo_database_bindings=Mock(),
             destination_create_fields=Mock(),
             destination_identity_aliases=Mock(),
             artifacts=Mock(),

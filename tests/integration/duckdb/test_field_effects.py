@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import duckdb
 
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.schema.forward_upgrades import ForwardSchemaUpgrade
 from impodo.adapters.duckdb.schema.workspace_engine import (
@@ -143,6 +144,7 @@ class FieldEffectsUpgradeTests(unittest.TestCase):
             connection.execute(
                 "ALTER TABLE transformation_impact_run DROP COLUMN field_counts_json"
             )
+            connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("UPDATE schema_version SET version=5")
             upgrade = WORKSPACE_ENGINE_UPGRADES[5]
 
@@ -153,9 +155,8 @@ class FieldEffectsUpgradeTests(unittest.TestCase):
             with patch.dict(
                 WORKSPACE_ENGINE_UPGRADES,
                 {5: ForwardSchemaUpgrade(upgrade.migration_id, fail)},
-            ):
-                with self.assertRaises(WorkspaceStateCompatibilityError):
-                    schema._ensure_workspace_database_schema(connection)
+            ), self.assertRaises(WorkspaceStateCompatibilityError):
+                schema._ensure_workspace_database_schema(connection)
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone(),
                 (5,),
@@ -175,7 +176,7 @@ class FieldEffectsUpgradeTests(unittest.TestCase):
             schema._ensure_workspace_database_schema(connection)
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone(),
-                (6,),
+                (SCHEMA_VERSION,),
             )
             self.assertEqual(
                 connection.execute(

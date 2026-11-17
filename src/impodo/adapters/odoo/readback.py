@@ -6,6 +6,9 @@ import re
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
+from datetime import UTC, datetime
+from functools import partial
 from http.client import HTTPException
 from typing import Any
 from urllib.parse import quote
@@ -22,6 +25,13 @@ from impodo.domain.execution.odoo_scope import OdooApiScope
 from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
+
+from .request_pacing import (
+    REQUEST_WAIT_BUDGET_SECONDS,
+    SHARED_JSON2_REQUEST_PACER,
+    Json2RequestPacer,
+    retry_after_seconds,
+)
 
 MAX_READBACK_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
@@ -45,6 +55,16 @@ class Json2ReadbackReader:
     config: Json2Config
     scope: OdooApiScope
     transport: Transport = _urllib_transport
+    request_pacer: Json2RequestPacer = dataclass_field(default_factory=lambda: SHARED_JSON2_REQUEST_PACER)
+    _retry_after: float | None = dataclass_field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        """Use the same target cooldown as checking and loading."""
+        if self.transport is _urllib_transport:
+            self.transport = partial(_urllib_transport, observe_retry_after=self._observe_retry_after)
+
+    def _observe_retry_after(self, value: str | None) -> None:
+        self._retry_after = retry_after_seconds(value, now=datetime.now(UTC))
 
     @property
     def target_hash(self) -> str:
@@ -297,11 +317,21 @@ class Json2ReadbackReader:
             "X-Odoo-Database": self.config.database,
             "User-Agent": "impodo",
         }
-        transient_statuses = {429, 500, 502, 503, 504}
+        transient_statuses = {500, 502, 503, 504}
         status = 0
         response: object = None
+        deadline = self.request_pacer.clock() + REQUEST_WAIT_BUDGET_SECONDS
         for attempt in range(self.config.retries + 1):
+            if not self.request_pacer.wait(
+                self.target_hash, deadline=deadline,
+                minimum_interval=self.config.minimum_request_interval_seconds,
+            ):
+                raise OdooReadbackError(
+                    "Odoo's request cooldown exceeds this waiting window. "
+                    "Verification is incomplete; try verification after the cooldown."
+                )
             try:
+                self._retry_after = None
                 status, response = self.transport(
                     url,
                     headers,
@@ -315,6 +345,16 @@ class Json2ReadbackReader:
                         "Odoo could not be reached for verification"
                     ) from error
             else:
+                if status == 429:
+                    self.request_pacer.defer(
+                        self.target_hash, attempt=attempt, retry_after=self._retry_after,
+                    )
+                    if attempt < self.config.retries:
+                        continue
+                    raise OdooReadbackError(
+                        "Odoo is limiting verification requests. "
+                        "Try verification after the cooldown."
+                    )
                 if status not in transient_statuses or attempt >= self.config.retries:
                     break
             time.sleep(min(0.25 * (2**attempt), 1.0))

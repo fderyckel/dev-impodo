@@ -279,7 +279,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(timings.lock_retry_count, 0)
                 self.assertEqual(service.current(self.workspace_id, actor=self.actor), before)
                 self.assertIn("Unsaved choices", rejected.text)
-                self.assertNotIn("Choices are saved", rejected.text)
+                self.assertNotIn("Choices saved", rejected.text)
                 view = rejected.context["supporting_review"]
                 self.assertIn("Choose a compatible accepted incoming table", view["rows"][0]["save_error"])
                 self.assertEqual(view["rows"][1]["save_error"], "")
@@ -292,7 +292,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(saved.status_code, 303, saved.text)
                 reopened = self.client.get(saved.headers["location"])
                 self.assertLess(
-                    reopened.text.index("Choices are saved"),
+                    reopened.text.index("Choices saved"),
                     reopened.text.index('id="schema-governance"'),
                 )
                 self.assertTrue(reopened.context["supporting_review"]["current"])
@@ -302,7 +302,7 @@ class SupportingReviewBrowserTests(ProjectSetupBrowserTestCase):
                 blank = self.save({**retry, "dataset_0": ""})
                 self.assertEqual(blank.status_code, 422)
                 self.assertIn("Choose an accepted incoming table.", blank.text)
-                self.assertNotIn("Choices are saved", blank.text)
+                self.assertNotIn("Choices saved", blank.text)
                 self.assertEqual(service.current(self.workspace_id, actor=self.actor), committed)
 
     def test_mapping_consumer_checks_choices_in_one_local_scope_before_scans(self):

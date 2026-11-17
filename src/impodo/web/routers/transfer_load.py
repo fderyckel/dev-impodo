@@ -21,16 +21,14 @@ from impodo.application.workspace.execution.load_jobs import (
     LoadJobStateError,
 )
 from impodo.application.workspace.execution.load_observation import record_load_failure
-from impodo.application.workspace.execution.service import (
-    execution_api_scope,
-    validated_create_batch_rows,
-)
 from impodo.domain.errors import ReadinessError
+from impodo.domain.execution.batch_policy import validated_create_batch_rows
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
     ExecutionRunStatus,
 )
 from impodo.domain.execution.odoo_readback import OdooReadbackError
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.shared.access import Actor, AuthorizationError, Capability
 from impodo.domain.source_binding import OdooSourceBinding
@@ -737,7 +735,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     ),
                     progress=report_writing,
                 )
-                report_verifying(run)
+                report_verifying()
                 verification_complete = _verify_transfer_result(
                     context,
                     workspace_id,
@@ -1021,7 +1019,7 @@ def build_transfer_load_router(context: WebContext) -> APIRouter:
                     ),
                     progress=report_writing,
                 )
-                report_verifying(resumed)
+                report_verifying()
                 verification_complete = _verify_transfer_result(
                     context,
                     workspace_id,

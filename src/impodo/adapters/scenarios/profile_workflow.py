@@ -39,11 +39,11 @@ from impodo.application.workspace.execution.navigation import ExecutionReviewPro
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.application.workspace.execution.service import (
     ExecutionService,
-    execution_api_scope,
 )
 from impodo.domain.compiler import compile_profile_document
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.execution.models import ExecutionRun
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.planner import plan_metadata_requests, plan_record_requests
 from impodo.domain.execution_snapshot import ExecutionSnapshot, build_execution_snapshot
 from impodo.domain.odoo.contracts import (

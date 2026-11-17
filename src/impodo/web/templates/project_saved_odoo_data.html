@@ -69,12 +69,12 @@
   {% include "saved_odoo_data/_versions.html" %}
 
   <details class="form-card" id="import-saved-data">
-    <summary>Import a saved data package</summary>
+    <summary>Import a saved Odoo file</summary>
     <p>Open a protected package downloaded from Impodo. The package password is needed to read its contents.</p>
     <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/import" enctype="multipart/form-data" data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="form-grid">
-        <label>Saved data package<input type="file" name="package_file" accept=".impodo" required></label>
+        <label>Saved Odoo file<input type="file" name="package_file" accept=".impodo" required></label>
         <label>Package password<input type="password" name="package_password" autocomplete="off" minlength="8" required></label>
       </div>
       <div class="actions"><button class="button secondary" type="submit" data-submitting-label="Checking and importing package...">Import saved package</button></div>

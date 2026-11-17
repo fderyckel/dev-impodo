@@ -578,6 +578,17 @@ projection outside the frozen input hash because it is derived from the
 evidence that hash already binds. Older manifests and redacted Odoo-source
 manifests show the coverage available to the export.
 
+`FieldSetAsideEvidence.coverage_gaps` records the producer's known evidence
+limitations independently of its findings. The workbook combines those gaps
+with counts of findings that lack available original values or a single source
+cell coordinate. Counts apply to saved findings, so distinct target outcomes
+can contribute more than once; whole-column choices need no original value.
+Saved preparation feedback can supply a display value, but it does not certify
+the exact original source representation. The same coverage note appears on
+the tab and its Overview link. A definitive zero-omission message requires
+explicitly complete evidence. Manifest-only exports identify unavailable
+preparation evidence; protected Odoo exports identify withheld details.
+
 Traceability uses the accepted logical dataset and source row. The current
 browser-compiled plan uses a synthetic contained source filename, so the
 workbook does not present that value as the operator's original uploaded file
@@ -861,6 +872,7 @@ contact Odoo while writing them.
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
 - [Preview and accept set-asides from Final review findings](../../../tests/integration/web/test_deferred_finding_workflow.py)
 - [Bulk selection and Excel export](../../../tests/integration/web/test_bulk_deferred_workflow.py)
+- [Fields set aside across export formats](../../../tests/integration/artifacts/test_fields_set_aside_coverage.py)
 - [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)

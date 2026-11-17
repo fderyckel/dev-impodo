@@ -220,13 +220,13 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
 
         if (
             request.method == "GET"
-            and request.url.path in {
+            and (request.url.path in {
                 f"/workspaces/{workspace_id}/{area}"
                 for area in (
                     "schema", "mapping", "summary", "files", "sources", "overview",
                     "load/fallout.xlsx",
                 )
-            }
+            } or request.url.path == f"/workspaces/{workspace_id}/load/errors" or request.url.path.startswith(f"/workspaces/{workspace_id}/load/errors/"))
         ):
             def read_authorized_page(function: Callable[[], Response]) -> Response:
                 started = perf_counter()

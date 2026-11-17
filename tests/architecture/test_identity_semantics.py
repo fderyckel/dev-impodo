@@ -64,6 +64,9 @@ CANONICAL_IDENTITY_FIELDS = {
 
 TRUE_PROJECT_ID_TYPES = frozenset(
     {
+        # This diagnostic reference is the authorized parent Project, while
+        # workspace_id remains the identity of the captured settings.
+        "web/diagnostic_settings.py::DiagnosticSettingsSnapshot",
         "application/data_version/source_packages.py::DataVersionSourcePackage",
         "application/data_version/source_packages.py::WorkspaceSourceProjection",
         "application/preflight_attempts.py::PreflightComparisonRequest",

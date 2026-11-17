@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from dataclasses import replace
 
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution_snapshot import FieldIntent
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity

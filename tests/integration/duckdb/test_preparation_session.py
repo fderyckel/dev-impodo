@@ -282,7 +282,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
 
         self.assertIsNotNone(index)
         assert index is not None
-        precision_rows = index["precision_rows"]
+        precision_rows = index.precision_rows
         self.assertEqual(len(precision_rows), 1)
         finding = precision_rows[0]
         self.assertEqual(finding[3], 3)

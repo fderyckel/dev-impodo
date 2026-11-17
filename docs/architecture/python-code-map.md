@@ -152,6 +152,7 @@ owns route, retention, consistency, compatibility and verification details.
 | Exact joins and reusable lookup lists | `application/workspace/derived_entities.py` reviews and saves joins. `application/workspace/preparation/grouped_exact_join_preparation.py::reviewed_exact_join_output` resolves reviewed standalone joins and groups for source reads and preparation. `adapters/duckdb/grouped_exact_join_source.py` reads verified snapshots and produces bounded join pages. `adapters/duckdb/lookup_preparation_source.py` normalizes distinct lookup values and retains their source row membership. |
 | Existing hierarchy parents | `domain/hierarchy.py` defines portable prefix and company rules. `application/hierarchy_parent_lookup.py` browses bounded full-path choices and rechecks selected paths exactly. `web/composition/hierarchy_parents.py` separates local capture and publication from Odoo company and parent reads; `target_readers.py::hierarchy_parent_connector` constructs the remote adapter. The mapping compiler and preflight engine preserve the reuse-only boundary. |
 | Preparation publication and recovery | `application/workspace/preparation` owns transformation and quality decisions. `preparation_session_repository.py` holds the DuckDB publication boundary. `application/workspace/preparation/recovery.py` checks existing publication evidence so a completed job can be restored without spawning another worker. |
+| Prepared quality readers | `application/workspace/preparation/prepared_quality_ports.py` declares independent contracts for indexed facts and accounting, ordinary relationships, identity groups, and encoded publication batches. `prepared_quality_projection.py` names index results and checks their counts and fact-column shapes while preserving the shared finding budget. `bounded_quality.py` consumes these contracts and retains individual fact validation. |
 | Preparation threads and diagnostic evidence | `application/shared/preparation_runtime.py` applies and verifies the child-only Polars thread limit. `web/composition/preparation_performance.py` observes the supervisor-owned attempt and samples process resources. `web/preparation_performance_diagnostics.py` sanitizes that evidence, and `web/performance_bundle.py` builds its bounded diagnostic ZIP members. `scripts/benchmark_preparation_workers.py` compares fixed first and repeat preparations across thread settings. |
 | Diagnostic cost attribution | `application/shared/io_performance.py` measures existing artifact operations. `application/shared/worker_startup.py` collects source-worker startup intervals. `application/workspace/preparation/fallback_performance.py` records predicted and observed dataset routes. `web/diagnostic_costs.py` measures recorder overhead in memory, and `web/performance_attribution.py` sanitizes the exported costs. |
 | Bounded numeric checking | `adapters/duckdb/preparation_numeric_precision.py` streams numeric cells through the authoritative predicate and inserts failure batches. `domain/preparation/quality_budget.py` bounds retained finding evidence, and `application/shared/numeric_performance.py` observes actual work without retaining values. |
@@ -173,9 +174,32 @@ before fetching records.
 `web/routers/execution.py` reloads the full confirmed schedule before starting a
 load. `adapters/duckdb/execution_repository.py` records the in-flight batch
 before the Odoo call. After an uncertain result,
-`application/workspace/execution/reconciliation.py` classifies exact read-back
-before the load can resume. `domain/execution/load_control.py` governs stopping
+`application/workspace/execution/reconciliation.py` obtains exact read-back;
+`domain/execution/recovery.py` classifies that evidence before the application
+authorizes and records resumption. `domain/execution/load_control.py` governs stopping
 and continuation after known rejections.
+
+`ExecutionService` resolves current workspace, approval, target and credential
+bindings. `domain/execution/identity.py` and `odoo_scope.py` supply shared
+portable keys and exact API scope. `domain/execution/validation.py` returns
+structured snapshot issues. The application `preview.py`, `review_queries.py`
+and `review_models.py` own full and saved review projections.
+
+`application/workspace/execution/writer.py` orders the scheduled writes.
+`journal.py` persists before-call and after-call receipts; `identity_resolution.py`
+and `write_values.py` resolve reviewed identities and payloads;
+`relationship_completion.py` completes deferred and generated relationships.
+The operation-owned accumulator in `progress.py` publishes compact counters
+after durable transitions. `job_projection.py` turns those counters into browser
+job state without scanning the journal on each publication.
+
+`domain/execution/operator_errors.py` owns bounded private explanations and
+submitted values. `adapters/duckdb/execution_operator_errors.py` stores their
+hashed transport receipts beside the journal, through `ExecutionRepository`.
+`ExecutionService.operator_error` authorizes private reads before the execution
+router renders `workspace_load_error.html`. Routine diagnostics retain only
+availability and validated attribution; private business text stays outside
+their exports.
 
 `application/workspace/execution/load_observation.py` carries a load attempt
 through the worker, journal, and transport. `web/load_diagnostics.py` and
@@ -184,6 +208,14 @@ event and terminal histories without reopening the database or calling Odoo.
 `web/load_performance.py` collects local database and resource costs through
 the injected observation port. `web/runtime_diagnostics.py` owns the closed
 runtime and machine-capacity schema used at capture and export.
+
+`web/diagnostic_settings.py` captures Project-authorized saved settings for the
+six workspace stages. It reads metadata through existing application readers
+inside one local operation. `web/diagnostic_settings_schema.py` owns the closed
+dataclass-field allowlist. Export retains source column names and mapping
+choices while redacting business literals and formula contents. Current drafts,
+confirmed mappings and explicitly bound earlier revisions remain distinct;
+source rows and Odoo transport are outside this boundary.
 
 ## Integrated runs
 
@@ -245,9 +277,12 @@ describe which changes invalidate these bindings.
   select scoped adapters. The adapters batch reads by model and use separate
   write authority. `adapters/odoo/read_request_batches.py` partitions oversized
   read domains while preserving their conditions and result limits.
-  `adapters/odoo/read_pacing.py` coordinates bounded process-local read
-  cooldowns and adaptive spacing after HTTP 429 without retaining evidence,
-  credentials, or database connections.
+  `adapters/odoo/request_pacing.py` coordinates bounded process-local request
+  admission, load spacing, and shared HTTP 429 cooldowns for checking, loading,
+  and read-back. It retains timing state without retaining evidence,
+  credentials, or database connections. `application/shared/remote_wait.py`
+  publishes worker-local waiting progress and cancellation. Native writers
+  obtain admission before the application journals a new in-flight batch.
   `application/workspace/execution/identity_lookups.py` resolves
   nested parent keys in groups and keeps numeric IDs within the target
   operation.

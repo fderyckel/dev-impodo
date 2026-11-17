@@ -11,6 +11,10 @@ from ..constants import (
     SCHEMA_GENERATION,
     SCHEMA_VERSION,
 )
+from ..execution_operator_errors import (
+    OPERATOR_ERROR_COLUMNS,
+    create_operator_error_schema,
+)
 from .advanced_coverage import create_advanced_coverage_schema
 from .business_intent import BUSINESS_INTENT_COLUMNS, create_business_intent_schema
 from .business_intent_assessment import (
@@ -288,7 +292,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "derived_value_artifact_current", "derived_value_artifact_manifest",
         "effective_dataset_current", "effective_dataset_reconciliation", "effective_row",
         "execution_current", "execution_row", "execution_run", "execution_load_control",
-        "execution_rejected_transport", "execution_load_control_event", "mapping_current",
+        "execution_rejected_transport", "execution_load_control_event", "execution_operator_error", "mapping_current",
         "mapping_mutation_receipt", "mapping_revision", "mapping_submission", "mapping_validation",
         "matching_order_preference", "matching_order_check",
         "matching_order_check_active", "matching_order_check_attempt",
@@ -1062,6 +1066,7 @@ class WorkspaceEngineSchemaMixin:
         create_advanced_coverage_schema(connection)
         create_preparation_session_schema(connection)
         create_execution_schema(connection)
+        create_operator_error_schema(connection)
         create_reconciliation_schema(connection)
         create_source_snapshot_schema(connection)
         create_prepared_snapshot_schema(connection)
@@ -1141,6 +1146,7 @@ class WorkspaceEngineSchemaMixin:
             ("execution_load_control", ("run_id", "control_json")),
             ("execution_load_control_event", ("run_id", "ordinal", "control_json")),
             ("execution_rejected_transport", ("run_id", "transport_batch", "rejection_json")),
+            ("execution_operator_error", OPERATOR_ERROR_COLUMNS),
             ("odoo_company_binding", ("binding_hash", "selection_json")),
             ("odoo_saved_source_company", SAVED_SOURCE_COMPANY_COLUMNS),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
@@ -1280,4 +1286,5 @@ WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     4: ForwardSchemaUpgrade("execution-load-control-events-v5", create_load_control_event_schema),
     5: ForwardSchemaUpgrade("transformation-field-counts-v6", _upgrade_transformation_field_counts),
     6: ForwardSchemaUpgrade("saved-odoo-source-company-v7", create_saved_source_company_schema),
+    7: ForwardSchemaUpgrade("private-operator-errors-v8", create_operator_error_schema),
 }

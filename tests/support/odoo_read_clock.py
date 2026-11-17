@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from threading import Lock
 
-from impodo.adapters.odoo.read_pacing import Json2ReadPacer
+from impodo.adapters.odoo.request_pacing import Json2RequestPacer
 
 
 class ReadClock:
@@ -25,4 +25,4 @@ class ReadClock:
             self.elapsed += seconds
 
     def pacer(self):
-        return Json2ReadPacer(clock=self.time, sleep=self.sleep, jitter=lambda: 0.0)
+        return Json2RequestPacer(clock=self.time, sleep=self.sleep, jitter=lambda: 0.0)

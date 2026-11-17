@@ -132,6 +132,29 @@ identity uniqueness, complete source accounting, and relationship checks still
 apply. Mixed storage therefore does not require whole-run materialization or
 an increase to its 25,000-source-row safety limit.
 
+The quality consumer declares its reader capabilities in
+[`prepared_quality_ports.py`](../../../src/impodo/application/workspace/preparation/prepared_quality_ports.py).
+Indexed quality facts and accounting, ordinary relationship findings,
+identity-group findings, and encoded publication batches have separate typed
+contracts. A reader can supply an index without supplying a relationship graph
+or encoded batches. An incoming identity group still requires its complete-group
+reader. An index that declines the request retains the existing bounded
+fallback decision. Consumers continue to validate returned facts and evidence
+bindings; a matching interface alone does not establish valid stored evidence.
+These contracts add no database access or owner lifetime beyond the existing
+synchronous operation.
+
+The index returns
+[`PreparedQualityProjection`](../../../src/impodo/application/workspace/preparation/prepared_quality_projection.py)
+with explicit row counts, accounting mode, disposition counts, finding pages,
+and excluded-row membership. Its construction checks count consistency and
+fact-column shapes inside the adapter's existing operation. The adapter and
+consumer share the same finding-budget object, including charges already made
+during transport. Existing tuple pages and their payloads are reused. Issue
+decoding and individual fact validation retain their current quality owner.
+This packet does not certify a complete prepared run or reuse artifact
+verification between quality and normalization operations.
+
 Admission records each dataset's actual compiler reasons and required source
 snapshot. Mixed native and Python routes are reported as `MIXED_BOUNDED`.
 The report contains table identifiers and rule paths, without source values

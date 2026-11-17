@@ -1408,8 +1408,17 @@ does not repeat the action.
 
 If the server does not recover, restart Impodo normally. After it opens, select
 **Create diagnostic bundle** in the page footer before trying the action again.
-The downloaded ZIP contains bounded operational timings, process events,
-version information, and recent failures. For an incomplete supporting-data
+The downloaded ZIP contains operational timings, process events,
+version information, and recent failures. Download it from a workspace page to
+include the saved settings for all six stages. The settings show your selected
+source columns, row identifier, Odoo matching fields and scopes, field mappings,
+blank-value choices, checks and stage status. No screenshots are included.
+Saved drafts are separate from confirmed settings. Where saved preparation or
+comparison evidence identifies an earlier mapping, that revision is included
+separately. Unsaved browser edits and unavailable settings are labelled, so a
+current choice is not mistaken for the choice used by an older attempt.
+Business values and formula contents remain redacted.
+For an incomplete supporting-data
 plan, it includes the affected technical Odoo model and field names, the saved
 choice, and whether the relationship is required or used by the mapping. The
 support reference identifies the failed action. These details are recorded

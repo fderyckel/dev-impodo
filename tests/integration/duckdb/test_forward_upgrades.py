@@ -171,7 +171,8 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema,
                 SCHEMA_GENERATION,
                 SCHEMA_VERSION,
-                "5540a3948027377729266860df2b8f104b04571537fa6b4124fa2d1e026f2f02",
+                # Version 8 adds only the private execution error companion.
+                "0a7e0b7a1d98f4de37314b81a8c9269244854c9e9e9699ad4fc3eebbacd2544d",
             ),
         )
         for initialize, ensure, generation, version, fingerprint in stores:

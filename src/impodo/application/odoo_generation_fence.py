@@ -20,6 +20,7 @@ from impodo.domain.execution.odoo_readback import (
     ReadbackRecord,
 )
 from impodo.domain.execution.odoo_write import (
+    OdooWriteAdmission,
     OdooWriteExecutor,
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
@@ -45,6 +46,11 @@ class GenerationFencedOdooWriteExecutor:
 
     delegate: OdooWriteExecutor
     require_current: Callable[[], None]
+
+    def admit_write(self) -> None:
+        """Forward admission before journalling; normal call fences remain intact."""
+        if isinstance(self.delegate, OdooWriteAdmission):
+            self.delegate.admit_write()
 
     @property
     def target_hash(self) -> str:

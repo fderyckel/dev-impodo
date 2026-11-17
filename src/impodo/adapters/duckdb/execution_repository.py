@@ -20,6 +20,11 @@ from impodo.domain.execution.models import (
     ExecutionRun,
     ExecutionRunStatus,
 )
+from impodo.domain.execution.operator_errors import (
+    OperatorErrorDetail,
+    OperatorErrorPersistenceError,
+    OperatorErrorReceipt,
+)
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.transfer_preflight import TransferPreflightReport
@@ -32,6 +37,7 @@ from .execution_load_control import (
     read_load_control,
     write_load_control,
 )
+from .execution_operator_errors import read_operator_error, write_operator_error
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
 
@@ -282,6 +288,49 @@ class ExecutionRepository(ExecutionLoadControlRecords):
         rows: Sequence[ExecutionRowAttempt],
     ) -> None:
         """Commit one completed Odoo call's row outcomes in a short transaction."""
+        self._record_outcomes(workspace_id, run_id, rows)
+
+    def record_outcomes_with_detail(self, workspace_id: str, run_id: str, rows: Sequence[ExecutionRowAttempt], detail: OperatorErrorDetail) -> None:
+        """Commit private explanation and definitive outcome together."""
+        valid_detail: OperatorErrorDetail | None = detail
+        try:
+            detail.to_json()
+            if len(detail.submitted) != len(rows):
+                raise ValueError("Private error membership changed")
+        except (ValueError, TypeError, UnicodeError):
+            valid_detail = None
+        try:
+            if valid_detail is not None:
+                self._record_outcomes(workspace_id, run_id, rows, operator_detail=valid_detail)
+                return
+        except OperatorErrorPersistenceError:
+            # Only repeat the rolled-back local transaction; never the Odoo call.
+            pass
+        unavailable = tuple(replace(row, diagnostic=replace(row.diagnostic, operator_detail_status="CAPTURE_FAILED") if row.diagnostic else None) for row in rows)
+        self._record_outcomes(workspace_id, run_id, unavailable)
+
+    def operator_error_for_row(self, workspace_id: str, run_id: str, row_id: str) -> tuple[ExecutionRowAttempt, OperatorErrorReceipt | None] | None:
+        """Read one private detail after the application authorizes the workspace."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_execution_schema_once(path, connection)
+            return read_operator_error(connection, run_id, row_id)
+
+    def operator_error_rows(self, workspace_id: str, run_id: str | None, *, after: int) -> tuple[str, tuple[tuple[int, ExecutionRowAttempt], ...]] | None:
+        """Read at most twenty rejected rows and one next-page sentinel."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_execution_schema_once(path, connection)
+            saved = connection.execute("SELECT run_id FROM execution_current WHERE singleton_id = 1" if run_id is None else "SELECT run_id FROM execution_run WHERE run_id = ?", [] if run_id is None else [run_id]).fetchone()
+            if saved is None:
+                return None
+            records = connection.execute("SELECT ordinal, row_json FROM execution_row WHERE run_id = ? AND ordinal > ? AND status IN ('FAILED', 'PARTIALLY_APPLIED') ORDER BY ordinal LIMIT 21", [str(saved[0]), max(-1, after)]).fetchall()
+            return str(saved[0]), tuple((int(item[0]), ExecutionRowAttempt.from_json(str(item[1]))) for item in records)
+
+    def _record_outcomes(
+        self, workspace_id: str, run_id: str, rows: Sequence[ExecutionRowAttempt],
+        *, operator_detail: OperatorErrorDetail | None = None,
+    ) -> None:
 
         if not rows:
             return
@@ -309,7 +358,7 @@ class ExecutionRepository(ExecutionLoadControlRecords):
             try:
                 self._assert_mutable_connection(connection)
                 run_status = connection.execute(
-                    "SELECT status FROM execution_run WHERE run_id = ?",
+                    "SELECT status, snapshot_hash FROM execution_run WHERE run_id = ?",
                     [canonical_run_id],
                 ).fetchone()
                 if run_status is None or str(run_status[0]) != "RUNNING":
@@ -437,6 +486,8 @@ class ExecutionRepository(ExecutionLoadControlRecords):
                 if control is not None and settled:
                     control = control.settle_many(settled)
                     write_load_control(connection, canonical_run_id, control)
+                if operator_detail is not None:
+                    write_operator_error(connection, canonical_run_id, str(run_status[1]), rows, operator_detail)
                 connection.commit()
             except Exception:
                 connection.rollback()

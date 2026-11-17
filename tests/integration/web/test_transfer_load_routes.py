@@ -370,7 +370,7 @@ class _SynchronousJobs:
         return None
 
     def enqueue(self, *_args, access_context, work, **_kwargs):
-        self.result = work(access_context, lambda _run: None, lambda _run: None)
+        self.result = work(access_context, lambda _progress: None, lambda: None)
         return SimpleNamespace(job_id="recovery-job")
 
 

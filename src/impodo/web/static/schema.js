@@ -73,6 +73,16 @@ document.addEventListener("DOMContentLoaded", () => {
   const supportingSaveForm = document.querySelector(
     "[data-supporting-save-form]"
   );
+  const supportingContinue = supportingSaveForm?.querySelector("[data-schema-related-continue]");
+  if (supportingContinue) {
+    const save = supportingSaveForm.querySelector("[data-supporting-save]");
+    const markChoicesUnsaved = () => {
+      save?.classList.replace("secondary", "primary");
+      supportingContinue.classList.replace("primary", "secondary");
+    };
+    supportingSaveForm.addEventListener("input", markChoicesUnsaved);
+    supportingSaveForm.addEventListener("change", markChoicesUnsaved);
+  }
   const supportingSavePositionKey = supportingSaveForm
     ? `impodo:supporting-save-position:${supportingSaveForm.action}`
     : "";

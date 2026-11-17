@@ -30,6 +30,7 @@ from impodo.application.workspace.execution.load_observation import (
     record_load_failure,
 )
 from impodo.domain.correction_origin import CorrectionOriginError
+from impodo.domain.execution.batch_policy import validated_create_batch_rows
 from impodo.domain.execution.load_control import LoadControlState, RejectionPolicy
 from impodo.domain.execution.models import (
     MAX_CREATE_BATCH_ROWS,
@@ -63,11 +64,8 @@ from ...application.workspace.execution.load_jobs import (
     LoadJobResult,
     LoadJobStateError,
 )
-from ...application.workspace.execution.service import (
-    ExecutionPreview,
-    RecoveryResumePlan,
-    validated_create_batch_rows,
-)
+from ...application.workspace.execution.preview import ExecutionPreview
+from ...application.workspace.execution.service import RecoveryResumePlan
 from ..composition.page_reads import (
     run_local_operation,
     run_local_operation_sync,
@@ -931,6 +929,54 @@ def build_execution_router(
             )
         return await run_page_read(render_outcome, request, workspace_id)
 
+    @router.get("/workspaces/{workspace_id}/load/errors", response_class=HTMLResponse)
+    async def review_operator_errors(request: Request, workspace_id: str):
+        """Navigate saved rejection rows with a bounded database page."""
+        require_session(request)
+
+        def page():
+            actor = request_identity(request, context.identity_resolver).actor
+            try:
+                after = max(-1, min(2**63 - 1, int(request.query_params.get("after", "-1"))))
+            except ValueError:
+                after = -1
+            run_id = request.query_params.get("run_id")
+            result = context.execution.operator_error_rows(workspace_id, run_id, after=after, actor=actor)
+            saved_run, rows = result if result is not None else (run_id or "", ())
+            response = _render(request, "workspace_load_errors.html", workspace_state=context.queries.get(workspace_id), error_run_id=saved_run, error_rows=tuple(row for _, row in rows[:20]), next_after=rows[19][0] if len(rows) > 20 else None)
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return await run_workspace_page_read(request, page)
+
+    @router.get("/workspaces/{workspace_id}/load/errors/{run_id}/{row_id}", response_class=HTMLResponse)
+    async def review_operator_error(request: Request, workspace_id: str, run_id: str, row_id: str):
+        """Render authorized private error evidence in one bounded local read."""
+        require_session(request)
+
+        def page():
+            actor = request_identity(request, context.identity_resolver).actor
+            row, receipt = context.execution.operator_error(workspace_id, run_id, row_id, actor=actor)
+            index = receipt.row_ids.index(row_id) if receipt is not None else 0
+            detail = receipt.detail if receipt is not None else None
+            messages = tuple({
+                "text": item.text, "fields": item.fields,
+                "row_from": item.row_from, "row_to": item.row_to,
+                "specific": len(receipt.row_ids) == 1 or item.row_from == item.row_to == index,
+            } for item in detail.messages) if detail is not None and receipt is not None else ()
+            response = _render(
+                request, "workspace_load_error.html",
+                workspace_state=context.queries.get(workspace_id),
+                saved_row=row, saved_run_id=run_id, error_detail=detail, error_messages=messages,
+                submitted_values=detail.submitted[index] if detail is not None else {},
+                batch_members=len(receipt.row_ids) if receipt is not None else 0,
+                reported_fields=tuple(sorted({field for item in messages if item["specific"] for field in item["fields"]})),
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        return await run_workspace_page_read(request, page)
+
     def render_outcome(request: Request, workspace_id: str):
         actor = request_identity(request, context.identity_resolver).actor
         preview = context.execution.current_preview(workspace_id, actor=actor)
@@ -1682,12 +1728,18 @@ def build_execution_router(
                 _record_write_diagnostics(diagnostic_recorder, run.rows)
                 if diagnostic_recorder is not None and run.load_control is not None:
                     diagnostic_recorder.record_load_control(run.load_control)
-                report_verifying(run)
+                report_verifying()
                 if run.load_control is not None and run.load_control.state is LoadControlState.PAUSED:
                     return LoadJobResult(
                         execution_run_id=run.run_id, verification_complete=False,
                         completion_warning="Repeated failures paused further uploads. Review the rejected records and check recovery before continuing.",
                         completion_warning_code="LOAD_PAUSED",
+                    )
+                if run.status is ExecutionRunStatus.RUNNING:
+                    return LoadJobResult(
+                        execution_run_id=run.run_id, verification_complete=False,
+                        completion_warning="Odoo's request cooldown exceeds this waiting window. Your saved progress is resumable. Use Check recovery before continuing.",
+                        completion_warning_code="LOAD_ODOO_REQUEST_DEFERRED",
                     )
                 try:
                     with _diagnostic_load_stage(diagnostic_recorder, "verification"):

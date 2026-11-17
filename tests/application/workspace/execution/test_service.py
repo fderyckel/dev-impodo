@@ -16,17 +16,22 @@ from uuid import uuid4
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
 from impodo.application.workspace.execution.navigation import (
     ExecutionPreviewSummary,
-    ExecutionReviewBlockerSummary,
-    ExecutionReviewDependencySummary,
     ExecutionReviewProjection,
     ExecutionReviewSnapshot,
 )
+from impodo.application.workspace.execution.review_models import (
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+)
 from impodo.application.workspace.execution.service import (
     ExecutionService,
-    _execution_blocker_summary,
-    _execution_dependency_summary,
-    execution_api_scope,
 )
+from impodo.application.workspace.execution.review_queries import (
+    execution_blocker_summary,
+    execution_dependency_summary,
+)
+from impodo.domain.execution.odoo_scope import execution_api_scope
+from impodo.domain.execution.recovery import classify_recovery
 from impodo.domain.execution.models import (
     ExecutionRowStatus,
     ExecutionRunStatus,
@@ -1355,8 +1360,8 @@ class ExecutionServiceTests(unittest.TestCase):
             ),
         )
 
-        dependency_summary = _execution_dependency_summary(bounded)
-        blocker_summary = _execution_blocker_summary(bounded)
+        dependency_summary = execution_dependency_summary(bounded)
+        blocker_summary = execution_blocker_summary(bounded)
 
         self.assertEqual(len(dependency_summary.groups), 5)
         self.assertEqual(dependency_summary.omitted_group_count, 2)
@@ -1805,7 +1810,7 @@ class ExecutionServiceTests(unittest.TestCase):
             new_callable=PropertyMock,
             return_value=recovery_hash,
         ) as hash_property:
-            classified = service._classify_recovery(
+            classified = classify_recovery(
                 snapshot,
                 interrupted,
                 recovery,

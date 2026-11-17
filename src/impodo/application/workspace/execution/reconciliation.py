@@ -20,6 +20,7 @@ from uuid import uuid4
 from impodo.application.reconciliation_evidence_service import (
     ReconciliationEvidenceService,
 )
+from impodo.domain.execution.identity import identity_domain, portable_key
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
@@ -34,6 +35,8 @@ from impodo.domain.execution.odoo_readback import (
     ReadbackLookup,
     ReadbackRecord,
 )
+from impodo.domain.execution.odoo_scope import execution_api_scope
+from impodo.domain.execution.recovery import targeted_recovery_row_ids
 from impodo.domain.execution_snapshot import (
     ExecutionDataset,
     ExecutionRow,
@@ -68,10 +71,6 @@ from impodo.domain.workspace.errors import WorkspaceError
 from .identity_lookups import readback_identity_lookup
 from .service import (
     ExecutionSnapshotRepository,
-    _identity_domain,
-    _portable_key,
-    _targeted_recovery_row_ids,
-    execution_api_scope,
 )
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
@@ -431,7 +430,7 @@ class ReconciliationService:
             write_credential_binding_hash=write_credential_binding_hash,
             protected_values=protected_values,
             row_ids=(
-                _targeted_recovery_row_ids(snapshot, run)
+                targeted_recovery_row_ids(snapshot, run)
                 if targeted else None
             ),
         )
@@ -466,7 +465,7 @@ class ReconciliationService:
             raise WorkspaceError("Recovery selected a row outside the preview")
         metadata = {item.dataset: item for item in snapshot.datasets}
         by_source = {
-            (row.dataset, _portable_key(row.source_identity)): row
+            (row.dataset, portable_key(row.source_identity)): row
             for row in snapshot.rows
         }
 
@@ -663,7 +662,7 @@ class ReconciliationService:
         nested = readback_identity_lookup(rows.values(), metadata, reader)
         receipt_ids: dict[tuple[str, str, str], set[int]] = {}
         by_source = {
-            (row.dataset, _portable_key(row.source_identity)): row
+            (row.dataset, portable_key(row.source_identity)): row
             for row in rows.values()
         }
         for row_id, row in rows.items():
@@ -672,8 +671,8 @@ class ReconciliationService:
                 receipt_ids.setdefault(
                     (
                         row.target_model,
-                        _portable_key(row.business_identity),
-                        _portable_key(row.business_scope),
+                        portable_key(row.business_identity),
+                        portable_key(row.business_scope),
                     ),
                     set(),
                 ).add(identifier)
@@ -722,7 +721,7 @@ class ReconciliationService:
                     and value.origin == "incoming"
                 ):
                     referenced = by_source.get(
-                        (value.dataset or "", _portable_key(value.key))
+                        (value.dataset or "", portable_key(value.key))
                     )
                     identifier = (
                         attempts[referenced.row_id].odoo_id
@@ -741,8 +740,8 @@ class ReconciliationService:
                     )
                 receipt_key = (
                     intent.related_model,
-                    _portable_key(value.key),
-                    _portable_key(value.scope),
+                    portable_key(value.key),
+                    portable_key(value.scope),
                 )
                 identifiers = receipt_ids.get(receipt_key, set())
                 if len(identifiers) > 1:
@@ -754,7 +753,7 @@ class ReconciliationService:
                     continue
                 reference = _PendingIdentityReference(
                     intent.related_model,
-                    _identity_domain(
+                    identity_domain(
                         intent.related_identity_fields,
                         value.key,
                         intent.related_scope_fields,
@@ -796,7 +795,7 @@ class ReconciliationService:
                 else value
                 for _field, value in components
             )
-            domain = _identity_domain(
+            domain = identity_domain(
                 dataset.identity_fields,
                 values[:len(dataset.identity_fields)],
                 dataset.scope_fields,
@@ -913,7 +912,7 @@ class ReconciliationService:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
                 raise WorkspaceError("An incoming relationship is incomplete")
-            related = by_source.get((value.dataset, _portable_key(value.key)))
+            related = by_source.get((value.dataset, portable_key(value.key)))
             if related is None:
                 raise WorkspaceError("A related prepared row could not be found")
             if related.row_id in resolved_ids:
@@ -921,7 +920,7 @@ class ReconciliationService:
             dataset = metadata[related.dataset]
             return (
                 related.target_model,
-                _identity_domain(
+                identity_domain(
                     dataset.identity_fields,
                     related.business_identity,
                     dataset.scope_fields,
@@ -931,7 +930,7 @@ class ReconciliationService:
         if isinstance(value, BusinessReference | LogicalReference):
             return (
                 intent.related_model,
-                _identity_domain(
+                identity_domain(
                     intent.related_identity_fields,
                     value.key,
                     intent.related_scope_fields,
@@ -1263,13 +1262,13 @@ class ReconciliationService:
         if isinstance(value, LogicalReference) and value.origin == "incoming":
             if value.dataset is None:
                 raise WorkspaceError("An incoming relationship is incomplete")
-            related = by_source.get((value.dataset, _portable_key(value.key)))
+            related = by_source.get((value.dataset, portable_key(value.key)))
             if related is None:
                 raise WorkspaceError("A related prepared row could not be found")
             if related.row_id in resolved_ids:
                 return resolved_ids[related.row_id]
             dataset = metadata[related.dataset]
-            domain = _identity_domain(
+            domain = identity_domain(
                 dataset.identity_fields,
                 related.business_identity,
                 dataset.scope_fields,
@@ -1281,7 +1280,7 @@ class ReconciliationService:
                 identity_cache,
             )
         if isinstance(value, BusinessReference | LogicalReference):
-            domain = _identity_domain(
+            domain = identity_domain(
                 intent.related_identity_fields,
                 value.key,
                 intent.related_scope_fields,

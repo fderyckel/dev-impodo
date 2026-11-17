@@ -10,11 +10,20 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
-from typing import Protocol, cast, overload
+from typing import overload
 
+from impodo.application.workspace.preparation.prepared_quality_ports import (
+    EncodedPreparedRowReader,
+    PreparedIdentityGroupFindingReader,
+    PreparedQualityIndexReader,
+    PreparedRelationshipFindingReader,
+)
+from impodo.application.workspace.preparation.prepared_quality_projection import (
+    PreparedQualityProjection,
+)
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
@@ -51,7 +60,6 @@ from impodo.domain.preparation.quality import (
     retention_context_hash,
 )
 from impodo.domain.preparation.quality_budget import (
-    QualityFindingBudget,
     QualityFindingBudgetExceeded,
 )
 from impodo.domain.preparation.staging_contracts import (
@@ -72,50 +80,6 @@ from impodo.domain.workspace.workbench import WorkspaceState
 
 class BoundedQualityUnsupported(ValueError):
     """Signal that the complete quality evaluator must handle this run."""
-
-
-class _IndexedPreparationRows(Protocol):
-    """Narrow durable-row index used by bounded quality projections."""
-
-    def iter_quality_index_batches(
-        self,
-        connection: object,
-        batch_size: int,
-    ) -> Iterator[Sequence[Sequence[object]]]: ...
-
-    def iter_accounting_index_batches(
-        self,
-        connection: object,
-        batch_size: int,
-    ) -> Iterator[Sequence[Sequence[object]]]: ...
-
-    def contains_row_id(self, row_id: str) -> bool: ...
-
-
-class _EncodedBatchReader(Protocol):
-    def __call__(
-        self,
-        connection: object,
-        batch_size: int,
-    ) -> Iterator[Sequence[Sequence[object]]]: ...
-
-
-class _QualityIndexBuilder(Protocol):
-    def __call__(
-        self,
-        physical_rows: Mapping[str, tuple[int, ...]],
-        *,
-        numeric_fields: tuple[PreparedNumericField, ...] = (),
-        retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
-    ) -> Mapping[str, object] | None: ...
-
-
-class _RelationshipFindingReader(Protocol):
-    def __call__(
-        self,
-        unsafe_row_ids: Sequence[str],
-        propagating_datasets: Sequence[str],
-    ) -> Iterable[Sequence[object]]: ...
 
 
 class _CleanQualityRows(Sequence[QualityRowResult]):
@@ -148,13 +112,13 @@ class _CleanQualityRows(Sequence[QualityRowResult]):
     def iter_batches(self, connection, batch_size: int):
         """Decode session rows through the publisher's existing connection."""
 
-        encoded_batches = getattr(self._rows, "iter_encoded_batches", None)
-        if not callable(encoded_batches):
+        if not isinstance(self._rows, EncodedPreparedRowReader) or not callable(
+            self._rows.iter_encoded_batches
+        ):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        batch_reader = cast(_EncodedBatchReader, encoded_batches)
-        for batch in batch_reader(connection, batch_size):
+        for batch in self._rows.iter_encoded_batches(connection, batch_size):
             yield tuple(
                 clean_quality_row_result(
                     CanonicalRow.from_dict(json.loads(str(row_json)))
@@ -207,13 +171,13 @@ class _BoundedQualityRows(Sequence[QualityRowResult]):
 
     def iter_batches(self, connection, batch_size: int):
         """Stream replayed quality results from compact row-to-issue links."""
-        encoded_batches = getattr(self._rows, "iter_encoded_batches", None)
-        if not callable(encoded_batches):
+        if not isinstance(self._rows, EncodedPreparedRowReader) or not callable(
+            self._rows.iter_encoded_batches
+        ):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        batch_reader = cast(_EncodedBatchReader, encoded_batches)
-        for batch in batch_reader(connection, batch_size):
+        for batch in self._rows.iter_encoded_batches(connection, batch_size):
             yield tuple(
                 self._result(CanonicalRow.from_dict(json.loads(str(row_json))))
                 for *_metadata, row_json in batch
@@ -266,13 +230,13 @@ class _DirectSourceAccounting(Sequence[SourceAccountingEntry]):
     def iter_batches(self, connection, batch_size: int):
         """Decode session lineage through the publisher's open transaction."""
 
-        encoded_batches = getattr(self._rows, "iter_encoded_batches", None)
-        if not callable(encoded_batches):
+        if not isinstance(self._rows, EncodedPreparedRowReader) or not callable(
+            self._rows.iter_encoded_batches
+        ):
             for start in range(0, len(self), batch_size):
                 yield self[start : start + batch_size]
             return
-        batch_reader = cast(_EncodedBatchReader, encoded_batches)
-        for batch in batch_reader(connection, batch_size):
+        for batch in self._rows.iter_encoded_batches(connection, batch_size):
             yield tuple(
                 self._entry(CanonicalRow.from_dict(json.loads(str(row_json))))
                 for *_metadata, row_json in batch
@@ -298,7 +262,7 @@ class _IndexedQualityRows(Sequence[QualityRowResult]):
 
     def __init__(
         self,
-        rows: _IndexedPreparationRows,
+        rows: PreparedQualityIndexReader,
         row_count: int,
         issues: Mapping[str, QualityIssue],
         row_issue_ids: Mapping[str, set[str]],
@@ -377,7 +341,7 @@ class _IndexedSourceAccounting(Sequence[SourceAccountingEntry]):
     sparse_projection_contract: str | None = "direct-represented-v1"
 
     def __init__(
-        self, rows: _IndexedPreparationRows, row_count: int, *, direct: bool = True,
+        self, rows: PreparedQualityIndexReader, row_count: int, *, direct: bool = True,
         exclude_unused: bool = False,
     ) -> None:
         self._rows = rows
@@ -443,7 +407,7 @@ class _DirectEligibleRowIds(AbstractSet[str]):
 
     def __init__(
         self,
-        rows: _IndexedPreparationRows,
+        rows: PreparedQualityIndexReader,
         eligible_count: int,
         excluded: set[str],
     ) -> None:
@@ -484,23 +448,6 @@ def _indexed_optional_integer(value: object) -> int | None:
     if value is None:
         return None
     return _indexed_integer(value)
-
-
-def _indexed_rows(
-    index: Mapping[str, object],
-    key: str,
-) -> tuple[Sequence[object], ...]:
-    """Return a validated row collection from the bounded-quality index."""
-
-    value = index.get(key, ())
-    if not isinstance(value, (list, tuple)):
-        raise BoundedQualityUnsupported
-    rows: list[Sequence[object]] = []
-    for row in value:
-        if not isinstance(row, (list, tuple)):
-            raise BoundedQualityUnsupported
-        rows.append(row)
-    return tuple(rows)
 
 
 def build_bounded_quality_run(
@@ -560,9 +507,10 @@ def build_bounded_quality_run(
         )
     # Group semantics require a verified direct index and its group adapter.
     # Other stored sequences retain the authoritative compatibility route.
-    index_builder = getattr(staging.rows, "bounded_quality_index", None)
-    if callable(index_builder):
-        build_index = cast(_QualityIndexBuilder, index_builder)
+    if isinstance(staging.rows, PreparedQualityIndexReader) and callable(
+        staging.rows.bounded_quality_index
+    ):
+        build_index = staging.rows.bounded_quality_index
         retained_excluded_coordinates = frozenset(
             (item.dataset, item.source_row)
             for item in staging.issues
@@ -578,7 +526,12 @@ def build_bounded_quality_run(
         else:
             index = build_index(physical_rows)
         if index is not None:
-            if needs_identity_groups and not callable(getattr(staging.rows, "bounded_identity_group_findings", None)):
+            if not isinstance(index, PreparedQualityProjection):
+                raise BoundedQualityUnsupported
+            if needs_identity_groups and (
+                not isinstance(staging.rows, PreparedIdentityGroupFindingReader)
+                or not callable(staging.rows.bounded_identity_group_findings)
+            ):
                 raise BoundedQualityUnsupported
             return _build_indexed_quality_run(
                 workspace_state=workspace_state,
@@ -588,6 +541,7 @@ def build_bounded_quality_run(
                     published_staging_content_hash
                 ),
                 index=index,
+                rows=staging.rows,
                 include_identity_groups=needs_identity_groups,
             )
     if needs_identity_groups:
@@ -965,19 +919,14 @@ def _build_indexed_quality_run(
     staging: StoredCanonicalStagingRun,
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
-    index: Mapping[str, object],
+    index: PreparedQualityProjection,
+    rows: PreparedQualityIndexReader,
     include_identity_groups: bool = False,
 ) -> StoredQualityRun:
     """Build default-plus-exception evidence from set-validated row facts."""
 
-    row_count = _indexed_integer(index["row_count"])
-    raw_counts = index["disposition_counts"]
-    if not isinstance(raw_counts, Mapping):
-        raise BoundedQualityUnsupported
-    disposition_counts = {
-        StagingDisposition(str(key)): _indexed_integer(value)
-        for key, value in raw_counts.items()
-    }
+    row_count = index.row_count
+    disposition_counts = index.disposition_counts
     rules_by_family = {
         (rule.dataset, rule.family): rule for rule in ruleset.rules
     }
@@ -988,18 +937,8 @@ def _build_indexed_quality_run(
         tuple[_IssueRow, set[tuple[str, int]]],
     ] = {}
     coordinate_ids: dict[tuple[str, int], str] = {}
-    base_excluded_ids = index.get("excluded_row_ids", frozenset())
-    if not isinstance(base_excluded_ids, (set, frozenset)) or any(
-        not isinstance(row_id, str) for row_id in base_excluded_ids
-    ):
-        raise BoundedQualityUnsupported
-    excluded_ids: set[str] = set(base_excluded_ids)
-    retained_budget = index.get("finding_budget")
-    finding_budget = (
-        retained_budget
-        if isinstance(retained_budget, QualityFindingBudget)
-        else QualityFindingBudget()
-    )
+    excluded_ids: set[str] = set(index.excluded_row_ids)
+    finding_budget = index.finding_budget
 
     def charge(byte_count: int) -> None:
         try:
@@ -1048,13 +987,13 @@ def _build_indexed_quality_run(
             raise BoundedQualityUnsupported
         return row
 
-    for raw in _indexed_rows(index, "exception_rows"):
+    for raw in index.exception_rows:
         _ordinal, row_id, dataset, source_row, disposition, physical_id, physical_row = raw
         register(
             row_id, dataset, source_row, disposition, physical_id, physical_row
         )
 
-    for raw in _indexed_rows(index, "issue_rows"):
+    for raw in index.issue_rows:
         (
             _ordinal,
             row_id,
@@ -1092,7 +1031,7 @@ def _build_indexed_quality_run(
         )
         attach(issue, row.row_id)
 
-    for raw in _indexed_rows(index, "collisions"):
+    for raw in index.collisions:
         (
             _ordinal,
             row_id,
@@ -1158,16 +1097,19 @@ def _build_indexed_quality_run(
         )
         attach(issue, row.row_id)
 
-    finder_name = (
-        "bounded_identity_group_findings" if include_identity_groups
-        else "bounded_relationship_findings"
-    )
-    relationship_finder = getattr(staging.rows, finder_name, None)
-    if callable(relationship_finder):
-        read_relationship_findings = cast(
-            _RelationshipFindingReader,
-            relationship_finder,
-        )
+    read_relationship_findings: Callable[
+        [Sequence[str], Sequence[str]], Iterable[Sequence[object]]
+    ] | None = None
+    if include_identity_groups:
+        if isinstance(rows, PreparedIdentityGroupFindingReader) and callable(
+            rows.bounded_identity_group_findings
+        ):
+            read_relationship_findings = rows.bounded_identity_group_findings
+    elif isinstance(rows, PreparedRelationshipFindingReader) and callable(
+        rows.bounded_relationship_findings
+    ):
+        read_relationship_findings = rows.bounded_relationship_findings
+    if read_relationship_findings is not None:
         attached_relationship_causes: set[
             tuple[str, str, str, str, str | None]
         ] = set()
@@ -1301,7 +1243,7 @@ def _build_indexed_quality_run(
             )
             attach(issue, row.row_id)
 
-    for raw in _indexed_rows(index, "precision_rows"):
+    for raw in index.precision_rows:
         (
             _ordinal,
             row_id,
@@ -1447,9 +1389,8 @@ def _build_indexed_quality_run(
         issue.row_id is None and issue.policy is QualityOutcomePolicy.WARNING
         for issue in issue_map.values()
     )
-    indexed_rows = cast(_IndexedPreparationRows, staging.rows)
-    rows = _IndexedQualityRows(
-        indexed_rows,
+    row_results = _IndexedQualityRows(
+        rows,
         row_count,
         issue_map,
         row_issue_ids,
@@ -1461,17 +1402,17 @@ def _build_indexed_quality_run(
         mapping_hash=staging.mapping_hash,
         schema_hash=staging.schema_hash,
         retention_context_hash=retention_context_hash(workspace_state),
-        row_results=rows,
+        row_results=row_results,
         source_accounting=_IndexedSourceAccounting(
-            indexed_rows, _indexed_integer(index.get("physical_row_count", row_count)),
-            direct=bool(index.get("direct_accounting", True)),
+            rows, index.physical_row_count,
+            direct=index.direct_accounting,
             exclude_unused=_uses_reviewed_join_accounting(staging),
         ),
         issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
         quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
         effective_dataset_hash=published_staging_content_hash,
         eligible_row_ids=_DirectEligibleRowIds(
-            indexed_rows,
+            rows,
             eligible_count,
             excluded_ids,
         ),

@@ -7,6 +7,8 @@ from dataclasses import replace
 from threading import Event
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.application.workspace.execution.progress import execution_progress
+from impodo.domain.execution.models import ExecutionRowAttempt
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.target_credentials import (
     target_read_credential_id,
@@ -51,7 +53,17 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
             load_control=None,
             run_id="11111111-1111-4111-8111-111111111111",
             workspace_id=self.workspace.workspace_id,
-            status=ExecutionRunStatus.RUNNING, rows=(), total_count=5,
+            status=ExecutionRunStatus.RUNNING, rows=tuple(
+                ExecutionRowAttempt(
+                    row_id=str(index), dataset="contacts", source_row=index + 1,
+                    target_model="res.partner", operation="CREATE", field_names=("name",),
+                    proposed_external_id="", status=status,
+                ) for index, status in enumerate((
+                    ExecutionRowStatus.COMMITTED, ExecutionRowStatus.COMMITTED,
+                    ExecutionRowStatus.PLANNED, ExecutionRowStatus.PLANNED,
+                    ExecutionRowStatus.IN_FLIGHT,
+                ))
+            ), total_count=5,
             committed_count=2, planned_count=2, in_flight_count=1,
             retry_ready_count=0, unknown_count=0, partially_applied_count=0,
             failed_count=0, blocked_count=0,
@@ -88,10 +100,14 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.completed = SimpleNamespace(
             load_control=None,
-            run_id=self.run.run_id, total_count=5, planned_count=0,
+            run_id=self.run.run_id, workspace_id=self.workspace.workspace_id,
+            total_count=5, planned_count=0,
             status=ExecutionRunStatus.COMPLETED,
-            rows=tuple(SimpleNamespace(operation="CREATE", status=ExecutionRowStatus.COMMITTED)
-                       for _ in range(5)),
+            rows=tuple(ExecutionRowAttempt(
+                row_id=str(index), dataset="contacts", source_row=index + 1,
+                target_model="res.partner", operation="CREATE", field_names=("name",),
+                proposed_external_id="", status=ExecutionRowStatus.COMMITTED,
+            ) for index in range(5)),
         )
         self.events = []
         self.recovery = object()
@@ -128,7 +144,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
 
         def resume(*args, **kwargs):
             self.events.append("resume")
-            kwargs["progress"](self.completed)
+            kwargs["progress"](execution_progress(self.completed))
             return self.completed
 
         def verify(*args, **kwargs):
@@ -267,7 +283,7 @@ class LoadRecoveryBrowserTests(ProjectSetupBrowserTestCase):
         self.preview.prior_interrupted_run = self.run
         def execute(*args, **kwargs):
             self.events.append("execute")
-            kwargs["progress"](self.completed)
+            kwargs["progress"](execution_progress(self.completed))
             return self.completed
         with self.recovery_context() as mocks, patch.object(
             type(self.context.execution), "close_interrupted_run_for_recomparison",

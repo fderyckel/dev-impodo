@@ -5,7 +5,7 @@ from pathlib import PurePath
 from types import SimpleNamespace
 from uuid import uuid4
 
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.execution.models import ExecutionRunStatus
 from impodo.domain.execution_snapshot import ExecutionSnapshot, build_execution_snapshot

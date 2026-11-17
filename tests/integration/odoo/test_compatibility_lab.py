@@ -2,7 +2,6 @@
 
 import json
 from pathlib import Path
-import socket
 import unittest
 from unittest.mock import patch
 
@@ -60,11 +59,13 @@ class CompatibilityLabTests(unittest.TestCase):
         command.assert_not_called()
 
     def test_occupied_port_is_rejected(self):
-        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as listener:
-            listener.bind(("127.0.0.1", 0))
-            listener.listen()
+        with patch("scripts.prepare_odoo_compatibility_lab.socket.socket") as socket_factory:
+            listener = socket_factory.return_value.__enter__.return_value
+            listener.bind.side_effect = OSError("address already in use")
             with self.assertRaises(OSError):
-                _require_free_port(listener.getsockname()[1])
+                _require_free_port(18069)
+            listener.bind.assert_called_once_with(("127.0.0.1", 18069))
+        socket_factory.return_value.__exit__.assert_called_once()
 
 
 if __name__ == "__main__":

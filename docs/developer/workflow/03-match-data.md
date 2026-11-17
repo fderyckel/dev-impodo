@@ -2260,8 +2260,30 @@ and supporting-review failures before that same limit. It includes successful
 recovery, so later health checks cannot displace the explanation. The manifest
 reports `supporting_access_record_count`.
 The manifest reports the summary count and discloses technical model and field
-identifiers. Export reads log files only, never workspace databases or Odoo.
-Exported routes are reduced to a fixed route class.
+identifiers. Exported routes are reduced to a fixed route class.
+When downloaded from a workspace, bundle schema version 5 also includes
+`settings.json` and `settings-summary.md`. The authenticated POST carries the
+workspace identifier and authorizes its parent Project before reading settings.
+[Settings capture](../../../src/impodo/web/diagnostic_settings.py) reads saved metadata for all six stages in one
+bounded synchronous local operation, off the event loop. It does not read
+source rows, open protected row evidence, refresh settings, or call Odoo.
+`SettingsProjection` applies an explicit dataclass-field allowlist at export;
+business literals and authored formula contents are marked as redacted.
+
+The snapshot includes source column names and identifiers, Odoo matching keys
+and scopes, supporting-data choices, scalar and linked-field mappings, blank
+policies, quality rules, and saved preparation, normalization, comparison and
+load status. Saved drafts and confirmed mappings are separate. Preparation
+and comparison sections include the exact saved mapping revision referenced by
+their evidence. These bindings do not establish which settings an unbound older
+attempt used. Unsaved browser edits are unavailable. A global download without
+a workspace, a failed stage read, an unsupported setting type, or an export
+limit is reported explicitly in `settings_evidence`; missing settings are not
+replaced with defaults. Export bounds collections, nesting, total nodes and
+encoded size. Settings capture failure does not discard the retained logs.
+The [configuration export tests](../../../tests/integration/web/test_diagnostic_settings.py)
+cover both supported Odoo majors, local and remote access, privacy, historical
+mapping bindings, partial capture, authorization and database budgets.
 The exporter cannot include source rows, formulas, credentials, tokens,
 request bodies, headers, raw URLs, query strings, or arbitrary exception text.
 

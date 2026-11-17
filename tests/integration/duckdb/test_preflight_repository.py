@@ -14,14 +14,15 @@ from impodo.adapters.duckdb.preflight_repository import PreflightRepository
 from impodo.adapters.duckdb.workspace_state_repository import WorkspaceStateRepository
 from impodo.application.workspace.execution.navigation import (
     ExecutionPreviewSummary,
-    ExecutionReviewBlockerSummary,
-    ExecutionReviewDependencySummary,
     ExecutionReviewProjection,
     ExecutionReviewSnapshot,
 )
+from impodo.application.workspace.execution.review_models import (
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+)
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.workbench import WorkspaceState
-
 
 RUN_ID = "00000000-0000-4000-8000-000000000001"
 WORKSPACE_ID = "00000000-0000-4000-8000-000000000002"

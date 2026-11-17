@@ -466,6 +466,8 @@ PAGE_HELP_ID_BY_TEMPLATE = MappingProxyType(
         "workspace_history.html": "load-into-odoo",
         "workspace_continuation.html": "load-into-odoo",
         "workspace_load.html": "load-into-odoo",
+        "workspace_load_error.html": "load-into-odoo",
+        "workspace_load_errors.html": "load-into-odoo",
         "workspace_load_progress.html": "load-into-odoo",
         "workspace_normalization.html": "prepare-data",
         "workspace_odoo_capture_progress.html": "source-data",

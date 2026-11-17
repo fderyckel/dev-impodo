@@ -607,6 +607,7 @@ def _write_fields_set_aside(
     if not protected_source:
         findings.update(_comparison_field_findings(decisions, records, evidence))
     original_values: dict[tuple[str, int, str], str] = {}
+    feedback_originals: set[FieldSetAside] = set()
     if not protected_source and fields is not None and evidence is not None:
         rule_coordinates = {
             (item.dataset, item.source_row, item.target_field)
@@ -625,11 +626,14 @@ def _write_fields_set_aside(
                 and effect.after.strip() in {"", "—"}
                 and effect.before.strip() not in {"", "—"}
             ):
-                findings.add(FieldSetAside(
+                finding = FieldSetAside(
                     FieldSetAsideReason.RULE, effect.dataset, effect.source_row,
                     fields.source_keys.get((effect.dataset, effect.target_field), ()),
                     effect.target_field, effect.explanation, effect.before,
-                ))
+                )
+                if finding not in findings:
+                    feedback_originals.add(finding)
+                findings.add(finding)
 
     cells = {
         (item.dataset, item.source_row, key)
@@ -653,6 +657,9 @@ def _write_fields_set_aside(
         ),
     )
     rows = []
+    unavailable_originals = 0
+    unrecorded_originals = 0
+    unidentified_cells = 0
     for item in ordered:
         model = fields.target_models.get(item.dataset, "") if fields else ""
         target = _target_field_label(model, item.target_field, evidence) if item.target_field else ""
@@ -663,6 +670,10 @@ def _write_fields_set_aside(
         original = item.source_value
         if original is None and item.source_row is not None:
             original = original_values.get((item.dataset, item.source_row, item.target_field))
+        if item.source_row is not None:
+            unavailable_originals += original is None
+            unrecorded_originals += item.source_value is None or item in feedback_originals
+            unidentified_cells += len(item.source_keys) != 1
         display_original = original if original is not None else (
             "Unavailable" if item.source_row is not None else ""
         )
@@ -675,23 +686,48 @@ def _write_fields_set_aside(
             item.detail, _FIELD_REASON_STYLES[item.reason][1],
         ))
 
-    coverage = (
-        "Odoo source values and field-level evidence are withheld in this export."
-        if protected_source else
-        "Some omissions and original values may be unavailable. "
-        "See Needs attention for comparison blockers and warnings."
+    if protected_source:
+        coverage = "Odoo source values and field-level evidence are withheld in this export."
+    elif fields is None:
+        coverage = (
+            "Limited coverage: saved preparation field evidence is unavailable. "
+            "Only saved comparison findings can be listed."
+        )
+    else:
+        gaps = list(fields.coverage_gaps)
+        if unavailable_originals:
+            gaps.append(
+                f"{unavailable_originals:,} finding(s) have no available original value."
+            )
+        if unrecorded_originals > unavailable_originals:
+            gaps.append(
+                "Some values come from saved preparation feedback; "
+                "their exact original source representation is not established."
+            )
+        if unidentified_cells:
+            gaps.append(
+                f"{unidentified_cells:,} finding(s) cannot be counted as a single source cell."
+            )
+        coverage = (
+            "Partial coverage: " + " ".join(dict.fromkeys(gaps))
+            if gaps else "Complete coverage of saved field omissions."
+        )
+    empty_label = (
+        "No fields were set aside"
+        if not ordered and fields is not None and not fields.coverage_gaps and not protected_source
+        else "No saved field omissions shown"
     )
     _write_data_sheet(
         sheet,
         ("Reason", "Dataset", "Source row", "Source field", "Original value",
          "Odoo field", "Scope", "What happened", "What to do"),
-        rows or [("No saved field omissions shown", "", None, "", "", "", "", coverage, "")],
+        rows or [(empty_label, "", None, "", "", "", "", coverage, "")],
         _COLORS["charcoal"],
         header_row=6,
     )
     sheet["A2"] = coverage
     sheet["A2"].alignment = Alignment(vertical="center", wrap_text=True)
-    sheet.row_dimensions[2].height = 28
+    sheet.row_dimensions[2].height = 15 * max(2, (len(coverage) + 139) // 140)
     sheet.row_dimensions[3].height = 8
     sheet.row_dimensions[4].height = 24
     sheet.row_dimensions[5].height = 8
@@ -720,7 +756,7 @@ def _write_fields_set_aside(
     link.hyperlink = Hyperlink(ref="A25", location="'Fields set aside'!A1")
     link.style = "Hyperlink"
     link.alignment = Alignment(wrap_text=True, vertical="center")
-    overview.row_dimensions[25].height = 30
+    overview.row_dimensions[25].height = 15 * max(2, (len(link.value) + 104) // 105)
     overview.print_area = "A1:H25"
 
 

@@ -296,7 +296,7 @@ def observe_load_journal(run: ExecutionRun, *, projection: str = "OBSERVED") -> 
     if _OBSERVER.get() is None:
         return
     counts = Counter(row.status.value for row in run.rows)
-    groups: Counter[tuple[str, str, str, tuple[str, ...], int | None, str | None]] = (
+    groups: Counter[tuple[str, str, str, tuple[str, ...], int | None, str | None, str]] = (
         Counter()
     )
     for row in run.rows:
@@ -309,6 +309,7 @@ def observe_load_journal(run: ExecutionRun, *, projection: str = "OBSERVED") -> 
                     diagnostic.fields[:20],
                     diagnostic.http_status,
                     diagnostic.error_type,
+                    diagnostic.operator_detail_status,
                 )
             ] += 1
     selected = groups.most_common(40)
@@ -333,9 +334,10 @@ def observe_load_journal(run: ExecutionRun, *, projection: str = "OBSERVED") -> 
                 "fields": list(fields),
                 "http_status": status,
                 "error_type": error_type,
+                "operator_detail_status": detail_status,
                 "affected_rows": count,
             }
-            for (code, model, method, fields, status, error_type), count in selected
+            for (code, model, method, fields, status, error_type, detail_status), count in selected
         ],
         omitted_group_count=max(0, len(groups) - len(selected)),
     )

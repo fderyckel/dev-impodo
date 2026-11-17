@@ -14,6 +14,7 @@
     <a class="setup-step{% if not review_stage %} current{% endif %}" href="/workspaces/{{ workspace_id }}/continuation/confirm">6. Confirm and load</a>
   </nav>
   {% if latest_job and latest_job.status.value == 'FAILED' %}<section class="notice warning"><strong>The last action stopped safely.</strong><p>{{ latest_job.failure_message }}</p><a href="/workspaces/{{ workspace_id }}/continuation/compare">Review and compare again</a></section>{% endif %}
+  {% if continuation_step == 'outcome' %}<p><a class="button secondary" href="/workspaces/{{ workspace_id }}/load/errors">Review Odoo errors</a></p>{% endif %}
   {% if latest_job and latest_job.result and latest_job.result.blocker_messages %}<section class="notice warning"><h2>Resolve these issues before loading</h2><ul>{% for message in latest_job.result.blocker_messages %}<li>{{ message }}</li>{% endfor %}</ul><a href="/workspaces/{{ workspace_id }}/mapping">Review the field mappings</a> · <a href="/workspaces/{{ workspace_id }}/continuation/compare">Compare again after correcting them</a></section>{% endif %}
   {% if continuation_view.completed %}
     <section class="next-action-card ready"><div><h2>Changes verified in Odoo</h2><p>The comparison and any reviewed writes were verified successfully.</p></div><a class="button primary" href="/workspaces/{{ workspace_id }}/history/6">View this saved load</a><a class="button secondary" href="/projects/{{ migration_project.project_id }}?recipe_workspace={{ workspace_id }}#project-recipes-title">Save these rules as a Recipe</a></section>

@@ -306,6 +306,13 @@ lists it as a field finding. Some saved evidence has a reason without the
 original value. The workbook labels that value **Unavailable**. **Deferred
 issues** explains why whole records were set aside.
 
+Read the coverage note on this tab and in **Review overview**. It names gaps
+in the saved evidence, counts findings without available original values, and
+explains when a finding cannot be counted as one source cell. **No saved field
+omissions shown** means that no entries could be established from the available
+evidence; it does not prove that no fields were omitted. For an Odoo source,
+the note identifies details withheld from this export.
+
 In **Records to load**, each prepared field keeps only the final value in the
 visible cell. The **Prepared value feedback** column identifies the affected
 field and uses these statuses:

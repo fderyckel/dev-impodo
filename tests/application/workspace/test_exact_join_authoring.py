@@ -32,6 +32,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.derived_entities import (
+    DERIVED_ENTITY_CONTRACT_VERSION,
     DerivedEntityPlan,
     SourceDatasetUse,
     mapping_source_selection,
@@ -312,7 +313,7 @@ class ExactJoinAuthoringTests(unittest.TestCase):
         self.assertTrue(review.can_save)
         self.assertEqual(rule.rule_id, preview_rule.rule_id)
         self.assertEqual(review.output_table_hash, preview.output_table_hash)
-        self.assertEqual(plan.contract_version, 8)
+        self.assertEqual(plan.contract_version, DERIVED_ENTITY_CONTRACT_VERSION)
         self.assertEqual(restored, plan)
         legacy = replace(plan, contract_version=7)
         legacy_restored = DerivedEntityPlan.from_json(legacy.to_json())

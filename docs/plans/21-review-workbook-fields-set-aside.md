@@ -1,9 +1,14 @@
 # Show fields set aside in the Final review workbook
 
 **Status:** Implemented for omissions that can be traced to saved preparation
-findings, comparison findings, and explicit mapping rules. The remaining
-proposal covers reasons or original values that the saved evidence does not
-retain, including a deliberate decision to leave a source column unmapped.
+findings, comparison findings, and explicit mapping rules. The first bounded
+completion slice adds explicit coverage gaps to that evidence and reports the
+same gaps in Overview and Fields set aside. It distinguishes unavailable
+preparation evidence, withheld Odoo evidence, missing original values, and
+findings that cannot be counted as one source cell. A definitive zero requires
+complete evidence. The remaining proposal covers reasons or original values
+that the saved evidence does not retain, including a deliberate decision to
+leave a source column unmapped.
 
 A data manager should be able to open **Fields set aside** and find the source
 value, why Impodo left it out, and where to make a correction. Put this tab after

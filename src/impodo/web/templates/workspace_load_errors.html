@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Review Odoo errors · Impodo{% endblock %}
+{% block content %}
+<section class="form-card">
+  <p class="eyebrow">Load into Odoo</p>
+  <h1>Review Odoo errors</h1>
+  <p>Review the saved explanation and values sent for each rejected record or pending relationship update. A rejected group may contain records that have no faulty value.</p>
+  {% if error_rows %}
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Source record</th><th>Odoo model</th><th>Saved outcome</th><th>Explanation</th></tr></thead>
+      <tbody>{% for row in error_rows %}<tr>
+        <td>{{ row.dataset }} · row {{ row.source_row }}</td><td>{{ row.target_model }}</td>
+        <td>{{ 'Rejected' if row.status.value == 'FAILED' else 'Relationship update pending' }}{% if row.safe_error %}<small>{{ row.safe_error }}</small>{% endif %}</td>
+        <td><a href="/workspaces/{{ workspace_id }}/load/errors/{{ error_run_id }}/{{ row.row_id }}">Review Odoo error</a></td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  {% else %}<p>No rejected records or pending relationship updates were found in this saved load.</p>{% endif %}
+  <div class="actions">
+    {% if next_after is not none %}<a class="button primary" href="?run_id={{ error_run_id|urlencode }}&amp;after={{ next_after }}">Next records</a>{% endif %}
+    <a class="button secondary" href="?run_id={{ error_run_id|urlencode }}">First records</a>
+    <a class="button secondary" href="/workspaces/{{ workspace_id }}/history/6">View saved load</a>
+  </div>
+</section>
+{% endblock %}

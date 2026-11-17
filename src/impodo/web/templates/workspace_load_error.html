@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Odoo rejection details · Impodo{% endblock %}
+{% block content %}
+<section class="form-card">
+  <p class="eyebrow">Load into Odoo · Rejected record</p>
+  <h1>{{ saved_row.dataset.replace('_', ' ')|title }} · row {{ saved_row.source_row }}</h1>
+  <p>{{ saved_row.target_model }} · {{ saved_row.operation|lower }}</p>
+  <details><summary>Saved record identity</summary><p>Record: <code>{{ saved_row.row_id }}</code>. This identifies the prepared record within the saved load, including records derived from the same source position.</p></details>
+  {% if error_detail %}
+    {% if batch_members > 1 %}
+      <p>This request contained {{ batch_members }} records and was rejected as a group. The explanation may concern another record in the group.</p>
+    {% endif %}
+    {% for message in error_messages %}
+      <div class="notice warning" data-odoo-explanation>
+        <strong>Odoo's explanation{% if not message.specific %} for the batch{% endif %}</strong>
+        <p>{{ message.text }}</p>
+        {% if message.fields %}<p>Reported field{% if message.fields|length != 1 %}s{% endif %}: {{ message.fields|join(', ') }}</p>
+        {% else %}<p>Odoo did not identify a field.</p>{% endif %}
+        {% if not message.specific and message.row_from is not none %}
+          <details><summary>Support details</summary><p>Odoo reported batch positions {{ message.row_from + 1 }}–{{ message.row_to + 1 }}. These are not source row numbers.</p></details>
+        {% endif %}
+      </div>
+    {% else %}
+      <p>No usable Odoo explanation was retained for this request.</p>
+    {% endfor %}
+    {% if error_detail.withheld %}<p>Protected or internal diagnostic text was omitted from the explanation.</p>{% endif %}
+    {% if error_detail.truncated %}<p>The saved detail reached its size limit. Some explanation or submitted values are incomplete.</p>{% endif %}
+    <h2>Values sent to Odoo for this record</h2>
+    <p>These are the saved submitted values, after preparation. Fields listed here are context; a field is identified as the cause only when Odoo reported it for this record.</p>
+    <div class="table-scroll"><table class="data-table">
+      <thead><tr><th>Odoo field</th><th>Value sent to Odoo</th><th>Attribution</th></tr></thead>
+      <tbody>{% for field, value in submitted_values.items() %}<tr>
+        <td>{{ field }}</td><td>{{ value if value else '(blank)' }}</td>
+        <td>{{ 'Reported by Odoo for this record' if field.split('/')[0] in reported_fields else 'Submitted context' }}</td>
+      </tr>{% endfor %}</tbody>
+    </table></div>
+  {% else %}
+    <p>This attempt has no available private Odoo explanation. Discarded explanations cannot be recovered from the diagnostic code. The saved load outcome remains authoritative.</p>
+  {% endif %}
+  <p>Use the explanation to review the source value, matching rule, or destination rule. Keep accepted records and run the required preparation, comparison, and approval checks before another write.</p>
+  <div class="actions">
+    <a class="button primary" href="/workspaces/{{ workspace_id }}/load/errors?run_id={{ saved_run_id|urlencode }}">Return to Odoo errors</a>
+    {% if workspace_state.source_mode.value == 'FILE' and workspace_navigation.journey != 'RECIPE_APPLICATION' %}
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Review Match data</a>
+    {% elif workspace_state.source_mode.value == 'ODOO' %}
+      <a class="button secondary" href="/workspaces/{{ workspace_id }}/destination-matching">Review Destination matching</a>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

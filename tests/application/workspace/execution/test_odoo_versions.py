@@ -1,10 +1,14 @@
 """Reject disabled or unverified versions before recovery can mutate a journal."""
 
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 
-from impodo.application.workspace.execution.service import ExecutionService, _execution_snapshot_error
+from impodo.application.workspace.execution.service import ExecutionService
+from impodo.application.workspace.execution.validation_messages import (
+    execution_snapshot_message,
+)
+from impodo.domain.execution.validation import execution_snapshot_issue
 from impodo.domain.odoo.compatibility import OdooOperation
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
@@ -17,10 +21,12 @@ class ExecutionOdooVersionTests(unittest.TestCase):
             for operation in (OdooOperation.WRITE, OdooOperation.RECOVER):
                 with self.subTest(raw=raw, operation=operation):
                     self.assertEqual(
-                        _execution_snapshot_error(
-                            workspace,
-                            SimpleNamespace(target_odoo_version=raw),
-                            operation=operation,
+                        execution_snapshot_message(
+                            execution_snapshot_issue(
+                                SimpleNamespace(target_odoo_version=raw),
+                                connection_mode=workspace.odoo_connection_mode,
+                                operation=operation,
+                            )
                         ),
                         (
                             "This Odoo version is not enabled for the "
@@ -43,7 +49,11 @@ class ExecutionOdooVersionTests(unittest.TestCase):
             datasets=(),
         )
         self.assertEqual(
-            _execution_snapshot_error(workspace, snapshot),
+            execution_snapshot_message(
+                execution_snapshot_issue(
+                    snapshot, connection_mode=workspace.odoo_connection_mode
+                )
+            ),
             (
                 "The reviewed relationship schedule changed. Compare with Odoo "
                 "again before loading."

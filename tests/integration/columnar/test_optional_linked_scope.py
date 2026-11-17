@@ -9,7 +9,7 @@ from uuid import uuid4
 from impodo.adapters.polars_transformation import iter_polars_prepared_batches
 from impodo.application.recipe_application_compilation import RecipeApplicationCompiler
 from impodo.application.recipe_compilation_service import RecipeCompiler
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.compiler.browser_mapping_compiler import compile_browser_mapping
 from impodo.domain.compiler.columnar_transformation import (
     ColumnarSupport,

@@ -21,6 +21,7 @@ from zipfile import ZipFile
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.workspace.access import WorkspaceAccessContext
+from impodo.application.workspace.execution.write_values import row_values
 from impodo.application.workspace.execution.load_jobs import (
     LoadJobManager,
     LoadJobResult,
@@ -32,7 +33,7 @@ from impodo.application.workspace.execution.load_observation import (
     observe_load_stage,
     record_load_failure,
 )
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.odoo_write import OdooWriteRejected
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
@@ -345,7 +346,7 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
             observer = recorder.load_observation(action="LOAD", request_id=str(uuid4()))
             with bind_load_observation(observer):
                 with self.assertRaises(WorkspaceError):
-                    service._row_values(row, {}, {}, {}, {}, None)
+                    row_values(row, {}, {}, {}, {}, None)
                 observer.emit("terminal", outcome="FAILED")
             members, attempts = _bundle(recorder)
             self.assertEqual(attempts[0]["failure"]["stage"], "prepare_write_values")

@@ -40,7 +40,7 @@ class RecordReadConcurrencyTests(unittest.TestCase):
         options.update(overrides)
         return Json2ReadConnector(
             Json2Config(**options), transport=transport, now=lambda: NOW,
-            read_pacer=ReadClock().pacer(),
+            request_pacer=ReadClock().pacer(),
         )
 
     def test_two_requests_overlap_keep_pages_sequential_and_pin_one_fingerprint(self):

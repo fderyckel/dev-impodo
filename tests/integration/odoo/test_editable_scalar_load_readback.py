@@ -6,7 +6,7 @@ import unittest
 from impodo.adapters.odoo.connectors import Json2Config
 from impodo.adapters.odoo.readback import Json2ReadbackReader
 from impodo.adapters.odoo.writer import Json2WriteExecutor
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from tests.integration.odoo.test_editable_scalar_transfer import _TransferScenario
 
 

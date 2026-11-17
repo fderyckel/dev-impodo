@@ -45,7 +45,9 @@
       {% include "_supporting_data_review.html" %}
       {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
       {% if not supporting_review_is_only_issue %}
-        {% include "_workflow_issue_summary.html" %}
+        {% with workflow_issue_action_class='secondary' %}
+          {% include "_workflow_issue_summary.html" %}
+        {% endwith %}
       {% endif %}
 
     </section>
@@ -60,11 +62,8 @@
     {% if not supporting_review or not (supporting_review.rows or supporting_review.error or supporting_review.save_error) %}
       <section class="form-card"><h2>Related values</h2><p>No related-value choices are required.</p></section>
     {% endif %}
-    <div class="actions">
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Back to records</a>
-      {% if not workflow_issue_summary.must_fix_count %}
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema?step=matching">Continue to matching rules</a>
-      {% endif %}
-    </div>
+    {% if not supporting_review or not supporting_review.rows %}
+      {% include "schema/_related_actions.html" %}
+    {% endif %}
   {% endif %}
 {% endif %}

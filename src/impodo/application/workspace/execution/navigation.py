@@ -16,12 +16,22 @@ from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.preflight.reports import ReadinessReport
 
 from .business_review import BusinessIntentReview
+from .review_models import (
+    MAX_VISIBLE_BLOCKER_GROUPS,
+    MAX_VISIBLE_LOAD_GROUPS,
+    ExecutionReviewBlockerGroup,
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDataset,
+    ExecutionReviewDependencySummary,
+    ExecutionReviewLoadGroup,
+)
+from .review_queries import (
+    execution_blocker_summary,
+    execution_dataset_previews,
+    execution_dependency_summary,
+)
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
-MAX_VISIBLE_LOAD_GROUPS = 5
-MAX_VISIBLE_GROUP_DATASETS = 3
-MAX_VISIBLE_BLOCKER_GROUPS = 5
-MAX_VISIBLE_BLOCKER_DATASETS = 3
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,30 +148,6 @@ class ExecutionNavigationState:
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionReviewDataset:
-    """Value-free per-dataset totals displayed by Check changes."""
-
-    dataset: str
-    target_model: str
-    create_count: int
-    update_count: int
-    unchanged_count: int
-
-    def __post_init__(self) -> None:
-        if (
-            not self.dataset
-            or not self.target_model
-            or min(
-                self.create_count,
-                self.update_count,
-                self.unchanged_count,
-            )
-            < 0
-        ):
-            raise ValueError("Execution review dataset is invalid")
-
-
-@dataclass(frozen=True, slots=True)
 class ExecutionReviewSnapshot:
     """Small snapshot identity used by the read-only review template."""
 
@@ -189,41 +175,6 @@ class ExecutionReviewSnapshot:
             or any(value < 0 for value in self.counts.values())
         ):
             raise ValueError("Execution review snapshot is invalid")
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionReviewLoadGroup:
-    number: int
-    record_count: int
-    dataset_labels: tuple[str, ...]
-    omitted_dataset_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionReviewDependencySummary:
-    groups: tuple[ExecutionReviewLoadGroup, ...] = ()
-    total_group_count: int = 0
-    omitted_group_count: int = 0
-    relationship_record_count: int = 0
-    relationship_field_count: int = 0
-    relationship_link_count: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionReviewBlockerGroup:
-    code: str
-    title: str
-    action: str
-    record_count: int
-    dataset_labels: tuple[str, ...] = ()
-    omitted_dataset_count: int = 0
-
-
-@dataclass(frozen=True, slots=True)
-class ExecutionReviewBlockerSummary:
-    groups: tuple[ExecutionReviewBlockerGroup, ...] = ()
-    total_group_count: int = 0
-    omitted_group_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -388,68 +339,6 @@ class ExecutionReviewProjection:
         )
 
 
-_BLOCKER_GUIDANCE: dict[str, tuple[str, str]] = {
-    "HARD_DEPENDENCY_CYCLE": (
-        "Required relationships cannot be created in a safe order",
-        (
-            "Make one relationship optional, point it to an existing Odoo record, "
-            "or correct the source relationships, then compare again."
-        ),
-    ),
-    "MISSING_INCOMING_ROW": (
-        "A related source record is missing",
-        (
-            "Add the supporting record or change the relationship to a valid "
-            "reviewed record, then compare again."
-        ),
-    ),
-    "DUPLICATE_INCOMING_ROW": (
-        "A related source record is not unique",
-        (
-            "Remove the duplicate or choose a business key that identifies one "
-            "record, then compare again."
-        ),
-    ),
-    "INCOMPLETE_INCOMING_REFERENCE": (
-        "A source relationship is incomplete",
-        "Complete or remove the relationship in Match data, then compare again.",
-    ),
-    "INCOMING_MODEL_MISMATCH": (
-        "A relationship points to the wrong Odoo record type",
-        "Correct the relationship mapping and compare again.",
-    ),
-    "UNUSABLE_INCOMING_ROW": (
-        "A supporting source record also needs attention",
-        "Resolve the supporting record first, then compare again.",
-    ),
-    "MISSING_DEPENDENCY_STRENGTH": (
-        "A relationship rule is incomplete",
-        (
-            "Review whether the relationship is required or optional, then compare "
-            "again."
-        ),
-    ),
-    "BLOCKED_DEPENDENCY": (
-        "A record depends on another blocked source record",
-        (
-            "Resolve the earlier relationship warning; Impodo will then recalculate "
-            "the load order."
-        ),
-    ),
-    "AMBIGUOUS_ROWS": (
-        "Some records match more than one Odoo record",
-        "Choose a unique match in the final review, then compare again.",
-    ),
-    "BLOCKED_ROWS": (
-        "Some records still need a valid mapping or value",
-        (
-            "Open the affected rows in Final review to see the field and reason. "
-            "Correct the source, mapping, or Odoo record, then compare again."
-        ),
-    ),
-}
-
-
 def build_execution_review_projection(
     report: ReadinessReport,
     snapshot: ExecutionSnapshot,
@@ -464,109 +353,9 @@ def build_execution_review_projection(
         execution_shape_ready=execution_shape_ready,
     )
     labels = {item.dataset: item.label for item in report.datasets}
-    dataset_counts: dict[str, dict[str, int]] = {}
-    for row in snapshot.rows:
-        counts = dataset_counts.setdefault(row.dataset, {})
-        counts[row.disposition] = counts.get(row.disposition, 0) + 1
-    datasets = tuple(
-        ExecutionReviewDataset(
-            dataset=labels.get(item.dataset, _dataset_label(item.dataset)),
-            target_model=item.target_model,
-            create_count=dataset_counts.get(item.dataset, {}).get("CREATE", 0),
-            update_count=dataset_counts.get(item.dataset, {}).get("UPDATE", 0),
-            unchanged_count=dataset_counts.get(item.dataset, {}).get(
-                "UNCHANGED", 0
-            ),
-        )
-        for item in snapshot.datasets
-        if item.dataset in dataset_counts
-    )
-    row_by_id = {row.row_id: row for row in snapshot.rows}
-    dataset_rank = {item.dataset: item.sequence for item in snapshot.datasets}
-    components = tuple(
-        sorted(
-            snapshot.relationship_plan.components,
-            key=lambda item: item.sequence,
-        )
-    )
-    groups = []
-    for component in components[:MAX_VISIBLE_LOAD_GROUPS]:
-        component_datasets = tuple(
-            sorted(
-                {
-                    row_by_id[row_id].dataset
-                    for row_id in component.row_ids
-                    if row_id in row_by_id
-                },
-                key=lambda value: (dataset_rank.get(value, 10**9), value),
-            )
-        )
-        visible = component_datasets[:MAX_VISIBLE_GROUP_DATASETS]
-        groups.append(
-            ExecutionReviewLoadGroup(
-                number=component.sequence + 1,
-                record_count=len(component.row_ids),
-                dataset_labels=tuple(
-                    labels.get(value, _dataset_label(value)) for value in visible
-                ),
-                omitted_dataset_count=max(0, len(component_datasets) - len(visible)),
-            )
-        )
-    completion_rows = {
-        item.row_id for item in snapshot.relationship_plan.completions
-    }
-    dependency_summary = ExecutionReviewDependencySummary(
-        groups=tuple(groups),
-        total_group_count=len(components),
-        omitted_group_count=max(0, len(components) - len(groups)),
-        relationship_record_count=len(completion_rows),
-        relationship_field_count=snapshot.relationship_plan.completion_count,
-        relationship_link_count=snapshot.relationship_plan.edge_count,
-    )
-    blockers_by_code: dict[str, set[str]] = {}
-    for blocker in snapshot.relationship_plan.blockers:
-        blockers_by_code.setdefault(blocker.code, set()).add(blocker.row_id)
-    for disposition, code in (
-        ("AMBIGUOUS", "AMBIGUOUS_ROWS"),
-        ("BLOCKED", "BLOCKED_ROWS"),
-    ):
-        matching = {
-            row.row_id for row in snapshot.rows if row.disposition == disposition
-        }
-        if matching:
-            blockers_by_code[code] = matching
-    blocker_groups = []
-    for code, row_ids in blockers_by_code.items():
-        title, action = _BLOCKER_GUIDANCE.get(
-            code,
-            (
-                "A reviewed relationship cannot be loaded safely",
-                "Review the related source value and mapping, then compare again.",
-            ),
-        )
-        blocker_datasets = tuple(
-            sorted(
-                {
-                    row_by_id[row_id].dataset
-                    for row_id in row_ids
-                    if row_id in row_by_id
-                }
-            )
-        )
-        visible = blocker_datasets[:MAX_VISIBLE_BLOCKER_DATASETS]
-        blocker_groups.append(
-            ExecutionReviewBlockerGroup(
-                code=code,
-                title=title,
-                action=action,
-                record_count=len(row_ids),
-                dataset_labels=tuple(
-                    labels.get(value, _dataset_label(value)) for value in visible
-                ),
-                omitted_dataset_count=max(0, len(blocker_datasets) - len(visible)),
-            )
-        )
-    visible_blockers = tuple(blocker_groups[:MAX_VISIBLE_BLOCKER_GROUPS])
+    datasets = execution_dataset_previews(snapshot, dataset_labels=labels)
+    dependency_summary = execution_dependency_summary(snapshot, dataset_labels=labels)
+    blocker_summary = execution_blocker_summary(snapshot, dataset_labels=labels)
     return ExecutionReviewProjection(
         summary=summary,
         snapshot=ExecutionReviewSnapshot(
@@ -589,14 +378,6 @@ def build_execution_review_projection(
         ),
         datasets=datasets,
         dependency_summary=dependency_summary,
-        blocker_summary=ExecutionReviewBlockerSummary(
-            groups=visible_blockers,
-            total_group_count=len(blocker_groups),
-            omitted_group_count=max(0, len(blocker_groups) - len(visible_blockers)),
-        ),
-        deferred_create_count=len(completion_rows),
+        blocker_summary=blocker_summary,
+        deferred_create_count=dependency_summary.relationship_record_count,
     )
-
-
-def _dataset_label(value: str) -> str:
-    return value.replace("_", " ").strip().title() or "Prepared records"

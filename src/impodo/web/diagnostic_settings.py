@@ -211,13 +211,17 @@ def capture_diagnostic_settings(
         workspace_id, actor=actor, capability=Capability.PROJECT_VIEW
     )
     with bind_workspace_access_context(access):
-        return replace(_capture(
-            context,
-            access.project_id,
-            access.data_version_id,
-            access.migration_run_id,
-            workspace_id,
-        ), recipe_application_id=access.recipe_application_id, run_purpose=access.run_purpose)
+        return replace(
+            _capture(
+                context,
+                access.project_id,
+                access.data_version_id,
+                access.migration_run_id,
+                workspace_id,
+            ),
+            recipe_application_id=access.recipe_application_id,
+            run_purpose=access.run_purpose,
+        )
 
 
 def _capture(
@@ -271,6 +275,7 @@ def _capture(
             ),
         }
     )
+
     def matching_settings() -> Mapping[str, object]:
         draft = queries.get_mapping_working_draft(workspace_id)
         revision = queries.get_mapping_revision(workspace_id)
@@ -279,7 +284,9 @@ def _capture(
             "working_draft": draft,
             "working_draft_hash": draft.definition.content_hash if draft else None,
             "confirmed_mapping": revision,
-            "confirmed_mapping_hash": revision.definition.content_hash if revision else None,
+            "confirmed_mapping_hash": revision.definition.content_hash
+            if revision
+            else None,
             "submission": queries.get_mapping_submission(workspace_id),
         }
 

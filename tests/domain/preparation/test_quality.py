@@ -31,6 +31,9 @@ from impodo.application.workspace.preparation.bounded_quality import (
     BoundedQualityUnsupported,
     build_bounded_quality_run,
 )
+from impodo.application.workspace.preparation.prepared_quality_projection import (
+    PreparedQualityProjection,
+)
 from impodo.application.workspace.preparation.quality_service import (
     QualityConfigurationContext,
     QualityService,
@@ -2255,19 +2258,18 @@ class _IndexedTestRows(tuple):
                             finding.zeroed_positive,
                         )
                     )
-        return {
-            "row_count": len(self),
-            "disposition_counts": {
-                disposition.value: sum(
+        return PreparedQualityProjection(
+            row_count=len(self),
+            physical_row_count=sum(len(rows) for rows in physical_rows.values()),
+            direct_accounting=True,
+            disposition_counts={
+                disposition: sum(
                     row.disposition is disposition for row in self
                 )
                 for disposition in StagingDisposition
             },
-            "issue_rows": (),
-            "collisions": (),
-            "exception_rows": (),
-            "precision_rows": tuple(precision_rows),
-        }
+            precision_rows=tuple(precision_rows),
+        )
 
     def iter_quality_index_batches(self, _connection, batch_size):
         facts = tuple(

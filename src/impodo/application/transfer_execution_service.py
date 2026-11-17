@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from decimal import Decimal
 from hashlib import sha256
@@ -22,6 +22,7 @@ from impodo.application.data_version.source_snapshots import (
 )
 from impodo.application.odoo_provenance_service import OdooProvenanceService
 from impodo.application.shared.artifacts import GovernedArtifactStores
+from impodo.application.workspace.execution.progress import ExecutionProgress
 from impodo.domain.errors import ReadinessError
 from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.odoo_write import OdooWriteExecutor
@@ -326,7 +327,7 @@ class TransferExecutionService:
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
         protected_values: Mapping[str, object] | None = None,
-        progress=None,
+        progress: Callable[[ExecutionProgress], None] | None = None,
     ) -> ExecutionRun:
         """Execute the exact staged snapshot through the shared journalled writer.
 
@@ -376,7 +377,7 @@ class TransferExecutionService:
         credential_binding_hash: str,
         write_identity: OdooWriteIdentity,
         protected_values: Mapping[str, object] | None = None,
-        progress=None,
+        progress: Callable[[ExecutionProgress], None] | None = None,
     ) -> ExecutionRun:
         """Resume an interrupted transfer without replacing its journal.
 

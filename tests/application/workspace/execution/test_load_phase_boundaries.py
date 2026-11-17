@@ -8,7 +8,7 @@ from impodo.application.workspace.execution.load_observation import (
     LoadObservation,
     bind_load_observation,
 )
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.models import ExecutionRunStatus
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.web.load_performance import collect_load_stage_metrics
@@ -48,7 +48,10 @@ class LoadPhaseBoundaryTests(unittest.TestCase):
         self.assertEqual(observer.local_phases["journal_before_call"]["calls"], 3)
         self.assertEqual(observer.local_phases["journal_after_call"]["calls"], 3)
         self.assertGreater(observer.local_phases["progress_publication"]["calls"], 0)
-        self.assertEqual(progress[-1], result)
+        self.assertEqual(progress[-1].status, result.status)
+        self.assertEqual(progress[-1].committed_count, result.committed_count)
+        self.assertEqual(progress[-1].run_id, result.run_id)
+        self.assertFalse(hasattr(progress[-1], "rows"))
         self.assertEqual(
             len([event for event, _ in events if event == "transport_started"]),
             3,

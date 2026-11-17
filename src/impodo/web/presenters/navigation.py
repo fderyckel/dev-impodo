@@ -244,6 +244,8 @@ _TEMPLATE_LOCATION = {
     "workspace_business_expectation_detail.html": ("review", "Review results"),
     "workspace_deferred_scope.html": ("review", "Review results"),
     "workspace_load.html": ("load", "Load into Odoo"),
+    "workspace_load_error.html": ("load", "Odoo rejection details"),
+    "workspace_load_errors.html": ("load", "Review Odoo errors"),
     "workspace_load_progress.html": ("load", "Loading into Odoo"),
 }
 

@@ -78,7 +78,8 @@ uv run --frozen --group quality python scripts/check_repository_quality.py
 ```
 
 The command runs the Python quality gate, prints the current architecture
-inventory, discovers every architecture test, checks repository documentation,
+inventory, checks changed-code maintainability, discovers every architecture
+test, checks repository documentation,
 and checks Python code documentation. Module counts, import counts, and graph
 digests provide review information without blocking an intentional structural
 change. The architecture tests still reject unclassified modules, forbidden
@@ -91,6 +92,34 @@ failure and coordinate its owner. Do not commit, push, or describe the tree as
 ready unless the gate passes or a human explicitly names and waives that
 failure for the delivery. Focused behavioral tests remain required for the
 responsibility that changed.
+
+### Review changed-code maintainability
+
+`scripts/maintainability_review.py` rejects newly introduced imports of another
+module's private symbols and obvious runtime replacement of imported or class
+behavior. Ordinary instance state, callbacks and `dataclasses.replace` remain
+valid composition. Existing findings remain visible through the report and
+`--all-findings`; the check does not keep a saved exception baseline.
+
+The report gives advisory findings for production modules over 500 physical
+lines, functions over 80 lines and cyclomatic complexity above 15. It reports
+threshold crossings and growth in existing oversized code. These findings ask
+for a cohesion review; they do not authorize code compression or weaken a
+behavioral or dependency rule.
+
+Run the review against a fixed candidate and an explicit commit when assessing
+a complete delivery:
+
+```console
+uv run --frozen --group quality python scripts/maintainability_review.py --base <reviewed-commit>
+```
+
+`--base` or `IMPODO_REVIEW_BASE` selects the comparison commit. Otherwise a local
+run compares with `HEAD`; CI uses the captured pull-request or push range, and
+a manual CI run uses `HEAD^`. The report prints the resolved commit. Keep later
+edits outside the verified candidate. See the [maintainability
+tests](../../../tests/architecture/test_maintainability_review.py) for detection
+and advisory-limit coverage.
 
 The workflow runs the complete gate and a separate behavioral matrix on Linux,
 macOS, and Windows. The behavioral matrix runs all tests except

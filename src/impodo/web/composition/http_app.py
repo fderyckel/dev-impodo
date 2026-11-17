@@ -254,6 +254,10 @@ def install_http_application(
         workspace = context.migration_workspaces.repository.get_migration_workspace(
             access_context.workspace_id
         )
+        if request.method == "GET" and parts[2:4] == ["load", "errors"]:
+            # Every journey may inspect saved rejection evidence. The service
+            # still requires protected-evidence authority before reading it.
+            return None
         historical_workbook_action = (request.method, tuple(parts[2:])) in {
             ("POST", ("summary", "package")),
             ("GET", ("summary", "workbook")),

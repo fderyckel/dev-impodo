@@ -7,6 +7,9 @@ from unittest import TestCase
 from impodo.application.workspace.preparation.bounded_quality import (
     build_bounded_quality_run,
 )
+from impodo.application.workspace.preparation.prepared_quality_projection import (
+    PreparedQualityProjection,
+)
 from impodo.domain.preparation.quality import (
     QualityError,
     default_quality_ruleset,
@@ -28,22 +31,21 @@ class _BudgetRows(fixtures._IndexedTestRows):
                 {row.lineage.physical_dataset_id: (row.source_row,)},
                 numeric_fields=numeric_fields,
             )
-            for raw in index["precision_rows"]:
+            for raw in index.precision_rows:
                 precision_rows.append((ordinal, *raw[1:]))
-        return {
-            "row_count": len(self),
-            "disposition_counts": {
-                disposition.value: len(self)
+        return PreparedQualityProjection(
+            row_count=len(self),
+            physical_row_count=sum(len(rows) for rows in physical_rows.values()),
+            direct_accounting=True,
+            disposition_counts={
+                disposition: len(self)
                 if disposition is StagingDisposition.CANDIDATE
                 else 0
                 for disposition in StagingDisposition
             },
-            "issue_rows": (),
-            "collisions": (),
-            "exception_rows": (),
-            "precision_rows": tuple(precision_rows),
-            "finding_budget": self.budget,
-        }
+            precision_rows=tuple(precision_rows),
+            finding_budget=self.budget,
+        )
 
 
 class NumericQualityBudgetTests(TestCase):

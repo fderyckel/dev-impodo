@@ -18,10 +18,11 @@ from impodo.application.transfer_execution_service import (
 from impodo.application.transfer_order_service import TransferOrderService
 from impodo.application.transfer_preflight_service import TransferPreflightService
 from impodo.application.transfer_review_service import TransferReviewService
+from impodo.application.workspace.execution.identity_resolution import assert_create_rows_still_absent
 from impodo.application.workspace.execution.service import (
     ExecutionService,
-    execution_api_scope,
 )
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
@@ -471,7 +472,7 @@ class ScopedOdooTransferTests(TestCase):
                     (902,) if model == "x.scope_parent" else () for _ in domains
                 )
 
-        ExecutionService._assert_create_rows_still_absent(
+        assert_create_rows_still_absent(
             snapshot.rows, {item.dataset: item for item in snapshot.datasets}, Writer()
         )
         self.assertEqual(calls[0], ("x.scope_parent", ((("name", "=", "Parent B"),),)))

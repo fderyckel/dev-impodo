@@ -433,6 +433,47 @@ cover shared HTTP 429 cooldowns and retry budgets. The
 [parallel-read tests](../../../tests/integration/odoo/test_record_read_concurrency.py)
 preserve ordered results and the configured overlap for healthy targets.
 These read-only policies do not enable automatic write retries.
+
+The native checking, load and read-back adapters share one process-local
+request governor in
+[`request_pacing.py`](../../../src/impodo/adapters/odoo/request_pacing.py).
+The browser's remote load factories start requests at least one second apart;
+local connections retain a zero initial interval. The deployment variable
+`IMPODO_ODOO_LOAD_REQUEST_INTERVAL_SECONDS` overrides that interval with a
+number from zero to sixty seconds. This setting controls request frequency,
+not the number of records in a batch. Healthy checking requests keep their
+existing concurrency when no load interval or cooldown applies to the target.
+
+HTTP 429 extends the target's shared cooldown using the parsed `Retry-After`
+value or bounded exponential backoff. Adaptive spacing lasts sixty seconds
+after the cooldown and then returns to the configured interval. The governor
+stores hashed target identities and timing state only. It coordinates callers
+inside one process; separate Impodo processes and other clients do not share
+this state, and the server's actual quota remains authoritative.
+
+Each admission has a 120-second waiting budget. `OdooWriteAdmission` lets the
+native writer wait before the execution service records an in-flight batch.
+An admission that cannot finish raises `OdooRequestDeferred` without sending
+the write. An already-started run remains `RUNNING`, with its accepted receipts
+and remaining planned rows intact, for the existing read-only recovery check.
+An already-sent write with an uncertain response remains `OUTCOME_UNKNOWN`
+and is never automatically resent. Read-only lookups and verification may
+retry within their bounded budgets.
+
+The worker reports the remaining wait through its existing progress message,
+using [`observe_remote_wait`](../../../src/impodo/application/shared/remote_wait.py).
+It checks for a requested stop between one-second wait slices. The diagnostic
+`request_wait` stage measures inclusive waiting separately from local journal
+work; it overlaps the parent worker and write or verification stages.
+No database owner remains open during admission waits or remote calls.
+The [load pacing tests](../../../tests/integration/odoo/test_load_request_pacing.py)
+cover shared cooldowns, unsent admission, uncertain writes, and read-back.
+The [admission recovery tests](../../../tests/application/workspace/execution/test_request_admission.py)
+cover retained receipts and exact read-back before resuming for both supported
+majors and access modes. The
+[waiting progress tests](../../../tests/application/workspace/execution/test_request_wait_progress.py)
+cover Authoring and Recipe workers and stopping before a new send.
+
 Source capture can retain a non-stored, related, computed, or read-only
 relationship as provenance. Destination matching excludes that relationship
 from the generic write plan unless destination metadata proves it is a stored,
@@ -827,13 +868,32 @@ progress open. The browser does not call any of those states complete, and it
 does not enter relationship completion until every first-pass write has a
 recorded outcome.
 
+The worker initializes its compact progress accumulator once from the durable
+journal. Successful journal transitions update counters from the previous and
+new row states. Intermediate publications carry counts, phase and active group
+only; they neither copy journal rows nor ask the job manager to scan them.
+Completing a deferred relationship does not count the same create again.
+
+An operator stop can close pending rows outside the worker. When the worker
+observes that terminal stopped journal, it reconciles its final counters once
+from saved evidence. Ordinary publication and terminal completion do not use
+that exceptional reread. The [progress tests](../../../tests/application/workspace/execution/test_progress.py)
+instrument row visits at 100, 1,000 and 10,000 rows, independently of host speed.
+
 ## Code references
 
 | Role | Code |
 | --- | --- |
 | Execution orchestration | [`ExecutionService`](../../../src/impodo/application/workspace/execution/service.py) |
 | Background load jobs | [`LoadJobManager`](../../../src/impodo/application/workspace/execution/load_jobs.py) |
-| Browser load guidance | [`ExecutionPreview`](../../../src/impodo/application/workspace/execution/service.py) |
+| Browser load guidance | [`ExecutionPreview`](../../../src/impodo/application/workspace/execution/preview.py) |
+| Shared review facts and guidance | [`review_queries.py`](../../../src/impodo/application/workspace/execution/review_queries.py) and [`review_models.py`](../../../src/impodo/application/workspace/execution/review_models.py) |
+| Structured snapshot validation | [`execution_snapshot_issue`](../../../src/impodo/domain/execution/validation.py) |
+| Scheduled write ordering | [`LoadWriter`](../../../src/impodo/application/workspace/execution/writer.py) |
+| Journal-before-call and outcome transitions | [`JournalTransitions`](../../../src/impodo/application/workspace/execution/journal.py) |
+| Reviewed payload resolution | [`write_values.py`](../../../src/impodo/application/workspace/execution/write_values.py) |
+| Deferred and generated relationships | [`RelationshipCompletion`](../../../src/impodo/application/workspace/execution/relationship_completion.py) |
+| Compact runtime progress | [`progress.py`](../../../src/impodo/application/workspace/execution/progress.py) and [`job_projection.py`](../../../src/impodo/application/workspace/execution/job_projection.py) |
 | Browser load-job contract | [`LoadJob`](../../../src/impodo/application/workspace/execution/job_models.py) |
 | Execution snapshot | [`execution_snapshot.py`](../../../src/impodo/domain/execution_snapshot.py) |
 | Dataset dependency order | [`dependency_ordered_execution_datasets`](../../../src/impodo/domain/execution_snapshot.py) |
@@ -842,6 +902,8 @@ recorded outcome.
 | Bounded component paging | [`dependency_component_pages`](../../../src/impodo/domain/execution/dependency_scheduler.py) |
 | Snapshot row-plan construction | [`plan_execution_rows`](../../../src/impodo/domain/execution_snapshot.py) |
 | Odoo identity lookup contract | [`odoo_write.py`](../../../src/impodo/domain/execution/odoo_write.py) |
+| Shared portable keys and identity predicates | [`identity.py`](../../../src/impodo/domain/execution/identity.py) |
+| Exact API scope derivation | [`execution_api_scope`](../../../src/impodo/domain/execution/odoo_scope.py) |
 | JSON-2 bulk crosswalk and projected-receipt adapter | [`writer.py`](../../../src/impodo/adapters/odoo/writer.py) |
 | Canonical dependency evidence | [`relationship_dependencies.py`](../../../src/impodo/domain/relationship_dependencies.py) |
 | Required dependency validation | [`dependencies.py`](../../../src/impodo/domain/mapping/validation/dependencies.py) |
@@ -850,6 +912,7 @@ recorded outcome.
 | Local reconciliation-detail integrity | [`ReconciliationEvidenceService`](../../../src/impodo/application/reconciliation_evidence_service.py) |
 | Highlighted source workbook | [`FalloutWorkbookService`](../../../src/impodo/application/fallout_workbook_service.py) |
 | Recovery read-back | [`ReconciliationService.assess_recovery`](../../../src/impodo/application/workspace/execution/reconciliation.py) |
+| Pure recovery classification | [`classify_recovery`](../../../src/impodo/domain/execution/recovery.py) |
 | Read-back-gated resume | [`ExecutionService.resume`](../../../src/impodo/application/workspace/execution/service.py) |
 | Odoo-transfer resume facade | [`TransferExecutionService.resume`](../../../src/impodo/application/transfer_execution_service.py) |
 | Hash-bound Odoo-transfer resume | [`ExecutionService.resume_transfer`](../../../src/impodo/application/workspace/execution/service.py) |
@@ -896,6 +959,59 @@ browser-session projection; it does not alter the snapshot or journal
 contract.
 
 ## Rejection diagnostics and generated names
+
+Execution separates orchestration from its bounded collaborators. The
+[`writer`](../../../src/impodo/application/workspace/execution/writer.py)
+orders reviewed calls, the
+[`journal boundary`](../../../src/impodo/application/workspace/execution/journal.py)
+records durable transitions, and
+[`relationship completion`](../../../src/impodo/application/workspace/execution/relationship_completion.py)
+retains the exact generated and deferred fields. The
+[`progress projection`](../../../src/impodo/application/workspace/execution/progress.py)
+publishes transition deltas; the
+[`preview values`](../../../src/impodo/application/workspace/execution/preview.py)
+remain separate from mutation. Shared domain contracts own
+[`portable identities`](../../../src/impodo/domain/execution/identity.py),
+[`Odoo API scopes`](../../../src/impodo/domain/execution/odoo_scope.py),
+[`recovery classification`](../../../src/impodo/domain/execution/recovery.py),
+and [`execution shape validation`](../../../src/impodo/domain/execution/validation.py).
+Those boundaries preserve the same frozen request and saved receipt authority
+for private errors.
+
+The [private rejection contract](../contracts/execution-and-reconciliation.md#private-rejection-explanations)
+keeps actionable operator detail outside routine diagnostics.
+[`capture_operator_error`](../../../src/impodo/domain/execution/operator_errors.py)
+retains bounded user messages and actual wire values; the
+[`private journal companion`](../../../src/impodo/adapters/duckdb/execution_operator_errors.py)
+saves them transactionally through `ExecutionRepository.record_outcomes_with_detail`.
+Create, update, relationship completion and completed-load correction use the
+same companion. Rejected parent transports retain their original receipt
+when continuation isolates children.
+
+`GET /workspaces/{workspace_id}/load/errors/{run_id}/{row_id}` calls
+`ExecutionService.operator_error` after parent and protected-evidence
+authorization. Its single synchronous page operation reads only the requested
+saved row and transport receipt. It does not reload a full run, source, or
+execution snapshot. The
+[`detail template`](../../../src/impodo/web/templates/workspace_load_error.html)
+escapes server text, distinguishes reported fields from submitted context,
+and keeps batch positions separate from source rows. Missing or unverifiable
+detail is explicit. Responses are not cached.
+
+The adjacent `/load/errors` page uses
+`ExecutionService.operator_error_rows` and
+`ExecutionRepository.operator_error_rows` to read twenty saved rejected or
+partial rows plus one next-page sentinel. It retains the selected run and
+advances by saved ordinal, using two SQL statements after scoped validation.
+Transfer results and completed-load correction outcomes link to this same
+review; neither needs a full execution run to list rejection details.
+
+The [adapter tests](../../../tests/integration/odoo/test_operator_errors.py),
+[worker privacy tests](../../../tests/application/workspace/execution/test_operator_errors.py),
+[saved journal tests](../../../tests/integration/duckdb/test_execution_repository.py),
+[upgrade tests](../../../tests/integration/duckdb/test_operator_error_upgrade.py),
+and [page tests](../../../tests/integration/web/test_operator_errors.py) cover
+capture, persistence, access, escaping, missing detail, and private ZIP exclusion.
 
 Confirmed load diagnostics now survive fatal exceptions as well as returned
 row rejections. The

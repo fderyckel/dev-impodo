@@ -22,12 +22,15 @@ from impodo.application.preflight_service import (
 )
 from impodo.application.workspace.execution.navigation import (
     ExecutionPreviewSummary,
-    ExecutionReviewBlockerSummary,
-    ExecutionReviewDependencySummary,
     ExecutionReviewProjection,
     ExecutionReviewSnapshot,
 )
+from impodo.application.workspace.execution.review_models import (
+    ExecutionReviewBlockerSummary,
+    ExecutionReviewDependencySummary,
+)
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import RowInclusionMode, RowInclusionPolicy
 from impodo.domain.odoo.contracts import (
     MetadataRequest,
     MetadataSnapshot,
@@ -46,9 +49,11 @@ from impodo.domain.preflight.deferred_scope import (
     DeferredScopeEvidenceError,
     DeferredScopePreview,
 )
-from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow, _workbook_omitted_rows
+from impodo.domain.preflight.frozen_input import (
+    ReviewWorkbookOmittedRow,
+    _workbook_omitted_rows,
+)
 from impodo.domain.preflight.reports import ReadinessReport
-from impodo.domain.mapping.contracts import RowInclusionMode, RowInclusionPolicy
 from impodo.domain.preparation.quality import QualityDisposition
 from impodo.domain.preparation.staging_contracts import StagingDisposition
 from impodo.domain.shared.access import (

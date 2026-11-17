@@ -22,11 +22,12 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 7)
+            self.assertEqual(SCHEMA_VERSION, 8)
             self.assertIn("execution_load_control", {item[0] for item in connection.execute("SHOW TABLES").fetchall()})
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
             }
+            self.assertIn("execution_operator_error", tables)
             self.assertIn("supporting_lookup_revision", tables)
             self.assertIn("supporting_lookup_current", tables)
             self.assertIn("business_intent_revision", tables)

@@ -685,6 +685,8 @@ stages:
       - src/impodo/adapters/artifacts/mapping_review.py::build_mapping_review_row_projection
       - src/impodo/web/diagnostics.py::RequestDiagnosticsMiddleware
       - src/impodo/web/diagnostics.py::create_diagnostic_bundle
+      - src/impodo/web/diagnostic_settings.py::capture_diagnostic_settings
+      - src/impodo/web/diagnostic_settings.py::SettingsProjection
       - src/impodo/web/supporting_diagnostics.py::sanitize_supporting_failure
       - src/impodo/web/supporting_access_diagnostics.py::sanitize_supporting_access
       - src/impodo/application/supporting_review_service.py::SupportingReviewService.revalidate_access
@@ -805,6 +807,7 @@ stages:
       - tests/integration/web/test_diagnostics.py
       - tests/integration/web/test_supporting_diagnostics.py
       - tests/integration/web/test_supporting_access_diagnostics.py
+      - tests/integration/web/test_diagnostic_settings.py
       - tests/integration/web/test_supporting_access_revalidation.py
       - tests/application/workspace/test_supporting_access_revalidation.py
       - tests/integration/web/test_supporting_mapping_intent.py
@@ -1060,6 +1063,7 @@ stages:
       - tests/performance/test_preflight_scale.py
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
+      - tests/integration/artifacts/test_fields_set_aside_coverage.py
       - tests/integration/artifacts/test_transformation_summary.py
       - tests/integration/artifacts/test_detailed_transformation_summary.py
       - tests/integration/artifacts/test_preflight_outputs.py
@@ -1110,6 +1114,8 @@ stages:
       - src/impodo/web/routers/transfer_load.py
     templates:
       - src/impodo/web/templates/workspace_load.html
+      - src/impodo/web/templates/workspace_load_error.html
+      - src/impodo/web/templates/workspace_load_errors.html
       - src/impodo/web/templates/workspace_load_progress.html
       - src/impodo/web/templates/workspace_history.html
       - src/impodo/web/templates/workspace_continuation.html
@@ -1125,7 +1131,16 @@ stages:
       - src/impodo/web/templates/workspace_transfer_load_progress.html
     code_references:
       - src/impodo/application/workspace/execution/service.py::ExecutionService
-      - src/impodo/application/workspace/execution/service.py::ExecutionPreview
+      - src/impodo/application/workspace/execution/preview.py::ExecutionPreview
+      - src/impodo/application/workspace/execution/preview.py::build_execution_preview
+      - src/impodo/application/workspace/execution/writer.py::LoadWriter
+      - src/impodo/application/workspace/execution/journal.py::JournalTransitions
+      - src/impodo/application/workspace/execution/relationship_completion.py::RelationshipCompletion
+      - src/impodo/application/workspace/execution/progress.py::ExecutionProgressPublisher
+      - src/impodo/domain/execution/identity.py::identity_domain
+      - src/impodo/domain/execution/odoo_scope.py::execution_api_scope
+      - src/impodo/domain/execution/validation.py::execution_snapshot_issue
+      - src/impodo/domain/execution/recovery.py::classify_recovery
       - src/impodo/application/business_intent_service.py::BusinessIntentService
       - src/impodo/domain/workspace/business_intent.py::BusinessIntent
       - src/impodo/domain/workspace/business_intent_scope.py::derive_business_intent_scope
@@ -1138,7 +1153,7 @@ stages:
       - src/impodo/application/workspace/execution/service.py::ExecutionService.complete_no_changes
       - src/impodo/application/workspace/execution/service.py::ExecutionService.review_recovery
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume
-      - src/impodo/application/workspace/execution/service.py::_targeted_recovery_row_ids
+      - src/impodo/domain/execution/recovery.py::targeted_recovery_row_ids
       - src/impodo/application/workspace/execution/service.py::ExecutionService.resume_transfer
       - src/impodo/application/workspace/execution/load_jobs.py::LoadJobManager
       - src/impodo/application/workspace/execution/job_models.py::LoadJob
@@ -1160,6 +1175,17 @@ stages:
       - src/impodo/domain/execution/dependency_scheduler.py::dependency_component_pages
       - src/impodo/domain/execution/odoo_write.py::OdooWriteExecutor
       - src/impodo/domain/execution/write_diagnostics.py::OdooWriteDiagnostic
+      - src/impodo/domain/execution/operator_errors.py::OperatorErrorDetail
+      - src/impodo/domain/execution/operator_errors.py::OperatorErrorPageRepository
+      - src/impodo/domain/execution/operator_errors.py::capture_operator_error
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.operator_error
+      - src/impodo/application/workspace/execution/service.py::ExecutionService.operator_error_rows
+      - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_outcomes_with_detail
+      - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.operator_error_for_row
+      - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.operator_error_rows
+      - src/impodo/adapters/duckdb/execution_operator_errors.py::create_operator_error_schema
+      - src/impodo/adapters/duckdb/execution_operator_errors.py::read_operator_error
+      - src/impodo/adapters/duckdb/execution_operator_errors.py::write_operator_error
       - src/impodo/domain/execution/generated_name_repair.py::plan_generated_name_repairs
       - src/impodo/adapters/odoo/write_diagnostics.py::import_rejection_diagnostic
       - src/impodo/web/routers/execution.py::_record_write_diagnostics
@@ -1218,6 +1244,8 @@ stages:
       - scripts/capture_load_controls.py::capture
       - src/impodo/domain/execution/load_control.py::LoadControl
       - src/impodo/application/workspace/execution/load_transport.py::create_transport_results
+      - src/impodo/adapters/odoo/request_pacing.py::Json2RequestPacer
+      - src/impodo/application/shared/remote_wait.py::observe_remote_wait
       - src/impodo/application/workspace/execution/service.py::ExecutionService.request_stop
       - src/impodo/adapters/duckdb/execution_load_control.py::ExecutionLoadControlRecords
       - scripts/capture_odoo_transfer_screenshots.py::capture
@@ -1256,6 +1284,10 @@ stages:
       - tests/application/workspace/execution/test_nested_reference_scope.py
       - tests/integration/web/test_practice_customers.py
       - tests/domain/execution/test_write_diagnostics.py
+      - tests/integration/odoo/test_operator_errors.py
+      - tests/application/workspace/execution/test_operator_errors.py
+      - tests/integration/duckdb/test_operator_error_upgrade.py
+      - tests/integration/web/test_operator_errors.py
       - tests/domain/execution/test_generated_name_repair.py
       - tests/e2e/test_generated_display_names.py
       - tests/integration/web/test_diagnostics.py
@@ -1275,6 +1307,9 @@ stages:
       - tests/integration/duckdb/test_load_control_upgrade.py
       - tests/domain/execution/test_load_control.py
       - tests/application/workspace/execution/test_load_transport.py
+      - tests/application/workspace/execution/test_request_admission.py
+      - tests/application/workspace/execution/test_request_wait_progress.py
+      - tests/integration/odoo/test_load_request_pacing.py
       - tests/application/workspace/execution/test_continuation.py
       - tests/integration/web/test_recipe_run_progress.py
       - tests/integration/protected_evidence/test_target_credentials.py

@@ -1,7 +1,7 @@
 ---
 audience: developer
 kind: plan
-status: active
+status: implemented
 ---
 
 # Maintainable code and focused execution services
@@ -10,15 +10,15 @@ status: active
 
 Continue the delivered repository guardrails and use the execution service as
 the first focused refactor. The [remaining-work roadmap](00-remaining-work.md)
-ranks this supporting work fifteenth and requires it to accompany the product
-change that needs the boundary. The aim is to make a change easy to locate,
+requires this supporting work to accompany the product change that needs the
+boundary. The aim is to make a change easy to locate,
 review, test, and recover from as Impodo grows.
 
 This plan is for maintainers and contributors deciding how to organize future
 changes. The repository quality commands, pinned Ruff and Basedpyright policy,
 dependency repair, and complete delivery gate are current. The execution and
-reconciliation refactor remains unfinished and does not change current
-execution behavior merely because it is listed here. The existing
+reconciliation extractions described below are implemented and locally verified.
+The existing
 [code-organization guide](../architecture/code-organization.md) remains the
 authority for ownership and dependencies.
 
@@ -26,7 +26,52 @@ Keep the current layered application. Improve boundaries inside the existing
 packages before introducing another framework, deployment unit, or generic
 service abstraction.
 
-## Evidence and immediate priorities
+## Implementation on 17 November 2026
+
+The service now delegates shared identity and API scope contracts, structured
+snapshot validation, full review projections, durable journal transitions,
+payload resolution, relationship completion and recovery classification.
+Reconciliation consumes public domain contracts instead of private service
+helpers. Public execution use cases retain current approval, target,
+credential and recovery checks.
+
+An operation-owned progress accumulator initializes from the durable journal
+and updates after successful row transitions. Intermediate publications carry
+immutable counters and phase information without journal rows. The browser job
+projection consumes those counters directly. An external stop can replace row
+states outside the worker; that exceptional boundary reconciles its final
+counters from the saved journal once. It does not rebuild intermediate updates.
+
+The repository gate checks newly introduced private imports and obvious runtime
+replacement. Size and complexity findings remain advisory. There is no
+Basedpyright baseline. Work integrates directly on `main`, with one fixed
+candidate checked before delivery and hosted jobs kept manual.
+
+The pre-refactor committed service contained 4,657 physical lines. File size is
+supporting evidence; explicit ownership, preserved outcomes and bounded
+publication work remain the acceptance criteria. The following sections retain
+the design and historical evidence. The verification record distinguishes
+local tests from platform and live Odoo qualification.
+
+### Reviewed cohesion decisions
+
+The repository maintainer owns the following advisory findings. These are
+cohesion decisions, not exceptions to dependency, typing or write-safety rules.
+Review them when a named trigger occurs rather than splitting a closed
+algorithm solely to reduce its line count.
+
+| Symbol | Reason to keep the algorithm together | Regression evidence and review trigger |
+| --- | --- | --- |
+| `ExecutionService` and `_continue_run` | Current approvals, credential bindings and exceptional stop handling remain application authority. | Service, continuation and request-admission tests; review when an entry condition or stop path changes. |
+| `LoadWriter.run` | One coordinator owns transport ordering and the decision to stop after an uncertain outcome. Journal transitions, values and relationship completion have separate owners. | Service, transport and journal-transition tests; review when another transport mode or write stage is added. |
+| `resolve_identity_crosswalk` | One operation deduplicates the exact nested identity frontier before bounded reads. | Identity lookup and scoped-transfer tests; review when a new identity shape or lookup policy is admitted. |
+| `RelationshipCompletion.ensure_projected_receipts` and `apply_deferred_relationships` | Each operation retains its exact receipt checks and journal checkpoints. | Partial-cycle, projected-receipt and unknown-completion service tests; review when receipt or completion semantics change. |
+| `row_values` and `_import_relation_value` | Payload construction keeps scalar, protected and reviewed relationship intent in one deterministic field walk. | Local/remote service and scoped-transfer tests; review when another field action or relationship operation is supported. |
+| `targeted_recovery_row_ids` and `classify_recovery` | The dependency frontier and closed recovery transition matrix remain inspectable without I/O. | Domain recovery and reconciliation tests; review when evidence, journal states or retry authority changes. |
+| `execution_api_scope` and structured validation predicates | Exact frozen capabilities and ordered issue classification remain pure domain decisions. | Identity/hash and validation tests for both supported Odoo majors; review when the snapshot contract changes. |
+| `project_load_progress` | One projection preserves the existing phase, count and pause rules. | Load-job and compact-progress tests; review when the browser progress contract changes. |
+
+## Historical evidence and priorities
 
 The 2026-10-28 checkout review supersedes the original guardrail priorities:
 
@@ -40,9 +85,8 @@ The 2026-10-28 checkout review supersedes the original guardrail priorities:
 - Load progress still publishes an `ExecutionRun` containing the complete row
   tuple at intervals. The compact progress value proposed below remains open.
 
-The next change should extract the shared identity and scope contracts before
-separating compact progress. Cohesive write and recovery operations follow
-after those contracts are stable.
+That review established the extraction order: shared identity and scope,
+compact progress, then cohesive write and recovery operations.
 
 The working-tree review on 2026-09-14 found the following conditions. These are
 historical point-in-time observations, not current size baselines.
@@ -186,8 +230,8 @@ the broader checks that this proposal still needs to compose.
 | Existing dependency direction, runtime cycles, composition ownership, and import inventory. | Require passing results before merge. Review deliberate inventory changes with their code changes. |
 | Existing documentation links, workflow ownership, and code-documentation checks. | Require passing results for affected changes and retain repository-wide checks in CI. |
 | Formatting and correctness lint rules. | Ruff now enforces its pinned lint rules across `src/impodo`. Repository-wide formatting remains deferred so a mechanical rewrite stays separate from behavior changes. |
-| Static typing. | Basedpyright now checks `src/impodo` in Standard mode. Its committed baseline records existing debt; new diagnostics fail, and reviewed changes reduce the baseline without blanket ignores. |
-| New imports of another module's private symbols and obvious runtime patching. | Add focused static checks with small, explicit exceptions for reviewed cases. Static detection supports code review; it cannot prove the absence of all dynamic mutation. |
+| Static typing. | Basedpyright checks `src/impodo` in Standard mode and reports every diagnostic. No baseline or blanket ignores hide existing debt. |
+| New imports of another module's private symbols and obvious runtime patching. | The complete gate compares a fixed review base with the candidate and rejects introduced findings. Existing findings remain visible. Static detection supports code review; it cannot prove the absence of all dynamic mutation. |
 | Focused behavior, adapter, and bounded-I/O tests. | Require the tests relevant to the changed responsibility. Run broader regression suites for changes to shared execution, persistence, or composition. |
 | Complete tests and supported-platform qualification. | Keep full discovery in release validation and run it in merge CI where practical. Keep opt-in live Odoo checks separate and report whether they ran. |
 
@@ -206,7 +250,7 @@ size exception to waive a forbidden dependency or weaken a write invariant.
 ## Delivery sequence
 
 Each step should be independently reviewable and pass its relevant checks.
-Split a step into smaller pull requests when it changes several contracts.
+Split a step into smaller delivery candidates when it changes several contracts.
 The author owns implementation and evidence; the capability maintainer reviews
 ownership and behavior. Assign named people when scheduling the work.
 
@@ -214,9 +258,9 @@ ownership and behavior. Assign named people when scheduling the work.
 | --- | --- | --- |
 | 1. Restore architecture checks — complete. | The fallout-workbook adapter dependency was replaced by a consumer-owned port, and the architecture checks are part of the repository gate. | The inventory and dependency suites pass without weakening their rules. |
 | 2. Establish a repeatable check command — complete. | The pinned Python and complete repository quality commands run locally and in continuous integration. | A clean checkout can run the documented commands; deliberate violations fail the gate. |
-| 3. Extract pure and display responsibilities — next. | Move shared identity and scope functions and remaining preview responsibilities to their owners. | Focused tests preserve results, messages, scopes, and hashes. Reconciliation no longer imports private service helpers. |
-| 4. Separate progress — open. | Extract current publication behavior, then introduce compact progress and migrate consumers in a separate change. | Tests cover resume initialization, partial-to-committed transitions, phase boundaries, errors, and final counts. Instrumentation proves that intermediate publication no longer scans all rows. |
-| 5. Reduce execution coordination — open. | Extract cohesive write and relationship operations, then recovery classification. Keep journal sequencing explicit. | Failure and recovery tests prove journal-before-transport, stop-after-unknown behavior, preserved batch bounds, and no duplicate writes. |
+| 3. Extract pure and display responsibilities — implemented. | Shared identity and scope functions, structured validation and review queries have explicit owners. | Focused tests preserve results, messages, scopes, and hashes. Reconciliation no longer imports private service helpers. |
+| 4. Separate progress — implemented. | Compact progress, transition counters and browser consumers have separate owners. | Tests cover resume, partial-to-committed transitions, phase boundaries, errors, external stops and increasing-size row-visit bounds. |
+| 5. Reduce execution coordination — implemented. | Scheduled transport coordinates journal, value, identity and relationship collaborators. Pure recovery classification is in the domain. | Failure and recovery tests cover journal-before-transport, stop-after-unknown behavior, batch bounds and duplicate-write prevention. |
 | 6. Apply the practice elsewhere — ongoing. | Review the most frequently changed modules with similar coupling and agree the next focused improvement. | New work uses established owners; documented exceptions and architecture failures do not accumulate unnoticed. |
 
 Structural changes and algorithm changes should use separate commits or pull
@@ -284,7 +328,37 @@ work proportional to changed rows and transitions; verify that bound with
 instrumented tests at increasing row counts. Record latency measurements
 separately with dataset shape and environment.
 
-## Proposal verification record
+## Implementation verification record
+
+On 17 November 2026, a fixed candidate based on
+`c1db91f449e2f935da4d65f0a55f8cada8c31f21` passed the complete repository gate.
+Ruff, Basedpyright, compilation, changed-code maintainability, all 106
+architecture tests, documentation checks and whitespace checks passed.
+
+The same candidate passed 411 focused tests and 384 parameterized subtests
+covering domain execution, application execution, scoped and aliased transfers,
+journal persistence, load and recovery routes, operator-error views, navigation
+and preflight. Odoo 19 and 20, local and remote fixtures, Authoring and Recipe
+worker paths were included. One third-party AnyIO pytest deprecation warning
+was reported; it did not fail the suite.
+
+Progress instrumentation at 100, 1,000 and 10,000 rows requires one initial
+journal pass and prohibits subsequent row iteration during normal publication
+and terminal completion. Separate tests cover the one-time external-stop
+reconciliation, rejected-batch splitting and failed journal writes. Scope and
+identity comparisons against the committed algorithms preserved exact values
+and semantic hashes for both supported Odoo majors.
+
+The schema contract test was brought into line with the concurrent, explicit
+version 8 operator-error migration and now requires its private companion
+table. The migration rollback and evidence-preservation tests passed.
+
+This is local fixture qualification. Live Odoo, a browser screenshot capture,
+real Windows timing, the Linux server matrix and hosted workflows were not run.
+No live session was restarted. The recurring maintenance routine in step 6
+continues; this implementation does not qualify a public release.
+
+## Historical proposal verification record
 
 The initial review reran the inventory and dependency suites on 2026-09-14:
 four tests ran and the two failures described above remained. They are inputs

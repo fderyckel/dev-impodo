@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from impodo.adapters.odoo.connectors import (
     Json2Config,
     Json2WriteIdentityConnector,
@@ -26,6 +28,12 @@ def _connection_mode(workspace_state: WorkspaceState) -> str:
     return mode.value
 
 
+def _load_interval(workspace: WorkspaceState) -> float:
+    """Start remote loads at a configurable conservative request frequency."""
+    default = "1.0" if _connection_mode(workspace) == "REMOTE" else "0.0"
+    return float(os.environ.get("IMPODO_ODOO_LOAD_REQUEST_INTERVAL_SECONDS", default))
+
+
 def _probe_write_identity(
     workspace_state: WorkspaceState,
     api_key: str,
@@ -45,6 +53,7 @@ def _probe_write_identity(
                 api_key=api_key,
                 connection_mode=_connection_mode(workspace_state),
                 retries=0,
+                minimum_request_interval_seconds=_load_interval(workspace_state),
                 context=workspace_state.odoo_operation_context,
             )
         )
@@ -75,6 +84,7 @@ def _write_executor(
             connection_mode=_connection_mode(workspace_state),
             timeout_seconds=120.0,
             retries=2,
+            minimum_request_interval_seconds=_load_interval(workspace_state),
             context=workspace_state.odoo_operation_context,
         ),
         scope,
@@ -98,6 +108,7 @@ def _readback_reader(
                 api_key=api_key,
                 connection_mode=_connection_mode(workspace_state),
                 retries=2,
+                minimum_request_interval_seconds=_load_interval(workspace_state),
                 context=workspace_state.odoo_operation_context,
             )
         ),

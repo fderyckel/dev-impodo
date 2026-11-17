@@ -23,6 +23,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 duckdb.connect(":memory:") as connection,
             ):
                 schema._initialize_workspace_database(connection)
+                connection.execute("DROP TABLE execution_operator_error")
                 connection.execute("DROP TABLE odoo_saved_source_company")
                 connection.execute("UPDATE schema_version SET version = 4")
                 connection.execute(
@@ -41,7 +42,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema(connection)
                 self.assertEqual(
                     connection.execute("SELECT version FROM schema_version").fetchone(),
-                    (7,),
+                    (8,),
                 )
                 self.assertEqual(
                     connection.execute(
@@ -63,13 +64,14 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 )
                 self.assertEqual(
                     connection.execute("SELECT * FROM schema_migration").fetchall(),
-                    [(4, 5, "execution-load-control-events-v5"), (5, 6, "transformation-field-counts-v6"), (6, 7, "saved-odoo-source-company-v7")],
+                    [(4, 5, "execution-load-control-events-v5"), (5, 6, "transformation-field-counts-v6"), (6, 7, "saved-odoo-source-company-v7"), (7, 8, "private-operator-errors-v8")],
                 )
 
     def test_failed_v4_upgrade_rolls_back_the_new_table_and_version(self):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("DROP TABLE execution_load_control_event")
             connection.execute("UPDATE schema_version SET version = 4")
@@ -101,6 +103,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("DROP TABLE execution_load_control_event")
             connection.execute(
@@ -130,6 +133,7 @@ class LoadControlUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             for table in (
                 "execution_load_control",
@@ -199,5 +203,5 @@ class LoadControlUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(3, 4), (4, 5), (5, 6), (6, 7)],
+                [(3, 4), (4, 5), (5, 6), (6, 7), (7, 8)],
             )

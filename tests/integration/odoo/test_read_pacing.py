@@ -16,7 +16,7 @@ from impodo.adapters.odoo.connectors import (
     Json2ReadConnector,
     observe_json2_read_failures,
 )
-from impodo.adapters.odoo.read_pacing import Json2ReadPacer, retry_after_seconds
+from impodo.adapters.odoo.request_pacing import Json2RequestPacer, retry_after_seconds
 from impodo.application.shared.performance import OperationPerformance, bind_performance
 from impodo.domain.odoo.contracts import ConnectorTransportError, MetadataRequest
 from tests.support.odoo_read_clock import ReadClock as Clock
@@ -49,7 +49,7 @@ class Json2ReadPacingTests(unittest.TestCase):
                 retries=retries,
                 connection_mode=mode,
             ),
-            read_pacer=pacer,
+            request_pacer=pacer,
             now=lambda: NOW,
             transport=transport,
         )
@@ -206,7 +206,7 @@ class Json2ReadPacingTests(unittest.TestCase):
                 interrupted = True
                 pacer.defer("target", attempt=1, retry_after=None)
 
-        pacer = Json2ReadPacer(clock=clock.time, sleep=sleep, jitter=lambda: 0.0)
+        pacer = Json2RequestPacer(clock=clock.time, sleep=sleep, jitter=lambda: 0.0)
         pacer.defer("target", attempt=0, retry_after=None)
         self.assertTrue(pacer.wait("target", deadline=120.0))
         self.assertEqual(clock.waits, [2.0, 4.0])
@@ -237,7 +237,7 @@ class Json2ReadPacingTests(unittest.TestCase):
             connector._post_read_method("x.first", "fields_get", {})
 
     def test_expiry_before_any_send_does_not_invent_an_http_429(self):
-        pacer = Json2ReadPacer(clock=Mock(side_effect=[0.0, 121.0, 121.0]))
+        pacer = Json2RequestPacer(clock=Mock(side_effect=[0.0, 121.0, 121.0]))
         transport = Mock(return_value=(200, {}))
         connector = self.connector(pacer, transport=transport)
         failures = []

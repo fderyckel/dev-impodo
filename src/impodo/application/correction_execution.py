@@ -50,6 +50,7 @@ from impodo.domain.execution.odoo_write import (
     OdooWriteOutcomeUnknown,
     OdooWriteRejected,
 )
+from impodo.domain.execution.operator_errors import OperatorErrorRepository
 from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
@@ -264,6 +265,7 @@ class CorrectionExecutionService:
                 )
                 for field in record.fields
             }
+            private_error = None
             try:
                 writer.update_rows(
                     record.target_model,
@@ -272,21 +274,23 @@ class CorrectionExecutionService:
                 )
                 outcome = ExecutionRowStatus.COMMITTED
                 safe_error = ""
-            except OdooWriteRejected:
+            except OdooWriteRejected as error:
+                private_error = error
                 outcome = ExecutionRowStatus.FAILED
-                safe_error = "Odoo rejected the correction batch"
+                safe_error = error.diagnostic.summary if error.diagnostic else "Odoo rejected the correction batch"
                 stop_status = outcome
             except OdooWriteOutcomeUnknown:
                 outcome = ExecutionRowStatus.OUTCOME_UNKNOWN
                 safe_error = "Odoo correction outcome is unknown"
                 stop_status = outcome
             completed = tuple(
-                replace(rows[index], status=outcome, safe_error=safe_error)
+                replace(rows[index], status=outcome, safe_error=safe_error, diagnostic=private_error.diagnostic if private_error else None)
                 for index in indexes
             )
-            self.execution.record_outcomes(
-                snapshot.workspace_id, run.run_id, completed
-            )
+            if private_error is not None and private_error.operator_detail is not None and isinstance(self.execution, OperatorErrorRepository):
+                self.execution.record_outcomes_with_detail(snapshot.workspace_id, run.run_id, completed, private_error.operator_detail)
+            else:
+                self.execution.record_outcomes(snapshot.workspace_id, run.run_id, completed)
             for index, item in zip(indexes, completed, strict=True):
                 rows[index] = item
 

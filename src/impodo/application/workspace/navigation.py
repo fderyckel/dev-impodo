@@ -6,8 +6,10 @@ from dataclasses import dataclass, replace
 from typing import Protocol
 
 from impodo.application.workspace.execution.navigation import ExecutionNavigationState
-from impodo.application.workspace.execution.service import (
+from impodo.application.workspace.execution.preview import (
     ExecutionNavigationPreview,
+)
+from impodo.application.workspace.execution.service import (
     ExecutionService,
 )
 from impodo.application.workspace.source_readiness import (

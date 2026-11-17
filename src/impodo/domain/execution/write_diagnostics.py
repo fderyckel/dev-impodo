@@ -64,6 +64,7 @@ class OdooWriteDiagnostic:
     message_fingerprint: str = ""
     http_status: int | None = None
     error_type: OdooWriteErrorType | None = None
+    operator_detail_status: str = ""
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", WriteFailureCode(self.code))
@@ -81,6 +82,7 @@ class OdooWriteDiagnostic:
                 and (type(self.http_status) is not int or not 100 <= self.http_status <= 599)
             )
             or len(self.fields) > 200
+            or self.operator_detail_status not in {"", "AVAILABLE", "UNAVAILABLE", "TRUNCATED", "WITHHELD", "CAPTURE_FAILED"}
             or any(_NAME.fullmatch(field) is None for field in self.fields)
             or (
                 self.message_fingerprint
@@ -124,6 +126,8 @@ class OdooWriteDiagnostic:
             del payload["http_status"]
         if self.error_type is None:
             del payload["error_type"]
+        if not self.operator_detail_status:
+            del payload["operator_detail_status"]
         return payload
 
     @classmethod
@@ -154,4 +158,5 @@ class OdooWriteDiagnostic:
             message_fingerprint=str(payload.get("message_fingerprint", "")),
             http_status=http_status,
             error_type=OdooWriteErrorType(str(error_type)) if error_type is not None else None,
+            operator_detail_status=str(payload.get("operator_detail_status", "")),
         )

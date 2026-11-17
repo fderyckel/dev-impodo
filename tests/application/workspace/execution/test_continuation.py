@@ -166,7 +166,10 @@ class ContinuationTests(unittest.TestCase):
         writer = _Writer(fixtures.execution_api_scope(snapshot).semantic_hash, set())
         writer.lookup_ids = (50,)
 
+        progress = []
+
         def stop(run):
+            progress.append(run)
             if run.status is ExecutionRunStatus.RUNNING:
                 service.request_stop(
                     snapshot.workspace_id, run.run_id, actor=LOCAL_ACTOR
@@ -183,6 +186,9 @@ class ContinuationTests(unittest.TestCase):
         self.assertEqual(writer.calls, 0)
         self.assertEqual(result.load_control.state, LoadControlState.STOPPED)
         self.assertEqual(result.blocked_count, 3)
+        self.assertEqual(progress[-1].blocked_count, result.blocked_count)
+        self.assertEqual(progress[-1].planned_count, 0)
+        self.assertEqual(progress[-1].completed_rows, 3)
 
     def test_twenty_thousand_all_fail_pauses_after_ten_distinct_rows(self):
         template = fixtures._snapshot()

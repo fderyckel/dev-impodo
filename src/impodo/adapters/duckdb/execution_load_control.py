@@ -20,11 +20,13 @@ from impodo.domain.execution.load_control import (
 )
 from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus
 from impodo.domain.execution.odoo_write import OdooWriteRejected
+from impodo.domain.execution.operator_errors import OperatorErrorPersistenceError
 from impodo.domain.serialization import canonical_json, content_hash
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 
 from .database import DuckDbWorkspaceDatabase
+from .execution_operator_errors import write_operator_error
 from .repository import DuckDbRepository
 
 
@@ -155,6 +157,16 @@ class ExecutionLoadControlRecords(DuckDbRepository):
         return result
 
     def record_rejected_batch(
+        self, workspace_id: str, run_id: str, rows: Sequence[ExecutionRowAttempt], error: OdooWriteRejected,
+    ) -> tuple[ExecutionRowAttempt, ...]:
+        """Keep definitive rollback proof even if its private companion fails."""
+        try:
+            return self._record_rejected_batch(workspace_id, run_id, rows, error)
+        except OperatorErrorPersistenceError:
+            unavailable = OdooWriteRejected(str(error), diagnostic=replace(error.diagnostic, operator_detail_status="CAPTURE_FAILED") if error.diagnostic else None)
+            return self._record_rejected_batch(workspace_id, run_id, rows, unavailable)
+
+    def _record_rejected_batch(
         self,
         workspace_id: str,
         run_id: str,
@@ -181,7 +193,7 @@ class ExecutionLoadControlRecords(DuckDbRepository):
             try:
                 self._require_mutable_control(connection)
                 status = connection.execute(
-                    "SELECT status FROM execution_run WHERE run_id = ?", [run_id]
+                    "SELECT status, snapshot_hash FROM execution_run WHERE run_id = ?", [run_id]
                 ).fetchone()
                 control = read_load_control(connection, run_id)
                 if (
@@ -224,6 +236,8 @@ class ExecutionLoadControlRecords(DuckDbRepository):
                     "INSERT INTO execution_rejected_transport VALUES (?, ?, ?)",
                     [run_id, batch, evidence],
                 )
+                if error.operator_detail is not None:
+                    write_operator_error(connection, run_id, str(status[1]), rows, error.operator_detail)
                 result = tuple(
                     replace(
                         a,

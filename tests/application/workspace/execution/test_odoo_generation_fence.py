@@ -9,7 +9,7 @@ from impodo.application.odoo_generation_fence import (
     GenerationFencedOdooReadbackReader,
     GenerationFencedOdooWriteExecutor,
 )
-from impodo.application.workspace.execution.service import execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
 from impodo.domain.execution.odoo_readback import (
     OdooReadbackError,

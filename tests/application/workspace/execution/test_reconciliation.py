@@ -9,9 +9,10 @@ import unittest
 from uuid import uuid4
 
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.application.workspace.execution.service import ExecutionService, execution_api_scope
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.application.workspace.execution.reconciliation import ReconciliationService
 from impodo.adapters.odoo.connectors import Json2Config
+from impodo.domain.execution.recovery import classify_recovery
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
     ExecutionRowStatus,
@@ -748,22 +749,22 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(report.readback_scope, "RECOVERY_TARGETED")
         self.assertEqual(reader.reads, [("product.category", (10,), ("name",))])
         self.assertIsNone(results.report)
-        recovered = ExecutionService._classify_recovery(
+        recovered = classify_recovery(
             snapshot, run, report, targeted=True,
         )
         self.assertEqual(recovered[2].status, ExecutionRowStatus.COMMITTED)
         self.assertEqual(recovered[2].odoo_id, 50)
         self.assertEqual(recovered[2].recovery_hash, report.semantic_hash)
         with self.assertRaisesRegex(WorkspaceError, "invalid read-back scope"):
-            ExecutionService._classify_recovery(snapshot, run, report)
+            classify_recovery(snapshot, run, report)
         with self.assertRaisesRegex(WorkspaceError, "does not cover"):
-            ExecutionService._classify_recovery(
+            classify_recovery(
                 snapshot, run, replace(report, readback_scope="FULL"), targeted=True,
             )
 
         missing_parent = replace(report, rows=report.rows[1:])
         with self.assertRaisesRegex(WorkspaceError, "does not cover"):
-            ExecutionService._classify_recovery(
+            classify_recovery(
                 snapshot, run, missing_parent, targeted=True,
             )
 
@@ -776,7 +777,7 @@ class ReconciliationServiceTests(unittest.TestCase):
             targeted=True,
         )
         with self.assertRaisesRegex(WorkspaceError, "no longer matches Odoo"):
-            ExecutionService._classify_recovery(
+            classify_recovery(
                 snapshot, run, changed, targeted=True,
             )
 
@@ -841,7 +842,7 @@ class ReconciliationServiceTests(unittest.TestCase):
             reader.external_id_reads,
             [(snapshot.rows[1].proposed_external_id,)],
         )
-        recovered = ExecutionService._classify_recovery(
+        recovered = classify_recovery(
             snapshot, run, report, targeted=True,
         )
         self.assertEqual(recovered[2].status, ExecutionRowStatus.PLANNED)
@@ -872,7 +873,7 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(report.rows[0].status, ReconciliationRowStatus.OUTCOME_UNKNOWN)
         self.assertFalse(report.rows[0].retry_safe)
         with self.assertRaisesRegex(WorkspaceError, "not safe to resume"):
-            ExecutionService._classify_recovery(
+            classify_recovery(
                 snapshot, run, report, targeted=True,
             )
 

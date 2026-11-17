@@ -1,14 +1,29 @@
-from dataclasses import replace
-from datetime import datetime, timezone
-from types import SimpleNamespace
 import unittest
+from dataclasses import replace
+from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
-from impodo.application.workspace.execution.service import ExecutionPreview, ExecutionService, execution_api_scope
-from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus, ExecutionRun, ExecutionRunStatus
-from impodo.domain.shared.access import CapabilityAuthorizationPolicy, LOCAL_ACTOR
-from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity, target_record_binding_hash
+from impodo.application.workspace.execution.preview import (
+    ExecutionPreview,
+)
+from impodo.application.workspace.execution.service import (
+    ExecutionService,
+)
+from impodo.domain.execution.models import (
+    ExecutionRowAttempt,
+    ExecutionRowStatus,
+    ExecutionRun,
+    ExecutionRunStatus,
+)
+from impodo.domain.execution.odoo_scope import execution_api_scope
+from impodo.domain.shared.access import LOCAL_ACTOR, CapabilityAuthorizationPolicy
+from impodo.domain.shared.models import (
+    OdooReadIdentity,
+    OdooWriteIdentity,
+    target_record_binding_hash,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceState
 from tests.application.workspace.execution.test_service import HASH, _snapshot
@@ -27,7 +42,7 @@ class FreshRecoveryTests(unittest.TestCase):
             readable_models=tuple(m.model for m in execution_api_scope(self.original).models))
         self.run = ExecutionRun(str(uuid4()), self.original.workspace_id, self.original.semantic_hash,
             self.original.root_hash, self.original.preflight_run_id, self.original.target_hash,
-            self.original.target_database, 10, ExecutionRunStatus.RUNNING, datetime.now(timezone.utc),
+            self.original.target_database, 10, ExecutionRunStatus.RUNNING, datetime.now(UTC),
             'Operator', None, tuple(ExecutionRowAttempt(row.row_id, row.dataset, row.source_row,
                 row.target_model, 'CREATE', tuple(i.field for i in row.fields), row.proposed_external_id,
                 status=ExecutionRowStatus.COMMITTED if index == 0 else ExecutionRowStatus.IN_FLIGHT,

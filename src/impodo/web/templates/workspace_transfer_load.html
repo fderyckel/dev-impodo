@@ -203,6 +203,8 @@
       </section>
     {% endif %}
 
+    <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/load/errors?run_id={{ transfer_run.run_id }}">Review Odoo errors</a></p>
+
     {% if reconciliation %}
       <section class="readiness-cards" aria-label="Destination verification totals">
         <div class="readiness-card ready"><span>Verified</span><strong>{{ reconciliation.verified_count }}</strong><small>Destination values match</small></div>

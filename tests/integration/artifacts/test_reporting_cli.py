@@ -480,6 +480,9 @@ class WorkbookIntegrationTests(unittest.TestCase):
                         null_omissions={record.dataset: ("phone",)},
                         upsert_datasets=frozenset(),
                         target_models={record.dataset: "res.partner"},
+                        coverage_gaps=(
+                            "Choices to leave source columns unmapped are not recorded.",
+                        ),
                     )
                     evidence = ReviewWorkbookEvidence(
                         frozen_input_hash="", records=records, dataset_labels={},

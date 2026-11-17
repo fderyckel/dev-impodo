@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
+from .operator_errors import OperatorErrorDetail
 from .write_diagnostics import OdooWriteDiagnostic
 
 MAX_IDENTITY_LOOKUP_KEYS = 100
@@ -15,10 +16,12 @@ class OdooWriteError(RuntimeError):
     """Base class for safe Odoo load failures."""
 
     def __init__(
-        self, message: str, *, diagnostic: OdooWriteDiagnostic | None = None
+        self, message: str, *, diagnostic: OdooWriteDiagnostic | None = None,
+        operator_detail: OperatorErrorDetail | None = None,
     ) -> None:
         super().__init__(message)
         self.diagnostic = diagnostic
+        self.operator_detail = operator_detail
 
 
 class OdooWriteRejected(OdooWriteError):
@@ -33,6 +36,19 @@ class OdooIdentityLookupUnavailable(OdooWriteRejected):
 
 class OdooWriteOutcomeUnknown(OdooWriteError):
     """The connection failed after send and commit cannot be inferred."""
+
+
+class OdooRequestDeferred(OdooWriteError):
+    """Admission stopped before transport; no write was sent by this call."""
+
+    load_failure_code = "LOAD_ODOO_REQUEST_DEFERRED"
+
+
+@runtime_checkable
+class OdooWriteAdmission(Protocol):
+    """Reserve a native write start before its durable in-flight receipt."""
+
+    def admit_write(self) -> None: ...
 
 
 class OdooWriteExecutor(Protocol):

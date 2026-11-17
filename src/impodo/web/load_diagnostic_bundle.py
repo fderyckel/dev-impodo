@@ -99,6 +99,12 @@ def _unknowns(attempt: dict[str, Any]) -> list[str]:
             )
             break
     for diagnostic in attempt.get("journal", {}).get("diagnostics", []):
+        if diagnostic.get("operator_detail_status") in {"UNAVAILABLE", "CAPTURE_FAILED", "WITHHELD", "TRUNCATED"}:
+            missing.append("Private Odoo explanation coverage is incomplete; the saved authorized view identifies missing, withheld, or truncated detail.")
+        if diagnostic.get("code") == "ODOO_VALUE_REJECTED" and not diagnostic.get("fields"):
+            missing.append(
+                "No rejected field was retained. The validation code alone does not identify a cause; inspect the authorized private Odoo error detail when available."
+            )
         if diagnostic.get("code") == "ODOO_WRITE_REJECTED":
             missing.append(
                 "Odoo supplied no recognized specific rejection reason. Exact server text is outside the routine bundle."

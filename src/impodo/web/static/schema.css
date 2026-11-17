@@ -86,6 +86,26 @@
   margin-top: 1rem;
 }
 
+.schema-related-actions {
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--line);
+  padding-top: 1rem;
+}
+
+.schema-related-action-buttons {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: .7rem;
+  margin-left: auto;
+}
+
+.schema-related-actions .button {
+  margin: 0;
+}
+
 .matching-rule-summary {
   display: grid;
   grid-template-columns: repeat(5, minmax(8.5rem, 1fr));
@@ -296,6 +316,15 @@ button.key-scope-chip:hover {
 }
 
 @media (max-width: 720px) {
+  .schema-related-action-buttons {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .schema-related-actions .button {
+    width: 100%;
+  }
+
   .schema-key-summary,
   .schema-related-group > summary {
     flex-wrap: wrap;
