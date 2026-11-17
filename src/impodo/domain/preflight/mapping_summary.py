@@ -409,6 +409,8 @@ def _scalar_steps(
     }
     if checks:
         steps.append("Validate the result: " + literal(checks) + ".")
+    if field.must_be_unique:
+        steps.append("Must be unique across incoming records for this Odoo record type and readable Odoo records in the selected company access context. Ignore blanks; allow updates to the same record.")
     if field.validate_only:
         steps.append("Validate this field only; do not send its value to Odoo.")
     return tuple(steps)

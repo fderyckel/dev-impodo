@@ -4,8 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
+
+import duckdb
 
 from impodo.adapters.duckdb.odoo_database_binding_repository import (
     DuckDbOdooDatabaseBindingRepository,
@@ -29,6 +31,23 @@ from tests.support.database_probe import count_duckdb_statements
 
 
 class OdooDatabaseBindingRepositoryTests(TestCase):
+    def test_commit_conflict_preserves_the_error_after_duckdb_aborts(self):
+        database = MagicMock()
+        connection = MagicMock(spec=duckdb.DuckDBPyConnection)
+        database.connect.return_value.__enter__.return_value = connection
+        conflict = duckdb.TransactionException("Failed to commit: duplicate key")
+        connection.commit.side_effect = conflict
+        connection.rollback.side_effect = duckdb.TransactionException("no transaction is active")
+        repository = DuckDbOdooDatabaseBindingRepository(database)
+        with (
+            patch("impodo.adapters.duckdb.odoo_database_binding_repository.ensure_migration_registry_schema"),
+            self.assertRaises(OdooDatabaseGenerationConflict) as raised,
+            repository._connect(write=True),
+        ):
+            pass
+        self.assertIs(raised.exception.__cause__, conflict)
+        connection.rollback.assert_not_called()
+
     def setUp(self):
         self.foundation = foundation_fixtures.MigrationFoundationTests(
             methodName="runTest"
@@ -317,6 +336,18 @@ class OdooDatabaseBindingRepositoryTests(TestCase):
         self.assertEqual(
             sum("duckdb_columns()" in statement for statement in statements), 1
         )
+        self.assertEqual(
+            sum(statement.strip().upper() == "SHOW TABLES" for statement in statements), 2
+        )
+        # Validation belongs to this operation only. A later operation must
+        # reject a registry whose exact structure changed in the meantime.
+        with self.database.connect(self.database.registry_path) as connection:
+            connection.execute("CREATE TABLE unexpected_registry_table (value INTEGER)")
+        with (
+            retain_databases_for_operation(),
+            self.assertRaises(MigrationStorageCompatibilityError),
+        ):
+            self.repository.current("organization-a", self.scope)
 
     def test_v4_upgrade_adds_empty_authority_and_preserves_existing_projects(self):
         self._downgrade_fixture_to_v4()

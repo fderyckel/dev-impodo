@@ -715,6 +715,8 @@ stages:
       - tests/e2e/mapping-target-mode.test.cjs
       - tests/integration/web/test_mapping_journey.py
       - tests/integration/web/test_mapping_journey_mutations.py
+      - tests/integration/web/test_mapping_command_performance.py
+      - tests/integration/web/test_mapping_command_recovery.py
       - tests/e2e/test_mapping_journey.py
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_mapping_forms.py
@@ -767,6 +769,9 @@ stages:
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py
       - tests/integration/web/test_mapping_form_roundtrip.py
+      - tests/domain/preparation/test_field_uniqueness.py
+      - tests/integration/odoo/test_field_uniqueness_reads.py
+      - tests/domain/recipe/test_field_uniqueness.py
       - tests/integration/web/test_source_column_exclusions.py
       - tests/domain/mapping/test_column_exclusions.py
       - tests/application/test_recipe_column_exclusions.py
@@ -943,6 +948,7 @@ stages:
       - tests/performance/test_preparation_identity_groups.py
       - tests/performance/test_preparation_scale.py
       - tests/domain/preparation/test_quality.py
+      - tests/integration/duckdb/test_field_uniqueness_quality.py
       - tests/domain/recipe/test_arithmetic_formula.py
       - tests/domain/preparation/test_browser_arithmetic_formula.py
       - tests/domain/preparation/test_normalization.py
@@ -965,6 +971,7 @@ stages:
       - tests/integration/artifacts/test_grouped_exact_join_preparation.py
       - tests/e2e/test_mixed_preparation.py
       - tests/integration/web/test_normalization_presenter.py
+      - tests/integration/web/test_normalization_performance.py
       - tests/application/workspace/test_workflow_issues.py
       - tests/application/workspace/preparation/test_readiness.py
       - tests/integration/artifacts/test_source_snapshot_io.py
@@ -1034,6 +1041,7 @@ stages:
       - src/impodo/adapters/duckdb/preflight_repository.py::PreflightRepository.get_readiness_rows
       - src/impodo/domain/preflight/deferred_scope.py::preview_deferred_scope
       - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
+      - src/impodo/domain/preflight/comparison_fields.py::comparison_relationship_findings
       - src/impodo/domain/preflight/original_values.py::OriginalSourceValue
       - src/impodo/application/workspace/review/original_values.py::plan_workbook_original_values
       - src/impodo/adapters/artifacts/review_original_values.py::populate_workbook_original_values
@@ -1075,9 +1083,17 @@ stages:
       - tests/performance/test_preflight_scale.py
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
+      - tests/domain/preflight/test_comparison_fields.py
+      - tests/application/workspace/review/test_comparison_workbook.py
+      - tests/integration/artifacts/test_comparison_field_coverage.py
+      - tests/integration/web/test_comparison_original_workbook.py
+      - tests/domain/preflight/test_scoped_original_contracts.py
+      - tests/application/workspace/review/test_scoped_original_values.py
+      - tests/integration/artifacts/test_scoped_original_values.py
       - tests/domain/preflight/test_original_values.py
       - tests/application/workspace/review/test_original_values.py
       - tests/integration/artifacts/test_review_original_values.py
+      - tests/integration/artifacts/test_relationship_original_values.py
       - tests/integration/artifacts/test_original_value_display.py
       - tests/integration/artifacts/test_fields_set_aside_coverage.py
       - tests/integration/artifacts/test_column_exclusions.py
@@ -1319,6 +1335,8 @@ stages:
       - tests/integration/web/test_load_workflow.py
       - tests/integration/web/test_load_recovery.py
       - tests/integration/web/test_load_controls.py
+      - tests/integration/web/test_load_page_performance.py
+      - tests/integration/web/test_load_submission_performance.py
       - tests/integration/web/test_load_diagnostics.py
       - tests/integration/web/test_disconnection_messages.py
       - tests/integration/duckdb/test_execution_load_control.py

@@ -219,7 +219,6 @@ class MappingJourneyBrowserTests(unittest.TestCase):
             self.assertLessEqual(fields.locator("[data-scalar-table-scroll]").evaluate(
                 "element => element.scrollWidth - element.clientWidth"
             ), 1, "Field names, value choices and previews must fit the desktop editor")
-            self._capture("11t-stage3-match-fields.png")
             self._saved_position_and_native_validation(dataset)
             self._formula_recovery(dataset)
         else:

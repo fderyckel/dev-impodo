@@ -37,8 +37,8 @@ class CompiledMigrationPlan(BaseModel):
     source_selection_hash: str | None = None
     schema_hash: str | None = None
     derived_plan_hash: str | None = None
-    contract_version: Literal[1, 2, 3, 4, 5] = COMPILED_MIGRATION_PLAN_VERSION
-    compiler_version: Literal[2, 3, 4, 5, 6] = MIGRATION_COMPILER_VERSION
+    contract_version: Literal[1, 2, 3, 4, 5, 6] = COMPILED_MIGRATION_PLAN_VERSION
+    compiler_version: Literal[2, 3, 4, 5, 6, 7] = MIGRATION_COMPILER_VERSION
 
     @field_validator(
         "origin_hash",
@@ -82,8 +82,12 @@ class CompiledMigrationPlan(BaseModel):
         ):
             raise ValueError("profile plans cannot contain browser evidence bindings")
         validate_dataset_graph(self.datasets)
-        if (self.contract_version, self.compiler_version) not in {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6)}:
+        if (self.contract_version, self.compiler_version) not in {(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)}:
             raise ValueError("compiled plan contract and compiler versions disagree")
+        if self.contract_version < 6 and any(
+            field.must_be_unique for dataset in self.datasets for field in dataset.fields.values()
+        ):
+            raise ValueError("Must be unique requires compiled plan v6. Save the field matches and prepare again.")
         if self.contract_version < 5 and any(
             component.null_policy == "optional_scope_null"
             for dataset in self.datasets for component in dataset.target_identity.scope
@@ -126,6 +130,10 @@ class CompiledMigrationPlan(BaseModel):
         """Return the deterministic contract payload used for evidence hashes."""
 
         payload = self.model_dump(mode="json", exclude_none=True)
+        if self.contract_version < 6:
+            for dataset in payload["datasets"]:
+                for scalar in dataset["fields"].values():
+                    scalar.pop("must_be_unique", None)
         if self.contract_version == 1:
             for dataset in payload["datasets"]:
                 target_identity = dataset["target_identity"]

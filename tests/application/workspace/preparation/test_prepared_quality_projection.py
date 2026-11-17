@@ -191,6 +191,7 @@ class PreparedQualityProjectionTests(unittest.TestCase):
 
         with self.assertRaises(BoundedQualityUnsupported):
             build_bounded_quality_run(
+                definition=fixtures.QUALITY_DEFINITION,
                 staging=replace(fixtures._stored_staging(staging), rows=reader),
                 workspace_state=workspace,
                 physical_rows={"dataset:contacts": (2,)},
@@ -270,7 +271,9 @@ class PreparedQualityProjectionTests(unittest.TestCase):
 
         expected = evaluate_quality(staging=staging, **arguments)
         actual = fixtures._materialized_bounded_quality(
-            build_bounded_quality_run(staging=stored, **arguments)
+            build_bounded_quality_run(
+                staging=stored, definition=fixtures.QUALITY_DEFINITION, **arguments
+            )
         )
 
         self.assertEqual(actual.to_json(), expected.to_json())

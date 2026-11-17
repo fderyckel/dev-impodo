@@ -15,18 +15,6 @@ from impodo.adapters.artifacts.reporting import (
     write_preflight_outputs,
     write_review_workbook,
 )
-from impodo.domain.preflight.fields_set_aside import (
-    FieldSetAside,
-    FieldSetAsideEvidence,
-    FieldSetAsideReason,
-)
-from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow
-from impodo.domain.preflight.original_values import OriginalSourceValue
-from impodo.domain.source_snapshot import EncodedSourceCell
-from impodo.domain.preflight.reports import (
-    ReviewWorkbookCellEffect,
-    ReviewWorkbookEvidence,
-)
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredIssueGroup,
@@ -34,7 +22,22 @@ from impodo.domain.preflight.deferred_scope import (
     DeferredOmittedRow,
     DeferredScopePreview,
 )
+from impodo.domain.preflight.fields_set_aside import (
+    FieldSetAside,
+    FieldSetAsideEvidence,
+    FieldSetAsideReason,
+)
+from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow
+from impodo.domain.preflight.original_values import (
+    OriginalSourceInput,
+    OriginalSourceValue,
+)
+from impodo.domain.preflight.reports import (
+    ReviewWorkbookCellEffect,
+    ReviewWorkbookEvidence,
+)
 from impodo.domain.shared.models import Issue, PreparedRecord, Severity
+from impodo.domain.source_snapshot import EncodedSourceCell
 from impodo.web.composition.cli import build_parser, main
 from tests.integration.artifacts.test_preflight_outputs import ROOT, golden_result
 
@@ -461,12 +464,12 @@ class WorkbookIntegrationTests(unittest.TestCase):
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
                                 ("date",), "date", "The date could not be read.",
-                                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2")),
+                                (OriginalSourceInput("date", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
-                                ("date",), "date_end", "The date could not be read.",
-                                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("")),
+                                ("date_end",), "date_end", "The date could not be read.",
+                                (OriginalSourceInput("date_end", OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.EXCLUDED, record.dataset, None,
@@ -475,6 +478,7 @@ class WorkbookIntegrationTests(unittest.TestCase):
                         ),
                         source_labels={
                             (record.dataset, "date"): "Start date",
+                            (record.dataset, "date_end"): "End date",
                             (record.dataset, "notes"): "Internal notes",
                             (record.dataset, "phone"): "Phone",
                         },
@@ -514,6 +518,7 @@ class WorkbookIntegrationTests(unittest.TestCase):
                     rule_cell = next(cell for cell in sheet["A"] if cell.value == "Skipped by rule")
                     self.assertTrue(rule_cell.fill.fgColor.rgb.endswith("EAF2FB"))
                     self.assertEqual(sheet.cell(rule_cell.row, 5).value, "Unavailable")
+                    self.assertEqual(sheet.cell(rule_cell.row, 7).value, "Field finding")
                     self.assertIn("'=1+2", (previews / "fields-set-aside.csv").read_text())
                     self.assertEqual(workbook["Review overview"]["A25"].hyperlink.location,
                                      "'Fields set aside'!A1")

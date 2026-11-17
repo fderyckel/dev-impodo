@@ -145,6 +145,7 @@ class FieldEffectsUpgradeTests(unittest.TestCase):
                 "ALTER TABLE transformation_impact_run DROP COLUMN field_counts_json"
             )
             connection.execute("DROP TABLE odoo_saved_source_company")
+            connection.execute("DROP TABLE execution_operator_error")
             connection.execute("UPDATE schema_version SET version=5")
             upgrade = WORKSPACE_ENGINE_UPGRADES[5]
 

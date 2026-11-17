@@ -19,6 +19,7 @@
           <dd>
             {{ field.provider }}{% if field.columns %} · {{ field.columns|join(', ') }}{% endif %}.
             {% if field.change != 'Removed' %}{{ field.write_behavior }}. {{ field.blank_behavior }}.{% endif %}
+            {% if field.must_be_unique %}Must be unique; blank values are ignored.{% endif %}
           </dd>
         </div>
       {% endfor %}

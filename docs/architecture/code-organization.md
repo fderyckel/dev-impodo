@@ -107,19 +107,25 @@ complete local phase in one synchronous callback on one worker.
 | Work | Helper | What runs in the callback |
 | --- | --- | --- |
 | Render a local page | `run_page_read` | Repository reads, navigation, presenter work, and template rendering. |
-| Render the file upload page, Source data, saved Odoo details, Match data, Final review, or Overview | `run_workspace_page_read` | Workspace authorization and journey checks, followed by page reads and rendering, inside one `run_page_read` callback. |
+| Render the file upload page, Source data, saved Odoo details, Match data, Prepare data review, Final review, Overview, or a saved load page | `run_workspace_page_read` | Workspace authorization and journey checks, followed by page reads and rendering, inside one `run_page_read` callback. |
 | Execute a local command | `run_local_operation` | The command's repository transactions and any local read-back needed for its response. |
 | Execute a local phase from an existing worker | `run_local_operation_sync` | One synchronous phase on that worker. |
 
 See the [database scope helpers](../../src/impodo/web/composition/page_reads.py)
 and [workspace admission middleware](../../src/impodo/web/security.py).
 
-The six saved pages use `WorkspaceAccessMiddleware` to authorize the actual
+These saved pages use `WorkspaceAccessMiddleware` to authorize the actual
 parent Project and apply closed-Workspace and Recipe-run journey rules before
 reading child data or inspecting active jobs. Match data checks source
 readiness in the same operation. The middleware rejects a successful response
 that skipped admission. Other workspace routes resolve access in a separate
 bounded operation before calling the route.
+
+Saved load pages include the landing, review, confirmation and outcome GETs.
+Their active-job checks run after admission in the same worker callback.
+The initial progress HTML uses a separate bounded page read after trusted-job
+admission; its JSON status request reads in-memory job state without opening
+local databases.
 
 Keep application mutations out of page reads. Repository-backed authorization
 runs inside a bounded local operation. Repositories can reuse open DuckDB

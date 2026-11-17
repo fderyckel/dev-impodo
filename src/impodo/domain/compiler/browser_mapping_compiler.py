@@ -251,6 +251,7 @@ def compile_browser_mapping(
                 source=synthetic_field(index),
                 type=_scalar_type(field.value_type),
                 required=field.required,
+                must_be_unique=field.must_be_unique,
                 required_on_create=(
                     field.required_on_create or field.target_field in hook_inputs
                 ),
@@ -373,9 +374,10 @@ def compile_browser_mapping(
         )
     token = definition.content_hash.removeprefix("sha256:")[:24]
     optional_scopes = any(item.blank_source_column_key is not None for dataset in definition.datasets for item in dataset.target_scope)
+    unique_fields = any(field.must_be_unique for dataset in definition.datasets for field in dataset.fields)
     return CompiledMigrationPlan(
-        contract_version=5 if optional_scopes else 4 if any(item.hierarchy_parent is not None for item in profile_datasets) else 3,
-        compiler_version=6 if optional_scopes else 5 if any(item.hierarchy_parent is not None for item in profile_datasets) else 4,
+        contract_version=6 if unique_fields else 5 if optional_scopes else 4 if any(item.hierarchy_parent is not None for item in profile_datasets) else 3,
+        compiler_version=7 if unique_fields else 6 if optional_scopes else 5 if any(item.hierarchy_parent is not None for item in profile_datasets) else 4,
         plan_id=f"browser_{token}",
         origin="browser_mapping",
         origin_hash=definition.content_hash,

@@ -17,6 +17,14 @@ Preparation itself is target-independent and must not contact Odoo. After the
 prepared result is approved, the Stage 4 page may hand the workspace to the
 single read-only comparison owned by Final review.
 
+Fields marked **Must be unique** also block repeated nonblank prepared values
+across incoming tables for the same Odoo model. The
+[field uniqueness contract](03-match-data.md#independent-field-uniqueness)
+defines exact equality, blank handling, and evidence ownership. The
+[stored quality regression](../../../tests/integration/duckdb/test_field_uniqueness_quality.py)
+checks every duplicate member across storage pages against the materialized
+evaluator and bounds local database owners and SQL work.
+
 ## Contextual user guidance
 
 The affected-records finding and prepared-data approval headings link to the
@@ -349,9 +357,7 @@ This is Python execution, so compiler diagnostics continue to report
 `COLUMNAR_FORMULA_UNSUPPORTED` for native preparation. Functions, conditionals,
 comparisons, and modulo retain the safe AST evaluator. Invalid formulas retain
 row-level failures. The arithmetic instructions do not use binary floating
-point or fix Decimal precision to a native storage scale. See the
-[implementation diagnostics](../../plans/11-preparation-efficiency-and-storage.md)
-for the local measurement and remaining native qualification.
+point or fix Decimal precision to a native storage scale.
 
 Compiler support does not by itself admit a run to the high-volume route.
 Full-pipeline admission also checks snapshots, dataset shape, and downstream
@@ -889,7 +895,18 @@ existing eight-connection request ceiling. In the shared-server composition,
 the data-plane worker publishes this bounded projection with its verified
 operation result; an application request must not reopen worker-owned DuckDB.
 
+Prepared review GETs combine workspace admission, journey policy, review
+queries, navigation and rendering in `run_workspace_page_read`. Group
+acceptance, send-back, reopening and final approval each use
+`run_local_operation`. The command's committed-summary read-back shares its
+physical database owners while retaining independent transactions. Approval
+also reads the source mode inside that operation. Rejected forms render in a
+separate bounded read after the failed command releases its owners. No local
+database work in these handlers runs on the event loop.
+
 ## Verification
+
+- [`tests/integration/web/test_normalization_performance.py`](../../../tests/integration/web/test_normalization_performance.py)
 
 - [`tests/application/workspace/preparation/test_capability.py`](../../../tests/application/workspace/preparation/test_capability.py)
 - [`tests/domain/recipe/test_columnar_compiler.py`](../../../tests/domain/recipe/test_columnar_compiler.py)

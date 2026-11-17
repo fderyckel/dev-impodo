@@ -36,6 +36,11 @@ from impodo.application.workspace.preparation.quality_finding_store import (
     QualityFindingStore,
 )
 from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.preparation.field_uniqueness import (
+    duplicate_field_message,
+    duplicate_field_values,
+    mapped_unique_fields,
+)
 from impodo.domain.preparation.quality import (
     MANDATORY_QUALITY_FAMILIES,
     QualityDependencyImpact,
@@ -56,7 +61,6 @@ from impodo.domain.preparation.quality import (
     _effective_disposition,
     _family_for_issue,
     _hash,
-    _identity_logical_references,
     _logical_reference_contexts,
     _logical_references,
     _prepared_numeric_precision_issue,
@@ -468,15 +472,14 @@ def build_bounded_quality_run(
     physical_rows: Mapping[str, tuple[int, ...]],
     ruleset: QualityRuleSet,
     published_staging_content_hash: str,
-    definition: MappingDefinition | None = None,
+    definition: MappingDefinition,
     numeric_fields: tuple[PreparedNumericField, ...] = (),
     finding_store: QualityFindingStore | None = None,
 ) -> StoredQualityRun:
     """Return lazy evidence for direct rows and compact mapping findings.
 
-    An exact mapping bound to validated staging identifies incoming identity
-    groups without reconstructing every canonical row. Calls
-    without that evidence retain the complete row-based compatibility check.
+    The exact mapping bound to validated staging identifies incoming identity
+    groups without reconstructing every canonical row.
     """
 
     if staging.workspace_id != workspace_state.workspace_id or ruleset.workspace_id != workspace_state.workspace_id:
@@ -498,27 +501,20 @@ def build_bounded_quality_run(
         or any(rule.source is not QualityRuleSource.MAPPING_DERIVED for rule in ruleset.rules)
     ):
         raise BoundedQualityUnsupported
-    if definition is not None:
-        if (
-            definition.content_hash != staging.mapping_hash
-            or definition.mapping_id != staging.mapping_id
-            or definition.schema_hash != staging.schema_hash
-            or definition.source_selection_hash != staging.source_selection_hash
-            or staging.validated_content_hash != published_staging_content_hash
-            or not staging.validated_content_hash
-        ):
-            raise QualityError("The mapping does not match the verified prepared evidence")
-        needs_identity_groups = any(
-            incoming_identity_group_fields(dataset) for dataset in definition.datasets
-        )
-    else:
-        needs_identity_groups = any(
-            reference.origin == "incoming" and reference.dataset
-            for row in staging.rows
-            for reference in _identity_logical_references(row)
-        )
+    if (
+        definition.content_hash != staging.mapping_hash
+        or definition.mapping_id != staging.mapping_id
+        or definition.schema_hash != staging.schema_hash
+        or definition.source_selection_hash != staging.source_selection_hash
+        or staging.validated_content_hash != published_staging_content_hash
+        or not staging.validated_content_hash
+    ):
+        raise QualityError("The mapping does not match the verified prepared evidence")
+    needs_identity_groups = any(
+        incoming_identity_group_fields(dataset) for dataset in definition.datasets
+    )
     # Group semantics require a verified direct index and its group adapter.
-    # Other stored sequences retain the authoritative compatibility route.
+    # Other stored sequences use the supported bounded scalar route.
     if isinstance(staging.rows, PreparedQualityIndexReader) and callable(
         staging.rows.bounded_quality_index
     ):
@@ -562,6 +558,7 @@ def build_bounded_quality_run(
                 rows=staging.rows,
                 include_identity_groups=needs_identity_groups,
                 finding_store=finding_store,
+                unique_fields=mapped_unique_fields(definition),
             )
     if needs_identity_groups:
         raise BoundedQualityUnsupported
@@ -655,6 +652,19 @@ def build_bounded_quality_run(
         or row_count != len(source_rows)
     ):
         raise BoundedQualityUnsupported
+
+    for row, field, count in duplicate_field_values(
+        staging.rows, mapped_unique_fields(definition)
+    ):
+        rule = rules_by_family[(row.dataset, QualityRuleFamily.BOUNDED_VALUES)]
+        issue = _quality_issue(
+            workspace_state, rule, row, "SOURCE_FIELD_NOT_UNIQUE",
+            duplicate_field_message(field, count), (field,),
+            policy=QualityOutcomePolicy.BLOCK,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+        dirty = True
 
     if not dirty:
         return StoredQualityRun(
@@ -965,6 +975,7 @@ def _build_indexed_quality_run(
     rows: PreparedQualityIndexReader,
     include_identity_groups: bool = False,
     finding_store: QualityFindingStore | None = None,
+    unique_fields: tuple[tuple[str, str], ...] = (),
 ) -> StoredQualityRun:
     """Build default-plus-exception evidence from set-validated row facts."""
 
@@ -1138,6 +1149,31 @@ def _build_indexed_quality_run(
             policy=rule.outcome,
         )
         attach(issue, row.row_id)
+
+    unique_counts = (
+        finding_store.mapping(
+            "unique_field_counts", encode_key=str, decode_key=str,
+            encode_value=str, decode_value=int,
+        ) if finding_store is not None and unique_fields else None
+    )
+    for canonical, field, count in duplicate_field_values(
+        staging.rows, unique_fields, counts=unique_counts,
+    ):
+        row = None
+        for physical_id, physical_rows in canonical.lineage.physical_sources.items():
+            for physical_row in physical_rows:
+                row = register(
+                    canonical.row_id, canonical.dataset, canonical.source_row,
+                    canonical.disposition.value, physical_id, physical_row,
+                )
+        if row is None:
+            raise BoundedQualityUnsupported
+        rule = rules_by_family[(row.dataset, QualityRuleFamily.BOUNDED_VALUES)]
+        attach(_quality_issue(
+            workspace_state, rule, row, "SOURCE_FIELD_NOT_UNIQUE",
+            duplicate_field_message(field, count), (field,),
+            policy=QualityOutcomePolicy.BLOCK,
+        ), row.row_id)
 
     for item in staging.issues:
         if item.dataset and item.source_row is None:

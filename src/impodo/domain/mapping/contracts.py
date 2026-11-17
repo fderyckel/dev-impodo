@@ -38,9 +38,9 @@ from ..serialization import canonical_json as _canonical_json
 from ..serialization import content_hash as _content_hash
 from ..serialization import portable as _portable
 
-MAPPING_CONTRACT_VERSION = 26
+MAPPING_CONTRACT_VERSION = 27
 SUPPORTED_MAPPING_CONTRACT_VERSIONS = frozenset(
-    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, MAPPING_CONTRACT_VERSION}
+    {12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, MAPPING_CONTRACT_VERSION}
 )
 MAX_VALUE_MAPPINGS = 1_000
 # Exact categorical policies do not require one authored mapping per source
@@ -648,6 +648,7 @@ class ScalarFieldMapping:
     value_mappings: tuple[ValueMapping, ...] = ()
     value_type: str = "string"
     required: bool = False
+    must_be_unique: bool = False
     required_on_create: bool = False
     compare: bool = True
     validate_only: bool = False
@@ -671,6 +672,10 @@ class ScalarFieldMapping:
             "value_source",
             ScalarValueSource(self.value_source),
         )
+        if self.must_be_unique and (
+            self.validate_only or self.value_source is ScalarValueSource.ODOO_DEFAULT
+        ):
+            raise ValueError("Must be unique requires a prepared field value. Choose a value to prepare and clear Check only.")
         object.__setattr__(
             self,
             "value_mappings",
@@ -961,6 +966,14 @@ class DatasetMapping:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
+        if self.mode is MappingTargetMode.ODOO_PINNED_UPDATE and any(
+            field.must_be_unique for field in self.fields
+        ):
+            raise ValueError("Must be unique is unavailable for protected Odoo corrections. Clear the rule or use an incoming-data workspace.")
+        if self.mode is MappingTargetMode.REFERENCE and any(
+            field.must_be_unique for field in self.fields
+        ):
+            raise ValueError("Must be unique requires a table that creates or updates records. Clear the rule or change the table's purpose.")
         excluded_columns = tuple(self.excluded_source_column_keys)
         if (
             any(not isinstance(key, str) or not key.strip() or len(key) > 500
@@ -1112,6 +1125,10 @@ class MappingDefinition:
     def __post_init__(self) -> None:
         if self.contract_version not in SUPPORTED_MAPPING_CONTRACT_VERSIONS:
             raise UnsupportedMappingContractError(self.contract_version)
+        if self.contract_version < 27 and any(
+            field.must_be_unique for dataset in self.datasets for field in dataset.fields
+        ):
+            raise ValueError("Must be unique requires mapping contract v27. Save the field matches and prepare again.")
         if self.contract_version < 26 and any(
             component.null_policy is IdentityNullPolicy.OPTIONAL_SCOPE_NULL
             for dataset in self.datasets
@@ -1455,6 +1472,9 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if contract_version < 27:
+        for scalar in payload["fields"]:
+            scalar.pop("must_be_unique")
     if not payload["excluded_source_column_keys"]:
         payload.pop("excluded_source_column_keys")
     for group in ("target_identity", "target_scope", "relationships"):
@@ -1608,6 +1628,8 @@ def _scalar_field_mapping_from_dict(
     contract_version: int,
 ) -> ScalarFieldMapping:
     expected_fields = _contract_fields(ScalarFieldMapping)
+    if contract_version < 27:
+        expected_fields.remove("must_be_unique")
     if contract_version < 14:
         expected_fields.remove("concatenation")
     _require_contract_fields(
@@ -1704,6 +1726,7 @@ def _scalar_field_mapping_from_dict(
         ),
         value_type=str(payload.get("value_type", "string")),
         required=bool(payload.get("required", False)),
+        must_be_unique=bool(payload.get("must_be_unique", False)),
         required_on_create=bool(
             payload.get("required_on_create", False)
         ),

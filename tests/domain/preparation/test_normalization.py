@@ -72,6 +72,7 @@ from impodo.domain.recipe.value_rules import ScalarTransformPolicy, TextTransfor
 
 from tests.domain.preparation.test_quality import (
     MAPPING_HASH,
+    QUALITY_DEFINITION,
     PHYSICAL_HASH,
     SCHEMA_HASH,
     SOURCE_HASH,
@@ -127,6 +128,7 @@ class NormalizationEvaluationTests(unittest.TestCase):
             ruleset=ruleset,
         )
         stored_quality = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=workspace_state,
             staging=stored_staging,
             physical_rows={"dataset:contacts": (2,)},

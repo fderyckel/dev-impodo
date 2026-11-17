@@ -69,12 +69,11 @@ does not override this list.
     uncertain saves, stale tabs, and restart recovery. The behavior is already
     implemented, so this item closes supported-platform evidence rather than
     adding another workflow.
-7. **Finish the bounded [preparation correctness and measurement work](11-preparation-efficiency-and-storage.md).**
-    This remains important where large or error-heavy datasets block current
-    work. Complete consumer boundaries, bounded finding publication, browser
-    recovery, and reproducible measurements. Keep the separate 100,000-row
-    mixed and related expansion deferred until real migration demand justifies
-    it.
+7. **Finish the remaining [preparation qualification](#preparation-qualification).**
+    Measure remaining record reconstruction and repeated validation, qualify
+    browser recovery, and collect reproducible supported-platform evidence.
+    Keep the separate 100,000-row mixed and related expansion deferred until
+    real migration demand justifies it.
 8. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
     The implemented ordering is useful, but the remaining work is primarily
     documentation, visual acceptance, and measurement. Do not redesign the
@@ -129,15 +128,41 @@ Reviewed exact-join graphs use volume advisories rather than a physical-row
 cutoff. Their worker qualification includes 65,299 and 100,000 source rows.
 Other current preparation limits are:
 
-- 100,000 physical rows for exact-snapshot, single-dataset direct mappings
-  compiled entirely to the verified native-columnar route;
-- 50,000 physical rows for current direct Python-fallback or relationship
-  routes; and
+- 100,000 physical rows for qualified exact-snapshot native direct mappings,
+  including direct relationships and relational identities, and for a direct
+  mapping whose only compiler fallback is row inclusion when every frozen
+  snapshot matches;
+- 50,000 physical rows for other direct Python-fallback routes, including
+  relationships that do not qualify for the higher limit;
 - 50,000 physical rows for one low-cardinality single-column lookup-derived
   table without advanced checks or reference data; and
 - 25,000 physical rows for other derived or materialized routes.
 
 This roadmap does not raise, remove, or reinterpret those limits.
+
+## Preparation qualification
+
+The remaining preparation work is:
+
+- Measure repeated prepared-evidence reads and full-record reconstruction.
+  Where the measurements justify a change, extend narrow value projections
+  and share validated metadata within one bounded synchronous operation.
+  Preserve current artifact-byte verification, lineage checks, exact hashes,
+  publication boundaries, and independent validation on the next operation.
+- Qualify browser preparation, progress, cancellation, retry, stale inputs,
+  and restart recovery with JSON, projected, and mixed datasets. Include
+  error-heavy data, wide findings, large collision groups, incoming-parent
+  propagation, and a self-referencing hierarchy within each admitted route.
+- Record matched Python 3.12 first and repeat runs in fresh Windows workers,
+  with at least three comparable measurements per workload. Capture phase and
+  total time, CPU, sampled memory, artifact and database sizes, query counts,
+  route choices, and exact output comparisons. Keep instrumented capacity
+  checks separate from timing comparisons and retain the supported-platform
+  release gates.
+- Establish the baseline and absolute memory budget before another
+  optimization. Validate the proposed target of a 30% reduction in median
+  total preparation time without increased peak worker memory. Investigate
+  sustained regressions above 10%; record any target revision and its evidence.
 
 ## Long-term deferred tracks
 
@@ -552,6 +577,23 @@ shared-server architecture is approved and retains bounded local trial work as
 item 3 in the current product-value order. Corporate identity providers remain
 sequenced after the first server release; they are not a prerequisite for the
 current container or PostgreSQL phases.
+
+### 9. Conditional native arithmetic and shared typed output
+
+**Status:** Conditional follow-up. The current bounded Python arithmetic and
+both current storage routes remain supported.
+
+Native Decimal arithmetic must preserve the authoritative evaluator's exact
+coercion, precision, rounding, null, overflow, division-by-zero, issue, and
+lineage behavior before capability selection changes. Do not substitute binary
+floating point or a fixed native scale that changes results.
+
+A shared typed output writer for Python and native evaluation requires a
+measured complete-workflow benefit, including issue and lineage storage. Bind
+logical transformation meaning separately from evaluator-specific
+reconstruction and define the writer, layout, and program versions before
+implementation. Preserve immutable source evidence and current rejection and
+fresh-preparation behavior for unsupported saved formats.
 
 ## Explicitly excluded work
 

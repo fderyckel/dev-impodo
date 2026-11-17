@@ -10,7 +10,8 @@
     for (const candidate of candidates) {
       if ((scope && !scope.contains(candidate)) || !isVisible(candidate) ||
           candidate.disabled || candidate.getAttribute("aria-disabled") === "true") continue;
-      const rank = Number(candidate.getAttribute("data-next-step"));
+      const rank = Number(candidate.getAttribute("data-next-step")) +
+        (candidate.form?.hasAttribute("data-next-dirty") ? 1000 : 0);
       if (Number.isFinite(rank) && rank >= priority) {
         selected = candidate;
         priority = rank;
@@ -40,12 +41,25 @@
       queued = true;
       window.queueMicrotask(update);
     };
+    const editing = (event) => {
+      const control = event.target;
+      if (control.name && !control.disabled && control.form?.querySelector("[data-next-step]")) {
+        control.form.setAttribute("data-next-dirty", "");
+      }
+      schedule();
+    };
+    const resetting = (event) => window.queueMicrotask(() => {
+      if (!event.defaultPrevented) event.target.removeAttribute("data-next-dirty");
+      schedule();
+    });
     const observer = new MutationObserver(schedule);
     observer.observe(root, {
       subtree: true, childList: true, attributes: true,
-      attributeFilter: ["hidden", "open", "disabled", "aria-disabled", "class", "style", "data-next-step"],
+      attributeFilter: ["hidden", "open", "disabled", "aria-disabled", "class", "style", "data-next-step", "data-next-dirty"],
     });
-    for (const event of ["toggle", "input", "change", "click"]) root.addEventListener(event, schedule, true);
+    for (const event of ["toggle", "click"]) root.addEventListener(event, schedule, true);
+    for (const event of ["input", "change"]) root.addEventListener(event, editing, true);
+    root.addEventListener("reset", resetting, true);
     window.addEventListener("resize", schedule);
     update();
     return {
@@ -53,7 +67,9 @@
       disconnect() {
         stopped = true;
         observer.disconnect();
-        for (const event of ["toggle", "input", "change", "click"]) root.removeEventListener(event, schedule, true);
+        for (const event of ["toggle", "click"]) root.removeEventListener(event, schedule, true);
+        for (const event of ["input", "change"]) root.removeEventListener(event, editing, true);
+        root.removeEventListener("reset", resetting, true);
         window.removeEventListener("resize", schedule);
       },
     };

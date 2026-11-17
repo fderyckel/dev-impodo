@@ -120,8 +120,13 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
                 "impodo.web.routers.summary._render_summary",
                 side_effect=AssertionError("summary read"),
             ),
+            patch.object(
+                context.normalization,
+                "current_group_review",
+                side_effect=AssertionError("normalization read"),
+            ),
         ):
-            for area in ("files", "sources", "schema", "mapping", "summary"):
+            for area in ("files", "sources", "schema", "mapping", "summary", "normalization"):
                 with (
                     self.subTest(area=area),
                     collect_duckdb_request_timings() as timings,
@@ -209,7 +214,7 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
                 side_effect=AssertionError("summary read"),
             ),
         ):
-            for area in ("mapping", "summary"):
+            for area in ("mapping", "summary", "normalization"):
                 response = self.client.get(
                     f"/workspaces/{workspace_id}/{area}", follow_redirects=False
                 )
@@ -246,7 +251,7 @@ class WorkspacePageAdmissionTests(ProjectSetupBrowserTestCase):
         )
         for area, stage in (
             ("files", 6), ("sources", 1), ("schema", 2),
-            ("mapping", 3), ("summary", 5), ("overview", 6),
+            ("mapping", 3), ("normalization", 4), ("summary", 5), ("overview", 6),
         ):
             response = self.client.get(
                 f"/workspaces/{workspace_id}/{area}", follow_redirects=False

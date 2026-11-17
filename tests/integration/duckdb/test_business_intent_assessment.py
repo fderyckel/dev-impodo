@@ -122,23 +122,26 @@ class BusinessIntentEnforcementTests(HierarchyWorkflowFixture):
     def test_edit_racing_journal_publication_cannot_commit_a_stale_approval(self):
         expected = self.assessment().content_hash
         checked, release = Event(), Event()
+        # These bounds prevent a stuck test; the event determines the race.
+        # Admission can take longer on a busy portable-suite host.
+        wait_seconds = 60
         read = business_intent_assessment_repository.current_business_assessment
         def read_then_wait(*args):
             assessment = read(*args)
             checked.set()
-            if not release.wait(10):
+            if not release.wait(wait_seconds):
                 raise RuntimeError("publication test timed out")
             return assessment
         with patch.object(business_intent_assessment_repository, "current_business_assessment", side_effect=read_then_wait):
             with ThreadPoolExecutor(max_workers=1) as workers:
                 future = workers.submit(self.execute, expected)
                 try:
-                    self.assertTrue(checked.wait(10))
+                    self.assertTrue(checked.wait(wait_seconds))
                     self.deny_product_creates()
                 finally:
                     release.set()
                 with self.assertRaises(WorkspaceError):
-                    future.result(timeout=10)
+                    future.result(timeout=wait_seconds)
         self.assert_no_load()
 
     def test_failed_comparison_publication_keeps_original_assessment_and_pointer(self):

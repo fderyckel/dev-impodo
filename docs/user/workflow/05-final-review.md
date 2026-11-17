@@ -307,25 +307,39 @@ rules and choices, such as a source column used for validation only or one
 you deliberately left unmapped in **Source columns set aside**. Filter by
 reason, dataset, or source field to find the entries you need.
 
-The counts separate identified source cells from whole columns. If a finding
-covers several source columns or lacks a precise source coordinate, Impodo
-lists it as a field finding. For direct file columns rejected during preparation,
-the workbook can show the original accepted value, including leading zeros and
-spaces. It uses saved source evidence, so recreating the workbook does not
-require the uploaded file. Excel display formatting, such as a custom date
-format, is not retained. If an original exceeds Excel's text limit or contains
+The counts separate verified source cells, whole columns and field findings.
+A linked record may need a code and a company to identify it. When those values
+come directly from separate file columns, Impodo shows each input on its own
+row. Both rows describe the same field finding. For example, a missing category
+identified by category code `000745` and company code `002` produces two input
+rows, two identified source cells and one saved finding. A cell used by several
+findings is counted once. If the complete input group cannot be verified,
+Impodo keeps one field finding and labels its original value **Unavailable**.
+
+For direct file columns, the workbook preserves the accepted value, including
+leading zeros and spaces. A list of linked values retains the complete original
+cell, including separators. It uses saved source evidence, so recreating the
+workbook does not require the uploaded file. Excel display formatting, such as
+a custom date format, is not retained. If an original exceeds Excel's text limit or contains
 unsupported characters, workbook creation stops with a message so you can
 review the finding in Impodo.
 
 A captured blank remains blank; its cell note distinguishes a blank cell from
 empty text. **Unavailable** means exact source evidence was not established.
 **Withheld** means the value is excluded because the workspace contains restricted
-data. Combined values and later comparison findings can still show
-**Unavailable**. **Deferred issues** explains why whole records were set aside.
+data. A link that uses a formula, builds a combined reference, or depends on
+generated columns can still show **Unavailable**. If any input cannot be traced
+to an accepted file column, the whole group stays unverified. Captured blank
+cells remain verified coordinates even when their values need correction. For a direct linked field, saved
+comparison errors can also show the original input when no related record
+matched, several records matched, or capitalization needs review. For example,
+a missing category code `000745` keeps its leading zeros. Other comparison
+findings can still show **Unavailable**.
+**Deferred issues** explains why whole records were set aside.
 
 Read the coverage note on this tab and in **Review overview**. It names gaps
 in the saved evidence, counts findings without available original values, and
-explains when a finding cannot be counted as one source cell. **No saved field
+explains when source-cell coordinates could not be verified. **No saved field
 omissions shown** means that no entries could be established from the available
 evidence; it does not prove that no fields were omitted. For an Odoo source,
 the note identifies details withheld from this export.

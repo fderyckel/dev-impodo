@@ -46,6 +46,11 @@ from impodo.domain.preparation.company_references import check_company_reference
 from impodo.domain.preparation.create_relationships import blank_create_reference
 from impodo.domain.preparation.incoming_references import incoming_business_reference
 from impodo.domain.preparation.source import PreparedBundle
+from impodo.domain.preparation.unique_targets import (
+    incoming_unique_issues,
+    target_unique_issues,
+    unique_target_index,
+)
 from impodo.domain.recipe.profile import (
     DatasetSpec,
     IdentityComponent,
@@ -127,6 +132,8 @@ class PreflightEngine:
             plan, with_selection_issues, catalog
         )
         resolution_evidence = list(resolved_evidence)
+        resolved_records = incoming_unique_issues(plan, resolved_records)
+        unique_index = unique_target_index(plan, catalog)
         captured_models = {model.name: model for model in captured_schema.models} if captured_schema else {}
 
         decisions: list[Decision] = []
@@ -159,6 +166,10 @@ class PreflightEngine:
             } if model else None
             for record in dataset_records:
                 matches = target_index.get((record.target_identity, record.target_scope), ())
+                unique_issues = target_unique_issues(dataset, record, matches, unique_index)
+                if unique_issues:
+                    record = replace(record, issues=(*record.issues, *unique_issues))
+                    runtime_issues.extend(unique_issues)
                 if len(matches) == 1 and claimed_targets[matches[0].odoo_id] > 1:
                     record = replace(record, issues=(*record.issues, Issue(
                         code="SOURCE_RECORD_TARGET_CONFLICT",

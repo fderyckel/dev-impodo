@@ -1,4 +1,10 @@
 <div class="policy-cell">
+  {% set supports_uniqueness = not view.odoo_pinned and (not view.mapping or view.mapping.mode.value != 'reference') and not row.metadata.readonly and row.metadata.searchable is not sameas false and row.metadata.company_dependent is not sameas true and row.metadata.type in ('char', 'text', 'selection', 'integer', 'float', 'monetary', 'date', 'datetime', 'boolean') %}
+  {% if supports_uniqueness or (mapping and mapping.must_be_unique) %}
+  <label><input type="checkbox" name="scalar_unique_{{ dataset_index }}_{{ field_index }}" value="1" {% if mapping and mapping.must_be_unique %}checked{% endif %}> Must be unique</label>
+  <p class="field-help">Checks prepared values across incoming tables for this Odoo record type, then against readable Odoo records in the selected company access context. Blank values are ignored. Updates to the same record are allowed.</p>
+  {% if not supports_uniqueness %}<p class="field-help">This field no longer supports the rule. Clear Must be unique or choose a suitable writable field, then check matches again.</p>{% endif %}
+  {% endif %}
   <label>
     Blank source values
     <select name="scalar_null_{{ dataset_index }}_{{ field_index }}">

@@ -10,6 +10,15 @@ from unittest.mock import patch
 
 from impodo.application.workspace.preparation.bounded_quality import build_bounded_quality_run, materialize_staging_run
 from impodo.domain.preparation.quality import QualityOutcomePolicy, QualityRuleFamily, default_quality_ruleset, evaluate_quality
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    IdentityNullPolicy,
+    MappingDefinition,
+    RelationshipResolver,
+    ResolverOrigin,
+    ScalarFieldMapping,
+)
 from impodo.domain.shared.models import Issue, LogicalReference, Severity
 from impodo.domain.staging.canonical_projection import canonical_prepared_session_row
 from impodo.domain.staging.transformation_impact import TransformationImpactReport
@@ -19,7 +28,7 @@ from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.adapters.duckdb import preparation_identity_group_quality as group_adapter
 from tests.integration.duckdb import test_preparation_session as session_fixtures
 from tests.integration.duckdb.test_preparation_session import (
-    SOURCE_HASH, SELECTION_HASH, MAPPING_HASH, SCHEMA_HASH,
+    SOURCE_HASH, SELECTION_HASH, SCHEMA_HASH,
 )
 from tests.domain.preparation.test_quality import _materialized_bounded_quality
 
@@ -34,7 +43,50 @@ class IdentityGroupQualityTests(unittest.TestCase):
 
     def _stored(self, specifications, model_prefix="x_custom"):
         names = sorted({item["dataset"] for item in specifications})
-        bindings = replace(self.bindings, source_hashes={name: SOURCE_HASH for name in names})
+        definition = MappingDefinition(
+            mapping_id=self.bindings.mapping_id,
+            source_selection_hash=SELECTION_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=tuple(
+                DatasetMapping(
+                    dataset_id=f"dataset:{name}", target_model=f"{model_prefix}.{name}",
+                    source_identity_column_keys=("column:key",),
+                    target_identity=(IdentityComponentMapping(
+                        source_column_keys=("column:key",), target_fields=("x_key",),
+                    ),),
+                    # Canonical-row fixtures declare their identity-parent graph
+                    # separately from ordinary linked fields.
+                    target_scope=tuple(
+                        IdentityComponentMapping(
+                            source_column_keys=(f"column:parent_{index}",),
+                            target_fields=(f"x_parent_{index}",),
+                            resolver=RelationshipResolver(
+                                origin=ResolverOrigin.DATASET,
+                                dataset_id=f"dataset:{parent}",
+                            ),
+                            null_policy=IdentityNullPolicy.EXPLICIT_SCOPE_NULL,
+                        )
+                        for index, parent in enumerate(sorted({
+                            value.dataset
+                            for spec in specifications if spec["dataset"] == name
+                            for value in (*spec.get("identity", ()), *spec.get("scope", ()))
+                            if isinstance(value, LogicalReference)
+                            and value.origin == "incoming" and value.dataset
+                        }))
+                    ),
+                    fields=tuple(
+                        ScalarFieldMapping(target_field=field, source_column_key=f"column:{field}")
+                        for field in sorted({
+                            field for spec in specifications if spec["dataset"] == name
+                            for field in spec.get("scalars", {"x_amount": 1})
+                        })
+                    ),
+                )
+                for name in names
+            ),
+        )
+        bindings = replace(self.bindings, mapping_hash=definition.content_hash,
+                           source_hashes={name: SOURCE_HASH for name in names})
         session = self.repository.begin_direct_session(self.workspace_state.workspace_id, bindings, actor=LOCAL_ACTOR)
         rows = []
         run_issues = []
@@ -54,7 +106,7 @@ class IdentityGroupQualityTests(unittest.TestCase):
                 target_scope=spec.get("scope", ()), scalar_values=spec.get("scalars", {"x_amount": 1}),
                 references=spec.get("references", {}), issues=issues, ordinal=ordinal,
                 mode="upsert", source_hash=SOURCE_HASH, source_selection_hash=SELECTION_HASH,
-                mapping_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH, field_sources={},
+                mapping_hash=definition.content_hash, schema_hash=SCHEMA_HASH, field_sources={},
                 physical_dataset_id=f"dataset:{dataset}",
             )
             if spec.get("excluded"):
@@ -71,18 +123,18 @@ class IdentityGroupQualityTests(unittest.TestCase):
             self.workspace_state.workspace_id, session.session_id,
             dataset_evidence={name: (f"dataset:{name}", StagingDatasetRole.DIRECT, counts[name], f"{model_prefix}.{name}") for name in names},
             run_issues=run_issues, control_totals=(), impact_report=TransformationImpactReport(
-                mapping_content_hash=MAPPING_HASH, evaluated_count=0, changed_count=0,
+                mapping_content_hash=definition.content_hash, evaluated_count=0, changed_count=0,
                 fallback_count=0, null_count=0, invalid_count=0, provided_count=0,
                 unchanged_count=0, rows=(), detail_limit=0,
             ),
         )
         physical = {f"dataset:{name}": tuple(range(2, counts[name] + 2)) for name in names}
         ruleset = default_quality_ruleset(workspace_id=self.workspace_state.workspace_id,
-            mapping_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH, datasets=names)
-        return stored, physical, ruleset
+            mapping_hash=definition.content_hash, schema_hash=SCHEMA_HASH, datasets=names)
+        return stored, physical, ruleset, definition
 
     def _assert_parity(self, specifications, model_prefix="x_custom", warnings=()):
-        stored, physical, ruleset = self._stored(specifications, model_prefix)
+        stored, physical, ruleset, definition = self._stored(specifications, model_prefix)
         ruleset = replace(ruleset, rules=tuple(
             replace(rule, outcome=QualityOutcomePolicy.WARNING)
             if rule.family is QualityRuleFamily.RELATIONSHIP_READINESS and rule.dataset in warnings else rule
@@ -91,7 +143,8 @@ class IdentityGroupQualityTests(unittest.TestCase):
         expected = evaluate_quality(workspace_state=self.workspace_state, staging=materialize_staging_run(stored),
             physical_rows=physical, ruleset=ruleset, published_staging_content_hash=stored.validated_content_hash)
         actual = build_bounded_quality_run(workspace_state=self.workspace_state, staging=stored,
-            physical_rows=physical, ruleset=ruleset, published_staging_content_hash=stored.validated_content_hash)
+            physical_rows=physical, ruleset=ruleset, definition=definition,
+            published_staging_content_hash=stored.validated_content_hash)
         self.assertEqual(_materialized_bounded_quality(actual).to_json(), expected.to_json())
         return actual
 
@@ -181,7 +234,7 @@ class IdentityGroupQualityTests(unittest.TestCase):
         ])
 
     def test_interrupted_group_projection_rebuilds_without_changing_canonical_evidence(self):
-        stored, physical, ruleset = self._stored([
+        stored, physical, ruleset, definition = self._stored([
             {"dataset": "documents", "key": "A"},
             {"dataset": "entries", "key": "one", "scope": (_link("documents", "A"),), "unsafe": True},
             {"dataset": "entries", "key": "two", "scope": (_link("documents", "A"),)},
@@ -197,14 +250,14 @@ class IdentityGroupQualityTests(unittest.TestCase):
 
         with patch.object(group_adapter, "_project_group_edges", interrupted):
             with self.assertRaisesRegex(RuntimeError, "interrupted after group projection"):
-                build_bounded_quality_run(**arguments)
-        actual = build_bounded_quality_run(**arguments)
+                build_bounded_quality_run(**arguments, definition=definition)
+        actual = build_bounded_quality_run(**arguments, definition=definition)
         expected = evaluate_quality(**{**arguments, "staging": materialize_staging_run(stored)})
         self.assertEqual(_materialized_bounded_quality(actual).to_json(), expected.to_json())
         self.assertEqual(materialize_staging_run(stored).content_hash, stored.validated_content_hash)
 
     def test_projection_pages_only_identity_scope_and_links_for_wide_rows(self):
-        stored, _, _ = self._stored([
+        stored, _, _, _ = self._stored([
             {"dataset": "documents", "key": "A", "scalars": {"x_wide": "v" * 100_000}},
             *({"dataset": "entries", "key": str(index), "scope": (_link("documents", "A"),),
                "scalars": {"x_wide": "v" * 100_000}} for index in range(7)),
@@ -245,7 +298,7 @@ class IdentityGroupQualityTests(unittest.TestCase):
 
     def test_large_unicode_identity_is_projected_alone_without_dropping_following_rows(self):
         key = "é" * 900
-        stored, _, _ = self._stored([
+        stored, _, _, _ = self._stored([
             {"dataset": "documents", "key": key},
             *({"dataset": "entries", "key": str(index), "scope": (_link("documents", key),)}
               for index in range(3)),

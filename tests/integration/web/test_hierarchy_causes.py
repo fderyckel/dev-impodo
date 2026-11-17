@@ -65,10 +65,9 @@ class HierarchyCauseWorkflowTests(HierarchyWorkflowFixture):
             )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertIn("Records affected by this issue", response.text)
-        # Two admission owners precede the retained page's registry, workspace,
-        # engine, and Data version owners. The Data version read resolves the
-        # saved source column names; the four store contracts validate once.
-        self.assertLessEqual(timings.connection_count, 6)
+        # Admission and rendering share the registry, workspace, engine and
+        # Data version owners. Source labels still use their bound evidence.
+        self.assertLessEqual(timings.connection_count, 4)
         self.assertLessEqual(timings.schema_check_count, 4)
         # Prepared records add four bounded reads to the existing page budget.
         prepared_reads = (

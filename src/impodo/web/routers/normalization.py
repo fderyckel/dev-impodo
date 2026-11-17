@@ -6,19 +6,18 @@ from urllib.parse import urlencode
 
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from starlette.concurrency import run_in_threadpool
 
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import SourceMode, WorkspaceStateError
 
 from ...domain.errors import ReadinessError
-from ..composition.page_reads import run_page_read
+from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _secure_form
 from ..presenters.common import _flash
 from ..presenters.summary import _render_normalization
 from ..request_identity import request_identity
-from ..security import require_session
+from ..security import require_session, run_workspace_page_read
 
 _REVIEW_STATUSES = frozenset(
     {"automatic", "pending", "reviewed", "set_aside"}
@@ -52,7 +51,10 @@ def build_normalization_router(context: WebContext) -> APIRouter:
     @router.get("/workspaces/{workspace_id}/normalization", response_class=HTMLResponse)
     async def review_prepared_data(request: Request, workspace_id: str):
         require_session(request)
-        return await run_page_read(_render_normalization, request, context, workspace_id)
+        return await run_workspace_page_read(
+            request,
+            lambda: _render_normalization(request, context, workspace_id),
+        )
 
     @router.post(
         "/workspaces/{workspace_id}/normalization/groups/{group_id}/accept"
@@ -70,7 +72,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         )
         actor = request_identity(request, context.identity_resolver).actor
         try:
-            await run_in_threadpool(
+            await run_local_operation(
                 context.normalization.decide_group,
                 workspace_id,
                 str(form["run_id"]),
@@ -80,7 +82,8 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 actor=actor,
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
-            return _render_normalization(
+            return await run_page_read(
+                _render_normalization,
                 request,
                 context,
                 workspace_id,
@@ -103,7 +106,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
         )
         actor = request_identity(request, context.identity_resolver).actor
         try:
-            await run_in_threadpool(
+            await run_local_operation(
                 context.normalization.reopen_review,
                 workspace_id,
                 str(form["run_id"]),
@@ -112,7 +115,8 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 reason="Reopened by the data manager after a sent-back change.",
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
-            return _render_normalization(
+            return await run_page_read(
+                _render_normalization,
                 request,
                 context,
                 workspace_id,
@@ -146,7 +150,7 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 raise WorkspaceStateError("Explain what needs fixing before continuing")
             if len(reason) > 1000:
                 raise WorkspaceStateError("The explanation is too long")
-            await run_in_threadpool(
+            await run_local_operation(
                 context.normalization.decide_group,
                 workspace_id,
                 str(form["run_id"]),
@@ -157,7 +161,8 @@ def build_normalization_router(context: WebContext) -> APIRouter:
                 reason=reason,
             )
         except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
-            return _render_normalization(
+            return await run_page_read(
+                _render_normalization,
                 request,
                 context,
                 workspace_id,
@@ -179,24 +184,31 @@ def build_normalization_router(context: WebContext) -> APIRouter:
             {"csrf_token", "run_id", "lifecycle_version"},
         )
         actor = request_identity(request, context.identity_resolver).actor
-        try:
-            await run_in_threadpool(
-                context.normalization.approve,
-                workspace_id,
-                str(form["run_id"]),
-                expected_version=int(str(form["lifecycle_version"])),
-                actor=actor,
-            )
-        except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
-            return _render_normalization(
+        def approve_and_read_source_mode() -> tuple[SourceMode | None, str | None]:
+            try:
+                context.normalization.approve(
+                    workspace_id,
+                    str(form["run_id"]),
+                    expected_version=int(str(form["lifecycle_version"])),
+                    actor=actor,
+                )
+            except (WorkspaceStateError, ReadinessError, WorkspaceError, ValueError) as error:
+                return None, str(error)
+            # Keep the post-commit read in the same local scope while preserving
+            # the command-only error boundary if that read itself fails.
+            return context.queries.get(workspace_id).source_mode, None
+
+        source_mode, error_message = await run_local_operation(approve_and_read_source_mode)
+        if error_message is not None:
+            return await run_page_read(
+                _render_normalization,
                 request,
                 context,
                 workspace_id,
-                error=str(error),
+                error=error_message,
                 status_code=422,
             )
-        workspace_state = context.queries.get(workspace_id)
-        if workspace_state.source_mode is SourceMode.ODOO:
+        if source_mode is SourceMode.ODOO:
             _flash(
                 request,
                 "Prepared Odoo records approved. Compare them with Odoo next.",

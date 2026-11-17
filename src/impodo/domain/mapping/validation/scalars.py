@@ -145,6 +145,17 @@ def _validate_scalar(
             _target_unknown(dataset, path, field_mapping.target_field)
         )
         return
+    if field_mapping.must_be_unique and (
+        metadata.readonly or metadata.searchable is False
+        or metadata.company_dependent is True
+        or metadata.type not in {"char", "text", "selection", "integer", "float", "monetary", "date", "datetime", "boolean"}
+    ):
+        issues.append(_issue(
+            "MAPPING_UNIQUENESS_UNSUPPORTED", path,
+            "Must be unique needs a searchable scalar field whose value is not company-dependent.",
+            "Clear Must be unique or choose a supported writable field.",
+            dataset=dataset, target_field=field_mapping.target_field,
+        ))
     if metadata.type in _RELATION_TYPES:
         issues.append(
             _issue(

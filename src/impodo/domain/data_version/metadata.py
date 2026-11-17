@@ -91,6 +91,15 @@ def validate_plan_metadata(
                 issues.extend(
                     _validate_scalar(dataset, field_name, scalar, metadata.type, metadata.readonly)
                 )
+                if scalar.must_be_unique and (
+                    metadata.searchable is False or metadata.company_dependent is True
+                    or metadata.type not in {"char", "text", "selection", "integer", "float", "monetary", "date", "datetime", "boolean"}
+                ):
+                    issues.append(Issue(
+                        code="TARGET_UNIQUENESS_UNSUPPORTED",
+                        message="Must be unique requires a searchable scalar field whose value is not company-dependent. Review the field rule and compare again.",
+                        dataset=dataset.name, field=field_name,
+                    ))
             if relation is not None:
                 expected_model = (
                     relation.resolve.target_model

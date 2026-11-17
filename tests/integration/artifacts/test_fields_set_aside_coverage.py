@@ -23,13 +23,16 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
     field_set_aside_evidence,
 )
-from impodo.domain.preflight.original_values import OriginalSourceValue
-from impodo.domain.source_snapshot import EncodedSourceCell
+from impodo.domain.preflight.original_values import (
+    OriginalSourceInput,
+    OriginalSourceValue,
+)
 from impodo.domain.preflight.reports import (
     ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
 )
 from impodo.domain.shared.models import Classification, PreparedRecord
+from impodo.domain.source_snapshot import EncodedSourceCell
 from tests.integration.artifacts.test_preflight_outputs import ROOT, golden_result
 from tests.integration.artifacts.test_reporting_cli import _prepared_records
 
@@ -189,7 +192,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("code",),
                 "ref",
                 "Invalid code.",
-                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("00123")),
+                (OriginalSourceInput("code", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("00123"))),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.RULE,
@@ -198,7 +201,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("phone",),
                 "phone",
                 "Preserve the existing phone.",
-                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("")),
+                (OriginalSourceInput("phone", OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -207,6 +210,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("date",),
                 "date_start",
                 "Invalid start date.",
+                (OriginalSourceInput("date", OriginalSourceValue.unavailable()),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -215,6 +219,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("date",),
                 "date_end",
                 "Invalid end date.",
+                (OriginalSourceInput("date", OriginalSourceValue.unavailable()),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -223,7 +228,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("first", "last"),
                 "name",
                 "Combined value rejected.",
-                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("Left / Right")),
+                (),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -254,15 +259,15 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 sheet = workbook["Fields set aside"]
                 summary = sheet["A2"].value
                 self.assertTrue(summary.startswith("Partial coverage:"))
-                self.assertIn("3 finding(s) have no available original value", summary)
+                self.assertIn("4 finding(s) have no available original value", summary)
                 self.assertIn(
-                    "2 finding(s) cannot be counted as a single source cell", summary
+                    "2 finding(s) have no verified source-cell coordinates", summary
                 )
                 self.assertEqual(sheet["A4"].value, "3 identified source cells")
                 self.assertEqual(sheet["D4"].value, "1 whole column")
                 self.assertEqual(sheet["G4"].value, "7 saved findings")
                 rows = tuple(sheet.iter_rows(min_row=7, values_only=True))
-                self.assertEqual(sum(row[4] == "Unavailable" for row in rows), 3)
+                self.assertEqual(sum(row[4] == "Unavailable" for row in rows), 4)
                 self.assertIsNone(next(row[4] for row in rows if row[3] == "phone"))
                 self.assertIsNone(next(row[4] for row in rows if row[3] == "notes"))
                 self.assertEqual(
@@ -407,7 +412,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                     (secret,),
                     "name",
                     secret,
-                    OriginalSourceValue.from_cell(EncodedSourceCell.from_python(secret)),
+                    (OriginalSourceInput(secret, OriginalSourceValue.from_cell(EncodedSourceCell.from_python(secret))),),
                 ),
             ),
             coverage_gaps=(secret,),
@@ -467,7 +472,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                     ("code",),
                     "ref",
                     "Saved invalid value.",
-                    OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2")),
+                    (OriginalSourceInput("code", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
                 ),
             ),
             coverage_gaps=("Unrecorded source exclusions.",),

@@ -5,7 +5,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from ..composition.page_reads import run_page_read
 from ..context import WebContext
 from ..presenters.summary import _render_quality_cause, _render_summary
 from ..security import require_session, run_workspace_page_read
@@ -58,12 +57,9 @@ def build_summary_router(context: WebContext) -> APIRouter:
         cause_key: str,
     ):
         require_session(request)
-        return await run_page_read(
-            _render_quality_cause,
+        return await run_workspace_page_read(
             request,
-            context,
-            workspace_id,
-            cause_key,
+            lambda: _render_quality_cause(request, context, workspace_id, cause_key),
         )
 
     return router

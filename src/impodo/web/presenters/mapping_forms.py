@@ -366,6 +366,7 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                     f"scalar_compare_{dataset_index}_{field_index}",
                     f"scalar_validate_only_{dataset_index}_{field_index}",
                     f"scalar_required_{dataset_index}_{field_index}",
+                    f"scalar_unique_{dataset_index}_{field_index}",
                     f"scalar_required_create_{dataset_index}_{field_index}",
                     f"scalar_null_{dataset_index}_{field_index}",
                 }
@@ -852,6 +853,10 @@ def _mapping_datasets_from_form(
                     required=_checked(
                         form,
                         f"scalar_required_{dataset_index}_{field_index}",
+                    ),
+                    must_be_unique=_checked(
+                        form,
+                        f"scalar_unique_{dataset_index}_{field_index}",
                     ),
                     required_on_create=_checked(
                         form,

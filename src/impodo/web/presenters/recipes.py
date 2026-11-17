@@ -50,6 +50,7 @@ def build_recipe_change_view(
                 ),
                 "write_behavior": _write_behavior(mapping, field, provider),
                 "blank_behavior": _blank_behavior(field, provider),
+                "must_be_unique": bool(field.get("must_be_unique", False)),
             })
     added = sorted(new_columns.keys() - old_columns.keys())
     removed = sorted(old_columns.keys() - new_columns.keys())

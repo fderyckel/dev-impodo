@@ -24,7 +24,9 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
 )
 from impodo.domain.preflight.original_values import (
+    OriginalSourceInput,
     OriginalSourceRequest,
+    OriginalSourceTarget,
     OriginalSourceValue,
     OriginalValueState,
 )
@@ -116,6 +118,7 @@ def _finding(
     keys: tuple[str, ...] = (_CODE,),
     *,
     target_field: str = "ref",
+    proven: bool = True,
 ) -> FieldSetAside:
     return FieldSetAside(
         FieldSetAsideReason.INVALID,
@@ -124,6 +127,14 @@ def _finding(
         keys,
         target_field,
         "The saved preparation could not use this value.",
+        source_inputs=(
+            tuple(
+                OriginalSourceInput(key, OriginalSourceValue.unavailable())
+                for key in keys
+            )
+            if proven and row is not None
+            else ()
+        ),
     )
 
 
@@ -161,7 +172,9 @@ def _evidence(
                 snapshot,
                 "partners",
                 cells,
-                tuple((row, key, "ref") for row, key in cells),
+                tuple(
+                    OriginalSourceTarget(row, key, "ref", (key,)) for row, key in cells
+                ),
             ),
         ),
     )
@@ -191,7 +204,8 @@ class ReviewOriginalValuesTests(unittest.TestCase):
 
         assert hydrated is not None and hydrated.fields_set_aside is not None
         values = tuple(
-            finding.source_value for finding in hydrated.fields_set_aside.findings
+            finding.source_inputs[0].value
+            for finding in hydrated.fields_set_aside.findings
         )
         self.assertEqual(tuple(value.text for value in values), originals)
         self.assertEqual(
@@ -204,7 +218,7 @@ class ReviewOriginalValuesTests(unittest.TestCase):
         assert evidence.fields_set_aside is not None
         self.assertTrue(
             all(
-                finding.source_value.state is OriginalValueState.UNAVAILABLE
+                finding.source_inputs[0].value.state is OriginalValueState.UNAVAILABLE
                 for finding in evidence.fields_set_aside.findings
             )
         )
@@ -233,7 +247,10 @@ class ReviewOriginalValuesTests(unittest.TestCase):
                     snapshot,
                     "partners",
                     ((2, _OTHER), (3, _CODE)),
-                    ((2, _OTHER, "ref"), (3, _CODE, "ref")),
+                    (
+                        OriginalSourceTarget(2, _OTHER, "ref", (_OTHER,)),
+                        OriginalSourceTarget(3, _CODE, "ref", (_CODE,)),
+                    ),
                 ),
             ),
         )
@@ -252,15 +269,16 @@ class ReviewOriginalValuesTests(unittest.TestCase):
         assert hydrated is not None and hydrated.fields_set_aside is not None
         self.assertEqual(
             tuple(
-                finding.source_value.text
+                tuple(item.value.text for item in finding.source_inputs)
                 for finding in hydrated.fields_set_aside.findings
             ),
-            ("001", "A", "002", None, None, None),
+            (("001",), ("A",), ("002",), (), (None, None), (None,)),
         )
         self.assertTrue(
             all(
-                finding.source_value.state is OriginalValueState.UNAVAILABLE
+                item.value.state is OriginalValueState.UNAVAILABLE
                 for finding in hydrated.fields_set_aside.findings[3:]
+                for item in finding.source_inputs
             )
         )
 
@@ -278,11 +296,117 @@ class ReviewOriginalValuesTests(unittest.TestCase):
 
         assert hydrated is not None and hydrated.fields_set_aside is not None
         direct_result, formula_result = hydrated.fields_set_aside.findings
-        self.assertEqual(direct_result.source_value.text, "001")
+        self.assertEqual(direct_result.source_inputs[0].value.text, "001")
         self.assertEqual(formula_result, unproven_formula)
         self.assertEqual(
-            formula_result.source_value.state, OriginalValueState.UNAVAILABLE
+            formula_result.source_inputs[0].value.state, OriginalValueState.UNAVAILABLE
         )
+
+    def test_complete_scoped_inputs_keep_order_and_values_with_one_snapshot_read(
+        self,
+    ) -> None:
+        snapshot, _ = _publish(
+            self.artifacts, _frame(((2, "001", "  EU  "), (3, "=1+2", None)))
+        )
+        cohort = (_OTHER, _CODE)
+        findings = (
+            _finding(2, cohort, target_field="contact_id"),
+            _finding(3, cohort, target_field="contact_id"),
+            _finding(2, target_field="code_ref"),
+        )
+        cells = ((2, _CODE), (2, _OTHER), (3, _CODE), (3, _OTHER))
+        targets = tuple(
+            OriginalSourceTarget(row, key, "contact_id", cohort)
+            for row in (2, 3)
+            for key in cohort
+        ) + (OriginalSourceTarget(2, _CODE, "code_ref", (_CODE,)),)
+        evidence = replace(
+            _evidence(snapshot, cells, findings=findings),
+            original_source_requests=(
+                OriginalSourceRequest(snapshot, "partners", cells, targets),
+            ),
+        )
+        with patch.object(
+            self.artifacts,
+            "materialize_source_snapshot",
+            wraps=self.artifacts.materialize_source_snapshot,
+        ) as materialize:
+            hydrated = populate_workbook_original_values(evidence, self.artifacts)
+
+        materialize.assert_called_once_with(
+            _OWNER,
+            snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        )
+        assert hydrated is not None and hydrated.fields_set_aside is not None
+        result = hydrated.fields_set_aside.findings
+        self.assertEqual(len(result), len(findings))
+        self.assertEqual(
+            tuple(item.source_key for item in result[0].source_inputs), cohort
+        )
+        self.assertEqual(
+            tuple(
+                tuple(item.value.text for item in finding.source_inputs)
+                for finding in result
+            ),
+            (("  EU  ", "001"), (None, "=1+2"), ("001",)),
+        )
+        self.assertEqual(
+            result[1].source_inputs[0].value.state, OriginalValueState.BLANK
+        )
+        self.assertEqual(
+            tuple(finding.detail for finding in result),
+            tuple(finding.detail for finding in findings),
+        )
+        self.assertIs(
+            result[0].source_inputs[1].value, result[2].source_inputs[0].value
+        )
+        self.assertEqual(hydrated.original_source_requests, ())
+
+    def test_authorization_matches_the_complete_ordered_cohort_without_guessing_inputs(
+        self,
+    ) -> None:
+        snapshot, _ = _publish(self.artifacts, _frame(((2, "001", "scope"),)))
+        cohorts = ((_CODE,), (_CODE, _OTHER), (_OTHER, _CODE))
+        findings = tuple(_finding(2, keys) for keys in cohorts) + (
+            _finding(2, (_CODE, _OTHER), proven=False),
+        )
+        for authorized in cohorts:
+            with self.subTest(authorized=authorized):
+                cells = tuple((2, key) for key in authorized)
+                targets = tuple(
+                    OriginalSourceTarget(2, key, "ref", authorized)
+                    for key in authorized
+                )
+                evidence = replace(
+                    _evidence(snapshot, cells, findings=findings),
+                    original_source_requests=(
+                        OriginalSourceRequest(snapshot, "partners", cells, targets),
+                    ),
+                )
+                hydrated = populate_workbook_original_values(evidence, self.artifacts)
+                assert hydrated is not None and hydrated.fields_set_aside is not None
+                for before, after in zip(
+                    findings, hydrated.fields_set_aside.findings, strict=True
+                ):
+                    if before.source_keys != authorized or not before.source_inputs:
+                        self.assertEqual(after, before)
+                    else:
+                        self.assertTrue(
+                            all(
+                                item.value.state is OriginalValueState.PRESENT
+                                for item in after.source_inputs
+                            )
+                        )
+                        self.assertEqual(
+                            tuple(item.value.text for item in after.source_inputs),
+                            tuple(
+                                "001" if key == _CODE else "scope" for key in authorized
+                            ),
+                        )
+                self.assertEqual(
+                    hydrated.fields_set_aside.findings[-1].source_inputs, ()
+                )
 
     def test_only_selected_rows_and_columns_stream_in_bounded_batches(self) -> None:
         rows = tuple((row, f"code-{row}", "not-an-integer") for row in range(2, 1_104))
@@ -328,10 +452,11 @@ class ReviewOriginalValuesTests(unittest.TestCase):
         )
         assert hydrated is not None and hydrated.fields_set_aside is not None
         self.assertEqual(
-            hydrated.fields_set_aside.findings[0].source_value.text, "code-3"
+            hydrated.fields_set_aside.findings[0].source_inputs[0].value.text, "code-3"
         )
         self.assertEqual(
-            hydrated.fields_set_aside.findings[-1].source_value.text, "code-1103"
+            hydrated.fields_set_aside.findings[-1].source_inputs[0].value.text,
+            "code-1103",
         )
 
     def test_restricted_evidence_drops_requests_and_existing_originals_without_reading(
@@ -339,9 +464,16 @@ class ReviewOriginalValuesTests(unittest.TestCase):
     ) -> None:
         snapshot, _ = _publish(self.artifacts, _frame(((2, "secret", "unused"),)))
         finding = replace(
-            _finding(2),
-            source_value=OriginalSourceValue.from_cell(
-                EncodedSourceCell.from_python("previously hydrated secret")
+            _finding(2, (_CODE, _OTHER)),
+            source_inputs=tuple(
+                OriginalSourceInput(
+                    key,
+                    OriginalSourceValue.from_cell(EncodedSourceCell.from_python(value)),
+                )
+                for key, value in (
+                    (_CODE, "previously hydrated secret"),
+                    (_OTHER, "private scope"),
+                )
             ),
         )
         evidence = _evidence(
@@ -363,8 +495,8 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             assert hydrated is not None and hydrated.fields_set_aside is not None
             self.assertEqual(hydrated.original_source_requests, ())
             self.assertEqual(
-                hydrated.fields_set_aside.findings[0].source_value,
-                OriginalSourceValue.withheld(),
+                hydrated.fields_set_aside.findings[0].source_inputs,
+                (),
             )
 
     def test_absent_evidence_or_requests_does_not_open_a_snapshot(self) -> None:
@@ -443,7 +575,10 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             original_source_requests=(
                 *evidence.original_source_requests,
                 OriginalSourceRequest(
-                    second, "partners", ((2, _CODE),), ((2, _CODE, "ref"),)
+                    second,
+                    "partners",
+                    ((2, _CODE),),
+                    (OriginalSourceTarget(2, _CODE, "ref", (_CODE,)),),
                 ),
             ),
         )

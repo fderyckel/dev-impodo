@@ -12,8 +12,15 @@ from impodo.application.workspace.review.original_values import (
 )
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.contracts import (
+    ConstantBusinessReference,
+    ConstantReferenceComponent,
     DatasetMapping,
+    ReferenceKeyMapping,
     ReferenceLookupMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    RelationshipValueSource,
+    ResolverOrigin,
     ScalarConcatenation,
     ScalarFieldMapping,
     ScalarValueSource,
@@ -21,13 +28,21 @@ from impodo.domain.mapping.contracts import (
     SelectionConditionOperator,
     SelectionRule,
     SelectionRuleSet,
+    ValueMapping,
 )
+from impodo.domain.mapping.reference_preparation import (
+    ReferencePart,
+    ReferencePreparation,
+)
+from impodo.domain.preflight.comparison_fields import comparison_relationship_findings
 from impodo.domain.preflight.fields_set_aside import (
     FieldSetAside,
     FieldSetAsideEvidence,
     FieldSetAsideReason,
 )
 from impodo.domain.preflight.original_values import (
+    OriginalSourceInput,
+    OriginalSourceTarget,
     OriginalSourceValue,
     OriginalValueState,
 )
@@ -145,6 +160,33 @@ def _mapping(selection: SourceSelection, *fields: ScalarFieldMapping) -> Dataset
     )
 
 
+def _target(row: int, key: str, target: str) -> OriginalSourceTarget:
+    return OriginalSourceTarget(row, key, target, (key,))
+
+
+def _proven(finding: FieldSetAside) -> FieldSetAside:
+    return replace(
+        finding,
+        source_inputs=tuple(
+            OriginalSourceInput(key, OriginalSourceValue.unavailable())
+            for key in finding.source_keys
+        ),
+    )
+
+
+def _relationship(*, kind: str = "many2one") -> RelationshipMapping:
+    return RelationshipMapping(
+        target_field="parent_id",
+        kind=kind,
+        source_column_keys=(_KEY,),
+        resolver=RelationshipResolver(
+            ResolverOrigin.TARGET_CATALOG,
+            model="res.partner",
+            key_mappings=(ReferenceKeyMapping(_KEY, "ref"),),
+        ),
+    )
+
+
 class WorkbookOriginalValuePlanTests(unittest.TestCase):
     def setUp(self) -> None:
         self.selection = _selection()
@@ -174,15 +216,15 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         original = OriginalSourceValue.from_cell(
             EncodedSourceCell.from_python("Private customer")
         )
-        fields = _fields(replace(_finding(), source_value=original), _finding(row=None))
+        fields = _fields(
+            replace(_finding(), source_inputs=(OriginalSourceInput(_KEY, original),)),
+            _finding(row=None),
+        )
         evidence, requests = self.plan(fields, restricted=True, selection=None)
         assert evidence is not None
         self.assertEqual(requests, ())
         self.assertTrue(evidence.source_values_restricted)
-        self.assertEqual(
-            evidence.findings[0].source_value.state, OriginalValueState.WITHHELD
-        )
-        self.assertIsNone(evidence.findings[0].source_value.cell)
+        self.assertEqual(evidence.findings[0].source_inputs, ())
         self.assertEqual(evidence.findings[1], fields.findings[1])
         self.assertEqual(self.sources.calls, [])
 
@@ -208,7 +250,12 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             )
         )
         evidence, requests = self.plan(fields, mappings=(mapping,))
-        self.assertIs(evidence, fields)
+        self.assertEqual(
+            evidence,
+            replace(
+                fields, findings=tuple(_proven(finding) for finding in fields.findings)
+            ),
+        )
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].snapshot, self.snapshot)
         self.assertEqual(requests[0].dataset, "Customers")
@@ -216,10 +263,10 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         self.assertEqual(
             requests[0].targets,
             (
-                (1, _KEY, "comment"),
-                (1, _KEY, "name"),
-                (3, _KEY, "comment"),
-                (3, _KEY, "name"),
+                _target(1, _KEY, "comment"),
+                _target(1, _KEY, "name"),
+                _target(3, _KEY, "comment"),
+                _target(3, _KEY, "name"),
             ),
         )
         self.assertEqual(
@@ -228,7 +275,9 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         )
         self.assertTrue(
             all(
-                finding.source_value.state is OriginalValueState.UNAVAILABLE
+                len(finding.source_inputs) == 1
+                and finding.source_inputs[0].value.state
+                is OriginalValueState.UNAVAILABLE
                 for finding in evidence.findings
             )
         )
@@ -354,7 +403,9 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         evidence, requests = self.plan(fields)
         assert evidence is not None
         self.assertEqual(requests, ())
-        self.assertEqual(evidence.findings, fields.findings)
+        self.assertEqual(
+            evidence.findings, tuple(_proven(finding) for finding in fields.findings)
+        )
         self.assertIn("snapshots are missing", evidence.coverage_gaps[-1])
         evidence_again, _ = self.plan(evidence)
         self.assertEqual(evidence_again.coverage_gaps, evidence.coverage_gaps)
@@ -381,7 +432,9 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         assert evidence is not None
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].dataset, "Customers")
-        self.assertEqual(evidence.findings, fields.findings)
+        self.assertEqual(
+            evidence.findings, tuple(_proven(finding) for finding in fields.findings)
+        )
         self.assertIn("snapshots are missing", evidence.coverage_gaps[-1])
         self.assertEqual(
             self.sources.calls,
@@ -468,24 +521,413 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             mappings=(mapping,),
         )
         self.assertEqual(requests[0].cells, ((1, _KEY),))
-        self.assertEqual(requests[0].targets, ((1, _KEY, "name"),))
-        self.assertEqual(
-            evidence.findings[1].source_value.state, OriginalValueState.UNAVAILABLE
-        )
+        self.assertEqual(requests[0].targets, (_target(1, _KEY, "name"),))
+        self.assertEqual(evidence.findings[1].source_inputs, ())
 
     def test_physical_source_row_can_exceed_accepted_row_count(self) -> None:
         _, requests = self.plan(_fields(_finding(row=19)))
         self.assertEqual(requests[0].snapshot.row_count, 3)
         self.assertEqual(requests[0].cells, ((19, _KEY),))
-        self.assertEqual(requests[0].targets, ((19, _KEY, "name"),))
+        self.assertEqual(requests[0].targets, (_target(19, _KEY, "name"),))
 
     def test_invalid_source_row_is_rejected_without_reading_source_evidence(
         self,
     ) -> None:
         for row in (0, -1, True):
-            with self.subTest(row=row):
-                with self.assertRaises(ReadinessError):
-                    self.plan(_fields(_finding(row=row)))
+            with self.subTest(row=row), self.assertRaises(ReadinessError):
+                self.plan(_fields(_finding(row=row)))
+        self.assertEqual(self.sources.calls, [])
+
+    def test_direct_relationships_keep_exact_target_proof_for_every_resolver_origin(
+        self,
+    ) -> None:
+        for kind in ("many2one", "many2many"):
+            relationship = _relationship(kind=kind)
+            resolvers = (
+                relationship.resolver,
+                RelationshipResolver(
+                    ResolverOrigin.DATASET, dataset_id="incoming-parent"
+                ),
+                replace(
+                    relationship.resolver,
+                    origin=ResolverOrigin.TARGET_THEN_DATASET,
+                    dataset_id="incoming-parent",
+                ),
+            )
+            for resolver in resolvers:
+                with self.subTest(kind=kind, origin=resolver.origin):
+                    self.sources.calls.clear()
+                    mapping = replace(
+                        _mapping(self.selection),
+                        fields=(),
+                        relationships=(replace(relationship, resolver=resolver),),
+                    )
+                    _, requests = self.plan(
+                        _fields(_finding(row=19, target="parent_id")),
+                        mappings=(mapping,),
+                    )
+                    self.assertEqual(requests[0].cells, ((19, _KEY),))
+                    self.assertEqual(
+                        requests[0].targets, (_target(19, _KEY, "parent_id"),)
+                    )
+                    self.assertEqual(
+                        self.sources.calls,
+                        [("selection", "workspace-1"), ("snapshots", "workspace-1")],
+                    )
+
+    def test_scalar_and_relationship_targets_share_one_cell_and_bulk_read(self) -> None:
+        relationship = _relationship()
+        mapping = replace(_mapping(self.selection), relationships=(relationship,))
+        fields = _fields(
+            *(_finding(target="parent_id" if i % 2 else "name") for i in range(100))
+        )
+        _, requests = self.plan(fields, mappings=(mapping,))
+        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(
+            requests[0].targets,
+            (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),
+        )
+        self.assertEqual(
+            self.sources.calls,
+            [("selection", "workspace-1"), ("snapshots", "workspace-1")],
+        )
+
+    def test_relationship_reviewed_choices_still_prove_one_original_input(self) -> None:
+        relationship = _relationship()
+        relationship = replace(
+            relationship,
+            resolver=replace(
+                relationship.resolver, value_mappings=(ValueMapping("WEST", "West"),)
+            ),
+        )
+        mapping = replace(
+            _mapping(self.selection), fields=(), relationships=(relationship,)
+        )
+        _, requests = self.plan(
+            _fields(_finding(target="parent_id")), mappings=(mapping,)
+        )
+        self.assertEqual(requests[0].targets, (_target(1, _KEY, "parent_id"),))
+
+    def test_scoped_prepared_and_composed_relationships_do_not_open_source_evidence(
+        self,
+    ) -> None:
+        direct = _relationship()
+        references = (
+            replace(direct, kind="one2many"),
+            replace(direct, source_column_keys=(_KEY, _OTHER_KEY)),
+            replace(
+                direct,
+                resolver=replace(
+                    direct.resolver,
+                    scope_mappings=(ReferenceKeyMapping(_OTHER_KEY, "company_id"),),
+                ),
+            ),
+            replace(
+                direct,
+                resolver=replace(
+                    direct.resolver,
+                    scope_mappings=(ReferenceKeyMapping(_KEY, "company_id"),),
+                ),
+            ),
+            replace(
+                direct,
+                resolver=replace(
+                    direct.resolver, dataset_projection_field="display_name"
+                ),
+            ),
+            replace(
+                direct,
+                resolver=replace(
+                    direct.resolver,
+                    key_mappings=(ReferenceKeyMapping(_OTHER_KEY, "ref"),),
+                ),
+            ),
+        )
+        preparations = (
+            ReferencePreparation(formula="upper(value)"),
+            ReferencePreparation(
+                formula="concat(value, column_2)", bindings=(("column_2", _OTHER_KEY),)
+            ),
+            ReferencePreparation(
+                parts=(
+                    ReferencePart(source_column_key=_KEY),
+                    ReferencePart(literal=" suffix"),
+                )
+            ),
+        )
+        references += tuple(
+            replace(
+                direct,
+                resolver=replace(
+                    direct.resolver,
+                    key_mappings=(ReferenceKeyMapping(_KEY, "ref", preparation),),
+                ),
+            )
+            for preparation in preparations
+        )
+        constant = RelationshipMapping(
+            "parent_id",
+            "many2one",
+            (),
+            RelationshipResolver(ResolverOrigin.TARGET_CATALOG, model="res.partner"),
+            value_source=RelationshipValueSource.CONSTANT_EXISTING,
+            constant_reference=ConstantBusinessReference(
+                (ConstantReferenceComponent("ref", "WEST"),)
+            ),
+        )
+        for relationship in (*references, constant):
+            with self.subTest(relationship=relationship):
+                mapping = replace(
+                    _mapping(self.selection), fields=(), relationships=(relationship,)
+                )
+                _, requests = self.plan(
+                    _fields(_finding(target="parent_id")), mappings=(mapping,)
+                )
+                self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [])
+
+    def test_relationship_finding_requires_exact_target_and_single_source_key(
+        self,
+    ) -> None:
+        mapping = replace(
+            _mapping(self.selection), fields=(), relationships=(_relationship(),)
+        )
+        for finding in (
+            _finding(target="other_parent_id"),
+            _finding(target="parent_id", row=None),
+            _finding(target="parent_id", keys=(_OTHER_KEY,)),
+            _finding(target="parent_id", keys=(_KEY, _OTHER_KEY)),
+        ):
+            with self.subTest(finding=finding):
+                _, requests = self.plan(_fields(finding), mappings=(mapping,))
+                self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [])
+
+    def test_restricted_relationship_originals_are_withheld_without_source_reads(
+        self,
+    ) -> None:
+        mapping = replace(
+            _mapping(self.selection), fields=(), relationships=(_relationship(),)
+        )
+        fields, requests = self.plan(
+            _fields(_finding(target="parent_id")), mappings=(mapping,), restricted=True
+        )
+        assert fields is not None
+        self.assertEqual(requests, ())
+        self.assertEqual(fields.findings[0].source_inputs, ())
+        self.assertTrue(fields.source_values_restricted)
+        self.assertEqual(self.sources.calls, [])
+
+    def test_scalar_relationship_target_collision_does_not_authorize_an_original(
+        self,
+    ) -> None:
+        mapping = replace(
+            _mapping(self.selection, ScalarFieldMapping("parent_id", _KEY)),
+            relationships=(_relationship(),),
+        )
+        _, requests = self.plan(
+            _fields(_finding(target="parent_id")), mappings=(mapping,)
+        )
+        self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [])
+
+    def test_augmented_file_dataset_only_requests_unchanged_physical_scalar_and_relationship_cells(
+        self,
+    ) -> None:
+        synthetic_key = "generated:hierarchy-path"
+        dataset = self.selection.datasets[0]
+        augmented = replace(
+            dataset,
+            columns=(
+                *dataset.columns,
+                SourceDatasetColumn(3, "Selected path", synthetic_key, "string"),
+            ),
+        )
+        effective = replace(
+            self.selection, datasets=(augmented,), content_hash=_OTHER_HASH
+        )
+        relationship = _relationship()
+        mapping = replace(
+            _mapping(
+                effective,
+                ScalarFieldMapping("name", _KEY),
+                ScalarFieldMapping("generated_name", synthetic_key),
+            ),
+            relationships=(
+                relationship,
+                replace(
+                    relationship,
+                    target_field="generated_parent_id",
+                    source_column_keys=(synthetic_key,),
+                    resolver=replace(
+                        relationship.resolver,
+                        key_mappings=(ReferenceKeyMapping(synthetic_key, "ref"),),
+                    ),
+                ),
+            ),
+        )
+        fields = _fields(
+            _finding(),
+            _finding(target="parent_id"),
+            _finding(target="generated_name", keys=(synthetic_key,)),
+            _finding(target="generated_parent_id", keys=(synthetic_key,)),
+        )
+        _, requests = self.plan(fields, selection=effective, mappings=(mapping,))
+        self.assertEqual(requests[0].snapshot.schema, source_snapshot_schema(dataset))
+        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(
+            requests[0].targets,
+            (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),
+        )
+        self.assertEqual(
+            self.sources.calls,
+            [("selection", "workspace-1"), ("snapshots", "workspace-1")],
+        )
+
+    def test_synthetic_only_findings_return_before_snapshot_manifest_reads(
+        self,
+    ) -> None:
+        synthetic_key = "generated:hierarchy-path"
+        dataset = self.selection.datasets[0]
+        augmented = replace(
+            dataset,
+            columns=(
+                *dataset.columns,
+                SourceDatasetColumn(3, "Selected path", synthetic_key, "string"),
+            ),
+        )
+        effective = replace(
+            self.selection, datasets=(augmented,), content_hash=_OTHER_HASH
+        )
+        relationship = _relationship()
+        mapping = replace(
+            _mapping(effective),
+            fields=(),
+            relationships=(
+                replace(
+                    relationship,
+                    source_column_keys=(synthetic_key,),
+                    resolver=replace(
+                        relationship.resolver,
+                        key_mappings=(ReferenceKeyMapping(synthetic_key, "ref"),),
+                    ),
+                ),
+            ),
+        )
+        fields = _fields(_finding(target="parent_id", keys=(synthetic_key,)))
+        evidence, requests = self.plan(fields, selection=effective, mappings=(mapping,))
+        self.assertIs(evidence, fields)
+        self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [("selection", "workspace-1")])
+
+    def test_augmented_dataset_requires_exact_physical_prefix_and_distinct_keys(
+        self,
+    ) -> None:
+        dataset = self.selection.datasets[0]
+        changed_datasets = (
+            replace(
+                dataset,
+                columns=(
+                    *reversed(dataset.columns),
+                    SourceDatasetColumn(3, "Selected path", "generated:path", "string"),
+                ),
+            ),
+            replace(
+                dataset,
+                columns=(*dataset.columns, replace(dataset.columns[0], ordinal=3)),
+            ),
+            replace(
+                dataset,
+                columns=(
+                    replace(dataset.columns[0], source_name="Changed name"),
+                    *dataset.columns[1:],
+                ),
+            ),
+        )
+        for changed in changed_datasets:
+            with self.subTest(changed=changed), self.assertRaises(ReadinessError):
+                self.plan(
+                    _fields(_finding()),
+                    selection=replace(self.selection, datasets=(changed,)),
+                )
+        self.assertTrue(all(call[0] == "selection" for call in self.sources.calls))
+
+    def test_comparison_scalar_finding_does_not_read_original_source_evidence(
+        self,
+    ) -> None:
+        finding = replace(_finding(), comparison_issue=True)
+        _, requests = self.plan(_fields(finding))
+        self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [])
+
+    def test_comparison_relationship_only_authorizes_its_target_when_a_scalar_shares_the_cell(
+        self,
+    ) -> None:
+        mapping = replace(_mapping(self.selection), relationships=(_relationship(),))
+        fields = _fields(
+            replace(_finding(), comparison_issue=True),
+            replace(_finding(target="parent_id"), comparison_issue=True),
+        )
+        _, requests = self.plan(fields, mappings=(mapping,))
+        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].targets, (_target(1, _KEY, "parent_id"),))
+        self.assertEqual(
+            self.sources.calls,
+            [("selection", "workspace-1"), ("snapshots", "workspace-1")],
+        )
+
+    def test_preparation_scalar_and_comparison_relationship_share_one_request(
+        self,
+    ) -> None:
+        mapping = replace(_mapping(self.selection), relationships=(_relationship(),))
+        fields = _fields(
+            _finding(), replace(_finding(target="parent_id"), comparison_issue=True)
+        )
+        _, requests = self.plan(fields, mappings=(mapping,))
+        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(
+            requests[0].targets,
+            (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),
+        )
+        self.assertEqual(len(self.sources.calls), 2)
+
+    def test_comparison_provider_collision_is_unavailable_without_source_reads(
+        self,
+    ) -> None:
+        mapping = replace(
+            _mapping(self.selection, ScalarFieldMapping("parent_id", _KEY)),
+            relationships=(_relationship(),),
+        )
+        _, requests = self.plan(
+            _fields(replace(_finding(target="parent_id"), comparison_issue=True)),
+            mappings=(mapping,),
+        )
+        self.assertEqual(requests, ())
+        self.assertEqual(self.sources.calls, [])
+
+    def test_fieldless_comparison_case_issue_keeps_the_empty_no_read_path(self) -> None:
+        fields = _fields()
+        findings = comparison_relationship_findings(
+            (
+                {
+                    "classification": "BLOCKED",
+                    "dataset": "Customers",
+                    "source_row": 1,
+                    "issues": [
+                        {
+                            "code": "REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED",
+                            "field": None,
+                            "message": "Review the record identity.",
+                        }
+                    ],
+                },
+            ),
+            fields,
+            records={},
+        )
+        self.assertEqual(findings, ())
+        _, requests = self.plan(replace(fields, findings=findings))
+        self.assertEqual(requests, ())
         self.assertEqual(self.sources.calls, [])
 
     def test_target_model_or_ambiguous_provider_does_not_establish_direct_lineage(

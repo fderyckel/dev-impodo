@@ -23,6 +23,7 @@ from impodo.domain.compiler.contracts import CompiledMigrationPlan
 from impodo.domain.errors import ReadinessError
 from impodo.domain.odoo.contracts import MetadataRequest, RecordRequest
 from impodo.domain.preparation.create_relationships import blank_create_reference
+from impodo.domain.preparation.field_uniqueness import unique_value_key
 from impodo.domain.recipe.profile import DatasetSpec, ResolveSpec
 from impodo.domain.relationship_dependencies import DatasetDependencyEdge
 from impodo.domain.shared.models import (
@@ -180,6 +181,11 @@ def plan_preflight_requirements(
     fields: dict[str, set[str]] = defaultdict(set)
     domain_chunks: dict[str, list[list[Any]]] = defaultdict(list)
     external_keys: dict[str, set[str]] = defaultdict(set)
+    unique_fields = {
+        (dataset.target.model, field)
+        for dataset in plan.datasets for field, spec in dataset.fields.items()
+        if spec.must_be_unique
+    }
     for dataset in plan.datasets:
         dataset_records = records_by_dataset.get(dataset.name, ())
         if dataset_records and dataset.source_record_identity is not None:
@@ -212,6 +218,19 @@ def plan_preflight_requirements(
                     _combine_domains(list(dataset.target_domain), domain)
                     for domain in dataset_domains
                 )
+
+        for field in sorted(dataset.fields):
+            if (dataset.target.model, field) not in unique_fields:
+                continue
+            domain_chunks[dataset.target.model].extend(
+                _combine_domains(list(dataset.target_domain), domain)
+                for domain in _key_domain_chunks(
+                    (field,),
+                    ((record.scalar_values[field],) for record in dataset_records
+                     if unique_value_key(record.scalar_values.get(field)) is not None),
+                    maximum_keys_per_request,
+                )
+            )
 
         for component, references in _identity_reference_groups(
             dataset, dataset_records

@@ -22,7 +22,12 @@ from impodo.domain.odoo_database_binding import (
 from impodo.domain.project.foundation import require_hash, require_uuid
 
 from .migration_foundation_database import MigrationFoundationDatabase
-from .schema.migration_registry import ensure_migration_registry_schema
+from .schema.migration_registry import (
+    MIGRATION_REGISTRY_GENERATION,
+    MIGRATION_REGISTRY_VERSION,
+    ensure_migration_registry_schema,
+)
+from .unit_of_work import validate_schema_once_for_operation
 
 
 class DuckDbOdooDatabaseBindingRepository:
@@ -34,13 +39,18 @@ class DuckDbOdooDatabaseBindingRepository:
     @contextmanager
     def _connect(self, *, write: bool = False) -> Iterator[duckdb.DuckDBPyConnection]:
         with self.database.connect(self.database.registry_path) as connection:
-            ensure_migration_registry_schema(connection, self.database.registry_path)
+            # Include initial table discovery in the bounded operation's schema
+            # admission. Later requests still validate their own registry owner.
+            with validate_schema_once_for_operation(
+                connection,
+                f"odoo-binding-registry:{MIGRATION_REGISTRY_GENERATION}:{MIGRATION_REGISTRY_VERSION}",
+            ) as required:
+                if required:
+                    ensure_migration_registry_schema(connection, self.database.registry_path)
             if write:
                 connection.begin()
             try:
                 yield connection
-                if write:
-                    connection.commit()
             except Exception as error:
                 if write:
                     connection.rollback()
@@ -51,6 +61,18 @@ class DuckDbOdooDatabaseBindingRepository:
                         "The database authority changed; reload and review the current generation"
                     ) from error
                 raise
+            if write:
+                try:
+                    connection.commit()
+                except (duckdb.TransactionException, duckdb.ConstraintException) as error:
+                    # A failed DuckDB commit already aborts its transaction.
+                    # Rolling back again would mask the original conflict.
+                    raise OdooDatabaseGenerationConflict(
+                        "The database authority changed; reload and review the current generation"
+                    ) from error
+                except Exception:
+                    connection.rollback()
+                    raise
 
     def get(
         self, workspace_id: str, role: OdooDatabaseBindingRole, scope_hash: str

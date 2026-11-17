@@ -580,6 +580,8 @@ class RecipeCompiler:
             contract_versions["mapping_recipe"] = 4
         if any(component.blank_source_column_key is not None for dataset in revision.definition.datasets for component in dataset.target_scope):
             contract_versions["mapping_recipe"] = 5
+        if any(field.must_be_unique for dataset in revision.definition.datasets for field in dataset.fields):
+            contract_versions["mapping_recipe"] = 6
         if preparation is not None and any(isinstance(rule, HierarchicalLookupRule) and rule.existing_parent is not None for rule in preparation.rules):
             contract_versions["source_preparation_recipe"] = 2
         recipe: dict[str, object] = {
@@ -778,6 +780,7 @@ class RecipeCompiler:
                         "null_policy": field.null_policy,
                         "provider": provider,
                         "required": field.required,
+                        **({"must_be_unique": True} if field.must_be_unique else {}),
                         "required_on_create": field.required_on_create,
                         "target_field": field.target_field,
                         "transform": portable(asdict(field.transform)),

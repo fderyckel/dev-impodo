@@ -14,6 +14,12 @@ from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingDefinition,
+    ScalarFieldMapping,
+)
 from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.preparation_session_repository import (
     PreparationSessionRepository,
@@ -553,8 +559,31 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
     def test_relationship_edges_resolve_set_wise_and_preserve_explicit_states(
         self,
     ) -> None:
+        definition = MappingDefinition(
+            mapping_id=self.bindings.mapping_id,
+            source_selection_hash=SELECTION_HASH,
+            schema_hash=SCHEMA_HASH,
+            datasets=tuple(
+                DatasetMapping(
+                    dataset_id=f"dataset:{name}",
+                    target_model=model,
+                    source_identity_column_keys=("column:name",),
+                    target_identity=(IdentityComponentMapping(
+                        source_column_keys=("column:name",),
+                        target_fields=("name",),
+                    ),),
+                    fields=(ScalarFieldMapping(
+                        target_field="name", source_column_key="column:name",
+                    ),),
+                )
+                for name, model in (
+                    ("bom", "mrp.bom.line"), ("products", "product.product"),
+                )
+            ),
+        )
         bindings = replace(
             self.bindings,
+            mapping_hash=definition.content_hash,
             source_hashes={"bom": SOURCE_HASH, "products": SOURCE_HASH},
         )
         session = self.repository.begin_direct_session(
@@ -597,7 +626,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
                 mode="upsert",
                 source_hash=SOURCE_HASH,
                 source_selection_hash=SELECTION_HASH,
-                mapping_hash=MAPPING_HASH,
+                mapping_hash=definition.content_hash,
                 schema_hash=SCHEMA_HASH,
                 derived_plan_hash=None,
                 field_sources={"name": ("column:name",)},
@@ -738,7 +767,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             run_issues=(),
             control_totals=(),
             impact_report=TransformationImpactReport(
-                mapping_content_hash=MAPPING_HASH,
+                mapping_content_hash=definition.content_hash,
                 evaluated_count=0,
                 changed_count=0,
                 fallback_count=0,
@@ -833,7 +862,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         materialized = materialize_staging_run(stored)
         ruleset = default_quality_ruleset(
             workspace_id=self.workspace_state.workspace_id,
-            mapping_hash=MAPPING_HASH,
+            mapping_hash=definition.content_hash,
             schema_hash=SCHEMA_HASH,
             datasets=("bom", "products"),
         )
@@ -856,6 +885,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
             bounded = build_bounded_quality_run(
                 workspace_state=self.workspace_state,
                 staging=stored,
+                definition=definition,
                 physical_rows=physical_rows,
                 ruleset=ruleset,
                 published_staging_content_hash=(stored.validated_content_hash or ""),
@@ -901,6 +931,7 @@ class PreparationSessionRepositoryTests(unittest.TestCase):
         warning_bounded = build_bounded_quality_run(
             workspace_state=self.workspace_state,
             staging=stored,
+            definition=definition,
             physical_rows=physical_rows,
             ruleset=warning_ruleset,
             published_staging_content_hash=stored.validated_content_hash or "",

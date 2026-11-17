@@ -124,7 +124,7 @@ def validate_recipe_envelope(envelope_bytes: bytes) -> dict[str, object]:
         {**CURRENT_RECIPE_CONTRACT_VERSIONS,
          "mapping_recipe": mapping_version,
          "source_preparation_recipe": source_version}
-        for mapping_version in (3, 4, 5) for source_version in (1, 2)
+        for mapping_version in (3, 4, 5, 6) for source_version in (1, 2)
     )
     if contract_versions not in supported_versions:
         raise RecipeIntegrityError(
@@ -134,8 +134,10 @@ def validate_recipe_envelope(envelope_bytes: bytes) -> dict[str, object]:
         if contract_versions["mapping_recipe"] < 4:
             raise RecipeIntegrityError("Prepared references require mapping Recipe contract v4")
         _validate_reference_preparations(recipe["mapping"])
-    if "blank_source_column_id" in set(_walk_keys(recipe.get("mapping"))) and contract_versions["mapping_recipe"] != 5:
+    if "blank_source_column_id" in set(_walk_keys(recipe.get("mapping"))) and contract_versions["mapping_recipe"] < 5:
         raise RecipeIntegrityError("Optional linked matching scopes require mapping Recipe contract v5")
+    if "must_be_unique" in set(_walk_keys(recipe.get("mapping"))) and contract_versions["mapping_recipe"] < 6:
+        raise RecipeIntegrityError("Must be unique requires mapping Recipe contract v6. Save the field matches and prepare a new Recipe.")
     preparation = recipe.get("source_preparation")
     if isinstance(preparation, dict) and any(isinstance(rule, dict) and rule.get("existing_parent") is not None for rule in preparation.get("rules", ())) and contract_versions["source_preparation_recipe"] != 2:
         raise RecipeIntegrityError("Existing hierarchy parents require source-preparation Recipe contract v2")

@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
+import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
-import unittest
 from unittest.mock import patch
 from uuid import uuid4
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.destination_matching_service import DestinationMatchKeyChoice
 from impodo.domain.odoo.contracts import ConnectorTransportError
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     transfer_destination_identity_hash,
 )
-from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.routers.destination_matching import _matching_rows
+from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.application.workspace import test_destination_matching as domain_fixtures
 from tests.integration.web import test_transfer_page_reads as fixtures
 from tests.support import browser_scenarios
-from tests.support.hierarchy_correction import MappingForm
 from tests.support.database_probe import count_duckdb_statements
+from tests.support.hierarchy_correction import MappingForm
 from tests.support.identity import resolve_local_actor
 
 
@@ -64,14 +66,14 @@ class DestinationMatchingRecoveryTests(unittest.TestCase):
         for major in (19, 20):
             with self.subTest(major=major):
 
-                def schema_for_major(workspace):
+                def schema_for_major(workspace, *, selected_major=major):
                     schema = original_schema(workspace)
                     return replace(
                         schema,
                         fingerprint=replace(
                             schema.fingerprint,
-                            odoo_version=f"{major}.0",
-                            module_versions={"base": f"{major}.0.1.0"},
+                            odoo_version=f"{selected_major}.0",
+                            module_versions={"base": f"{selected_major}.0.1.0"},
                         ),
                     )
 
@@ -103,6 +105,14 @@ class DestinationMatchingRecoveryTests(unittest.TestCase):
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://destination.example.test",
             odoo_database="destination",
+        )
+        identity = context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            context, configured, OdooDatabaseBindingRole.DESTINATION,
+            actor=actor, scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
+            base_url=configured.destination_odoo_base_url,
+            database=configured.destination_odoo_database,
         )
         credential = store_target_credential(
             fixture.secrets,

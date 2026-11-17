@@ -33,6 +33,63 @@ memory to show non-authoritative proposed values and changed-cell lineage.
 It does not publish prepared evidence, perform the final target comparison, or
 write to Odoo.
 
+## Independent field uniqueness
+
+The visible **Must be unique** checkbox in each supported scalar field saves
+`ScalarFieldMapping.must_be_unique` in mapping contract v27. The mapping hash
+therefore changes when the rule changes, invalidating preparation and comparison
+through the existing evidence bindings. Semantic validation rejects readonly,
+unsearchable, company-dependent and unsupported field types. Odoo-default and
+check-only providers cannot establish a prepared value and reject this rule.
+Protected Odoo correction mappings also reject it: their comparison may read
+only captured record IDs and approved fields, so it cannot establish uniqueness
+against other records. Their field editor does not offer the checkbox.
+Reference-only tables also reject the setting; the rule belongs to a table
+that creates or updates records.
+
+The browser compiler carries the choice into `FieldSpec.must_be_unique` under
+compiled plan v6, compiler v7. Recipe publication records the enabled flag under
+mapping Recipe contract v6, and fresh application rebinds it with the source
+column. Recipe change review and the Final review workbook describe the rule.
+
+[`field_uniqueness.py`](../../../src/impodo/domain/preparation/field_uniqueness.py)
+groups exact prepared values by Odoo model and field across incoming tables,
+independently of row identifiers and matching keys. Empty and whitespace-only
+values are ignored. Decimal scale does not distinguish equal numeric values.
+Stage 4 retains `SOURCE_FIELD_NOT_UNIQUE` for every repeated member with a
+blocking policy, its field and its source location. The indexed preparation
+route streams canonical rows twice and keeps counts in the existing temporary
+quality store. It does not retain complete duplicate groups in Python or add
+DuckDB owners per row. The materialized evaluator uses the same predicate.
+
+The preflight planner adds sorted, deduplicated, bounded value lookups alongside
+identity lookups. It preserves profile target domains and the normal selected
+Odoo access context. The engine checks incoming uniqueness again and indexes
+captured Odoo values once per model and field. It allows only the uniquely
+matched record to retain its own value. Another owner produces
+`TARGET_FIELD_NOT_UNIQUE`, including when that owner has an incoming update
+which would later free the value. This conservative rule avoids depending on
+write order or transient database constraint behavior. Incomplete snapshots
+remain errors; access-hidden records are outside the checked coverage.
+
+Focused coverage is in
+[`test_field_uniqueness.py`](../../../tests/domain/preparation/test_field_uniqueness.py),
+the [stored quality test](../../../tests/integration/duckdb/test_field_uniqueness_quality.py),
+the [Recipe test](../../../tests/domain/recipe/test_field_uniqueness.py), and
+the [mapping form round trips](../../../tests/integration/web/test_mapping_form_roundtrip.py).
+Saved enabled rules remain visible when refreshed field metadata no longer
+supports them, so the operator can explicitly clear the rule before checking
+again. The affected-records cause page combines access admission and rendering
+inside `run_workspace_page_read`; it releases its local owners before returning.
+The [cause-page regression](../../../tests/integration/web/test_hierarchy_causes.py)
+retains its 63-statement budget and requires at most four physical database
+owners for the fictional BoM workload, including access checks and source labels.
+Controlled preflight cases cover Odoo 19 and 20 with local and remote snapshot
+bindings. The [transport regressions](../../../tests/integration/odoo/test_field_uniqueness_reads.py)
+exercise the generated local shell and JSON-2 queries for both majors, including
+archived records and the remote company context. These controlled cases do not
+establish live target qualification.
+
 ## Four-step browser journey
 
 The authoring sidebar exposes **Choose company**, **Match tables**, **Check and
@@ -1150,6 +1207,24 @@ row completes explicitly after validation. A handled rejection records
 `REJECTED`; an interrupted process may deliberately leave `PENDING`, which
 means unknown and does not authorize a blind replay. Reusing an operation
 identity with different meaning fails closed.
+
+The `/mapping/save` route keeps source admission before asynchronous form
+decoding. Once the form is parsed, one `run_local_operation` callback reserves
+or replays the receipt, prepares datasets, applies the local command and reads
+its receipt or rejection. Each repository transaction still commits or rolls
+back independently. **Check matches** and default refreshes close those owners
+before checking Odoo access or capturing supporting values. A new local
+publication callback rechecks edit authority, source choices, schema and access
+bindings, and governance before applying the result. Optimistic draft and
+revision checks still reject concurrent edits.
+
+The [command performance tests](../../../tests/integration/web/test_mapping_command_performance.py)
+bound complete save, replay, stale-save, check and confirmation requests for
+both Odoo majors and access modes. They count physical opens, schema checks
+and SQL, and verify that local work runs off the event loop and owners close
+before remote helpers. The [command recovery tests](../../../tests/integration/web/test_mapping_command_recovery.py)
+preserve concurrent edits, rejected receipts and a committed default decision
+when a later check conflicts.
 
 If row evaluation fails after the checked revision was saved, the receipt uses
 `MAPPING_ROW_REVIEW_FAILED` and exposes a bounded partial-save result. The

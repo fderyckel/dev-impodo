@@ -1279,13 +1279,22 @@ blocks the dependent component.
 
 ## Load performance evidence
 
-Load submission bounds its local workspace, credential-lineage, authorization,
-preview, and final intent checks inside worker callbacks. Odoo identity probes
-and job dispatch run after those database owners close. The target connection
-command follows the same separation for saving target details, checking Odoo,
-continuation, and rejected-form recovery. Overview navigation and rendering
-reuse owners within one local page read. These scopes preserve independent
-repository transactions and do not cache owners across requests.
+After parsing and securing the form, load submission uses one
+`run_local_operation` callback for workspace and credential ownership,
+authorization, preview, local keys, both intent confirmations and job display
+facts. Its diagnostic stages share those owners. An active job redirects before
+credential reads. A handled rejection closes the command owners before a
+separate `run_page_read` renders the explanation. Job dispatch and Odoo identity
+probes run after the submission owners close; the worker still performs fresh
+entry checks.
+
+Final local enqueue preparation and actual dispatch produce two sequential
+`submission_enqueue` intervals. The diagnostic summary aggregates their
+durations, counts and database costs. The target connection command keeps the
+same separation for saving target details, checking Odoo, continuation and
+rejected-form recovery. Overview navigation and rendering reuse owners within
+one local page read. These scopes preserve independent repository transactions
+and do not cache owners across requests.
 
 `web/load_performance.py` observes existing DuckDB timing collectors without
 opening databases or retaining owners. `observe_load_local_phase` aggregates
@@ -1350,6 +1359,15 @@ connection ceiling derived from the fixture's expected database-path and
 configuration owners. Connection counts support the review, but only paired
 timing evidence and a restarted live build support a latency claim.
 
+The saved load landing, review, confirmation and outcome GETs use
+`run_workspace_page_read`. Workspace admission, journey policy, active-job
+inspection and page construction share one synchronous local operation.
+Denied access reaches no child evidence or job inspection. Saved outcomes
+remain inspectable after workspace closure under the existing journey policy.
+The initial progress HTML runs its local reads and render off the event loop
+in `run_page_read`. JSON progress polling keeps its trusted job context and
+reads in-memory state without reopening local databases.
+
 The `PRODUCTION` DataVersion purpose does not bypass the current
 disposable-target acceptance boundary. Recipe lineage is not Odoo write
 authorization.
@@ -1394,6 +1412,9 @@ and [load-job regressions](../../../tests/integration/web/test_disconnection_mes
 cover Odoo 19 and 20, LOCAL and REMOTE modes, and Authoring and Recipe jobs.
 
 ## Verification
+
+- [`tests/integration/web/test_load_page_performance.py`](../../../tests/integration/web/test_load_page_performance.py)
+- [`tests/integration/web/test_load_submission_performance.py`](../../../tests/integration/web/test_load_submission_performance.py)
 
 - [Business effect assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
 - [Business intent execution qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)

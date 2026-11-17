@@ -35,6 +35,17 @@ test("saved work advances while an unsaved change gives confirmation priority", 
   assert.equal(choose([confirm, onward]), confirm);
 });
 
+test("an edited advancing form takes priority over a later page transition", () => {
+  let dirty = false;
+  const local = candidate("100", { form: { hasAttribute: () => dirty } });
+  const onward = candidate("200");
+  assert.equal(choose([local, onward]), onward);
+  dirty = true;
+  assert.equal(choose([local, onward]), local);
+  dirty = false;
+  assert.equal(choose([local, onward]), onward);
+});
+
 test("a dialog owns action focus and can have no advancing action", () => {
   const page = candidate("500"), dialog = candidate("100");
   const scope = { contains: (item) => item === dialog };

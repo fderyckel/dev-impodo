@@ -23,6 +23,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from hashlib import sha256
 from pathlib import Path
 from textwrap import wrap
 from typing import Any
@@ -36,6 +37,7 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from impodo.adapters.artifacts.review_relationship_values import (
     ReviewRelationshipValues,
 )
+from impodo.domain.preflight.comparison_fields import comparison_relationship_findings
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredScopePreview,
@@ -247,9 +249,24 @@ def _build_workbook(
     """Create the business-facing workbook with the bundled Python runtime."""
 
     try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as error:
+        manifest_content = manifest_path.read_bytes()
+        manifest = json.loads(manifest_content)
+        if not isinstance(manifest, dict):
+            raise TypeError("The readiness manifest must be an object")
+    except (OSError, TypeError, ValueError) as error:
         raise ReportGenerationError("The readiness manifest is invalid") from error
+
+    coverage = review_evidence.comparison_fields if review_evidence is not None else None
+    if coverage is not None and (
+        review_evidence is None
+        or review_evidence.fields_set_aside is None
+        or coverage.result_hash != manifest.get("semantic_hash")
+        or coverage.manifest_hash != "sha256:" + sha256(manifest_content).hexdigest()
+    ):
+        raise ReportGenerationError(
+            "The field omission evidence does not match this saved comparison. "
+            "Recreate the workbook from Final review."
+        )
 
     decisions = tuple(manifest.get("decisions", ()))
     omitted_traces = {
@@ -529,10 +546,16 @@ def _comparison_field_findings(
     """Project saved comparison issues and proven uses of an omission rule."""
 
     fields = evidence.fields_set_aside if evidence is not None else None
+    if evidence is None or evidence.comparison_fields is None:
+        try:
+            yield from comparison_relationship_findings(
+                decisions, fields, records=records if evidence is not None else None
+            )
+        except ValueError as error:
+            raise ReportGenerationError(
+                "The saved relationship field evidence is invalid. Compare with Odoo again."
+            ) from error
     comparison_reasons = {
-        "REFERENCE_NOT_FOUND": FieldSetAsideReason.UNRECOGNIZED,
-        "REFERENCE_AMBIGUOUS": FieldSetAsideReason.AMBIGUOUS,
-        "REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED": FieldSetAsideReason.UNRECOGNIZED,
         "REQUIRED_ON_CREATE_MISSING": FieldSetAsideReason.MISSING,
     }
     for decision in decisions:
@@ -623,10 +646,11 @@ def _write_fields_set_aside(
     records: Mapping[str, PreparedRecord],
     evidence: ReviewWorkbookEvidence | None,
 ) -> None:
-    """Write a filterable list with separate counts for cells and columns."""
+    """Expand proven input cells while counting each logical field outcome once."""
 
     fields = evidence.fields_set_aside if evidence is not None else None
     protected_source = manifest.get("contract") == "odoo-pinned-comparison-v1"
+    restricted = fields is not None and fields.source_values_restricted
     findings = set(fields.findings if fields and not protected_source else ())
     if not protected_source:
         findings.update(_comparison_field_findings(decisions, records, evidence))
@@ -645,67 +669,67 @@ def _write_fields_set_aside(
                 and effect.after.strip() in {"", "—"}
                 and effect.before.strip() not in {"", "—"}
             ):
-                finding = FieldSetAside(
+                findings.add(FieldSetAside(
                     FieldSetAsideReason.RULE, effect.dataset, effect.source_row,
                     fields.source_keys.get((effect.dataset, effect.target_field), ()),
                     effect.target_field, effect.explanation,
-                )
-                findings.add(finding)
+                ))
 
-    cells = {
-        (item.dataset, item.source_row, key)
-        for item in findings
-        if fields is not None and item.source_row is not None and len(item.source_keys) == 1
-        for key in item.source_keys
-    }
-    columns = {
-        (item.dataset, key)
-        for item in findings
-        if item.source_row is None
-        for key in item.source_keys
-    }
     reason_order = {reason: index for index, reason in enumerate(FieldSetAsideReason)}
     ordered = sorted(
         findings,
         key=lambda item: (
             reason_order[item.reason], item.dataset,
-            item.source_row or 0, item.source_keys, item.target_field,
-            item.detail, item.source_value.state, item.source_value.text or "",
+            item.source_row or 0, item.source_keys, item.target_field, item.detail,
+            tuple((entry.source_key, entry.value.state, entry.value.text or "")
+                  for entry in item.source_inputs),
         ),
     )
+    expanded = tuple(
+        (item, source_input)
+        for item in ordered
+        for source_input in (() if restricted else item.source_inputs) or (None,)
+    )
+    cells = {
+        (item.dataset, item.source_row, entry.source_key)
+        for item, entry in expanded
+        if item.source_row is not None and entry is not None
+    }
+    columns = {
+        (item.dataset, key)
+        for item in ordered if item.source_row is None
+        for key in item.source_keys
+    }
     rows = []
-    unavailable_originals = 0
-    withheld_originals = 0
-    unidentified_cells = 0
-    for item in ordered:
+    unavailable: set[FieldSetAside] = set()
+    withheld: set[FieldSetAside] = set()
+    unidentified: set[FieldSetAside] = set()
+    for item, source_input in expanded:
         model = fields.target_models.get(item.dataset, "") if fields else ""
         target = _target_field_label(model, item.target_field, evidence) if item.target_field else ""
+        keys = (source_input.source_key,) if source_input is not None else item.source_keys
         source = " + ".join(
             fields.source_labels.get((item.dataset, key), key) if fields else key
-            for key in item.source_keys
+            for key in keys
         )
-        original = item.source_value
-        state = (
-            OriginalValueState.WITHHELD
-            if fields is not None and fields.source_values_restricted
-            else original.state
-        )
+        original = source_input.value if source_input is not None else None
         display_original = ""
         if item.source_row is not None:
-            unavailable_originals += state is OriginalValueState.UNAVAILABLE
-            withheld_originals += state is OriginalValueState.WITHHELD
-            unidentified_cells += len(item.source_keys) != 1
-            if state is OriginalValueState.UNAVAILABLE:
-                display_original = "Unavailable"
-            elif state is OriginalValueState.WITHHELD:
+            if source_input is None:
+                unidentified.add(item)
+            if restricted or (original is not None and original.state is OriginalValueState.WITHHELD):
+                withheld.add(item)
                 display_original = "Withheld"
+            elif original is None or original.state is OriginalValueState.UNAVAILABLE:
+                unavailable.add(item)
+                display_original = "Unavailable"
             else:
                 display_original = _workbook_original_text(original.text or "")
         rows.append((
             item.reason.value, _dataset_label(item.dataset, evidence),
-            item.source_row, source, display_original,
-            target, "Whole column" if item.source_row is None else (
-                "Source cell" if len(item.source_keys) == 1 else "Field finding"
+            item.source_row, source, display_original, target,
+            "Whole column" if item.source_row is None else (
+                "Source cell" if source_input is not None else "Field finding"
             ),
             item.detail, _FIELD_REASON_STYLES[item.reason][1],
         ))
@@ -719,17 +743,15 @@ def _write_fields_set_aside(
         )
     else:
         gaps = list(fields.coverage_gaps)
-        if unavailable_originals:
+        if unavailable:
+            gaps.append(f"{len(unavailable):,} finding(s) have no available original value.")
+        if withheld:
             gaps.append(
-                f"{unavailable_originals:,} finding(s) have no available original value."
+                f"{len(withheld):,} finding(s) have original values withheld for restricted data."
             )
-        if withheld_originals:
+        if unidentified:
             gaps.append(
-                f"{withheld_originals:,} finding(s) have original values withheld for restricted data."
-            )
-        if unidentified_cells:
-            gaps.append(
-                f"{unidentified_cells:,} finding(s) cannot be counted as a single source cell."
+                f"{len(unidentified):,} finding(s) have no verified source-cell coordinates in this export."
             )
         coverage = (
             "Partial coverage: " + " ".join(dict.fromkeys(gaps))
@@ -745,8 +767,7 @@ def _write_fields_set_aside(
         ("Reason", "Dataset", "Source row", "Source field", "Original value",
          "Odoo field", "Scope", "What happened", "What to do"),
         rows or [(empty_label, "", None, "", "", "", "", coverage, "")],
-        _COLORS["charcoal"],
-        header_row=6,
+        _COLORS["charcoal"], header_row=6,
     )
     sheet["A2"] = coverage
     sheet["A2"].alignment = Alignment(vertical="center", wrap_text=True)
@@ -767,21 +788,15 @@ def _write_fields_set_aside(
     sheet.sheet_properties.tabColor = _COLORS["brand"]
     for column, width in zip("ABCDEFGHI", (29, 20, 14, 23, 23, 20, 18, 42, 39), strict=True):
         sheet.column_dimensions[column].width = width
-    for row_index, (item, row) in enumerate(zip(ordered, rows, strict=True), start=7):
+    for row_index, ((item, source_input), row) in enumerate(zip(expanded, rows, strict=True), start=7):
         _style_status_cell(sheet.cell(row_index, 1), _FIELD_REASON_STYLES[item.reason][0])
         cell = sheet.cell(row_index, 5)
         cell.value = row[4]
         cell.data_type = "s"
-        if (
-            item.source_row is not None
-            and item.source_value.state is OriginalValueState.BLANK
-            and fields is not None
-            and not fields.source_values_restricted
-        ):
+        if source_input is not None and source_input.value.state is OriginalValueState.BLANK:
             blank_kind = (
-                "blank cell" if item.source_value.cell is not None
-                and item.source_value.cell.kind is SourceCellKind.NULL
-                else "empty text"
+                "blank cell" if source_input.value.cell is not None
+                and source_input.value.cell.kind is SourceCellKind.NULL else "empty text"
             )
             cell.comment = Comment(f"The saved source contains {blank_kind}.", "Impodo")
         sheet.row_dimensions[row_index].height = 42

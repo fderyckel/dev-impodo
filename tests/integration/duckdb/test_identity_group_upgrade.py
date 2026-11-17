@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 import duckdb
 
+from impodo.adapters.duckdb.constants import SCHEMA_VERSION
 from impodo.adapters.duckdb.schema.forward_upgrades import ForwardSchemaUpgrade
 from impodo.adapters.duckdb.schema.workspace_engine import (
     WORKSPACE_ENGINE_UPGRADES,
@@ -18,6 +19,7 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("DROP TABLE execution_load_control")
             connection.execute("DROP TABLE execution_rejected_transport")
@@ -93,5 +95,5 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
                 connection.execute(
                     "SELECT from_version, to_version FROM schema_migration"
                 ).fetchall(),
-                [(1, 2), (2, 3), (3, 4), (4, 5), (5, 6), (6, 7)],
+                [(version, version + 1) for version in range(1, SCHEMA_VERSION)],
             )

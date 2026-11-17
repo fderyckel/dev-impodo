@@ -2463,7 +2463,7 @@ class BoundedPreparationParityTests(unittest.TestCase):
         self.temporary.cleanup()
 
     def test_custom_model_quality_uses_verified_mapping_without_full_row_scan(self) -> None:
-        """Prove equivalent checks and fewer reads without recognizing a model."""
+        """Prove indexed checks preserve the authoritative custom-model result."""
 
         from impodo.domain.preparation.quality import QualityError
 
@@ -2474,21 +2474,16 @@ class BoundedPreparationParityTests(unittest.TestCase):
         original = quality_module.build_bounded_quality_run
         calls = []
 
-        def compare_quality_routes(**kwargs):
+        def compare_with_oracle(**kwargs):
             rows = kwargs["staging"].rows
-            original_iter = type(rows).__iter__
-            scanned = []
-
-            def count_rows(instance):
-                for row in original_iter(instance):
-                    scanned.append(row.row_id)
-                    yield row
-
-            with patch.object(type(rows), "__iter__", count_rows):
-                row_based_reference = original(
-                    **{**kwargs, "definition": None}
-                )
-            self.assertEqual(len(scanned), 7)
+            expected = evaluate_quality(
+                workspace_state=kwargs["workspace_state"],
+                staging=quality_module.materialize_staging_run(kwargs["staging"]),
+                physical_rows=kwargs["physical_rows"],
+                ruleset=kwargs["ruleset"],
+                published_staging_content_hash=kwargs["published_staging_content_hash"],
+                numeric_fields=kwargs.get("numeric_fields", ()),
+            )
             with patch.object(type(rows), "__iter__", side_effect=AssertionError("full row scan")):
                 current = original(**kwargs)
                 for changes in (
@@ -2500,18 +2495,18 @@ class BoundedPreparationParityTests(unittest.TestCase):
                         original(**{**kwargs, **changes})
             self.assertEqual(
                 tuple(current.row_results),
-                tuple(row_based_reference.row_results),
+                expected.row_results,
             )
             self.assertEqual(
                 tuple(current.source_accounting),
-                tuple(row_based_reference.source_accounting),
+                expected.source_accounting,
             )
-            self.assertEqual(current.issues, row_based_reference.issues)
-            self.assertEqual(current.quarantine, row_based_reference.quarantine)
+            self.assertEqual(tuple(current.issues), expected.issues)
+            self.assertEqual(tuple(current.quarantine), expected.quarantine)
             calls.append(current)
             return current
 
-        with patch.object(quality_module, "build_bounded_quality_run", compare_quality_routes):
+        with patch.object(quality_module, "build_bounded_quality_run", compare_with_oracle):
             self.context.preparation.prepare(workspace_id, actor=resolve_local_actor(self.context))
         self.assertEqual(len(calls), 1)
 

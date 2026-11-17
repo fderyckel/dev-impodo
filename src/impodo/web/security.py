@@ -224,9 +224,11 @@ class WorkspaceAccessMiddleware(BaseHTTPMiddleware):
                 f"/workspaces/{workspace_id}/{area}"
                 for area in (
                     "schema", "mapping", "summary", "files", "sources", "overview",
+                    "normalization", "load", "load/review", "load/confirm", "load/outcome",
                     "load/fallout.xlsx",
                 )
-            } or request.url.path == f"/workspaces/{workspace_id}/load/errors" or request.url.path.startswith(f"/workspaces/{workspace_id}/load/errors/"))
+            } or request.url.path == f"/workspaces/{workspace_id}/load/errors" or request.url.path.startswith(f"/workspaces/{workspace_id}/load/errors/")
+             or request.url.path.startswith(f"/workspaces/{workspace_id}/summary/quality-causes/"))
         ):
             def read_authorized_page(function: Callable[[], Response]) -> Response:
                 started = perf_counter()

@@ -28,6 +28,7 @@ from impodo.domain.workspace.workbench import WorkspaceState
 
 from ..contracts import READINESS_CONTRACT_VERSION
 from ..staging.transformation_impact import _display_value
+from .comparison_fields import ComparisonFieldCoverage
 from .fields_set_aside import FieldSetAsideEvidence
 from .frozen_input import (
     FrozenMappingRevisionEvidence,
@@ -193,6 +194,7 @@ class ReviewWorkbookEvidence:
     omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
     mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] = field(default_factory=dict)
     original_source_requests: tuple[OriginalSourceRequest, ...] = ()
+    comparison_fields: ComparisonFieldCoverage | None = None
 
 
 def review_workbook_action_priority(
@@ -843,6 +845,14 @@ def plain_readiness_guidance(
         "SOURCE_IDENTITY_DUPLICATE": (
             "This row uses the same key as another row.",
             "Keep one unique row or correct the key.",
+        ),
+        "SOURCE_FIELD_NOT_UNIQUE": (
+            "A field marked Must be unique repeats a prepared value.",
+            "Correct the repeated values or review which source rows to include, then prepare again.",
+        ),
+        "TARGET_FIELD_NOT_UNIQUE": (
+            "Another Odoo record already uses this value.",
+            "Correct the source value or existing Odoo record, then compare again.",
         ),
         "SOURCE_REQUIRED_VALUE_MISSING": (
             "A required value is missing.",

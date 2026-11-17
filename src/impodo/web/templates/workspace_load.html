@@ -393,7 +393,7 @@
               <input type="checkbox" name="confirm_resume" required>
               <span>I confirm that Impodo may continue this saved load</span>
             </label>
-            <button class="button action" type="submit" data-busy-label="Starting recovery...">{{ 'Continue with the next small group' if paused_load else 'Resume saved load' }}</button>
+            <button class="button action" data-next-step="100" type="submit" data-busy-label="Starting recovery...">{{ 'Continue with the next small group' if paused_load else 'Resume saved load' }}</button>
             <small class="muted" role="status" data-recovery-action-status hidden>Repeating the safety check before any remaining records are sent to Odoo.</small>
           </form>
         {% else %}

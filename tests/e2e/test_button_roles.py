@@ -37,15 +37,23 @@ class ButtonRoleBrowserTests(unittest.TestCase):
         playwright = sync_playwright().start()
         self.addCleanup(playwright.stop)
         browser = playwright.chromium.launch(
-            headless=True, channel=os.environ.get("IMPODO_BROWSER_CHANNEL") or None,
+            headless=True,
+            channel=os.environ.get("IMPODO_BROWSER_CHANNEL") or None,
         )
         self.addCleanup(browser.close)
         context = browser.new_context(viewport={"width": 1440, "height": 1024})
         base = f"http://127.0.0.1:{port}"
-        context.add_cookies([{
-            "name": "impodo_session", "value": session, "url": base,
-            "httpOnly": True, "sameSite": "Strict",
-        }])
+        context.add_cookies(
+            [
+                {
+                    "name": "impodo_session",
+                    "value": session,
+                    "url": base,
+                    "httpOnly": True,
+                    "sameSite": "Strict",
+                }
+            ]
+        )
         self.page = context.new_page()
         errors = []
         self.page.on("pageerror", lambda error: errors.append(str(error)))
@@ -66,15 +74,19 @@ class ButtonRoleBrowserTests(unittest.TestCase):
         expect(active).to_have_count(1 if label else 0)
         if label:
             expect(active).to_contain_text(label)
-            self.assertEqual(active.evaluate(
-                "element => getComputedStyle(element).backgroundColor"
-            ), "rgb(201, 60, 53)")
+            self.assertEqual(
+                active.evaluate("element => getComputedStyle(element).backgroundColor"),
+                "rgb(201, 60, 53)",
+            )
 
     def check_narrow_layout(self, major):
         for width in (1440, 390):
-            self.page.set_viewport_size({
-                "width": width, "height": 1024 if width > 400 else 844,
-            })
+            self.page.set_viewport_size(
+                {
+                    "width": width,
+                    "height": 1024 if width > 400 else 844,
+                }
+            )
             next_button = self.page.locator("[data-next-active]")
             next_button.scroll_into_view_if_needed()
             expect(next_button).to_be_in_viewport()
@@ -87,7 +99,8 @@ class ButtonRoleBrowserTests(unittest.TestCase):
                 directory.mkdir(parents=True, exist_ok=True)
                 name = (
                     "08d-odoo-matching-next-action.png"
-                    if width == 1440 else "button-roles-mobile.png"
+                    if width == 1440
+                    else "button-roles-mobile.png"
                 )
                 self.page.screenshot(path=str(directory / name), animations="disabled")
         self.page.set_viewport_size({"width": 1440, "height": 1024})
@@ -96,15 +109,19 @@ class ButtonRoleBrowserTests(unittest.TestCase):
         dialog = self.page.locator("[data-read-credential-dialog]")
         dialog.evaluate("element => element.showModal()")
         self.assert_next()
-        self.assertEqual(dialog.locator("button[type=submit]").evaluate(
-            "element => getComputedStyle(element).backgroundColor"
-        ), "rgb(255, 255, 255)")
+        self.assertEqual(
+            dialog.locator("button[type=submit]").evaluate(
+                "element => getComputedStyle(element).backgroundColor"
+            ),
+            "rgb(255, 255, 255)",
+        )
         dialog.evaluate("element => element.close()")
         self.assert_next("Confirm suggested matching rules and continue")
 
     def confirm_complete_fixture(self, fixture, workspace, schema):
         with self.page.expect_navigation(wait_until="networkidle"):
-            self.page.evaluate("""({url, fields}) => {
+            self.page.evaluate(
+                """({url, fields}) => {
                 const form = document.createElement('form');
                 form.method = 'post'; form.action = url;
                 for (const [name, value] of Object.entries(fields)) {
@@ -113,12 +130,16 @@ class ButtonRoleBrowserTests(unittest.TestCase):
                     form.append(input);
                 }
                 document.body.append(form); form.submit();
-            }""", {
-                "url": f"/workspaces/{workspace}/schema/govern",
-                "fields": matching_rule_form(
-                    fixture.csrf, schema, representative_stage2_selections(),
-                ),
-            })
+            }""",
+                {
+                    "url": f"/workspaces/{workspace}/schema/govern",
+                    "fields": matching_rule_form(
+                        fixture.csrf,
+                        schema,
+                        representative_stage2_selections(),
+                    ),
+                },
+            )
 
     def edit_and_confirm(self, fixture, workspace, schema):
         card = self.page.locator("[data-key-decision]").first
@@ -138,4 +159,6 @@ class ButtonRoleBrowserTests(unittest.TestCase):
         governance = fixture.app.state.context.queries.get_schema_governance(workspace)
         saved = {key.model: key for key in governance.business_keys}
         self.assertEqual(set(saved), {model.name for model in schema.models})
-        self.assertEqual(saved[schema.models[index].name].description, "Reviewed UI matching rule")
+        self.assertEqual(
+            saved[schema.models[index].name].description, "Reviewed UI matching rule"
+        )

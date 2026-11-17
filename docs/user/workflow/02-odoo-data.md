@@ -177,8 +177,12 @@ Impodo.
 
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved
-rule, select **Confirm suggested matching rules and continue**. The suggested values are
-already in the form; you do not need to select a suggestion on every card.
+rule, select **Confirm suggested matching rules and continue** in the footer.
+The suggested values are already in the form; you do not need to select a
+suggestion on every card. This single red action confirms the complete set
+and opens Match data.
+
+![One red footer action confirms the suggested matching rules and continues to Match data.](../../images/user/08d-odoo-matching-next-action.png)
 
 For a child record, **Within** can identify the owning parent. For example,
 Impodo proposes:

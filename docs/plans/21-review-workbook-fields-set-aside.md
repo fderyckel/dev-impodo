@@ -13,10 +13,22 @@ The third bounded slice recovers original accepted scalars for direct file-sourc
 preparation omissions from verified immutable snapshots. It distinguishes
 captured blanks, withheld restricted values and unavailable evidence, and removes
 the normalization-display fallback. Snapshot reads project requested rows and
-columns in bounded batches inside the package operation. The remaining proposal
-covers original values for relationship, derived, combined and later comparison
-findings, omission outcomes not saved by preparation, and precise source-cell
-scope for findings that involve several columns.
+columns in bounded batches inside the package operation. The fourth bounded
+slice extends this recovery to saved preparation findings for direct unscoped
+many2one and many2many links from one physical file column. Multi-value links
+retain their full source cell. Synthetic columns remain unavailable. The fifth
+bounded slice captures the three saved blocked-reference comparison outcomes
+before original-value planning. It binds coverage to exact manifest bytes and
+the compared result, requires relationship-specific source proof, and prevents
+duplicate rows when the writer consumes hydrated findings. The sixth bounded
+slice represents every original with an ordered tuple of source inputs and
+extends recovery to direct many2one key/scope columns. Each proven input has its
+own workbook row; the complete lookup remains one logical finding. Requests
+bind the whole ordered input group. Mixed generated groups stay unproven, and
+physical-cell counts remain separate from logical outcomes.
+The remaining proposal covers prepared relationships, scoped value translations,
+derived and combined values, other comparison findings, and omission outcomes
+not saved by preparation.
 
 A data manager should be able to open **Fields set aside** and find the source
 value, why Impodo left it out, and where to make a correction. Put this tab after

@@ -21,6 +21,7 @@ from impodo.domain.recipe.value_rules import ScalarTransformPolicy
 from impodo.domain.shared.access import LOCAL_ACTOR
 from tests.domain.preparation.test_quality import (
     MAPPING_HASH,
+    QUALITY_DEFINITION,
     SCHEMA_HASH,
     SOURCE_HASH,
     _canonical_row,
@@ -78,6 +79,7 @@ class NormalizationTimingTests(unittest.TestCase):
         )
         self.staging = _stored_staging(staging)
         self.quality = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=self.workspace,
             staging=self.staging,
             physical_rows={"dataset:contacts": (2,)},

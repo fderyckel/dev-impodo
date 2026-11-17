@@ -33,6 +33,6 @@
 {% else %}
   <section class="next-action-card review">
     <div><p class="eyebrow">Not yet compared</p><h2>{{ 'Compare this data with Odoo first' if normalization and normalization.frozen else 'Review prepared data first' }}</h2><p>There is no current saved Odoo comparison to review.</p></div>
-    <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step={{ 'compare' if normalization and normalization.frozen else 'prepared' }}">{{ 'Continue to comparison' if normalization and normalization.frozen else 'Open Prepared data' }}</a>
+    <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/summary?step={{ 'compare' if normalization and normalization.frozen else 'prepared' }}">{{ 'Continue to comparison' if normalization and normalization.frozen else 'Open Prepared data' }}</a>
   </section>
 {% endif %}

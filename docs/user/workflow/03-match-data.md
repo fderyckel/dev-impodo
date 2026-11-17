@@ -89,7 +89,29 @@ fields** and **Connect linked values**. For a field that holds one value,
 source value is blank. Other blank policies can clear it. For lists of linked
 records, also review whether to replace, add to, or remove from the current list.
 
-![Match fields shows Odoo fields, value choices and previews in three columns, with Prepare values and More field options collapsed.](../../images/user/11t-stage3-match-fields.png)
+For incoming file data that creates or updates records, require a separate
+business value to be unique by selecting **Must be unique**
+beside that field in **Match fields**. For example, keep customer reference as
+the row identifier and select this rule for VAT. Two customers with different
+references and the same prepared VAT then need correction.
+
+**Prepare data** checks repeated prepared values across incoming tables mapped
+to the same Odoo record type. **Final review** checks whether another readable
+Odoo record already uses each value. An update may keep its own value. A
+conflict blocks inclusion until you correct the source or existing Odoo record,
+or explicitly change which source rows to include, and check again. The review
+retains the affected records, prepared values, fields and source rows.
+
+The rule ignores empty and whitespace-only prepared values. Use **Must have a
+value** as well when blanks are forbidden. Nonempty text compares exactly,
+including letter case and spaces; use **Prepare values** to standardize it
+first when needed. Numeric values compare by value, so `1.0` and `1.00` repeat.
+
+The incoming check spans companies represented in the selected data. The Odoo
+check uses the selected company access context and includes archived records
+returned by that access. Records hidden by Odoo access rules are outside its
+coverage. This check is separate from any uniqueness rule enforced by Odoo.
+Saving a Recipe retains the choice for later data deliveries.
 
 For file data, open **Source columns set aside** under **Match fields** to record
 columns you deliberately leave unmapped, such as internal notes. Select the

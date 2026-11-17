@@ -21,6 +21,10 @@ from typing import Any, Protocol, overload
 
 from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.mapping.contracts import DatasetMapping, ResolverOrigin
+from impodo.domain.preparation.field_uniqueness import (
+    duplicate_field_message,
+    duplicate_field_values,
+)
 from impodo.domain.preparation.staging_contracts import (
     CanonicalIssue,
     CanonicalRow,
@@ -1398,6 +1402,7 @@ def evaluate_quality(
     effective: EffectiveDataset | None = None,
     reference_bundle: ReferenceBundle | None = None,
     numeric_fields: tuple[PreparedNumericField, ...] = (),
+    unique_fields: tuple[tuple[str, str], ...] = (),
 ) -> QualityRun:
     """Evaluate a complete quality overlay without database or Odoo access."""
 
@@ -1564,6 +1569,16 @@ def evaluate_quality(
             issue = _quality_issue(workspace_state, rule, row, "POST_TRANSFORM_IDENTITY_COLLISION", f"{len(group)} prepared records would use the same Odoo match. All were set aside for review.", (), policy=rule.outcome)
             issue_map[issue.issue_id] = issue
             row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
+
+    for row, field, count in duplicate_field_values(rows, unique_fields):
+        rule = rules_by_family[(row.dataset, QualityRuleFamily.BOUNDED_VALUES)]
+        issue = _quality_issue(
+            workspace_state, rule, row, "SOURCE_FIELD_NOT_UNIQUE",
+            duplicate_field_message(field, count), (field,),
+            policy=QualityOutcomePolicy.BLOCK,
+        )
+        issue_map[issue.issue_id] = issue
+        row_issue_ids.setdefault(row.row_id, set()).add(issue.issue_id)
 
     for rule in (
         item

@@ -17,6 +17,21 @@ execution plan, approval, or write authorization.
 
 ## Prepared-record boundary
 
+A scalar field may declare `must_be_unique` independently of the selected
+record identity. Preparation checks nonblank prepared values across incoming
+tables for the same Odoo model. Final review repeats that check and uses bounded
+lookups to detect another existing Odoo record with the value. Only the uniquely
+matched record may retain its own value. Every conflict blocks its incoming
+record and retains the field and source row for correction. Equal numeric
+values share a key despite different decimal scales; nonblank text compares
+exactly. Empty and whitespace-only values do not participate.
+
+Odoo checks use the existing company access context and any authored target
+domain. The rule does not prove uniqueness outside readable records, reserve
+values against concurrent Odoo changes, or replace Odoo's load-time constraints.
+Read completeness, evidence invalidation, authorization and approval remain
+governed by their existing boundaries.
+
 The Stage 5 correction export can read current, authorized preparation findings
 without a successful comparison or package-readiness result. It includes only
 saved findings and their bound source locations and permitted values. A report
@@ -26,13 +41,36 @@ comparison or load prerequisites. Odoo-source values and numeric Odoo record
 identifiers remain outside this portable workbook.
 
 The Final review workbook may recover exact originals for direct scalar file
-preparation omissions from the immutable accepted source snapshot. Each request
+preparation omissions, unscoped relationships from one column, and supported
+many2one matches whose key and scope use distinct direct file columns. A
+relationship must have no prepared key or dataset projection. Scoped value
+translations remain outside this recovery. A list of linked values retains its
+full source cell. Recovery reads the immutable accepted source snapshot. Each request
 must match the comparison-bound mapping, physical selection, dataset and source
 key. The adapter verifies artifact bytes and kind-tagged cells. Captured blanks,
 withheld values and unavailable evidence remain distinct. Restricted workspaces
 must not read or export originals through this channel. Prepared-value display
 feedback does not establish an original source value. This export-only evidence
 does not change canonical data, comparison hashes or load decisions.
+
+Saved blocked relationship findings for `REFERENCE_NOT_FOUND`,
+`REFERENCE_AMBIGUOUS` and `REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED` may use this
+same recovery when the relationship proves its complete physical input group.
+Before requesting originals, the service verifies manifest bytes, result and
+frozen-input bindings, then proves each selected decision's prepared trace,
+dataset and source row. The writer checks the same comparison binding and
+uses the captured findings once. A scalar provider cannot authorize an original
+for a comparison relationship finding. Restricted and Odoo sources retain their
+existing withholding behavior.
+
+One field finding retains one immutable ordered `source_inputs` tuple for all
+its proven physical cells. Each source request binds a component to its target
+and complete ordered input group. Every component must be physical and directly
+authored; mixed generated groups remain unproven. The writer expands proven
+inputs into separate rows, counts underlying cells once and counts the field
+finding once. Empty inputs remain one explicit field finding. Restricted
+exports clear input geometry before source reads. These workbook projections
+do not change canonical storage or comparison hashes.
 
 The correction worklist retains records set aside by data-check findings, but
 counts explicit **Rows to use** exclusions separately. Informational notes do

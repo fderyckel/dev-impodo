@@ -119,6 +119,16 @@ def attention_guidance(code: str) -> tuple[str, str, str]:
     if code == "TARGET_FIELD_UNKNOWN":
         code = "TARGET_FIELD_MISSING"
     guidance = {
+        "SOURCE_FIELD_NOT_UNIQUE": (
+            "Prepared field values are repeated",
+            "Review the repeated prepared values and their source rows. Correct the values or choose which records to include, then prepare again.",
+            "Source data or Match data → Must be unique",
+        ),
+        "TARGET_FIELD_NOT_UNIQUE": (
+            "Another Odoo record uses this value",
+            "Review the conflicting Odoo records. Correct the source value or existing record, then compare again.",
+            "Source data, Match data → Must be unique, or Odoo",
+        ),
         "TARGET_SNAPSHOT_INCOMPLETE": (
             "Could not verify the Odoo setup",
             "Check Odoo access and refresh Odoo data, then compare again. Incomplete evidence does not establish that a record is missing.",

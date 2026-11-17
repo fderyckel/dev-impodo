@@ -102,6 +102,9 @@ class SchemaFieldView(Protocol):
     def company_dependent(self) -> bool | None: ...
 
     @property
+    def searchable(self) -> bool | None: ...
+
+    @property
     def digits(self) -> tuple[int, int] | None: ...
 
     @property

@@ -92,7 +92,9 @@ class NumericQualityBudgetTests(TestCase):
         staging, stored, budget, arguments = self._case()
         expected = evaluate_quality(staging=staging, **arguments)
 
-        actual = build_bounded_quality_run(staging=stored, **arguments)
+        actual = build_bounded_quality_run(
+            staging=stored, definition=fixtures.QUALITY_DEFINITION, **arguments
+        )
         materialized = fixtures._materialized_bounded_quality(actual)
 
         self.assertEqual(materialized.to_json(), expected.to_json())
@@ -108,7 +110,9 @@ class NumericQualityBudgetTests(TestCase):
         )
 
         with self.assertRaisesRegex(QualityError, "bounded review memory budget"):
-            build_bounded_quality_run(staging=stored, **arguments)
+            build_bounded_quality_run(
+                staging=stored, definition=fixtures.QUALITY_DEFINITION, **arguments
+            )
 
         self.assertEqual(budget.used_bytes, budget.limit_bytes - 1)
         self.assertEqual(len(stored.rows), 2)
@@ -117,7 +121,9 @@ class NumericQualityBudgetTests(TestCase):
         _staging, stored, _budget, arguments = self._case(limit_bytes=1400)
 
         with self.assertRaisesRegex(QualityError, "bounded review memory budget"):
-            build_bounded_quality_run(staging=stored, **arguments)
+            build_bounded_quality_run(
+                staging=stored, definition=fixtures.QUALITY_DEFINITION, **arguments
+            )
 
         self.assertEqual(
             tuple(row.proposed_values["credit_limit"] for row in stored.rows),

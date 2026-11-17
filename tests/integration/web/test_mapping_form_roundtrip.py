@@ -14,6 +14,7 @@ from impodo.domain.mapping.contracts import (
     MappingTargetMode,
     RelationshipMapping,
     RelationshipValueSource,
+    ScalarFieldMapping,
 )
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.access import LOCAL_ACTOR
@@ -122,6 +123,36 @@ class _GeneratedIdentityHelp(HTMLParser):
 
 
 class MappingFormRoundTripTests(unittest.TestCase):
+    def test_field_uniqueness_is_visible_and_survives_reopening_for_both_majors(self):
+        for version in ("19.0", "20.0"):
+            with self.subTest(version=version):
+                self.schema.odoo_version = version
+                original = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
+                checked = replace(original, fields=(ScalarFieldMapping("name", "category.name", must_be_unique=True),))
+                self.assertTrue(checked.fields)
+                definition = replace(self.definition, datasets=tuple(checked if item.dataset_id == original.dataset_id else item for item in self.definition.datasets))
+                self.assertEqual(self.roundtrip(definition, 0), definition)
+                views = _mapping_dataset_views(self.selection, self.schema, self.governance, definition.datasets,
+                                               derived_links=self.links, active_dataset_index=0,
+                                               selected_models={0: "product.category", 1: "product.template"})
+                html = self.template.render(view=views[0], workspace_id="workspace:test", formula_authoring_issues_by_dataset={})
+                self.assertIn("Must be unique", html)
+                self.assertIn("Blank values are ignored", html)
+                for row in views[0]["scalar_rows"]:
+                    if row["mapping"] and row["mapping"].must_be_unique:
+                        row["metadata"] = replace(row["metadata"], searchable=False)
+                html = self.template.render(view=views[0], workspace_id="workspace:test", formula_authoring_issues_by_dataset={})
+                self.assertIn("This field no longer supports the rule", html)
+                controls = _RenderedControls()
+                controls.feed(html)
+                self.assertTrue(any(name.startswith("scalar_unique_") and value == "1" for name, value in controls.entries))
+                for row in views[0]["scalar_rows"]:
+                    if row["mapping"]:
+                        row["mapping"] = replace(row["mapping"], must_be_unique=False)
+                views[0]["odoo_pinned"] = True
+                html = self.template.render(view=views[0], workspace_id="workspace:test", formula_authoring_issues_by_dataset={})
+                self.assertNotIn("Must be unique", html)
+
     def test_generated_name_warns_when_internal_key_would_change_original_spelling(self):
         category = next(item for item in self.definition.datasets if item.dataset_id == "derived:categories")
         self.governance.business_keys += (BusinessKeyDefinition("key:category-name", "product.category", ("name",), status=BusinessKeyStatus.CONFIRMED),)

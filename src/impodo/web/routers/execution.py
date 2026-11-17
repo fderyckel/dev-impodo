@@ -19,6 +19,7 @@ from uuid import uuid4
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
+from starlette.datastructures import FormData
 
 from impodo.adapters.artifacts.reporting import WORKBOOK_NAME
 from impodo.application.shared.artifacts import ArtifactStoreError
@@ -93,6 +94,37 @@ from ..target_credentials import (
 
 _LOAD_RECOVERY_CHECK_SESSION_KEY = "load_recovery_check"
 _LOAD_RECOVERY_CHECK_CONTRACT_VERSION = 1
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _LoadSubmission:
+    """Carry checked local facts after releasing every submission database owner."""
+
+    workspace_state: WorkspaceState
+    credential_owner: WorkspaceState
+    access_context: WorkspaceAccessContext
+    batch_rows: int | None
+    rejection_policy: RejectionPolicy
+    preview: ExecutionPreview
+    snapshot_hash: str
+    recovery_run_id: str
+    intent_assessment_hash: str
+    prior_run_id: str
+    read_credential: TargetCredential | None
+    submitted_key: str
+    saved_write_credential: TargetCredential | None
+    recovery_check: LoadRecoveryCheck | None
+    api_key: str
+    remember_write_key: bool
+    migration_project_name: str
+    target_environment: str
+
+
+@dataclass(frozen=True, slots=True)
+class _RejectedLoadSubmission:
+    """Carry an already-recorded operator explanation to a separate local render."""
+
+    message: str
 
 
 def _probe_remote_write_identity_sync(
@@ -812,18 +844,19 @@ def build_execution_router(
     @router.get("/workspaces/{workspace_id}/load")
     async def load_landing(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(workspace_id)
-        if active_job is not None:
+
+        def page():
+            active_job = _manager(context).active(workspace_id)
+            if active_job is not None:
+                return RedirectResponse(
+                    _load_progress_url(workspace_id, active_job.job_id),
+                    status_code=303,
+                )
             return RedirectResponse(
-                _load_progress_url(workspace_id, active_job.job_id),
-                status_code=303,
+                load_destination(request, workspace_id), status_code=303,
             )
-        destination = await run_page_read(
-            load_destination,
-            request,
-            workspace_id,
-        )
-        return RedirectResponse(destination, status_code=303)
+
+        return await run_workspace_page_read(request, page)
 
     @router.get(
         "/workspaces/{workspace_id}/load/review",
@@ -831,16 +864,19 @@ def build_execution_router(
     )
     async def review_load(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(workspace_id)
-        if active_job is not None:
-            return RedirectResponse(
-                _load_progress_url(workspace_id, active_job.job_id),
-                status_code=303,
-            )
-        return await run_page_read(render_review, request, workspace_id)
+
+        def page():
+            active_job = _manager(context).active(workspace_id)
+            if active_job is not None:
+                return RedirectResponse(
+                    _load_progress_url(workspace_id, active_job.job_id),
+                    status_code=303,
+                )
+            return render_review(request, workspace_id)
+
+        return await run_workspace_page_read(request, page)
 
     def confirmation_page(request: Request, workspace_id: str):
-        require_session(request)
         actor = request_identity(request, context.identity_resolver).actor
         active_job = _manager(context).active(workspace_id)
         if active_job is not None:
@@ -887,7 +923,10 @@ def build_execution_router(
 
     @router.get("/workspaces/{workspace_id}/load/confirm", response_class=HTMLResponse)
     async def confirm_load(request: Request, workspace_id: str):
-        return await run_page_read(confirmation_page, request, workspace_id)
+        require_session(request)
+        return await run_workspace_page_read(
+            request, lambda: confirmation_page(request, workspace_id),
+        )
 
     @router.post("/workspaces/{workspace_id}/load/complete-no-changes")
     async def complete_no_changes(request: Request, workspace_id: str):
@@ -921,13 +960,17 @@ def build_execution_router(
     )
     async def review_outcome(request: Request, workspace_id: str):
         require_session(request)
-        active_job = _manager(context).active(workspace_id)
-        if active_job is not None:
-            return RedirectResponse(
-                _load_progress_url(workspace_id, active_job.job_id),
-                status_code=303,
-            )
-        return await run_page_read(render_outcome, request, workspace_id)
+
+        def page():
+            active_job = _manager(context).active(workspace_id)
+            if active_job is not None:
+                return RedirectResponse(
+                    _load_progress_url(workspace_id, active_job.job_id),
+                    status_code=303,
+                )
+            return render_outcome(request, workspace_id)
+
+        return await run_workspace_page_read(request, page)
 
     @router.get("/workspaces/{workspace_id}/load/errors", response_class=HTMLResponse)
     async def review_operator_errors(request: Request, workspace_id: str):
@@ -1004,6 +1047,9 @@ def build_execution_router(
     )
     async def load_progress(request: Request, workspace_id: str, job_id: str):
         require_session(request)
+        return await run_page_read(render_progress, request, workspace_id, job_id)
+
+    def render_progress(request: Request, workspace_id: str, job_id: str):
         actor = request_identity(request, context.identity_resolver).actor
         job = _get_job(context, workspace_id, job_id)
         workspace = context.migration_workspaces.get(workspace_id, actor=actor)
@@ -1298,51 +1344,33 @@ def build_execution_router(
             status_code=303,
         )
 
-    @router.post("/workspaces/{workspace_id}/load/recover")
-    @router.post("/workspaces/{workspace_id}/load")
-    async def load_into_odoo(request: Request, workspace_id: str):
-        recovering = request.url.path.endswith("/recover")
-        form = await request.form()
-        _secure_form(
-            request,
-            form,
-            {
-                "csrf_token",
-                "snapshot_hash",
-                "execution_run_id",
-                "recovery_check_id",
-                "confirm_resume",
-            } if recovering else {
-                "csrf_token",
-                "snapshot_hash",
-                "intent_assessment_hash",
-                "batch_rows",
-                "rejection_policy",
-                "load_policy_version",
-                "prior_execution_run_id",
-                "write_api_key",
-                "remember_write_api_key",
-                "api_key",
-                "remember_api_key",
-            },
-        )
-        actor = request_identity(request, context.identity_resolver).actor
+    def prepare_load_submission(
+        request: Request,
+        workspace_id: str,
+        form: FormData,
+        recovering: bool,
+        actor: Actor,
+    ) -> _LoadSubmission | RedirectResponse | _RejectedLoadSubmission:
+        """Collect contiguous local admission facts and release before dispatch.
+
+        Diagnostic stages share this operation's owners. Credential retrieval
+        uses the local vault; Odoo probes and job dispatch run after returning.
+        The context stage keeps its original exception boundary, and handled
+        rejections are rendered only after every admission owner has closed.
+        """
+
         with _diagnostic_load_stage(
             diagnostic_recorder,
             "submission_context",
         ):
-            workspace_state = await run_page_read(
-                context.queries.get,
-                workspace_id,
-            )
+            workspace_state = context.queries.get(workspace_id)
             active_job = _manager(context).active(workspace_id)
             if active_job is not None:
                 return RedirectResponse(
                     _load_progress_url(workspace_id, active_job.job_id),
                     status_code=303,
                 )
-            credential_owner = await run_page_read(
-                context.target_credential_workspace,
+            credential_owner = context.target_credential_workspace(
                 workspace_id,
                 workspace_state=workspace_state,
                 actor=actor,
@@ -1364,7 +1392,7 @@ def build_execution_router(
                     )
                     return access
 
-                access_context = await run_page_read(authorize_submission)
+                access_context = authorize_submission()
             batch_rows = (
                 None if recovering
                 else validated_create_batch_rows(_text(form, "batch_rows"))
@@ -1385,11 +1413,7 @@ def build_execution_router(
                 diagnostic_recorder,
                 "submission_preview",
             ):
-                preview = await run_page_read(
-                    context.execution.current_preview,
-                    workspace_id,
-                    actor=actor,
-                )
+                preview = context.execution.current_preview(workspace_id, actor=actor)
             if preview is None:
                 raise WorkspaceError(
                     "Compare the prepared data with Odoo first",
@@ -1408,11 +1432,12 @@ def build_execution_router(
                 )
             recovery_run_id = _text(form, "execution_run_id") if recovering else ""
             intent_assessment_hash = _text(form, "intent_assessment_hash") if not recovering else ""
-            await run_local_operation(
-                context.execution.require_business_intent, workspace_id,
+            context.execution.require_business_intent(
+                workspace_id,
                 expected_snapshot_hash=snapshot_hash,
                 expected_assessment_hash=intent_assessment_hash,
-                recovery_run_id=recovery_run_id, actor=actor,
+                recovery_run_id=recovery_run_id,
+                actor=actor,
             )
             prior_run_id = _text(form, "prior_execution_run_id") if not recovering else ""
             prior_run = getattr(preview, "prior_interrupted_run", None)
@@ -1439,8 +1464,7 @@ def build_execution_router(
             ):
                 read_credential = None
                 if workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE:
-                    read_credential = await run_in_threadpool(
-                        get_target_credential,
+                    read_credential = get_target_credential(
                         context.secret_store,
                         credential_owner,
                         TargetCredentialRole.READ,
@@ -1462,8 +1486,7 @@ def build_execution_router(
                     form,
                     "api_key",
                 )
-                saved_write_credential = await run_in_threadpool(
-                    get_target_credential,
+                saved_write_credential = get_target_credential(
                     context.secret_store,
                     credential_owner,
                     TargetCredentialRole.WRITE,
@@ -1527,6 +1550,115 @@ def build_execution_router(
                     "remember_write_api_key" in form or "remember_api_key" in form
                 )
 
+            with _diagnostic_load_stage(diagnostic_recorder, "submission_enqueue"):
+                # Keep the second confirmation and display facts current without
+                # reopening the stores used by the earlier admission stages.
+                context.execution.require_business_intent(
+                    workspace_id,
+                    expected_snapshot_hash=snapshot_hash,
+                    expected_assessment_hash=intent_assessment_hash,
+                    recovery_run_id=recovery_run_id,
+                    actor=actor,
+                )
+                migration_project_name, target_environment = _load_job_display_context(
+                    context,
+                    workspace_id,
+                    actor=actor,
+                )
+            return _LoadSubmission(
+                workspace_state=workspace_state,
+                credential_owner=credential_owner,
+                access_context=access_context,
+                batch_rows=batch_rows,
+                rejection_policy=rejection_policy,
+                preview=preview,
+                snapshot_hash=snapshot_hash,
+                recovery_run_id=recovery_run_id,
+                intent_assessment_hash=intent_assessment_hash,
+                prior_run_id=prior_run_id,
+                read_credential=read_credential,
+                submitted_key=submitted_key,
+                saved_write_credential=saved_write_credential,
+                recovery_check=recovery_check,
+                api_key=api_key,
+                remember_write_key=remember_write_key,
+                migration_project_name=migration_project_name,
+                target_environment=target_environment,
+            )
+        except (
+            AuthorizationError,
+            LoadJobStateError,
+            MigrationConflictError,
+            ProductionRunError,
+            WorkspaceStateError,
+            SecretStoreError,
+            WorkspaceError,
+        ) as error:
+            record_load_failure(error)
+            return _RejectedLoadSubmission(str(error))
+
+    @router.post("/workspaces/{workspace_id}/load/recover")
+    @router.post("/workspaces/{workspace_id}/load")
+    async def load_into_odoo(request: Request, workspace_id: str):
+        recovering = request.url.path.endswith("/recover")
+        form = await request.form()
+        _secure_form(
+            request,
+            form,
+            {
+                "csrf_token",
+                "snapshot_hash",
+                "execution_run_id",
+                "recovery_check_id",
+                "confirm_resume",
+            } if recovering else {
+                "csrf_token",
+                "snapshot_hash",
+                "intent_assessment_hash",
+                "batch_rows",
+                "rejection_policy",
+                "load_policy_version",
+                "prior_execution_run_id",
+                "write_api_key",
+                "remember_write_api_key",
+                "api_key",
+                "remember_api_key",
+            },
+        )
+        actor = request_identity(request, context.identity_resolver).actor
+        submission = await run_local_operation(
+            prepare_load_submission, request, workspace_id, form, recovering, actor,
+        )
+        if isinstance(submission, RedirectResponse):
+            return submission
+        if isinstance(submission, _RejectedLoadSubmission):
+            return await run_page_read(
+                render,
+                request,
+                workspace_id,
+                step="outcome" if recovering else "confirm",
+                error=submission.message,
+                status_code=422,
+            )
+        workspace_state = submission.workspace_state
+        credential_owner = submission.credential_owner
+        access_context = submission.access_context
+        batch_rows = submission.batch_rows
+        rejection_policy = submission.rejection_policy
+        preview = submission.preview
+        snapshot_hash = submission.snapshot_hash
+        recovery_run_id = submission.recovery_run_id
+        intent_assessment_hash = submission.intent_assessment_hash
+        prior_run_id = submission.prior_run_id
+        read_credential = submission.read_credential
+        submitted_key = submission.submitted_key
+        saved_write_credential = submission.saved_write_credential
+        recovery_check = submission.recovery_check
+        api_key = submission.api_key
+        remember_write_key = submission.remember_write_key
+        migration_project_name = submission.migration_project_name
+        target_environment = submission.target_environment
+        try:
             def run_load(
                 authorized_workspace: WorkspaceAccessContext,
                 report_writing,
@@ -1803,23 +1935,6 @@ def build_execution_router(
                 )
 
             with _diagnostic_load_stage(diagnostic_recorder, "submission_enqueue"):
-                def prepare_enqueue() -> tuple[str, str]:
-                    context.execution.require_business_intent(
-                        workspace_id,
-                        expected_snapshot_hash=snapshot_hash,
-                        expected_assessment_hash=intent_assessment_hash,
-                        recovery_run_id=recovery_run_id,
-                        actor=actor,
-                    )
-                    return _load_job_display_context(
-                        context,
-                        workspace_id,
-                        actor=actor,
-                    )
-
-                migration_project_name, target_environment = await run_local_operation(
-                    prepare_enqueue,
-                )
                 job = _manager(context).enqueue(
                     workspace_id,
                     migration_project_name,

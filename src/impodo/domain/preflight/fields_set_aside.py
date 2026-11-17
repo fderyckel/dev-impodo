@@ -4,12 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from enum import StrEnum
 
 from ..compiler.contracts import CompiledMigrationPlan
 from ..preparation.staging_contracts import CanonicalRow
-from .original_values import OriginalSourceValue
+from .original_values import OriginalSourceInput
 
 
 class FieldSetAsideReason(StrEnum):
@@ -25,7 +24,13 @@ class FieldSetAsideReason(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class FieldSetAside:
-    """A saved field finding with logical source and target coordinates."""
+    """A saved field finding with logical source and target coordinates.
+
+    Comparison issues require relationship-specific proof before an original
+    value may be requested; preparation findings can also use scalar providers.
+    Nonempty source inputs describe one complete proven physical input group.
+    Empty inputs retain an unproven field finding rather than invented cells.
+    """
 
     reason: FieldSetAsideReason
     dataset: str
@@ -33,7 +38,20 @@ class FieldSetAside:
     source_keys: tuple[str, ...]
     target_field: str
     detail: str
-    source_value: OriginalSourceValue = dataclass_field(default_factory=OriginalSourceValue.unavailable)
+    source_inputs: tuple[OriginalSourceInput, ...] = ()
+    comparison_issue: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.source_inputs, tuple):
+            raise TypeError("Original source inputs must be immutable")
+        if any(not isinstance(item, OriginalSourceInput) for item in self.source_inputs):
+            raise TypeError("Original source inputs require typed input evidence")
+        if self.source_inputs and (
+            self.source_row is None
+            or tuple(item.source_key for item in self.source_inputs) != self.source_keys
+            or len(set(self.source_keys)) != len(self.source_keys)
+        ):
+            raise ValueError("Original inputs must describe the complete ordered source cohort")
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +189,6 @@ def field_set_aside_evidence(
                   ("Only explicitly saved column exclusions are covered; "
                    "earlier unsaved choices cannot be recovered."),
               )),
-            "Original source values are only recovered for direct scalar preparation omissions.",
+            "Original source values for prepared or derived references and unsupported combinations remain unavailable.",
         ),
     )

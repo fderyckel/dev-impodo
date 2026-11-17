@@ -9,6 +9,7 @@ from impodo.domain.coverage import ReferenceBundle
 from impodo.domain.errors import ReadinessError
 from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import MappingDefinition
+from impodo.domain.preparation.field_uniqueness import mapped_unique_fields
 from impodo.domain.preparation.quality import (
     QualityError,
     QualityRule,
@@ -429,6 +430,7 @@ class QualityService:
                             published_staging_content_hash=staging.content_hash,
                             reference_bundle=reference_bundle,
                             numeric_fields=numeric_fields,
+                            unique_fields=mapped_unique_fields(revision.definition),
                         )
                 else:
                     quality_run = evaluate_quality(
@@ -440,6 +442,7 @@ class QualityService:
                         effective=effective,
                         reference_bundle=reference_bundle,
                         numeric_fields=numeric_fields,
+                        unique_fields=mapped_unique_fields(revision.definition),
                     )
             except QualityError as error:
                 raise ReadinessError(str(error)) from error

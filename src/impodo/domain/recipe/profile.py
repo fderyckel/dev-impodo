@@ -147,6 +147,7 @@ class FieldSpec(StrictModel):
     formula: str = Field(default="", max_length=MAX_FORMULA_LENGTH)
     type: ScalarType
     required: bool = False
+    must_be_unique: bool = False
     required_on_create: bool = False
     compare: bool = True
     validate_only: bool = False
@@ -158,6 +159,8 @@ class FieldSpec(StrictModel):
     def validate_semantics(self) -> FieldSpec:
         """Reject comparison and decimal settings that cannot coexist."""
 
+        if self.must_be_unique and self.validate_only:
+            raise ValueError("Must be unique requires a prepared field value")
         if self.validate_only and self.compare:
             raise ValueError("validate_only fields cannot also set compare: true")
         if self.compare_only and (not self.validate_only or self.compare):
@@ -410,6 +413,10 @@ class DatasetSpec(StrictModel):
                 f"target fields cannot be both scalar and relational: {sorted(overlap)}"
             )
         pinned = self.target.mode == "odoo_pinned_update"
+        if pinned and any(field.must_be_unique for field in self.fields.values()):
+            raise ValueError("Must be unique is unavailable for protected Odoo corrections. Use an incoming-data workspace.")
+        if self.target.mode == "reference" and any(field.must_be_unique for field in self.fields.values()):
+            raise ValueError("Must be unique requires a table that creates or updates records.")
         if pinned and (
             self.source_identity.fields
             or self.target_identity.components

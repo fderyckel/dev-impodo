@@ -1710,6 +1710,7 @@ class RecipeApplicationCompiler:
             ),
             value_type=str(item.get("value_type", "string")),
             required=bool(item.get("required")),
+            must_be_unique=bool(item.get("must_be_unique", False)),
             required_on_create=bool(item.get("required_on_create")),
             compare=bool(item.get("compare", True)),
             validate_only=bool(item.get("validate_only")),

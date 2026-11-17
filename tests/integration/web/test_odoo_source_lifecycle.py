@@ -5,7 +5,9 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from impodo.domain.data_version.models import DataVersionState
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.target_credentials import (
     TargetCredentialRole,
     audit_stored_target_credential,
@@ -121,7 +123,17 @@ class OdooSourceLifecycleBrowserTests(ProjectSetupBrowserTestCase):
 
     def test_frozen_stage_three_restart_rebuilds_schema_in_a_successor(self) -> None:
         context = self.app.state.context
-        predecessor_state, _schema = self._frozen_odoo_source_workspace()
+        initial, schema = self._registered_remote_schema_workspace()
+        identity = context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            context, initial, OdooDatabaseBindingRole.SOURCE,
+            actor=identity.actor, scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
+        )
+        with patch.object(
+            self, "_registered_remote_schema_workspace", return_value=(initial, schema)
+        ):
+            predecessor_state, _schema = self._frozen_odoo_source_workspace()
         predecessor_workspace = context.migration_workspaces.get(
             predecessor_state.workspace_id,
             actor=resolve_local_actor(context),
@@ -136,37 +148,29 @@ class OdooSourceLifecycleBrowserTests(ProjectSetupBrowserTestCase):
             predecessor_workspace.data_version_id,
             actor=resolve_local_actor(context),
         )
-        changed_state = context.workspace_states.update_target(
-            predecessor_state.workspace_id,
-            actor=resolve_local_actor(context),
-            expected_revision=predecessor_state.revision,
-            odoo_connection_mode="REMOTE",
-            odoo_base_url="https://changed-before-fix.example.test",
-            odoo_database="changed_before_fix",
-            intended_applications=(),
-            intended_models=("res.partner",),
-        )
+        # Rechecking the reviewed source starts a successor; its frozen
+        # predecessor never adopts an unreviewed replacement database.
         credential = store_target_credential(
             context.secret_store,
-            changed_state,
+            predecessor_state,
             TargetCredentialRole.READ,
             "changed-source-secret",
             persistent=False,
         )
         audit_stored_target_credential(
             context.workspace_states,
-            changed_state,
+            predecessor_state,
             TargetCredentialRole.READ,
             credential,
             actor=resolve_local_actor(context),
         )
         captured = self._post(
-            f"/workspaces/{changed_state.workspace_id}/schema/capture",
+            f"/workspaces/{predecessor_state.workspace_id}/schema/capture",
             {"csrf_token": self.csrf, "return_to_sources": "1"},
         )
         self.assertEqual(captured.status_code, 303, captured.text)
         saved_plan = self._post(
-            f"/workspaces/{changed_state.workspace_id}/sources/odoo-selection",
+            f"/workspaces/{predecessor_state.workspace_id}/sources/odoo-selection",
             {
                 "csrf_token": self.csrf,
                 "dataset_name": "changed_contacts",
@@ -178,7 +182,7 @@ class OdooSourceLifecycleBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertEqual(saved_plan.status_code, 303, saved_plan.text)
         selection = context.queries.get_current_odoo_capture_selections(
-            changed_state.workspace_id
+            predecessor_state.workspace_id
         )[0]
 
         assessment_form = {
@@ -187,7 +191,7 @@ class OdooSourceLifecycleBrowserTests(ProjectSetupBrowserTestCase):
             "selection_hash": selection.content_hash,
         }
         restart_handoff = self._post(
-            f"/workspaces/{changed_state.workspace_id}/sources/odoo-assessment",
+            f"/workspaces/{predecessor_state.workspace_id}/sources/odoo-assessment",
             assessment_form,
         )
         self.assertEqual(restart_handoff.status_code, 307)

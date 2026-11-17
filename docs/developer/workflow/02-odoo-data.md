@@ -117,6 +117,32 @@ confirmation for both supported majors with local and remote reads.
 The [interaction tests](../../../tests/e2e/schema-journey.test.cjs) cover
 unsaved values, browser history, direct links, and focused validation recovery.
 
+### Shared button purposes
+
+The shared button roles use blue outlines for local actions, grey for
+navigation and help, and a neutral style for deletion. The single filled red
+action advances the current step. `button-roles.js`, loaded by `base.html`,
+selects the visible enabled `data-next-step` control. Hidden panels and open
+dialogs scope the selection; an edited advancing form receives priority over
+a later page transition. This presentation module submits no form and adds
+no Odoo call or database read.
+
+Matching-rule cards retain their controls while the footer owns the complete
+confirmation. The duplicate card submission has been removed. A confirmed
+page highlights **Continue to match data**; editing a saved rule highlights
+**Confirm matching rules and continue**. Save progress, previews, exports,
+and help retain their supporting roles.
+
+The [button contract checks](../../../tests/architecture/test_button_roles.py)
+enforce explicit roles and central ownership of the red fill. The
+[selection tests](../../../tests/e2e/button-roles.test.cjs) exercise hidden,
+disabled, edited and dialog states. The
+[browser tests](../../../tests/e2e/test_button_roles.py) verify both supported
+Odoo majors, native confirmation and saved rule descriptions at desktop and
+phone widths. Set `IMPODO_BUTTON_SCREENSHOT_DIR` to a unique temporary trial
+directory when running that browser module to reproduce
+`08d-odoo-matching-next-action.png` at 1440 by 1024.
+
 ### Matching-rule scope selection
 
 The **Within (optional)** control renders labelled checkboxes from captured

@@ -233,7 +233,7 @@
             <input type="hidden" name="execution_run_id" value="{{ transfer_run.run_id }}">
             <input type="hidden" name="snapshot_hash" value="{{ transfer_snapshot.semantic_hash }}">
             <input type="hidden" name="preflight_hash" value="{{ transfer_preflight_report.content_hash }}">
-            <button class="button action" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>Assess and resume interrupted transfer</button>
+            <button class="button action" data-next-step="100" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>Assess and resume interrupted transfer</button>
           </form>
         {% else %}
           <p class="notice warning">The exact approved preview is unavailable or no longer current. This transfer cannot be resumed.</p>

@@ -53,8 +53,7 @@ def populate_workbook_original_values(
             fields_set_aside=replace(
                 fields,
                 findings=tuple(
-                    replace(finding, source_value=OriginalSourceValue.withheld())
-                    for finding in fields.findings
+                    replace(finding, source_inputs=()) for finding in fields.findings
                 ),
             ),
             original_source_requests=(),
@@ -63,9 +62,15 @@ def populate_workbook_original_values(
         return evidence
 
     targets = {
-        (request.dataset, row, key, target)
+        (
+            request.dataset,
+            target.source_row,
+            target.source_key,
+            target.target_field,
+            target.input_keys,
+        )
         for request in evidence.original_source_requests
-        for row, key, target in request.targets
+        for target in request.targets
     }
     originals: dict[tuple[str, int, str], OriginalSourceValue] = {}
     for snapshot, requested in _group_requests(evidence.original_source_requests):
@@ -97,15 +102,28 @@ def populate_workbook_original_values(
 
 def _hydrate_finding(
     finding: FieldSetAside,
-    targets: set[tuple[str, int, str, str]],
+    targets: set[tuple[str, int, str, str, tuple[str, ...]]],
     originals: dict[tuple[str, int, str], OriginalSourceValue],
 ) -> FieldSetAside:
-    if finding.source_row is None or len(finding.source_keys) != 1:
+    if finding.source_row is None or not finding.source_inputs:
         return finding
-    cell = (finding.dataset, finding.source_row, finding.source_keys[0])
-    if (*cell, finding.target_field) not in targets:
+    cells = tuple(
+        (finding.dataset, finding.source_row, item.source_key)
+        for item in finding.source_inputs
+    )
+    if any(
+        (*cell, finding.target_field, finding.source_keys) not in targets
+        or cell not in originals
+        for cell in cells
+    ):
         return finding
-    return replace(finding, source_value=originals.get(cell, finding.source_value))
+    return replace(
+        finding,
+        source_inputs=tuple(
+            replace(item, value=originals[cell])
+            for item, cell in zip(finding.source_inputs, cells, strict=True)
+        ),
+    )
 
 
 def _group_requests(

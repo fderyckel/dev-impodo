@@ -39,6 +39,12 @@ from impodo.application.workspace.preparation.quality_service import (
     QualityService,
 )
 from impodo.domain.errors import ReadinessError
+from impodo.domain.mapping.contracts import (
+    DatasetMapping,
+    IdentityComponentMapping,
+    MappingDefinition,
+    ScalarFieldMapping,
+)
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.compiler import compile_profile_document
 from impodo.domain.execution.planner import plan_record_requests
@@ -89,9 +95,26 @@ from impodo.domain.workspace.contracts import (
 
 ROOT = REPOSITORY_ROOT
 PHYSICAL_HASH = "sha256:" + "1" * 64
-MAPPING_HASH = "sha256:" + "2" * 64
 SCHEMA_HASH = "sha256:" + "3" * 64
 SOURCE_HASH = "sha256:" + "4" * 64
+QUALITY_DEFINITION = MappingDefinition(
+    mapping_id="mapping:contacts",
+    source_selection_hash=PHYSICAL_HASH,
+    schema_hash=SCHEMA_HASH,
+    datasets=tuple(
+        DatasetMapping(
+            dataset_id=f"dataset:{name}",
+            target_model="res.partner",
+            source_identity_column_keys=("column:reference",),
+            target_identity=(
+                IdentityComponentMapping(("column:reference",), ("name",)),
+            ),
+            fields=(ScalarFieldMapping("name", "column:reference"),),
+        )
+        for name in ("contacts", "categories", "products")
+    ),
+)
+MAPPING_HASH = QUALITY_DEFINITION.content_hash
 
 
 class _SparseEvidence(tuple):
@@ -153,6 +176,7 @@ class QualityEvaluationTests(unittest.TestCase):
             rows=_IndexedTestRows(staging.rows),
         )
         bounded = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=self.workspace_state,
             staging=stored,
             physical_rows={"dataset:contacts": (2,)},
@@ -767,6 +791,7 @@ class QualityEvaluationTests(unittest.TestCase):
             ruleset=ruleset,
         )
         bounded = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=self.workspace_state,
             staging=_stored_staging(staging),
             physical_rows={"dataset:contacts": (2, 3, 4)},
@@ -819,6 +844,7 @@ class QualityEvaluationTests(unittest.TestCase):
         )
 
         bounded = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=self.workspace_state,
             staging=stored,
             physical_rows=physical_rows,
@@ -896,6 +922,7 @@ class QualityEvaluationTests(unittest.TestCase):
             ruleset=ruleset,
         )
         bounded = build_bounded_quality_run(
+            definition=QUALITY_DEFINITION,
             workspace_state=self.workspace_state,
             staging=_stored_staging(staging),
             physical_rows={"dataset:categories": (2, 3)},
@@ -1079,7 +1106,7 @@ class QualityEvaluationTests(unittest.TestCase):
         service = QualityService(MagicMock(), MagicMock(), repository, recipe_quality=seeds)
         run, _ = service.evaluate_and_publish(
             self.workspace_state,
-            SimpleNamespace(definition=SimpleNamespace(content_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH)),
+            SimpleNamespace(definition=SimpleNamespace(content_hash=MAPPING_HASH, schema_hash=SCHEMA_HASH, datasets=QUALITY_DEFINITION.datasets)),
             SimpleNamespace(datasets=(SimpleNamespace(name="contacts"),)), staging,
             {"dataset:contacts": (2,)}, SimpleNamespace(content_hash=staging.content_hash, run_id="staging:1"),
             actor=LOCAL_ACTOR,
@@ -2206,6 +2233,7 @@ def _stored_staging(staging: CanonicalStagingRun) -> StoredCanonicalStagingRun:
         control_totals=staging.control_totals,
         evaluator_version=staging.evaluator_version,
         contract_version=staging.contract_version,
+        validated_content_hash=staging.content_hash,
     )
 
 
