@@ -99,7 +99,7 @@
           </div>
 
           <div class="actions">
-            <button class="button primary" type="submit">Preview the related tables</button>
+            <button class="button action" type="submit">Preview the related tables</button>
           </div>
           </form>
           {% if pending_related and pending_related.rule.source_dataset_id == dataset.dataset_id %}{% include "derived_entities/_related_review.html" %}{% endif %}

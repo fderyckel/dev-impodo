@@ -23,7 +23,7 @@
       <div class="notice success"><strong>Correction verified.</strong><p>Odoo now matches the reviewed correction.</p></div>
     {% endif %}
     {% if job.terminal %}
-      <a class="button primary" href="/workspaces/{{ completed_workspace_id }}/correction">Continue</a>
+      <a class="button action" data-next-step="100" href="/workspaces/{{ completed_workspace_id }}/correction">Continue</a>
     {% else %}
       <p class="muted">You can reload or return to this page; the current job will continue.</p>
     {% endif %}

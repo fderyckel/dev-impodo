@@ -18,18 +18,18 @@
       {% if prepared_duplicate_review %}
         <p>Compare the duplicate rows and select which copies to exclude before preparing again.</p>
         <div class="actions">
-          <button class="button primary" type="button" data-duplicate-rows-url="{{ duplicate_picker_url }}"{% if open_duplicate_picker %} data-duplicate-auto-open{% endif %}>Choose rows to exclude</button>
-          <a class="button secondary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+          <button class="button action" type="button" data-duplicate-rows-url="{{ duplicate_picker_url }}"{% if open_duplicate_picker %} data-duplicate-auto-open{% endif %}>Choose rows to exclude</button>
+          <a class="button action" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
         </div>
       {% else %}
         <p><strong>What to do:</strong> {{ cause_issue.recheck }}</p>
-        <a class="button primary" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
+        <a class="button action" href="{{ cause_issue.correction_route }}">{{ cause_issue.correction_label }}</a>
       {% endif %}
       {% if cause.policy.value == 'QUARANTINE' %}
         <p>These records are set aside. This finding does not block comparison of the remaining included records.</p>
       {% endif %}
     </div>
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=prepared#migration-issues" data-final-review-back>Back to migration issues</a>
+    <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary?step=prepared#migration-issues" data-final-review-back>Back to migration issues</a>
   </div>
 
   <section class="readiness-cards quality-cards" aria-label="Affected record totals">
@@ -56,7 +56,7 @@
       </div>
       <div class="actions" aria-label="Records per page">
         {% for option in page_size_options %}
-          <a class="button secondary small{% if option.size == page_size %} selected{% endif %}" href="{{ option.url }}">{{ option.size }}</a>
+          <a class="button action small{% if option.size == page_size %} selected{% endif %}" href="{{ option.url }}">{{ option.size }}</a>
         {% endfor %}
       </div>
     </div>
@@ -107,9 +107,9 @@
         </table>
       </div>
       <div class="pagination-row">
-        {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous</a>{% endif %}
+        {% if previous_url %}<a class="button navigation" href="{{ previous_url }}">Previous</a>{% endif %}
         <span class="muted">Page {{ review_page.page }} of {{ review_page.page_count }}</span>
-        {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next</a>{% endif %}
+        {% if next_url %}<a class="button action" href="{{ next_url }}">Next</a>{% endif %}
       </div>
     {% else %}
       <div class="empty-state compact">

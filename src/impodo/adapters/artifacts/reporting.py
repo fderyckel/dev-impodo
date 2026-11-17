@@ -46,6 +46,7 @@ from impodo.domain.preflight.fields_set_aside import (
     preparation_field_reason,
 )
 from impodo.domain.preflight.mapping_summary import ReviewWorkbookFieldRule
+from impodo.domain.preflight.original_values import OriginalValueState
 from impodo.domain.preflight.reports import (
     ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
@@ -65,6 +66,7 @@ from impodo.domain.shared.models import (
     canonical_json_bytes,
     restore_portable_value,
 )
+from impodo.domain.source_snapshot import SourceCellKind
 
 MANIFEST_NAME = "impodo_preflight_manifest.json"
 WORKBOOK_NAME = "impodo_preflight_report.xlsx"
@@ -591,6 +593,28 @@ def _prepared_field_is_null(record: PreparedRecord, field: str) -> bool:
     )
 
 
+
+def _workbook_original_text(text: str) -> str:
+    """Reject source text Excel cannot preserve instead of silently truncating it."""
+
+    if len(text) > 32_767:
+        raise ReportGenerationError(
+            "An original source value exceeds Excel's text limit. "
+            "Review this finding in Impodo before exporting."
+        )
+    if any(
+        (ord(char) < 32 and char not in "\t\n\r")
+        or 0xD800 <= ord(char) <= 0xDFFF
+        or ord(char) in {0xFFFE, 0xFFFF}
+        for char in text
+    ):
+        raise ReportGenerationError(
+            "An original source value contains characters Excel cannot preserve. "
+            "Review this finding in Impodo before exporting."
+        )
+    return text
+
+
 def _write_fields_set_aside(
     sheet,
     overview,
@@ -606,8 +630,6 @@ def _write_fields_set_aside(
     findings = set(fields.findings if fields and not protected_source else ())
     if not protected_source:
         findings.update(_comparison_field_findings(decisions, records, evidence))
-    original_values: dict[tuple[str, int, str], str] = {}
-    feedback_originals: set[FieldSetAside] = set()
     if not protected_source and fields is not None and evidence is not None:
         rule_coordinates = {
             (item.dataset, item.source_row, item.target_field)
@@ -617,9 +639,6 @@ def _write_fields_set_aside(
         for effect in evidence.cell_effects:
             record = records[effect.source_trace_id]
             coordinate = (effect.dataset, effect.source_row, effect.target_field)
-            original_values.setdefault(
-                coordinate, effect.before,
-            )
             if (
                 coordinate not in rule_coordinates
                 and _prepared_field_is_null(record, effect.target_field)
@@ -629,10 +648,8 @@ def _write_fields_set_aside(
                 finding = FieldSetAside(
                     FieldSetAsideReason.RULE, effect.dataset, effect.source_row,
                     fields.source_keys.get((effect.dataset, effect.target_field), ()),
-                    effect.target_field, effect.explanation, effect.before,
+                    effect.target_field, effect.explanation,
                 )
-                if finding not in findings:
-                    feedback_originals.add(finding)
                 findings.add(finding)
 
     cells = {
@@ -653,12 +670,12 @@ def _write_fields_set_aside(
         key=lambda item: (
             reason_order[item.reason], item.dataset,
             item.source_row or 0, item.source_keys, item.target_field,
-            item.detail, item.source_value or "",
+            item.detail, item.source_value.state, item.source_value.text or "",
         ),
     )
     rows = []
     unavailable_originals = 0
-    unrecorded_originals = 0
+    withheld_originals = 0
     unidentified_cells = 0
     for item in ordered:
         model = fields.target_models.get(item.dataset, "") if fields else ""
@@ -668,15 +685,22 @@ def _write_fields_set_aside(
             for key in item.source_keys
         )
         original = item.source_value
-        if original is None and item.source_row is not None:
-            original = original_values.get((item.dataset, item.source_row, item.target_field))
-        if item.source_row is not None:
-            unavailable_originals += original is None
-            unrecorded_originals += item.source_value is None or item in feedback_originals
-            unidentified_cells += len(item.source_keys) != 1
-        display_original = original if original is not None else (
-            "Unavailable" if item.source_row is not None else ""
+        state = (
+            OriginalValueState.WITHHELD
+            if fields is not None and fields.source_values_restricted
+            else original.state
         )
+        display_original = ""
+        if item.source_row is not None:
+            unavailable_originals += state is OriginalValueState.UNAVAILABLE
+            withheld_originals += state is OriginalValueState.WITHHELD
+            unidentified_cells += len(item.source_keys) != 1
+            if state is OriginalValueState.UNAVAILABLE:
+                display_original = "Unavailable"
+            elif state is OriginalValueState.WITHHELD:
+                display_original = "Withheld"
+            else:
+                display_original = _workbook_original_text(original.text or "")
         rows.append((
             item.reason.value, _dataset_label(item.dataset, evidence),
             item.source_row, source, display_original,
@@ -699,10 +723,9 @@ def _write_fields_set_aside(
             gaps.append(
                 f"{unavailable_originals:,} finding(s) have no available original value."
             )
-        if unrecorded_originals > unavailable_originals:
+        if withheld_originals:
             gaps.append(
-                "Some values come from saved preparation feedback; "
-                "their exact original source representation is not established."
+                f"{withheld_originals:,} finding(s) have original values withheld for restricted data."
             )
         if unidentified_cells:
             gaps.append(
@@ -749,6 +772,18 @@ def _write_fields_set_aside(
         cell = sheet.cell(row_index, 5)
         cell.value = row[4]
         cell.data_type = "s"
+        if (
+            item.source_row is not None
+            and item.source_value.state is OriginalValueState.BLANK
+            and fields is not None
+            and not fields.source_values_restricted
+        ):
+            blank_kind = (
+                "blank cell" if item.source_value.cell is not None
+                and item.source_value.cell.kind is SourceCellKind.NULL
+                else "empty text"
+            )
+            cell.comment = Comment(f"The saved source contains {blank_kind}.", "Impodo")
         sheet.row_dimensions[row_index].height = 42
     overview.merge_cells("A25:H25")
     link = overview["A25"]

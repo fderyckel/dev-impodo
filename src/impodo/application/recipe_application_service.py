@@ -305,7 +305,9 @@ class RecipeApplicationService(RecipeApplicationCompiler):
             for item in (_portable_mapping(raw, "Recipe control"),)
             if item.get("invariant_expectation")
         }
-        effective_bindings = self._effective_bindings(effective, bindings)
+        effective_bindings = self._effective_bindings(
+            effective, bindings, definition=application_definition,
+        )
         datasets = self._mapping_datasets(
             application_definition, effective_bindings, effective,
             RecipeControlValues(selection.data_version_id, invariants, actor.identity, datetime.now(UTC)),
@@ -537,6 +539,7 @@ class RecipeApplicationService(RecipeApplicationCompiler):
                 effective_bindings = self._effective_bindings(
                     selection,
                     assessment.source_bindings,
+                    definition=application_definition,
                 )
                 controls = RecipeControlValues(
                     data_version_id=data_version_id,

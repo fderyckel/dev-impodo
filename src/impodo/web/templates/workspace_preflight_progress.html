@@ -47,13 +47,13 @@
         <p class="muted">This comparison did not change Odoo records.</p>
       </div>
       <div class="next-action-buttons">
-        <a class="button primary" data-preflight-failure-action href="{{ recovery.action_href if recovery and recovery.action_kind == 'link' and recovery.action_href else ('/workspaces/' ~ job.workspace_id ~ '/summary') }}" {% if recovery and recovery.action_kind == 'retry' %}hidden{% endif %}>{{ recovery.action_label if recovery and recovery.action_kind == 'link' else 'Return to final review' }}</a>
+        <a class="button action" data-preflight-failure-action href="{{ recovery.action_href if recovery and recovery.action_kind == 'link' and recovery.action_href else ('/workspaces/' ~ job.workspace_id ~ '/summary') }}" {% if recovery and recovery.action_kind == 'retry' %}hidden{% endif %}>{{ recovery.action_label if recovery and recovery.action_kind == 'link' else 'Return to final review' }}</a>
         <form method="post" data-preflight-retry action="/workspaces/{{ job.workspace_id }}/summary/compare" {% if not recovery or recovery.action_kind != 'retry' %}hidden{% endif %}>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-          <button class="button primary" data-preflight-retry-label type="submit">{{ recovery.action_label if recovery and recovery.action_kind == 'retry' else 'Try comparison again' }}</button>
+          <button class="button action" data-preflight-retry-label type="submit">{{ recovery.action_label if recovery and recovery.action_kind == 'retry' else 'Try comparison again' }}</button>
         </form>
-        <a class="button secondary" data-preflight-previous-review href="/workspaces/{{ job.workspace_id }}/summary?step=results" {% if not previous_review_available %}hidden{% endif %}>View previous review</a>
+        <a class="button action" data-preflight-previous-review href="/workspaces/{{ job.workspace_id }}/summary?step=results" {% if not previous_review_available %}hidden{% endif %}>View previous review</a>
       </div>
     </section>
 
@@ -63,11 +63,11 @@
         <h2 data-preflight-complete-message>{{ job.completion_message or 'The final review is ready.' }}</h2>
         <p>The saved review will open automatically. Use the button if it does not.</p>
       </div>
-      <a class="button primary" data-preflight-continue href="{{ job.redirect_url or ('/workspaces/' ~ job.workspace_id ~ '/summary') }}">Open final review</a>
+      <a class="button action" data-next-step="100" data-preflight-continue href="{{ job.redirect_url or ('/workspaces/' ~ job.workspace_id ~ '/summary') }}">Open final review</a>
     </section>
 
     <div class="preparation-progress-actions" data-preflight-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/projects">Work on another data project</a>
+      <a class="button action" href="/projects">Work on another data project</a>
     </div>
 
     <details class="technical-details form-card">

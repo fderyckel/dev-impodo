@@ -27,7 +27,6 @@ from ...domain.staging.canonical_projection import canonical_prepared_session_ro
 from ...domain.staging.preparation_session import (
     PreparationSessionBindings,
     PreparationSessionStatus,
-    PreparedCanonicalEncodingUnsupported,
     PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
 )
@@ -46,6 +45,7 @@ from .preparation_session_support import (
     _SessionCanonicalRows,
     canonical_preparation_session_id,
 )
+from .prepared_projection_read_context import PreparedProjectionReadContext
 from .serialization import (
     _canonical_json,
 )
@@ -389,45 +389,13 @@ class PreparationStoredRunReader:
             """,
             [canonical_run_id],
         ).fetchall()
-        projections: list[
-            tuple[int, int, PreparedCanonicalProjection, PreparedSnapshot]
-        ] = []
-        for ordinal_start, row_count, projection_text, manifest_text in raw_projections:
-            try:
-                projection = PreparedCanonicalProjection.from_portable_dict(
-                    json.loads(str(projection_text))
-                )
-                snapshot = PreparedSnapshot.from_json(str(manifest_text))
-            except PreparedCanonicalEncodingUnsupported as error:
-                raise WorkspaceError(str(error)) from error
-            except (TypeError, ValueError) as error:
-                raise WorkspaceError(
-                    "Prepared canonical projection is invalid"
-                ) from error
-            if (
-                projection.ordinal_start != int(ordinal_start)
-                or projection.row_count != int(row_count)
-                or projection.dataset_id != snapshot.dataset_id
-                or projection.row_count != snapshot.row_count
-                or projection.program.content_hash
-                != snapshot.transformation_program_hash
-                or projection.program.mapping_content_hash != snapshot.mapping_hash
-                or projection.program.schema_hash != snapshot.schema_hash
-            ):
-                raise WorkspaceError("Prepared canonical projection metadata changed")
-            projections.append(
-                (
-                    int(ordinal_start),
-                    int(row_count),
-                    projection,
-                    snapshot,
-                )
-            )
-
+        read_context = PreparedProjectionReadContext.create(
+            workspace_id, canonical_run_id, raw_projections,
+        )
         next_ordinal = 0
-        for ordinal_start, row_count, projection, snapshot in projections:
-            if ordinal_start < next_ordinal:
-                raise WorkspaceError("Prepared canonical projection ordinals overlap")
+        for dataset in read_context.datasets:
+            ordinal_start, row_count = dataset.ordinal_start, dataset.row_count
+            projection, snapshot = dataset.projection, dataset.snapshot
             yield from PreparationStoredRunReader._iter_stored_direct_encoded_batches(
                 connection,
                 canonical_run_id,

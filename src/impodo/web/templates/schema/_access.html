@@ -9,13 +9,13 @@
       </div>
       <div class="next-action-buttons">
         <button
-          class="button primary"
+          class="button action"
           type="button"
           data-open-read-credential
           data-read-credential-resume="submit"
           data-read-credential-resume-action="/workspaces/{{ workspace_id }}/schema/models/refresh"
         >Enter key and show Odoo data</button>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/target">Review Odoo access</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/target">Review Odoo access</a>
       </div>
     </section>
   {% endif %}
@@ -46,17 +46,17 @@
       </div>
       <div class="next-action-buttons">
         {% if not read_credential_present %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#capture-credential">Save read-only key</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/sources#capture-credential">Save read-only key</a>
         {% elif not schema_credential_current %}
           <form method="post" action="/workspaces/{{ workspace_id }}/schema/capture">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="return_to_sources" value="1">
-            <button class="button primary" type="submit">Refresh Odoo details and continue</button>
+            <button class="button action" data-next-step="100" type="submit">Refresh Odoo details and continue</button>
           </form>
         {% elif capture_plans_complete %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#selection-saved">Continue to record count check</a>
+          <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/sources#selection-saved">Continue to record count check</a>
         {% else %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources#capture-plan">Continue to capture plans</a>
+          <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/sources#capture-plan">Continue to capture plans</a>
         {% endif %}
       </div>
     </section>

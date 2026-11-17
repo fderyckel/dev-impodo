@@ -301,6 +301,7 @@ class RecipeApplicationCompiler:
             used_columns[dataset.dataset_id] = set()
             for required_column in required.get("columns", ()):
                 logical_column = str(required_column["logical_column_id"])
+                exclusion_only = set(required_column.get("required_by", ())) == {"exclusion"}
                 matches = by_column.get(
                     normalize_recipe_source_name(str(required_column["source_name"])),
                     [],
@@ -316,7 +317,7 @@ class RecipeApplicationCompiler:
                         ),
                         None,
                     )
-                    if selected is None:
+                    if selected is None and not exclusion_only:
                         issues.append(
                             self._block(
                                 "RECIPE_SOURCE_OVERRIDE_STALE",
@@ -326,6 +327,8 @@ class RecipeApplicationCompiler:
                             )
                         )
                 if selected is None:
+                    if exclusion_only:
+                        continue
                     candidates[logical_column] = tuple(
                         (column.stable_key, column.source_name)
                         for column in dataset.columns
@@ -1335,7 +1338,17 @@ class RecipeApplicationCompiler:
         return f"recipe:{content_hash(logical_id)[7:39]}"
 
     @staticmethod
-    def _effective_bindings(selection, base_bindings):
+    def _effective_bindings(selection, base_bindings, *, definition=None):
+        """Keep assessed optional exclusions separate from generated bindings."""
+
+        optional_by_dataset = {
+            str(dataset["logical_dataset_id"]): {
+                str(column["logical_column_id"])
+                for column in dataset.get("columns", ())
+                if set(column.get("required_by", ())) == {"exclusion"}
+            }
+            for dataset in dict((definition or {}).get("source_shape", {})).get("datasets", ())
+        }
         bindings = dict(base_bindings)
         bound_datasets = {
             value: logical
@@ -1354,11 +1367,26 @@ class RecipeApplicationCompiler:
                     "Prepared datasets have ambiguous reusable names"
                 )
             bindings[logical_dataset] = dataset.dataset_id
+            optional_ids = optional_by_dataset.get(logical_dataset, set())
+            optional_physical = {
+                base_bindings[key] for key in optional_ids if key in base_bindings
+            }
+            optional_aliases = {
+                f"column:{logical_dataset.removeprefix('dataset:')}."
+                f"{_recipe_token(column.source_name)}"
+                for column in dataset.columns
+                if column.stable_key in optional_physical
+            }
             for column in dataset.columns:
                 logical_column = (
                     f"column:{logical_dataset.removeprefix('dataset:')}."
                     f"{_recipe_token(column.source_name)}"
                 )
+                if logical_column in optional_ids or (
+                    logical_column in optional_aliases
+                    and logical_column not in base_bindings
+                ):
+                    continue
                 if (
                     logical_column in bindings
                     and bindings[logical_column] != column.stable_key
@@ -1474,6 +1502,11 @@ class RecipeApplicationCompiler:
                     source_identity_column_keys=tuple(
                         bindings[str(value)]
                         for value in dataset.get("source_identity_column_ids", ())
+                    ),
+                    excluded_source_column_keys=tuple(
+                        bindings[str(value)]
+                        for value in dataset.get("excluded_source_column_ids", ())
+                        if str(value) in bindings
                     ),
                     source_record_identity=(SourceRecordIdentity(
                         namespace=str(dataset["source_record_identity"]["namespace"]),

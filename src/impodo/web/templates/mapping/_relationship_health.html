@@ -16,7 +16,7 @@
         {% else %}
           <form method="post" action="{{ relationship_health.check_url }}" id="mapping-relationship-check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary compact" type="submit" {% if not relationship_health.can_start %}disabled{% endif %}>
+            <button class="button action compact" type="submit" {% if not relationship_health.can_start %}disabled{% endif %}>
               Check saved relationships
             </button>
           </form>
@@ -52,17 +52,17 @@
           {% endif %}
 
           <div class="relationship-health-actions">
-            {% if item.review_url %}<a class="button primary compact" href="{{ item.review_url }}">Review unresolved choices</a>{% endif %}
+            {% if item.review_url %}<a class="button action compact" href="{{ item.review_url }}">Review unresolved choices</a>{% endif %}
             {% if item.rule_confirmation_url %}
-              <a class="button primary compact" href="{{ item.rule_confirmation_url }}">Review matching rules in Odoo data</a>
+              <a class="button action compact" href="{{ item.rule_confirmation_url }}">Review matching rules in Odoo data</a>
             {% else %}
-              <a class="button secondary compact" href="{{ item.edit_url }}">{{ item.edit_label }}</a>
+              <a class="button action compact" href="{{ item.edit_url }}">{{ item.edit_label }}</a>
             {% endif %}
             {% if item.related_url %}
-              <a class="button secondary compact" href="{{ item.related_url }}">{{ item.related_action_label }}</a>
+              <a class="button action compact" href="{{ item.related_url }}">{{ item.related_action_label }}</a>
             {% endif %}
             {% if item.inverse_action %}
-              <a class="button secondary compact" href="{{ item.inverse_action.url }}">{{ item.inverse_action.label }}</a>
+              <a class="button action compact" href="{{ item.inverse_action.url }}">{{ item.inverse_action.label }}</a>
             {% endif %}
           </div>
         </article>

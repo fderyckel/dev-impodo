@@ -67,6 +67,12 @@ def _group_edge_rows(
 def _materialize_unsafe_group_rows(connection, session_id, unsafe_row_ids) -> None:
     """Reach each unsafe ordinal once with a database-owned frontier."""
 
+    connection.execute("CREATE TEMP TABLE group_initial_unsafe (row_id VARCHAR PRIMARY KEY)")
+    for start in range(0, len(unsafe_row_ids), 256):
+        connection.execute(
+            "INSERT INTO group_initial_unsafe SELECT DISTINCT unnest(?)",
+            [list(unsafe_row_ids[start:start + 256])],
+        )
     connection.execute("""
         CREATE TEMP TABLE group_propagating_arc AS
         SELECT arc.source, arc.destination
@@ -77,7 +83,7 @@ def _materialize_unsafe_group_rows(connection, session_id, unsafe_row_ids) -> No
         CREATE TEMP TABLE group_unsafe AS
         WITH RECURSIVE unsafe(ordinal) AS (
             SELECT ordinal FROM canonical_staging_row
-             WHERE run_id = ? AND row_id IN (SELECT unnest(?))
+             WHERE run_id = ? AND row_id IN (SELECT row_id FROM group_initial_unsafe)
             UNION
             SELECT child FROM group_match
              WHERE match_count != 1 AND child IN (SELECT ordinal FROM group_propagating)
@@ -87,7 +93,7 @@ def _materialize_unsafe_group_rows(connection, session_id, unsafe_row_ids) -> No
               JOIN group_propagating_arc AS arc ON arc.source = frontier.ordinal
         )
         SELECT ordinal FROM unsafe
-    """, [session_id, list(unsafe_row_ids)])
+    """, [session_id])
     # UNION retains each reached ordinal once, including for cycles. DuckDB
     # owns the frontier and visited set without Python calls per group level.
 

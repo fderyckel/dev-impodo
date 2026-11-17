@@ -27,5 +27,5 @@
   {% else %}
     <p>{{ 'The original expectation detail is available from this load’s saved evidence.' if business_run_id else 'Choose what this load may create or change, then compare the prepared data with Odoo.' }}</p>
   {% endif %}
-  {% if not business_run_id %}<p><a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/expectations">{{ 'Edit business expectations' if business_review else 'Set business expectations' }}</a></p>{% endif %}
+  {% if not business_run_id %}<p><a class="button action" href="/workspaces/{{ workspace_id }}/summary/expectations">{{ 'Edit business expectations' if business_review else 'Set business expectations' }}</a></p>{% endif %}
 </section>

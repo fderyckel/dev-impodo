@@ -3,7 +3,7 @@
                 Find a field
                 <input type="search" value="{{ view.field_query }}" data-scalar-field-search placeholder="For example: Sales Price or Barcode" autocomplete="off">
               </label>
-              <button class="button secondary" type="button" data-field-search-submit>Search</button>
+              <button class="button action" type="button" data-field-search-submit>Search</button>
               <details class="mapping-field-options">
               <summary>More field options</summary>
               <label class="checkbox">
@@ -17,7 +17,7 @@
               </label>
               {% endif %}
               {% if allow_field_refresh and not (migration_workspace and migration_workspace.recipe_application_id) %}
-              <button class="button secondary" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
+              <button class="button action" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
               {% endif %}
               </details>
               <p class="muted" data-scalar-field-count>

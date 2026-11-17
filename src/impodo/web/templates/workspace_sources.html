@@ -67,7 +67,7 @@
           <input type="file" name="source_file" accept=".csv,.xlsx" required>
           <small>Use this to add a corrected CSV or XLSX before saving table choices.</small>
         </label>
-        <button class="button secondary" type="submit">Add file</button>
+        <button class="button action" type="submit">Add file</button>
       </form>
     {% endif %}
     {% if selection %}
@@ -76,8 +76,8 @@
     <form method="post" action="/workspaces/{{ workspace_id }}/sources/inspect" data-source-review-form data-single-submit>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to review</a>
-        <button class="button {% if catalogs %}secondary{% else %}primary{% endif %}" type="submit" data-submitting-label="Checking files...">
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary">Back to review</a>
+        <button class="button action" type="submit" data-submitting-label="Checking files...">
           {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
       </div>
@@ -353,25 +353,25 @@
               Ready to confirm
             {% endif %}
           </span>
-          <button class="button secondary" type="submit" name="action" value="preview">Update preview</button>
+          <button class="button action" type="submit" name="action" value="preview">Update preview</button>
           <button
-            class="button {% if configuration %}secondary{% else %}primary{% endif %}"
+            class="button action"
             type="submit"
             name="action"
             value="confirm"
             data-source-confirmation-action
             {% if not source_state.has_usable_table %}disabled{% endif %}
           >{% if configuration %}Update confirmation{% else %}Confirm this file{% endif %}</button>
-          <button class="button secondary" type="button" data-source-discard-changes hidden>Discard changes</button>
+          <button class="button navigation" type="button" data-source-discard-changes hidden>Discard changes</button>
           {% if configuration and not selection %}
             {% set next_file = namespace(catalog=none) %}
             {% for remaining in catalogs %}
               {% if not configurations.get(remaining.file_id) and next_file.catalog is none %}{% set next_file.catalog = remaining %}{% endif %}
             {% endfor %}
             {% if next_file.catalog %}
-              <a class="button primary" href="#source-{{ next_file.catalog.file_id }}" data-source-confirmation-next>Confirm next file</a>
+              <a class="button action" data-next-step="100" href="#source-{{ next_file.catalog.file_id }}" data-source-confirmation-next>Confirm next file</a>
             {% else %}
-              <a class="button primary" href="#table-choices" data-source-confirmation-next>Name and save tables</a>
+              <a class="button action" data-next-step="100" href="#table-choices" data-source-confirmation-next>Name and save tables</a>
             {% endif %}
           {% endif %}
         </div>
@@ -386,7 +386,7 @@
         <h2>Table choices saved</h2>
         <p>Impodo will use the saved tables from these exact source files.</p>
         <div class="actions">
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/datasets#tables-ready">View saved tables</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/datasets#tables-ready">View saved tables</a>
         </div>
       {% elif choices %}
         <h2>Save the tables for this data version</h2>

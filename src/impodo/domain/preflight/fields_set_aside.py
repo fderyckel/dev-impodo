@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from enum import StrEnum
 
 from ..compiler.contracts import CompiledMigrationPlan
 from ..preparation.staging_contracts import CanonicalRow
+from .original_values import OriginalSourceValue
 
 
 class FieldSetAsideReason(StrEnum):
@@ -31,7 +33,7 @@ class FieldSetAside:
     source_keys: tuple[str, ...]
     target_field: str
     detail: str
-    source_value: str | None = None
+    source_value: OriginalSourceValue = dataclass_field(default_factory=OriginalSourceValue.unavailable)
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,6 +51,7 @@ class FieldSetAsideEvidence:
     upsert_datasets: frozenset[str]
     target_models: Mapping[str, str]
     coverage_gaps: tuple[str, ...]
+    source_values_restricted: bool = False
 
 
 _PREPARATION_REASONS = {
@@ -79,6 +82,8 @@ def field_set_aside_evidence(
     rows: Iterable[CanonicalRow],
     source_labels: Mapping[tuple[str, str], str],
     source_keys: Mapping[tuple[str, str], tuple[str, ...]],
+    *,
+    column_exclusions: Mapping[str, tuple[str, ...]] | None = None,
 ) -> FieldSetAsideEvidence:
     """Read preparation findings and explicit rules without re-evaluating data."""
 
@@ -123,6 +128,15 @@ def field_set_aside_evidence(
                     for key in keys
                 )
 
+    for dataset, keys in sorted((column_exclusions or {}).items()):
+        findings.extend(
+            FieldSetAside(
+                FieldSetAsideReason.EXCLUDED, dataset, None, (key,), "",
+                "The saved mapping deliberately leaves this source column unmapped.",
+            )
+            for key in sorted(set(keys))
+        )
+
     for row in rows:
         for issue in row.issues:
             reason = preparation_field_reason(issue.code)
@@ -152,7 +166,11 @@ def field_set_aside_evidence(
         ),
         target_models={dataset.name: dataset.target.model for dataset in plan.datasets},
         coverage_gaps=(
-            "Choices to leave source columns unmapped are not recorded.",
-            "Original source values are not retained for every omission.",
+            *(("Choices to leave source columns unmapped are not recorded.",)
+              if column_exclusions is None else (
+                  ("Only explicitly saved column exclusions are covered; "
+                   "earlier unsaved choices cannot be recovered."),
+              )),
+            "Original source values are only recovered for direct scalar preparation omissions.",
         ),
     )

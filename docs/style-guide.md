@@ -171,6 +171,25 @@ Use **Complete**, **Needs attention**, **Current**, and **Not yet available**
 with the same meanings as the browser. Do not invent synonyms for workflow
 states.
 
+## Button purpose
+
+Impodo reserves one filled red button per visible page or step for completing
+that step and advancing the workflow. The main next action belongs in the
+footer on the right. A page can have no red action while the operator works
+through its choices.
+
+Use blue outlined buttons for local work, including Save progress, Check
+values, Preview, View, Download, and optional actions. Use grey outlined
+buttons for Back, Cancel, and Close. Help uses quiet grey text or a question
+mark. Permanent deletion uses an explicit label, a neutral deletion icon, and
+a confirmation dialog.
+
+Use labels that describe the verified result. Save progress stays on the
+current screen; Save and continue saves the choices and advances. Keep one
+main advancing action and remove duplicate submissions inside cards. The
+shared button roles also apply after tab changes, edits, errors, and dialog
+opening or closing.
+
 ## Developer documentation voice
 
 - Start with the stage responsibility and its non-responsibilities.

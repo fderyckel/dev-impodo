@@ -25,6 +25,15 @@ coverage. Exporting does not reclassify records, approve findings, or alter
 comparison or load prerequisites. Odoo-source values and numeric Odoo record
 identifiers remain outside this portable workbook.
 
+The Final review workbook may recover exact originals for direct scalar file
+preparation omissions from the immutable accepted source snapshot. Each request
+must match the comparison-bound mapping, physical selection, dataset and source
+key. The adapter verifies artifact bytes and kind-tagged cells. Captured blanks,
+withheld values and unavailable evidence remain distinct. Restricted workspaces
+must not read or export originals through this channel. Prepared-value display
+feedback does not establish an original source value. This export-only evidence
+does not change canonical data, comparison hashes or load decisions.
+
 The correction worklist retains records set aside by data-check findings, but
 counts explicit **Rows to use** exclusions separately. Informational notes do
 not create correction findings. Its browser counts and optional problem
@@ -32,6 +41,14 @@ summary derive from the same bound findings and correction advice as Excel.
 For combined sources, column origins come from the saved preparation rules.
 The report verifies that plan against staging and checks it again before
 returning the completed download.
+
+Authenticated checked-row results retain the exact failed relationship lookup
+key, ordered matching fields, destination, and scope from structured comparison
+evidence. These details remain private row evidence and do not enter aggregate
+issue counts or routine diagnostics. Multi-value fields identify each failed
+lookup without presenting successfully resolved values as missing. Missing
+lookup evidence is explicit; the browser does not infer it from error text or
+query current Odoo data to reconstruct an earlier comparison.
 
 Every nonblank input row produces an immutable prepared record, including a row
 with validation issues. The record stores the source trace and target model

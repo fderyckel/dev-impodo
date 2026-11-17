@@ -73,7 +73,7 @@ from impodo.domain.shared.models import (
     target_identity_hash,
 )
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import OdooConnectionMode, SourceMode
+from impodo.domain.workspace.workbench import DataClassification, OdooConnectionMode, SourceMode
 
 
 class PreflightPublicationTests(unittest.TestCase):
@@ -589,7 +589,9 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
 
     def _service(self, *, source_mode: SourceMode = SourceMode.FILE):
         repositories = [MagicMock() for _ in range(7)]
-        repositories[4].get.return_value = SimpleNamespace(source_mode=source_mode)
+        repositories[4].get.return_value = SimpleNamespace(
+            source_mode=source_mode, data_classification=DataClassification.INTERNAL
+        )
         service = PreflightService(
             staging=repositories[0],
             quality=repositories[1],
@@ -665,6 +667,9 @@ class ReviewWorkbookEvidenceTests(unittest.TestCase):
                 fields_set_aside=None,
                 workbook_omitted_rows=(),
                 workbook_mapping_rules={},
+                workbook_selection=None,
+                workbook_physical_selection_hash="",
+                workbook_mappings=(),
                 normalization=SimpleNamespace(
                     run_id="normalization-run",
                     content_hash=normalization_hash,

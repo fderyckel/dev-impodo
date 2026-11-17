@@ -43,8 +43,8 @@
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <div class="actions">
-      <button class="button primary" type="submit">Use these Odoo defaults</button>
-      <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+      <button class="button action" data-next-step="100" type="submit">Use these Odoo defaults</button>
+      <a class="button navigation" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
     </div>
   </form>
 {% endblock %}

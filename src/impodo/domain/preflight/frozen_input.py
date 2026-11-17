@@ -51,6 +51,7 @@ from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
 from ..compiler.contracts import CompiledMigrationPlan
 from ..errors import ReadinessError
 from ..mapping.artifacts import MappingRevision
+from ..mapping.contracts import DatasetMapping
 from ..resolution import EffectiveDataset
 from .fields_set_aside import FieldSetAsideEvidence, field_set_aside_evidence
 from .mapping_summary import ReviewWorkbookFieldRule
@@ -162,6 +163,9 @@ class FrozenPreflightInput:
     fields_set_aside: FieldSetAsideEvidence | None = None
     workbook_omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
     workbook_mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] | None = None
+    workbook_selection: SourceSelection | None = None
+    workbook_physical_selection_hash: str = ""
+    workbook_mappings: tuple[DatasetMapping, ...] = ()
 
     @property
     def content_hash(self) -> str:
@@ -309,6 +313,7 @@ def build_frozen_preflight_input(
         effective=effective,
     )
     eligible_row_ids = tuple(row.row_id for row in rows if row.row_id in eligible_ids)
+    source_names = {dataset.dataset_id: dataset.name for dataset in selection.datasets}
     result = FrozenPreflightInput(
         workspace_id=workspace_id,
         revision=revision,
@@ -322,8 +327,19 @@ def build_frozen_preflight_input(
         eligible_row_ids=eligible_row_ids,
         captured_schema=captured_schema,
         workbook_mapping_rules=workbook_mapping_rules,
+        workbook_selection=selection if workbook_source_keys is not None else None,
+        workbook_physical_selection_hash=(
+            staging.physical_selection_hash if workbook_source_keys is not None else ""
+        ),
+        workbook_mappings=(revision.definition.datasets if workbook_source_keys is not None else ()),
         fields_set_aside=(
-            field_set_aside_evidence(plan, rows, source_field_labels, workbook_source_keys)
+            field_set_aside_evidence(
+                plan, rows, source_field_labels, workbook_source_keys,
+                column_exclusions={
+                    source_names[mapping.dataset_id]: mapping.excluded_source_column_keys
+                    for mapping in revision.definition.datasets
+                },
+            )
             if workbook_source_keys is not None
             else None
         ),

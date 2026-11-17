@@ -10,8 +10,8 @@
     {% endfor %}
   </div>
   <div class="field-pagination">
-    {% if load_row_previous_url %}<a class="button secondary" href="{{ load_row_previous_url }}">Previous</a>{% endif %}
+    {% if load_row_previous_url %}<a class="button navigation" href="{{ load_row_previous_url }}">Previous</a>{% endif %}
     <span class="muted">Page {{ load_row_page.page }} of {{ load_row_page.page_count }}</span>
-    {% if load_row_next_url %}<a class="button secondary" href="{{ load_row_next_url }}">Next</a>{% endif %}
+    {% if load_row_next_url %}<a class="button action" href="{{ load_row_next_url }}">Next</a>{% endif %}
   </div>
 </nav>

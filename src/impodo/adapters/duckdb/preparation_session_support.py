@@ -14,6 +14,9 @@ from impodo.application.shared.artifacts import WorkspaceArtifactStore
 from impodo.application.workspace.preparation.prepared_quality_projection import (
     PreparedQualityProjection,
 )
+from impodo.application.workspace.preparation.quality_finding_store import (
+    QualityFindingStore,
+)
 from impodo.domain.preparation.normalization import NormalizationEffect
 from impodo.domain.preparation.staging_contracts import (
     CanonicalControlTotal,
@@ -42,6 +45,7 @@ from ...domain.target_numeric_precision import PreparedNumericField
 from .constants import (
     DUCKDB_CANONICAL_JSON_BATCH_MAX_BYTES,
 )
+from .preparation_quality_spill import quality_finding_store
 
 _STAGING_DISPOSITIONS = frozenset(item.value for item in StagingDisposition)
 
@@ -149,7 +153,7 @@ class PreparationSessionViewRepository(Protocol):
         self,
         *args,
         **kwargs,
-    ) -> tuple[tuple[object, ...], ...]: ...
+    ) -> Sequence[Sequence[object]]: ...
 
     def _identity_group_findings(self, *args, **kwargs) -> Iterator[object]: ...
 
@@ -396,6 +400,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
         retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
+        finding_store: QualityFindingStore | None = None,
     ) -> PreparedQualityProjection | None:
         """Validate and summarize the direct quality index set-wise."""
 
@@ -405,12 +410,18 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             physical_rows,
             numeric_fields=numeric_fields,
             retained_excluded_coordinates=retained_excluded_coordinates,
+            finding_store=finding_store,
         )
+
+    def quality_finding_store(self) -> AbstractContextManager[QualityFindingStore]:
+        """Own disposable finding storage through publication and normalization."""
+        return quality_finding_store()
 
     def bounded_relationship_findings(
         self,
         unsafe_row_ids: Sequence[str],
         propagating_datasets: Sequence[str],
+        *, finding_store: QualityFindingStore | None = None,
     ):
         """Resolve and propagate relationship readiness set-wise."""
 
@@ -419,6 +430,7 @@ class _SessionCanonicalRows(Sequence[CanonicalRow]):
             self._session_id,
             unsafe_row_ids,
             propagating_datasets,
+            finding_store=finding_store,
         )
 
     def bounded_identity_group_findings(self, unsafe_row_ids, propagating_datasets):

@@ -42,8 +42,8 @@
         <input type="search" name="q" value="{{ filters.query }}" maxlength="128">
       </label>
       <div class="actions impact-filter-actions">
-        <button class="button primary" type="submit">Apply filters</button>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Clear</a>
+        <button class="button action" type="submit">Apply filters</button>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Clear</a>
       </div>
     </form>
 
@@ -79,14 +79,14 @@
     {% endif %}
     {% if previous_url or next_url %}
       <nav class="impact-pagination" aria-label="Checked row pages">
-        {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
+        {% if previous_url %}<a class="button navigation" href="{{ previous_url }}">Previous 100</a>{% endif %}
         <span class="muted">Up to 100 rows per page</span>
-        {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
+        {% if next_url %}<a class="button navigation" href="{{ next_url }}">Next 100</a>{% endif %}
       </nav>
     {% endif %}
   </section>
 
   <div class="actions">
-    <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping#rows-to-use-review">Return to Match data</a>
+    <a class="button navigation" href="/workspaces/{{ workspace_id }}/mapping#rows-to-use-review">Return to Match data</a>
   </div>
 {% endblock %}

@@ -70,7 +70,7 @@
                             {% endif %}
                           </p>
                           <button
-                            class="button secondary compact"
+                            class="button action compact"
                             type="submit"
                             name="action"
                             value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
@@ -131,14 +131,14 @@
                                 </select>
                               </label>
                               <span>
-                                <button class="button secondary compact" type="button" data-move-concatenation-source="up" aria-label="Move source column up">Up</button>
-                                <button class="button secondary compact" type="button" data-move-concatenation-source="down" aria-label="Move source column down">Down</button>
-                                <button class="button secondary compact" type="button" data-remove-concatenation-source>Remove</button>
+                                <button class="button action compact" type="button" data-move-concatenation-source="up" aria-label="Move source column up">Up</button>
+                                <button class="button action compact" type="button" data-move-concatenation-source="down" aria-label="Move source column down">Down</button>
+                                <button class="button action compact" type="button" data-remove-concatenation-source>Remove</button>
                               </span>
                             </div>
                           {% endfor %}
                         </div>
-                        <button class="button secondary compact" type="button" data-add-concatenation-source>Add source column</button>
+                        <button class="button action compact" type="button" data-add-concatenation-source>Add source column</button>
                         <label>Put between values
                           <select name="scalar_concat_separator_{{ dataset_index }}_{{ field_index }}" data-concatenation-separator>
                             <option value="space" {% if row.concatenation.separator_choice == 'space' %}selected{% endif %}>One space</option>
@@ -198,7 +198,7 @@
                           <p><strong>Choose the Odoo value from source data</strong></p>
                           <small>Rules run from top to bottom. The first matching rule wins.</small>
                           <div data-selection-rule-list></div>
-                          <button class="button secondary compact" type="button" data-add-selection-rule {% if not row.selection_choice_count %}disabled{% endif %}>Add rule</button>
+                          <button class="button action compact" type="button" data-add-selection-rule {% if not row.selection_choice_count %}disabled{% endif %}>Add rule</button>
                           <label>When no rule matches
                             <select data-selection-rule-otherwise>
                               <option value="">Block the row for review</option>
@@ -212,9 +212,9 @@
                               <div class="mapping-rule-heading">
                                 <strong data-selection-rule-number>Rule</strong>
                                 <span>
-                                  <button class="button secondary compact" type="button" data-move-selection-rule="up" aria-label="Move rule up">↑</button>
-                                  <button class="button secondary compact" type="button" data-move-selection-rule="down" aria-label="Move rule down">↓</button>
-                                  <button class="button secondary compact" type="button" data-remove-selection-rule>Remove</button>
+                                  <button class="button action compact" type="button" data-move-selection-rule="up" aria-label="Move rule up">↑</button>
+                                  <button class="button action compact" type="button" data-move-selection-rule="down" aria-label="Move rule down">↓</button>
+                                  <button class="button action compact" type="button" data-remove-selection-rule>Remove</button>
                                 </span>
                               </div>
                               <label>Conditions must
@@ -224,7 +224,7 @@
                                 </select>
                               </label>
                               <div data-selection-condition-list></div>
-                              <button class="button secondary compact" type="button" data-add-selection-condition>Add condition</button>
+                              <button class="button action compact" type="button" data-add-selection-condition>Add condition</button>
                               <label>Then use
                                 <select data-selection-rule-target>
                                   {% for selection_key, selection_label in row.metadata.selection %}
@@ -257,7 +257,7 @@
                               <label data-selection-condition-value-control>Value
                                 <input data-selection-condition-value>
                               </label>
-                              <button class="button secondary compact" type="button" data-remove-selection-condition>Remove condition</button>
+                              <button class="button action compact" type="button" data-remove-selection-condition>Remove condition</button>
                             </div>
                           </template>
                         </div>
@@ -278,7 +278,7 @@
                             </ul>
                           </details>
                           <button
-                            class="button secondary compact"
+                            class="button action compact"
                             type="button"
                             data-open-value-match
                             data-value-match-kind="scalar"

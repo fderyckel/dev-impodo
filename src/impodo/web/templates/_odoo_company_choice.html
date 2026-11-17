@@ -15,12 +15,12 @@
                   <option value="{{ choice.company_id }}" {% if selected_company and selected_company.company_id == choice.company_id or not selected_company and company_access.choices|length == 1 %}selected{% endif %}>{{ choice.name }}</option>
                 {% endfor %}
               </select>
-            <button class="button primary" type="submit">{% if workspace_state.source_mode.value == 'FILE' %}Use this company and continue{% else %}Use this company{% endif %}</button>
+            <button class="button action"{% if workspace_state.source_mode.value == 'FILE' %} data-next-step="100"{% endif %} type="submit">{% if workspace_state.source_mode.value == 'FILE' %}Use this company and continue{% else %}Use this company{% endif %}</button>
           </form>
         {% else %}
           <form method="post" action="{{ company_action }}/choices">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Choose Odoo company</button>
+            <button class="button action" type="submit">Choose Odoo company</button>
           </form>
         {% endif %}
         {% if workspace_state.source_mode.value == 'FILE' and selected_company and schema %}
@@ -29,7 +29,7 @@
             <form method="post" action="/workspaces/{{ workspace_id }}/mapping/company/refresh">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
               <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
-              <button class="button secondary" type="submit">Check company-specific values</button>
+              <button class="button action" type="submit">Check company-specific values</button>
             </form>
           </div>
         {% endif %}

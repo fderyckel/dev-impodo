@@ -91,6 +91,14 @@ records, also review whether to replace, add to, or remove from the current list
 
 ![Match fields shows Odoo fields, value choices and previews in three columns, with Prepare values and More field options collapsed.](../../images/user/11t-stage3-match-fields.png)
 
+For file data, open **Source columns set aside** under **Match fields** to record
+columns you deliberately leave unmapped, such as internal notes. Select the
+columns and choose **Save progress**, then **Check matches**. Remove a column
+from this choice before using it in a field match. The **Fields set aside** tab
+in the Final review workbook records the choice without repeating its values.
+Recipes retain these choices. A later delivery may omit a column that was
+only set aside.
+
 Use **Let Odoo choose** only when the checked target supplies a default, or
 **Odoo manages this field** when Odoo creates or maintains it. Choosing an Odoo
 default saves that decision and checks the mapping. Other field changes need

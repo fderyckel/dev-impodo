@@ -1064,6 +1064,13 @@ receipt. The controlled route test allows six physical opens: two navigation
 guard owners and four retained command owners, with one schema check.
 This is fixture evidence, not a live-workspace latency guarantee.
 
+The browser keeps the pending-stop message when an older worker update arrives,
+while still advancing counts from saved outcomes. A journal-derived stopped or
+finished state supersedes that pending message. If the worker has already
+reported either state, a later stop-route notification cannot move the job
+back to stopping. The [stop progress tests](../../../tests/application/workspace/execution/test_stop_progress.py)
+exercise both notification orders through Authoring and Recipe workers.
+
 A repeated-error pause leaves the journal `RUNNING` and its remaining rows
 unattempted. Check recovery binds the current control hash; confirmed
 continuation resets the probe windows without making failed rows retryable.

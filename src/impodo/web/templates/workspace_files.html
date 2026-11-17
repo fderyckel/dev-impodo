@@ -43,7 +43,7 @@
         <p>Upload CSV or XLSX files. Save <code>.xls</code> files as <code>.xlsx</code> in Excel before uploading.</p>
       </details>
       <div class="actions">
-        <button class="button {% if workspace_state.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add files</button>
+        <button class="button action" type="submit">Add files</button>
       </div>
     </form>
     {% if workspace_state.source_files %}
@@ -51,8 +51,8 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
         <div class="actions">
-          <a class="button secondary" href="{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}{{ workspace_navigation.setup_href }}{% else %}{{ workspace_navigation.overview_href or '/projects/' ~ migration_context.project_id }}{% endif %}">Save and exit</a>
-          <button class="button primary" type="submit" data-submitting-label="Checking files...">Use these files and continue</button>
+          <a class="button action" href="{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}{{ workspace_navigation.setup_href }}{% else %}{{ workspace_navigation.overview_href or '/projects/' ~ migration_context.project_id }}{% endif %}">Save and exit</a>
+          <button class="button action" data-next-step="100" type="submit" data-submitting-label="Checking files...">Use these files and continue</button>
         </div>
       </form>
     {% endif %}

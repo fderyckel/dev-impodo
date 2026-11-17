@@ -38,6 +38,9 @@ def canonicalize_mapping_definition(
                             ),
                         )
                     ),
+                    excluded_source_column_keys=tuple(
+                        sorted(item.excluded_source_column_keys)
+                    ),
                     control_definitions=tuple(
                         sorted(
                             item.control_definitions,

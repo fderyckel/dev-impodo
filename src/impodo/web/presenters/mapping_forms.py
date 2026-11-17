@@ -293,6 +293,8 @@ def _mapping_allowed_fields(form, selection, schema) -> set[str]:
                 f"visible_relation_target_{dataset_index}",
                 f"target_field_disposition_{dataset_index}",
                 f"approved_write_field_{dataset_index}",
+                f"excluded_source_column_{dataset_index}",
+                f"excluded_source_columns_present_{dataset_index}",
                 f"row_inclusion_mode_{dataset_index}",
                 f"row_inclusion_join_{dataset_index}",
                 f"row_inclusion_parent_{dataset_index}",
@@ -479,6 +481,14 @@ def _mapping_datasets_from_form(
         source_columns = {
             item.stable_key for item in source_dataset.columns
         }
+        excluded_columns = tuple(_texts(form, f"excluded_source_column_{dataset_index}"))
+        if not set(excluded_columns).issubset(source_columns):
+            raise WorkspaceError("Choose source columns from the current table to set aside")
+        exclusion_marker = _text(form, f"excluded_source_columns_present_{dataset_index}")
+        if exclusion_marker not in {"", "1"} or (excluded_columns and not exclusion_marker):
+            raise WorkspaceError("Reopen Match fields before changing columns set aside")
+        if pinned_update and (excluded_columns or exclusion_marker):
+            raise WorkspaceError("Source-column exclusions require file source data")
         row_inclusion = _row_inclusion_from_form(
             form,
             dataset_index=dataset_index,
@@ -1378,6 +1388,7 @@ def _mapping_datasets_from_form(
                     )
                 ),
                 approved_write_fields=approved_write_fields,
+                excluded_source_column_keys=excluded_columns,
                 control_definitions=fixed.control_definitions if fixed is not None else tuple(control_definitions),
                 control_expectations=fixed.control_expectations if fixed is not None else tuple(control_expectations),
             )
@@ -1505,6 +1516,7 @@ def _merge_partial_mapping_datasets(
                 or parsed.control_definitions
                 or parsed.control_expectations
                 or parsed.approved_write_fields
+                or parsed.excluded_source_column_keys
             ):
                 raise WorkspaceError(
                     "Mapping request changed a dataset that is not being edited"
@@ -1540,6 +1552,10 @@ def _merge_partial_mapping_datasets(
                         else ()
                     ),
                     target_field_dispositions=existing_dispositions,
+                    excluded_source_column_keys=(
+                        compatible_existing.excluded_source_column_keys
+                        if compatible_existing else ()
+                    ),
                     approved_write_fields=(
                         compatible_existing.approved_write_fields
                         if compatible_existing
@@ -1639,6 +1655,12 @@ def _merge_partial_mapping_datasets(
                     if target not in identity_targets
                 ),
                 approved_write_fields=tuple(sorted(approved_write_fields)),
+                excluded_source_column_keys=(
+                    parsed.excluded_source_column_keys
+                    if _text(form, f"excluded_source_columns_present_{editable_index}") == "1"
+                    else compatible_existing.excluded_source_column_keys
+                    if compatible_existing else ()
+                ),
             )
         )
     return tuple(merged)

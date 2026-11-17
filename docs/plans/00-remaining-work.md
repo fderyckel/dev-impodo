@@ -79,12 +79,6 @@ does not override this list.
     The implemented ordering is useful, but the remaining work is primarily
     documentation, visual acceptance, and measurement. Do not redesign the
     algorithm without evidence of a data-manager problem.
-9. **Continue [execution-service maintainability](15-maintainable-code-and-execution-services.md)
-    alongside the product work it protects.** This remains important because
-    unclear ownership makes safe changes slower and riskier. It is supporting
-    work rather than a standalone data-manager feature, so extract the focused
-    boundary needed by the next product change instead of running a broad
-    refactor first.
 
 Each plan retains its safety gates. This order does not authorize an external
 write, live customer-data exercise, deferred Production operation, or remote

@@ -21,6 +21,8 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
 )
 from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow
+from impodo.domain.preflight.original_values import OriginalSourceValue
+from impodo.domain.source_snapshot import EncodedSourceCell
 from impodo.domain.preflight.reports import (
     ReviewWorkbookCellEffect,
     ReviewWorkbookEvidence,
@@ -459,12 +461,12 @@ class WorkbookIntegrationTests(unittest.TestCase):
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
                                 ("date",), "date", "The date could not be read.",
-                                "=1+2",
+                                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2")),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
                                 ("date",), "date_end", "The date could not be read.",
-                                "",
+                                OriginalSourceValue.from_cell(EncodedSourceCell.from_python("")),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.EXCLUDED, record.dataset, None,

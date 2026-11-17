@@ -11,7 +11,7 @@
             <span class="muted">Records {{ quality_review_row_start }}-{{ quality_review_row_end }} of {{ quality_review_page.matching_count }}</span>
           {% endif %}
           {% if quality_status or quality_dataset %}
-            {% if review_step != 'results' or review_view != 'outside' %}<a class="button secondary small" href="/workspaces/{{ workspace_id }}/summary?step=prepared#quality-rows">Clear filter</a>{% endif %}
+            {% if review_step != 'results' or review_view != 'outside' %}<a class="button action small" href="/workspaces/{{ workspace_id }}/summary?step=prepared#quality-rows">Clear filter</a>{% endif %}
           {% endif %}
         </div>
       </div>
@@ -78,9 +78,9 @@
               {% endfor %}
             </div>
             <div class="field-pagination">
-              {% if quality_previous_url %}<a class="button secondary" href="{{ quality_previous_url }}">Previous</a>{% endif %}
+              {% if quality_previous_url %}<a class="button navigation" href="{{ quality_previous_url }}">Previous</a>{% endif %}
               <span class="muted">Page {{ quality_review_page.page }} of {{ quality_review_page.page_count }}</span>
-              {% if quality_next_url %}<a class="button secondary" href="{{ quality_next_url }}">Next</a>{% endif %}
+              {% if quality_next_url %}<a class="button action" href="{{ quality_next_url }}">Next</a>{% endif %}
             </div>
           </nav>
         {% endif %}

@@ -29,7 +29,7 @@
       <p>Impodo will apply your confirmed preparation choices locally and show changed values in groups of up to 100. It will not contact or change Odoo.</p>
       <form method="post" action="/workspaces/{{ workspace_id }}/mapping/transformation-impact/prepare" data-transformation-impact-prepare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit" data-transformation-impact-button>Prepare preview</button>
+        <button class="button action" type="submit" data-transformation-impact-button>Prepare preview</button>
       </form>
       <p class="impact-preparing-status" data-transformation-impact-status role="status" aria-live="polite" hidden>
         <span class="activity-spinner" aria-hidden="true"></span>
@@ -103,7 +103,7 @@
               {% endif %}
               {% if item.requires_acknowledgement %}
                 <div class="actions">
-                  <a class="button secondary" href="{{ item.fix_url }}">Fix {{ item.field_label|lower }} rule</a>
+                  <a class="button action" href="{{ item.fix_url }}">Fix {{ item.field_label|lower }} rule</a>
                   {% if item.acknowledged %}
                     <span class="status ready">Reviewed</span>
                   {% else %}
@@ -111,7 +111,7 @@
                       <form method="post" action="/workspaces/{{ workspace_id }}/mapping/transformation-impact/acknowledge">
                         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <input type="hidden" name="rule_fingerprint" value="{{ acknowledgement.fingerprint }}">
-                        <button class="button primary" type="submit">{{ acknowledgement.label }}</button>
+                        <button class="button action" type="submit">{{ acknowledgement.label }}</button>
                       </form>
                     {% endfor %}
                   {% endif %}
@@ -137,11 +137,11 @@
             <input type="hidden" name="outcome" value="{{ filters.outcome }}">
             <input type="hidden" name="field" value="{{ filters.target_field }}">
             <input type="hidden" name="q" value="{{ filters.query }}">
-            <button class="button secondary" type="submit">Download matching rows (.csv)</button>
+            <button class="button action" type="submit">Download matching rows (.csv)</button>
           </form>
           <form method="post" action="/workspaces/{{ workspace_id }}/mapping/transformation-impact.csv">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Download all affected rows (.csv)</button>
+            <button class="button action" type="submit">Download all affected rows (.csv)</button>
           </form>
         </div>
       </div>
@@ -181,8 +181,8 @@
           <input type="search" name="q" value="{{ filters.query }}" maxlength="128" placeholder="Search values or rules">
         </label>
         <div class="actions impact-filter-actions">
-          <button class="button primary" type="submit">Apply filters</button>
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Clear</a>
+          <button class="button action" type="submit">Apply filters</button>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/mapping/transformation-impact">Clear</a>
         </div>
       </form>
 
@@ -249,16 +249,16 @@
 
       {% if previous_url or next_url %}
         <nav class="impact-pagination" aria-label="Transformation impact pages">
-          {% if previous_url %}<a class="button secondary" href="{{ previous_url }}">Previous 100</a>{% endif %}
+          {% if previous_url %}<a class="button navigation" href="{{ previous_url }}">Previous 100</a>{% endif %}
           <span class="muted">Up to 100 values per page</span>
-          {% if next_url %}<a class="button secondary" href="{{ next_url }}">Next 100</a>{% endif %}
+          {% if next_url %}<a class="button navigation" href="{{ next_url }}">Next 100</a>{% endif %}
         </nav>
       {% endif %}
     </section>
   {% endif %}
 
   <div class="actions">
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Back to matches</a>
-    {% if report %}<a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Continue matching review</a>{% endif %}
+    <a class="button navigation" href="/workspaces/{{ workspace_id }}/mapping">Back to matches</a>
+    {% if report %}<a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/mapping">Continue matching review</a>{% endif %}
   </div>
 {% endblock %}

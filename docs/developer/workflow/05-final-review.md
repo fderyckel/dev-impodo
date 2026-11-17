@@ -107,6 +107,26 @@ cover Authoring, Recipe, transfer, and comparison-job locations. The
 [browser-state tests](../../../tests/e2e/final-review-navigation.test.cjs)
 cover exact return scope, stale evidence, legacy anchors, and denied storage.
 
+### Checked-row lookup details
+
+The **Checked rows** table retains failed relationship lookup details in each
+saved `ReadinessRow.reference_details`. The
+[`readiness_reference_details`](../../../src/impodo/domain/preflight/reference_review.py)
+projection joins exact prepared records, compiled identity and scope fields,
+and structured comparison resolutions by source trace ID. It displays the
+ordered key, matching fields, related model or incoming dataset, and scope for
+every affected relationship, including secondary findings. A multi-value
+field reports only references with a matching failed resolution. Issue text
+is never parsed to infer a key. Missing structured evidence remains explicit.
+
+Publication builds this private operator projection from existing input;
+bounded page reads add no repository or Odoo lookup. Aggregate issue counts
+remain value-free. [Lookup detail tests](../../../tests/domain/preflight/test_reference_review.py)
+cover composite keys, scopes, incoming references, and multi-value fields.
+[Checked-row route tests](../../../tests/integration/web/test_reference_review_results.py)
+verify persistence, reopening, filters, and bounded database access for a
+custom model on Odoo 19 and 20 in local and remote modes.
+
 ### Correction download before readiness
 
 The [correction export router](../../../src/impodo/web/routers/attention_export.py)
@@ -566,7 +586,13 @@ repository, Odoo, or repeated full-collection lookup for each action item.
 
 The **Fields set aside** tab combines saved field-level preparation findings,
 blocking comparison findings, and explicit rules that omit values. It also
-lists columns that a saved mapping uses for validation only. The export
+lists columns that a saved mapping uses for validation only and explicit
+`excluded_source_column_keys` choices from the verified mapping revision. Each
+explicit exclusion has whole-column scope, no target field, and no repeated
+source values. These choices reuse the existing frozen-input reads. The
+coverage note keeps historical unsaved choices explicitly unrecoverable;
+an absent optional mapping field does not prove that earlier capture was
+complete. The export
 collects preparation findings from the verified effective rows, or the
 canonical staging rows when there is no effective overlay. The workbook
 counts an identified source cell once even when it contributes to more than
@@ -583,9 +609,31 @@ limitations independently of its findings. The workbook combines those gaps
 with counts of findings that lack available original values or a single source
 cell coordinate. Counts apply to saved findings, so distinct target outcomes
 can contribute more than once; whole-column choices need no original value.
-Saved preparation feedback can supply a display value, but it does not certify
-the exact original source representation. The same coverage note appears on
-the tab and its Overview link. A definitive zero-omission message requires
+The original-value planner accepts only saved direct scalar preparation findings
+whose stable source key matches the verified mapping. It binds requests to the
+frozen physical selection and immutable file snapshot. The artifact reader
+projects requested rows and value-kind column pairs in batches of at most 1,000
+rows. It materializes each snapshot once and does not reopen uploaded files or
+query Odoo. These reads stay inside the existing synchronous package operation.
+
+[`OriginalSourceValue`](../../../src/impodo/domain/preflight/original_values.py)
+distinguishes captured values, captured blanks, withheld values, and unavailable
+evidence. The [planner](../../../src/impodo/application/workspace/review/original_values.py)
+proves the source binding before the
+[artifact reader](../../../src/impodo/adapters/artifacts/review_original_values.py)
+loads requested cells. It preserves strict-reader text, including
+leading zeros and whitespace, rather than Excel display formatting. Blank
+cells and empty text have distinct kinds and workbook comments. The writer
+forces literal Excel text and rejects originals that exceed Excel's text limit
+or contain unsupported XML characters before writing the report. Requests also
+name the proven target field, so a derived provider sharing the same source
+cell cannot inherit another provider's authorization. Restricted workspaces
+return before source reads;
+Odoo sources still produce no portable value evidence. Normalization feedback
+is never substituted for an original value on this tab. Derived, composed,
+relationship and later comparison findings retain unavailable coverage in this
+bounded implementation. The same coverage note appears on the tab and its
+Overview link. A definitive zero-omission message requires
 explicitly complete evidence. Manifest-only exports identify unavailable
 preparation evidence; protected Odoo exports identify withheld details.
 
@@ -872,7 +920,12 @@ contact Odoo while writing them.
 - [`tests/integration/web/test_deferred_scope_routes.py`](../../../tests/integration/web/test_deferred_scope_routes.py)
 - [Preview and accept set-asides from Final review findings](../../../tests/integration/web/test_deferred_finding_workflow.py)
 - [Bulk selection and Excel export](../../../tests/integration/web/test_bulk_deferred_workflow.py)
+- [Original evidence states](../../../tests/domain/preflight/test_original_values.py)
+- [Direct source binding and private no-read paths](../../../tests/application/workspace/review/test_original_values.py)
+- [Verified snapshot originals and bounded reads](../../../tests/integration/artifacts/test_review_original_values.py)
+- [Literal original values, blank notes and withholding](../../../tests/integration/artifacts/test_original_value_display.py)
 - [Fields set aside across export formats](../../../tests/integration/artifacts/test_fields_set_aside_coverage.py)
+- [Saved whole-column exclusions and recreation](../../../tests/integration/artifacts/test_column_exclusions.py)
 - [`tests/integration/duckdb/test_preflight_repository.py`](../../../tests/integration/duckdb/test_preflight_repository.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/duckdb/test_navigation_repository.py`](../../../tests/integration/duckdb/test_navigation_repository.py)

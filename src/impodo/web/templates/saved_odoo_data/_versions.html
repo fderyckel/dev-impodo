@@ -10,7 +10,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ definition.revision }}">
         <input type="hidden" name="operation_id" value="{{ operation_id }}">
-        <button class="button primary" type="submit" data-submitting-label="Starting complete data update..." {% if job and active_job %}disabled{% endif %}>Update saved data</button>
+        <button class="button action" type="submit" data-submitting-label="Starting complete data update..." {% if job and active_job %}disabled{% endif %}>Update saved data</button>
       </form>
     {% endif %}
   </div>
@@ -37,7 +37,7 @@
                   <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/versions/{{ version.version_number }}/download">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <label>Package password<input type="password" name="package_password" minlength="8" autocomplete="new-password" required><small>Use at least eight characters. You will need this password to import the package.</small></label>
-                    <div class="actions"><button class="button secondary" type="submit">Download version {{ version.version_number }}</button></div>
+                    <div class="actions"><button class="button action" type="submit">Download version {{ version.version_number }}</button></div>
                   </form>
                 </details>
               </td>

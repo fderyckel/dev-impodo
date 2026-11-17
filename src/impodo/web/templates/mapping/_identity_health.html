@@ -11,7 +11,7 @@
         {% else %}
           <form method="post" action="{{ identity_health.check_url }}" id="mapping-identity-check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary compact" type="submit" {% if not identity_health.can_start %}disabled{% endif %}>
+            <button class="button action compact" type="submit" {% if not identity_health.can_start %}disabled{% endif %}>
               Check saved identities
             </button>
           </form>
@@ -61,14 +61,14 @@
 
           <div class="actions">
           {% if item.review_choices_url %}
-            <a class="button primary compact" href="{{ item.review_choices_url }}">Review unresolved identity choices</a>
+            <a class="button action compact" href="{{ item.review_choices_url }}">Review unresolved identity choices</a>
           {% endif %}
-          {% if item.repeated_source_url %}<a class="button primary compact" href="{{ item.repeated_source_url }}" data-duplicate-rows-url="{{ item.repeated_source_url|replace('/identity-choices?', '/duplicate-rows?') }}">Review repeated source identities</a>{% endif %}
-          {% if item.ambiguous_target_url %}<a class="button primary compact" href="{{ item.ambiguous_target_url }}">Review ambiguous Odoo matches</a>{% endif %}
+          {% if item.repeated_source_url %}<a class="button action compact" href="{{ item.repeated_source_url }}" data-duplicate-rows-url="{{ item.repeated_source_url|replace('/identity-choices?', '/duplicate-rows?') }}">Review repeated source identities</a>{% endif %}
+          {% if item.ambiguous_target_url %}<a class="button action compact" href="{{ item.ambiguous_target_url }}">Review ambiguous Odoo matches</a>{% endif %}
           {% if item.rule_confirmation_url %}
-            <a class="button primary compact" href="{{ item.rule_confirmation_url }}">Review matching rules in Odoo data</a>
+            <a class="button action compact" href="{{ item.rule_confirmation_url }}">Review matching rules in Odoo data</a>
           {% else %}
-            <a class="button secondary compact" href="{{ item.edit_url }}">Review matching rule</a>
+            <a class="button action compact" href="{{ item.edit_url }}">Review matching rule</a>
           {% endif %}
           </div>
         </article>

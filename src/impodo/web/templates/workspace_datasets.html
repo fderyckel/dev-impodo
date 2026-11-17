@@ -50,7 +50,7 @@
         <div class="empty-state">
           <h2>No confirmed source tables</h2>
           <p>Check and confirm every source file before choosing tables.</p>
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Check source files</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/sources">Check source files</a>
         </div>
       {% endif %}
     </section>
@@ -78,14 +78,14 @@
         <p class="eyebrow">Optional</p>
         <h3 id="combined-information-title">Organize source tables</h3>
         <p>Combine tables, create a related table, or build a hierarchy.</p>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
       </section>
       <details class="technical-evidence">
         <summary>Support details</summary>
         <code>{{ selection.content_hash }}</code>
       </details>
       <div class="actions">
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
+        <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
       </div>
     </section>
   {% endif %}

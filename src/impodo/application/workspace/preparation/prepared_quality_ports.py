@@ -18,6 +18,8 @@ from impodo.application.workspace.preparation.prepared_quality_projection import
 )
 from impodo.domain.target_numeric_precision import PreparedNumericField
 
+from .quality_finding_store import QualityFindingStore
+
 
 @runtime_checkable
 class EncodedPreparedRowReader(Protocol):
@@ -42,6 +44,7 @@ class PreparedQualityIndexReader(Protocol):
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
         retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
+        finding_store: QualityFindingStore | None = None,
     ) -> PreparedQualityProjection | None:
         """Return validated narrow facts, or decline this indexed route."""
         ...
@@ -75,6 +78,7 @@ class PreparedRelationshipFindingReader(Protocol):
         self,
         unsafe_row_ids: Sequence[str],
         propagating_datasets: Sequence[str],
+        *, finding_store: QualityFindingStore | None = None,
     ) -> Iterable[Sequence[object]]:
         """Yield bounded readiness findings under the current quality policies."""
         ...

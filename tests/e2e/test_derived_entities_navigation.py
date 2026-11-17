@@ -104,9 +104,9 @@ class DerivedEntitiesNavigationTests(unittest.TestCase):
                   <option value="selected">Selected</option>
                 </select>
                 <div class="actions compact exact-join-field-actions" data-group-field-actions>
-                  <button class="button secondary" type="button" data-group-use-recommended>Use recommended output</button>
-                  <button class="button secondary" type="button" data-group-select-visible>Select visible fields</button>
-                  <button class="button secondary" type="button" data-group-clear-visible>Clear visible fields</button>
+                  <button class="button action" type="button" data-group-use-recommended>Use recommended output</button>
+                  <button class="button action" type="button" data-group-select-visible>Select visible fields</button>
+                  <button class="button action" type="button" data-group-clear-visible>Clear visible fields</button>
                 </div>
                 <span data-group-field-count></span>
                 <span data-group-field-limit-error hidden>Too many fields</span>

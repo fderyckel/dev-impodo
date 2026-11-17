@@ -142,7 +142,7 @@
                 {% include "_run_application_action.html" %}
               {% endif %}
               {% if can_revise and not recipes[card.application.recipe_id].archived_at %}
-                <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ card.application.recipe_id }}/revise?version={{ card.application.recipe_revision }}">Revise this Recipe</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ card.application.recipe_id }}/revise?version={{ card.application.recipe_revision }}">Revise this Recipe</a>
               {% endif %}
             </div>
           </li>
@@ -163,7 +163,7 @@
           {% endif %}
         </div>
         {% if bundle.run.purpose.value == 'TEST' %}
-          <a class="button primary" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
+          <a class="button action" href="/projects/{{ project.project_id }}/runs/{{ bundle.run.migration_run_id }}/qualification">Review integrated qualification</a>
         {% endif %}
       </section>
     {% endif %}
@@ -187,7 +187,7 @@
     </details>
 
     <div class="actions">
-      <a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a>
+      <a class="button navigation" href="/projects/{{ project.project_id }}">Back to data project</a>
     </div>
   </div>
 {% endblock %}

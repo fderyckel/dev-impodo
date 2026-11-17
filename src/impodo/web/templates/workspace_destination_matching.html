@@ -183,8 +183,8 @@
       </div>
 
       <div class="matching-action-bar">
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-destination">Back to destination connection</a>
-        <div><small>Checks {{ matching_rows|length }} record type{% if matching_rows|length != 1 %}s{% endif %} without writing to Odoo</small><button class="button primary" type="submit" data-submitting-label="Checking destination..." {% if not destination_credential_status.available or not matching_can_check %}disabled{% endif %}>Check destination matches</button></div>
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/transfer-destination">Back to destination connection</a>
+        <div><small>Checks {{ matching_rows|length }} record type{% if matching_rows|length != 1 %}s{% endif %} without writing to Odoo</small><button class="button action" data-next-step="100" type="submit" data-submitting-label="Checking destination..." {% if not destination_credential_status.available or not matching_can_check %}disabled{% endif %}>Check destination matches</button></div>
       </div>
       {% if not destination_credential_status.available %}<p class="matching-key-blocker"><a href="/workspaces/{{ workspace_id }}/transfer-destination#destination-connection">Enter or restore the destination transfer key</a> before checking matches.</p>{% endif %}
     </form>
@@ -211,7 +211,7 @@
                   <div><dt>Could not be checked</dt><dd>{{ row.result.rule_blocked_source_row_numbers|length }}</dd></div>
                 </dl>
                 {% if row.result.rule_blocked_source_row_numbers %}<p class="notice warning">Correct the comparison type or source values, then check again. Values that could not be checked block this transfer.</p>{% elif 'ROW_INCLUSION_ZERO_INCLUDED' in row.result.blocking_reasons %}<p class="notice warning">This rule includes no rows. Change it and check again before continuing.</p>{% endif %}
-                <p><a class="button secondary" href="/workspaces/{{ workspace_id }}/destination-matching/rows-to-use?dataset_id={{ row.result.dataset_id|urlencode }}">Review rows</a></p>
+                <p><a class="button action" href="/workspaces/{{ workspace_id }}/destination-matching/rows-to-use?dataset_id={{ row.result.dataset_id|urlencode }}">Review rows</a></p>
               {% endif %}
               <dl class="matching-result-metrics">
                 <div><dt>Source</dt><dd>{{ "{:,}".format(row.result.source_row_count) }}</dd><small>{% if row.result.unreferenced_source_row_numbers %}referenced records checked; {{ row.result.unreferenced_source_row_numbers|length }} unrelated record(s) ignored{% elif row.result.excluded_source_row_numbers %}records included; {{ row.result.excluded_source_row_numbers|length }} put aside{% else %}records checked{% endif %}</small></div>
@@ -232,21 +232,21 @@
                             <strong>{{ issue.display_field }}: {{ issue.display_value }}</strong> &middot; source row {{ issue.row_number }} &middot; {% if issue.issue_kind == 'blank' %}matching value is blank{% else %}repeated matching value: {{ issue.matching_value }}{% endif %}
                             <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/record-scope" data-single-submit>
                               <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="dataset_id" value="{{ row.result.dataset_id }}"><input type="hidden" name="row_number" value="{{ issue.row_number }}"><input type="hidden" name="record_action" value="exclude">
-                              <button class="button secondary" type="submit" data-submitting-label="Putting record aside...">Put this source record aside</button>
+                              <button class="button action" type="submit" data-submitting-label="Putting record aside...">Put this source record aside</button>
                             </form>
                           </li>
                         {% endfor %}
                       </ul>
                     </details>
                   {% elif row.identity_scope_guidance %}<p>{{ row.identity_scope_guidance }}</p>{% elif row.identity_issue_error %}<p>The affected source records could not be opened: {{ row.identity_issue_error }}</p>{% endif %}
-                  {% if row.result.source_blank_row_count or row.result.source_duplicate_key_count %}<p>You can choose another stable identifier above, correct the value in source Odoo and recapture, or explicitly put the affected source record aside. Putting it aside excludes that whole record from this transfer; it does not change source Odoo.</p><div class="decision-actions"><a class="button secondary" href="#matching-identifiers">Choose another identifier</a><a class="button secondary" href="/workspaces/{{ workspace_id }}/sources">Return to source data</a></div>{% endif %}
+                  {% if row.result.source_blank_row_count or row.result.source_duplicate_key_count %}<p>You can choose another stable identifier above, correct the value in source Odoo and recapture, or explicitly put the affected source record aside. Putting it aside excludes that whole record from this transfer; it does not change source Odoo.</p><div class="decision-actions"><a class="button action" href="#matching-identifiers">Choose another identifier</a><a class="button navigation" href="/workspaces/{{ workspace_id }}/sources">Return to source data</a></div>{% endif %}
                 </div>
               {% endif %}
               {% if row.excluded_identity_rows %}
                 <div class="matching-result-attention secondary">
                   <strong>Source records put aside</strong>
                   <p>Impodo keeps these records in the frozen source evidence but excludes them from every later transfer count and write.</p>
-                  <ul>{% for issue in row.excluded_identity_rows %}<li><strong>{{ issue.display_field }}: {{ issue.display_value }}</strong> &middot; source row {{ issue.row_number }}<form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/record-scope" data-single-submit><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="dataset_id" value="{{ row.result.dataset_id }}"><input type="hidden" name="row_number" value="{{ issue.row_number }}"><input type="hidden" name="record_action" value="restore"><button class="button secondary" type="submit" data-submitting-label="Including record again...">Include record again</button></form></li>{% endfor %}</ul>
+                  <ul>{% for issue in row.excluded_identity_rows %}<li><strong>{{ issue.display_field }}: {{ issue.display_value }}</strong> &middot; source row {{ issue.row_number }}<form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/record-scope" data-single-submit><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="dataset_id" value="{{ row.result.dataset_id }}"><input type="hidden" name="row_number" value="{{ issue.row_number }}"><input type="hidden" name="record_action" value="restore"><button class="button action" type="submit" data-submitting-label="Including record again...">Include record again</button></form></li>{% endfor %}</ul>
                 </div>
               {% endif %}
               {% if row.result.write_blocking_reasons %}
@@ -259,7 +259,7 @@
                       {% else %}
                         <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/field-scope" data-single-submit>
                           <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="field_key" value="{{ row.result.model }}::{{ field_name }}"><input type="hidden" name="field_action" value="exclude">
-                          <div class="decision-actions"><button class="button secondary" type="submit" data-submitting-label="Putting field aside...">Put <code>{{ field_name }}</code> aside</button></div>
+                          <div class="decision-actions"><button class="button action" type="submit" data-submitting-label="Putting field aside...">Put <code>{{ field_name }}</code> aside</button></div>
                         </form>
                       {% endif %}
                     {% endfor %}
@@ -267,7 +267,7 @@
                 </div>
               {% endif %}
               {% if row.result.excluded_fields %}
-                <div class="matching-result-attention secondary"><strong>Put aside for this transfer</strong><p>Impodo keeps these fields in the frozen source evidence but will not write them to destination Odoo.</p><ul>{% for field_name in row.result.excluded_fields %}<li><code>{{ field_name }}</code><form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/field-scope" data-single-submit><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="field_key" value="{{ row.result.model }}::{{ field_name }}"><input type="hidden" name="field_action" value="restore"><button class="button secondary" type="submit" data-submitting-label="Including field again...">Include again</button></form></li>{% endfor %}</ul></div>
+                <div class="matching-result-attention secondary"><strong>Put aside for this transfer</strong><p>Impodo keeps these fields in the frozen source evidence but will not write them to destination Odoo.</p><ul>{% for field_name in row.result.excluded_fields %}<li><code>{{ field_name }}</code><form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/field-scope" data-single-submit><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="field_key" value="{{ row.result.model }}::{{ field_name }}"><input type="hidden" name="field_action" value="restore"><button class="button action" type="submit" data-submitting-label="Including field again...">Include again</button></form></li>{% endfor %}</ul></div>
               {% endif %}
               {% if row.result.destination_managed_fields %}
                 <div class="matching-result-attention secondary"><strong>Destination-owned evidence</strong><p>Impodo keeps these values for identity and review, but does not treat them as generic transfer write fields. They are automatically excluded from writes and verification comparisons.</p><ul>{% for field_name in row.result.destination_managed_fields %}<li><label><input type="checkbox" checked disabled> <code>{{ field_name }}</code> <span class="status ready">Automatic</span></label></li>{% endfor %}</ul></div>
@@ -284,7 +284,7 @@
           <p>The excluded records remain in your accepted Data version. This transfer will not write them or silently remove related records.</p>
           <form method="post" action="/workspaces/{{ workspace_id }}/destination-matching/rows-to-use/confirm" data-single-submit>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ workspace_state.revision }}"><input type="hidden" name="match_plan_hash" value="{{ match_plan.content_hash }}"><input type="hidden" name="confirmation" value="confirm">
-            <button class="button primary" type="submit" {% if not match_plan.row_inclusion_confirmable %}disabled{% endif %}>Confirm {{ match_plan.model_matches|sum(attribute='source_row_count') }} rows to use</button>
+            <button class="button action" type="submit" {% if not match_plan.row_inclusion_confirmable %}disabled{% endif %}>Confirm {{ match_plan.model_matches|sum(attribute='source_row_count') }} rows to use</button>
           </form>
         </div>
       {% endif %}
@@ -312,7 +312,7 @@
                 </article>
               {% endif %}
             {% endfor %}
-            {% if match_plan.pending_create_field_decisions %}<div class="decision-actions"><button class="button primary" type="submit" data-submitting-label="Confirming defaults...">Confirm current Odoo defaults</button></div>{% endif %}
+            {% if match_plan.pending_create_field_decisions %}<div class="decision-actions"><button class="button action" type="submit" data-submitting-label="Confirming defaults...">Confirm current Odoo defaults</button></div>{% endif %}
           </form>
 
           <div class="create-field-decisions">
@@ -342,7 +342,7 @@
                           </label>
                         {% endif %}
                         <details class="matching-technical-details"><summary>Technical details</summary><p><code>{{ item.evidence.model }}.{{ item.evidence.field_name }}</code></p></details>
-                        <div class="decision-actions"><button class="button primary" type="submit" data-submitting-label="Saving choice...">Save choice</button></div>
+                        <div class="decision-actions"><button class="button action" type="submit" data-submitting-label="Saving choice...">Save choice</button></div>
                       </form>
                     {% else %}<div class="matching-result-attention"><strong>No generic provider is safe for this field yet.</strong><p>A governed related-record choice or qualified workflow handler is required.</p></div>{% endif %}
                   </article>
@@ -372,7 +372,7 @@
       {% endif %}
 
       {% if match_plan_ready %}
-        <section class="next-action-card ready matching-next-action"><div><p class="eyebrow">Destination matching complete</p><h2>Next: review the transfer</h2><p>Start by validating creation waves and safe post-create links from these relationships. No destination writes are enabled.</p></div><div class="next-action-buttons"><span class="status ready">Stage 4 complete</span><a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-order">Review transfer</a></div></section>
+        <section class="next-action-card ready matching-next-action"><div><p class="eyebrow">Destination matching complete</p><h2>Next: review the transfer</h2><p>Start by validating creation waves and safe post-create links from these relationships. No destination writes are enabled.</p></div><div class="next-action-buttons"><span class="status ready">Stage 4 complete</span><a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/transfer-order">Review transfer</a></div></section>
       {% endif %}
     </section>
   {% endif %}

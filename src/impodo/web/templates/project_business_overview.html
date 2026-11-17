@@ -20,7 +20,7 @@
         <h2>Continue preparing and matching the sample data</h2>
         <p>Data version {{ authoring_data_version.version_number }}</p>
       </div>
-      <a class="button primary" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open workspace</a>
+      <a class="button action" href="/workspaces/{{ authoring_workspace.workspace_id }}/overview">Open workspace</a>
     </section>
   {% endif %}
 
@@ -31,7 +31,7 @@
         <h2>Keep clean data ready for the next database reset</h2>
         <p>Choose the models, fields, and related records once. Update your saved data and restore a complete version to the database and company you choose.</p>
       </div>
-      <a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data{% if authoring_workspace %}?source_workspace_id={{ authoring_workspace.workspace_id }}{% endif %}">Open saved Odoo data</a>
+      <a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data{% if authoring_workspace %}?source_workspace_id={{ authoring_workspace.workspace_id }}{% endif %}">Open saved Odoo data</a>
     </section>
   {% endif %}
 
@@ -42,7 +42,7 @@
         <h2>{% if correction.completed %}Continued load verified{% elif correction.successor_workspace_id %}A working revision is available{% else %}Continue after this successful load{% endif %}</h2>
         <p>Inspect the saved stages, continue editing with the same files, or save these rules as a Recipe.</p>
       </div>
-      <a class="button {% if correction.completed %}secondary{% else %}primary{% endif %}" href="/workspaces/{{ correction.completed_workspace_id }}/history/6">View saved load and continue</a>
+      <a class="button action" href="/workspaces/{{ correction.completed_workspace_id }}/history/6">View saved load and continue</a>
     </section>
   {% endfor %}
 
@@ -53,7 +53,7 @@
         <h2>Test saved Recipes with newer data</h2>
         <p>Choose exact Recipe versions. Impodo creates a fresh Test data version and setup workspace for the newer delivery and the Odoo target you choose for this Test run.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/new">Test with new data</a>
+      <a class="button action" href="/projects/{{ project.project_id }}/test-runs/new">Test with new data</a>
     </section>
   {% endif %}
 
@@ -72,9 +72,9 @@
               <h3>{{ run.label }}</h3>
               <p>{% if run.state.value == 'READY' %}Complete{% else %}Current{% endif %} &middot; {% if test_setup and test_setup.state.value == 'SETUP' %}Newer data and Odoo target setup{% else %}One shared Odoo target{% endif %}</p>
               {% if test_setup and test_setup.state.value == 'SETUP' %}
-                <a class="button primary" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data">Continue Test setup</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/test-runs/{{ run.migration_run_id }}/fresh-data">Continue Test setup</a>
               {% else %}
-                <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Test run</a>
               {% endif %}
             </div>
           </li>
@@ -90,7 +90,7 @@
         <h2>Prepare the latest data separately</h2>
         <p>The selected Cutover plan supplies the tested Recipe versions and order only. Production starts with new source data, Odoo access, comparison, approval, and verification.</p>
       </div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
+      <a class="button action" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
     </section>
   {% endif %}
 
@@ -111,9 +111,9 @@
               <h3>{{ production_run.label }}</h3>
               <p>{% if run_complete %}Complete{% elif setup_complete %}Setup complete &middot; Continue review and load{% else %}Setup needs attention{% endif %} &middot; Cutover plan version {{ binding.cutover_plan_revision }} &middot; Latest export {{ production_data.export_as_of }}</p>
               {% if not setup_complete %}
-                <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/{{ binding.migration_run_id }}/activate">Continue Production setup</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/production-runs/{{ binding.migration_run_id }}/activate">Continue Production setup</a>
               {% else %}
-                <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ binding.migration_run_id }}">Open Production run</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/runs/{{ binding.migration_run_id }}">Open Production run</a>
               {% endif %}
             </div>
           </li>
@@ -156,7 +156,7 @@
             {% endfor %}
           </select>
         </label>
-        <button class="button secondary" type="submit">Review selected rules</button>
+        <button class="button action" type="submit">Review selected rules</button>
       </form>
     {% endif %}
     {% if recipes %}
@@ -168,9 +168,9 @@
             <div class="overview-stage-copy">
               <h3>{{ recipe.display_name }}</h3>
               <p>{{ recipe.business_purpose }} · Recipe v{{ recipe.current_recipe_revision }}</p>
-              <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}">Open Recipe</a>
+              <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}">Open Recipe</a>
               {% if revision_review and not revision_review.published and revision_review.project_id == project.project_id and revision_review.recipe_id == recipe.recipe_id %}
-                <a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
+                <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
               {% elif recipe_draft and recipe_draft.can_publish %}
                 <form method="post" action="/projects/{{ project.project_id }}/recipes">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -181,7 +181,7 @@
                   <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
                   <input type="hidden" name="display_name" value="{{ recipe.display_name }}">
                   <input type="hidden" name="business_purpose" value="{{ recipe.business_purpose }}">
-                  <button class="button secondary" type="submit">Save a new Recipe version</button>
+                  <button class="button action" type="submit">Save a new Recipe version</button>
                 </form>
               {% endif %}
             </div>
@@ -206,14 +206,14 @@
         <input type="hidden" name="expected_recipe_revision" value="">
         <label>Recipe name<input name="display_name" required maxlength="200"></label>
         <label>Reusable purpose<textarea name="business_purpose" required maxlength="2000"></textarea></label>
-        <div class="actions"><button class="button primary" type="submit">Save as a new Recipe</button></div>
+        <div class="actions"><button class="button action" type="submit">Save as a new Recipe</button></div>
       </form>
     {% elif recipe_draft and recipe_draft.issues %}
       <div class="notice">
         <strong>Saving a Recipe is optional.</strong>
         <p>{% if not recipes %}No Recipe has been saved yet. {% endif %}You can continue working in your workspace without saving one.</p>
         <p><strong>Before saving a Recipe:</strong> {{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
-        <a class="button secondary" href="{{ recipe_recovery.href }}">{{ recipe_recovery.label }}</a>
+        <a class="button action" href="{{ recipe_recovery.href }}">{{ recipe_recovery.label }}</a>
         {% if recipe_recovery.reference %}
           <details>
             <summary>Support details</summary>
@@ -230,7 +230,7 @@
       <h2 id="project-delete-heading">Delete this project</h2>
       <p>Permanently delete this project and all of its saved data, Recipes, reports, and audit history.</p>
     </div>
-    <button class="button danger" type="button" data-project-delete-trigger>Delete project</button>
+    <button class="button destructive" data-button-delete type="button" data-project-delete-trigger><span class="button-delete-icon" aria-hidden="true">🗑︎</span>Delete project</button>
   </section>
 
   <dialog
@@ -250,12 +250,12 @@
     <p>This permanently deletes the project and all of its saved evidence. This cannot be undone.</p>
     <div class="dialog-actions">
       <form method="dialog">
-        <button class="button secondary" type="submit">Cancel</button>
+        <button class="button navigation" type="submit">Cancel</button>
       </form>
       <form method="post" action="/projects/{{ project.project_id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="revision" value="{{ project.optimistic_revision }}">
-        <button class="button danger" type="submit">Delete project</button>
+        <button class="button destructive" data-button-delete type="submit"><span class="button-delete-icon" aria-hidden="true">🗑︎</span>Delete project</button>
       </form>
     </div>
   </dialog>

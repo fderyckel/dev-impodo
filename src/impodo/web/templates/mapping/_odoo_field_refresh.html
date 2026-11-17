@@ -20,7 +20,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="candidate_id" value="{{ schema.pending_refresh.candidate_id }}">
       <input type="hidden" name="working_version" value="{{ working_draft.version if working_draft else '' }}">
-      <button class="button secondary" type="submit">Apply new optional fields</button>
+      <button class="button action" type="submit">Apply new optional fields</button>
     </form>
     <p>Applying new optional fields keeps your field matches and matching rules. Check your field matches and prepare data again.</p>
     {% else %}

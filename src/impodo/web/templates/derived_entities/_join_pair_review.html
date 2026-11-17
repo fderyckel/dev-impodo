@@ -101,8 +101,8 @@
       {% for projection_index in join_form.projection_indexes %}<input type="hidden" name="projection" value="{{ projection_index }}">{% endfor %}
       {% for projection_name in join_form.projection_names %}<input type="hidden" name="projection_name" value="{{ projection_name }}">{% endfor %}
       <div class="actions source-review-actions">
-        <button class="button source-review-change" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
-        {% if pending_review.can_save %}<button class="button secondary" type="submit">{{ "Save changes" if editing_join_pair else "Use this table" }}</button>{% endif %}
+        <button class="button action source-review-change" type="button" data-derived-entity-target="combine-two-tables">Change selections</button>
+        {% if pending_review.can_save %}<button class="button action" type="submit">{{ "Save changes" if editing_join_pair else "Use this table" }}</button>{% endif %}
       </div>
     </form>
   </section>

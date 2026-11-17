@@ -15,7 +15,7 @@
   {% include "final_review/_comparison_cards.html" %}
   <nav class="actions" aria-label="Review result views">
     {% for value, label in [('attention', 'Needs attention'), ('changes', 'Proposed changes'), ('outside', 'Records outside this load')] %}
-      <a class="button {{ 'primary' if review_view == value else 'secondary' }}" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ value }}"{% if review_view == value %} aria-current="page"{% endif %}>{{ label }}</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ value }}"{% if review_view == value %} aria-current="page"{% endif %}>{{ label }}</a>
     {% endfor %}
   </nav>
   {% if review_view == 'attention' %}
@@ -33,6 +33,6 @@
 {% else %}
   <section class="next-action-card review">
     <div><p class="eyebrow">Not yet compared</p><h2>{{ 'Compare this data with Odoo first' if normalization and normalization.frozen else 'Review prepared data first' }}</h2><p>There is no current saved Odoo comparison to review.</p></div>
-    <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step={{ 'compare' if normalization and normalization.frozen else 'prepared' }}">{{ 'Continue to comparison' if normalization and normalization.frozen else 'Open Prepared data' }}</a>
+    <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step={{ 'compare' if normalization and normalization.frozen else 'prepared' }}">{{ 'Continue to comparison' if normalization and normalization.frozen else 'Open Prepared data' }}</a>
   </section>
 {% endif %}

@@ -648,33 +648,67 @@ label.checkbox input {
   text-decoration: none;
 }
 
-.button.primary {
-  background: var(--impodo-red);
-  color: white;
+.button.action {
+  border-color: var(--impodo-action);
+  background: white;
+  color: var(--impodo-action);
 }
 
-.button.primary:hover {
-  background: var(--impodo-red-dark);
+.button.action:hover {
+  border-color: var(--impodo-action-hover);
+  background: var(--impodo-action-bg);
+  color: var(--impodo-action-hover);
 }
 
-.button.secondary {
+.button.navigation,
+.button.destructive {
   border-color: var(--impodo-charcoal);
   background: white;
   color: var(--impodo-charcoal-dark);
 }
 
-.button.secondary:hover {
-  border-color: var(--impodo-red);
-  color: var(--impodo-red-dark);
+.button.navigation:hover,
+.button.destructive:hover {
+  border-color: var(--impodo-charcoal-dark);
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
 }
 
-.button.danger {
-  background: var(--danger);
+.button-delete-icon {
+  margin-right: .45rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.button.help {
+  min-height: 44px;
+  padding: .4rem .6rem;
+  border-color: transparent;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 500;
+  text-decoration: underline;
+}
+
+.button:focus-visible {
+  outline: 3px solid var(--impodo-action);
+  outline-offset: 3px;
+}
+
+.button[aria-current="page"],
+.button[aria-current="step"] {
+  outline: 2px solid var(--impodo-charcoal);
+  outline-offset: 2px;
+}
+
+.button[data-next-active] {
+  border-color: transparent;
+  background: var(--impodo-red-dark);
   color: white;
 }
 
-.button.danger:hover {
-  background: #7f2525;
+.button[data-next-active]:hover {
+  background: var(--impodo-next-hover);
 }
 
 .button:disabled {

@@ -3,7 +3,8 @@
 The projection describes index results, not a certification of an entire
 prepared run. Adapters still own storage, lineage, and artifact checks. Fact
 payloads retain their existing decoding and semantic validation in the quality
-consumer. The same finding budget follows their transport and consumption.
+consumer. Disk-backed finding pages remain replayable without being copied
+into a complete tuple. Explicitly in-memory callers share a retained budget.
 """
 
 from __future__ import annotations
@@ -14,6 +15,8 @@ from types import MappingProxyType
 
 from impodo.domain.preparation.quality_budget import QualityFindingBudget
 from impodo.domain.preparation.staging_contracts import StagingDisposition
+
+from .quality_finding_store import FindingSequence, FindingSet
 
 
 class PreparedQualityProjectionError(ValueError):
@@ -28,8 +31,8 @@ def _count(value: object) -> int:
     return value
 
 
-def _facts(value: object, width: int) -> tuple[Sequence[object], ...]:
-    if not isinstance(value, (tuple, list)):
+def _facts(value: object, width: int) -> Sequence[Sequence[object]]:
+    if not isinstance(value, (tuple, list, FindingSequence)):
         raise PreparedQualityProjectionError("Prepared data-check facts are invalid.")
     for row in value:
         if not isinstance(row, (tuple, list)) or len(row) != width:
@@ -37,7 +40,7 @@ def _facts(value: object, width: int) -> tuple[Sequence[object], ...]:
                 "Prepared data-check fact columns are invalid."
             )
     # Existing tuple pages and their payloads are reused without rebuilding rows.
-    return tuple(value)
+    return value if isinstance(value, FindingSequence) else tuple(value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,11 +56,11 @@ class PreparedQualityProjection:
     physical_row_count: int
     direct_accounting: bool
     disposition_counts: Mapping[StagingDisposition, int]
-    issue_rows: tuple[Sequence[object], ...] = ()
-    collisions: tuple[Sequence[object], ...] = ()
-    exception_rows: tuple[Sequence[object], ...] = ()
-    excluded_row_ids: frozenset[str] = frozenset()
-    precision_rows: tuple[Sequence[object], ...] = ()
+    issue_rows: Sequence[Sequence[object]] = ()
+    collisions: Sequence[Sequence[object]] = ()
+    exception_rows: Sequence[Sequence[object]] = ()
+    excluded_row_ids: frozenset[str] | FindingSet[str] = frozenset()
+    precision_rows: Sequence[Sequence[object]] = ()
     finding_budget: QualityFindingBudget = field(default_factory=QualityFindingBudget)
 
     def __post_init__(self) -> None:
@@ -90,7 +93,7 @@ class PreparedQualityProjection:
             raise PreparedQualityProjectionError(
                 "Prepared row dispositions do not match their row count."
             )
-        if not isinstance(self.excluded_row_ids, (set, frozenset)) or any(
+        if not isinstance(self.excluded_row_ids, (set, frozenset, FindingSet)) or any(
             not isinstance(row_id, str) for row_id in self.excluded_row_ids
         ):
             raise PreparedQualityProjectionError(
@@ -101,7 +104,8 @@ class PreparedQualityProjection:
                 "Prepared data-check finding budget is invalid."
             )
         object.__setattr__(self, "disposition_counts", MappingProxyType(counts))
-        object.__setattr__(self, "excluded_row_ids", frozenset(self.excluded_row_ids))
+        if not isinstance(self.excluded_row_ids, FindingSet):
+            object.__setattr__(self, "excluded_row_ids", frozenset(self.excluded_row_ids))
         object.__setattr__(self, "issue_rows", _facts(self.issue_rows, 8))
         object.__setattr__(self, "collisions", _facts(self.collisions, 8))
         object.__setattr__(self, "exception_rows", _facts(self.exception_rows, 7))

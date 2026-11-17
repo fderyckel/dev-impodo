@@ -50,13 +50,13 @@
         {% if read_credential_status.available %}
           <form method="post" action="/workspaces/{{ workspace_id }}/target/read-credential/delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Forget checking key</button>
+            <button class="button action" type="submit">Forget checking key</button>
           </form>
         {% endif %}
         {% if not is_odoo_source and write_credential_status.available %}
           <form method="post" action="/workspaces/{{ workspace_id }}/target/write-credential/delete">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Forget loading key</button>
+            <button class="button action" type="submit">Forget loading key</button>
           </form>
         {% endif %}
       </div>
@@ -213,15 +213,15 @@
         {% endif %}
       </section>
       <div class="actions">
-        <a class="button secondary" href="{% if source_return_token %}/workspaces/{{ workspace_id }}/derived-entities#{{ source_return_anchor }}{% elif is_recipe_test %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% elif is_odoo_source %}/projects/{{ migration_context.project_id }}{% elif workspace_state.status.value == 'REGISTERED' and workspace_navigation.current_stage and workspace_navigation.current_stage.href %}{{ workspace_navigation.current_stage.href }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">{% if source_return_token %}Back to Source data{% elif workspace_state.status.value == 'REGISTERED' and not is_odoo_source and not is_recipe_test %}Back to current stage{% else %}Back{% endif %}</a>
+        <a class="button navigation" href="{% if source_return_token %}/workspaces/{{ workspace_id }}/derived-entities#{{ source_return_anchor }}{% elif is_recipe_test %}/projects/{{ migration_context.project_id }}/test-runs/{{ migration_context.migration_run_id }}/fresh-data{% elif is_odoo_source %}/projects/{{ migration_context.project_id }}{% elif workspace_state.status.value == 'REGISTERED' and workspace_navigation.current_stage and workspace_navigation.current_stage.href %}{{ workspace_navigation.current_stage.href }}{% else %}/workspaces/{{ workspace_id }}/sources{% endif %}">{% if source_return_token %}Back to Source data{% elif workspace_state.status.value == 'REGISTERED' and not is_odoo_source and not is_recipe_test %}Back to current stage{% else %}Back{% endif %}</a>
         <button
-          class="button secondary"
+          class="button action"
           type="submit"
           name="action"
           value="test"
           data-test-connection-button
         >{% if workspace_state.odoo_connection_mode and workspace_state.odoo_connection_mode.value == "REMOTE" %}{{ remote_connection.button_label }}{% else %}Check connection{% endif %}</button>
-        <button class="button primary" type="submit" name="action" value="save">{% if source_return_token %}Use this destination and return to Source data{% elif is_recipe_test or is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
+        <button class="button action" data-next-step="100" type="submit" name="action" value="save">{% if source_return_token %}Use this destination and return to Source data{% elif is_recipe_test or is_odoo_source %}Use this Odoo and continue{% else %}Use this destination and continue{% endif %}</button>
       </div>
     </form>
 

@@ -42,42 +42,42 @@
       </div>
       <div class="next-action-buttons">
         {% if business_review and not business_review.ready and not business_run_id %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view=changes#expected-versus-found">Review expected versus found</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view=changes#expected-versus-found">Review expected versus found</a>
         {% elif quality and quality.blocked_count %}
-          <a class="button primary" href="?step=prepared&amp;quality_status=blocked#quality-rows">Review setup</a>
+          <a class="button action" href="?step=prepared&amp;quality_status=blocked#quality-rows">Review setup</a>
         {% elif quality and quality.review_count and not (normalization and normalization.frozen) %}
-          <a class="button primary" href="?step=prepared&amp;quality_status=review#quality-rows">Review findings</a>
+          <a class="button action" href="?step=prepared&amp;quality_status=review#quality-rows">Review findings</a>
         {% elif odoo_source and readiness.blocked_count %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Refresh Odoo records</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/sources">Refresh Odoo records</a>
         {% elif deferred_scope_available %}
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/deferred-groups/preview">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit" name="select_all" value="1">Preview all problem groups</button>
+            <button class="button action" type="submit" name="select_all" value="1">Preview all problem groups</button>
           </form>
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose affected groups</a>
-          {% if readiness.blocked_count %}<a class="button secondary" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>{% endif %}
+          <a class="button action" href="/workspaces/{{ workspace_id }}/summary/deferred-groups">Choose affected groups</a>
+          {% if readiness.blocked_count %}<a class="button action" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>{% endif %}
         {% elif readiness.blocked_count and not scope_accepted %}
-          <a class="button primary" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>
+          <a class="button action" href="?step=results&amp;view=attention&amp;status=blocked#readiness-rows">Show rows to fix</a>
         {% elif staging and staging.failed_control_total_count %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=prepared#control-totals">Review totals</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=prepared#control-totals">Review totals</a>
         {% elif readiness.needs_review_count and not scope_accepted %}
-          <a class="button primary" href="?step=results&amp;view=attention&amp;status=needs_review#readiness-rows">Review decisions</a>
+          <a class="button action" href="?step=results&amp;view=attention&amp;status=needs_review#readiness-rows">Review decisions</a>
         {% elif odoo_source %}
-          <a class="button primary" href="#readiness-rows">Review checked records</a>
+          <a class="button action" href="#readiness-rows">Review checked records</a>
         {% elif load_preview and load_preview.scope_error %}
           {% if load_preview.credential_refresh_required %}
-            <a class="button primary" href="{% if is_recipe_application %}{{ run_odoo_url }}{% else %}/workspaces/{{ workspace_id }}/schema{% endif %}">{% if is_recipe_application %}Return to Check Odoo{% else %}Refresh Odoo data{% endif %}</a>
+            <a class="button navigation" href="{% if is_recipe_application %}{{ run_odoo_url }}{% else %}/workspaces/{{ workspace_id }}/schema{% endif %}">{% if is_recipe_application %}Return to Check Odoo{% else %}Refresh Odoo data{% endif %}</a>
           {% else %}
-            <a class="button primary" href="/workspaces/{{ workspace_id }}/load">Review load availability</a>
+            <a class="button action" href="/workspaces/{{ workspace_id }}/load">Review load availability</a>
           {% endif %}
         {% endif %}
         {% if not (odoo_source and readiness.blocked_count) %}
         {% if local_odoo_recovery_needed %}
-          {% if is_recipe_application %}<a class="button secondary" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button secondary" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
+          {% if is_recipe_application %}<a class="button navigation" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button action" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
         {% elif comparison_recovery_needed %}
-            <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare#comparison-recovery">Resolve Odoo check</a>
+            <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=compare#comparison-recovery">Resolve Odoo check</a>
         {% else %}
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=compare">Compare with Odoo again</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=compare">Compare with Odoo again</a>
         {% endif %}
         {% endif %}
       </div>

@@ -14,7 +14,7 @@
       <p>Data version {{ workspace.data_version_number }} · Odoo database {{ workspace.database }}</p>
     {% endif %}
     {% if active %}
-      <a class="button secondary" href="{{ workspace.mapping_url }}">Open Match data</a>
+      <a class="button action" data-next-step="100" href="{{ workspace.mapping_url }}">Open Match data</a>
     {% elif revision_draft and revision_draft.state.value == 'CLOSED' %}
       <p>This Authoring draft is closed.</p>
     {% elif coverage_review %}
@@ -41,7 +41,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="action" value="approve_coverage">
           <input type="hidden" name="coverage_review_hash" value="{{ coverage_review.binding_hash }}">
-          <button class="button primary" type="submit">Approve coverage and open Match data</button>
+          <button class="button action" data-next-step="100" type="submit">Approve coverage and open Match data</button>
         </form>
       {% else %}
         <p>A data manager with coverage approval access must approve these checks.</p>
@@ -51,11 +51,11 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if eligible or revision_draft %}
           <input type="hidden" name="action" value="start">
-          <button class="button primary" type="submit">{% if workspace %}Open Match data{% else %}Check Odoo{% endif %}</button>
+          <button class="button action" data-next-step="100" type="submit">{% if workspace %}Open Match data{% else %}Check Odoo{% endif %}</button>
         {% else %}
           <p>Use this version’s accepted data in a new draft.</p>
           <input type="hidden" name="action" value="create_draft">
-          <button class="button primary" type="submit">Create Authoring draft</button>
+          <button class="button action" data-next-step="100" type="submit">Create Authoring draft</button>
         {% endif %}
       </form>
     {% endif %}
@@ -69,7 +69,7 @@
       {% elif issue %}
         <p>{{ issue.message }} {{ issue.recovery_action }}</p>
         {% if issue.recovery_step.value == 'prepare-data' %}
-          <a class="button secondary" href="/workspaces/{{ workspace.workspace_id }}/prepare">Open Prepare data</a>
+          <a class="button action" href="/workspaces/{{ workspace.workspace_id }}/prepare">Open Prepare data</a>
         {% endif %}
       {% else %}
         <p>Check and confirm the current field matches to review the changes.</p>
@@ -90,12 +90,12 @@
         <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
         <input type="hidden" name="draft_hash" value="{{ draft_hash }}">
         <input type="hidden" name="working_hash" value="{{ workspace.working_hash or '' }}">
-        <button class="button primary" type="submit">Save a new Recipe version</button>
+        <button class="button action" type="submit">Save a new Recipe version</button>
       </form>
     {% endif %}
   {% endif %}
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ recipe.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ revision.version }}">Back to Recipe v{{ revision.version }}</a>
+    <a class="button navigation" href="/projects/{{ recipe.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ revision.version }}">Back to Recipe v{{ revision.version }}</a>
   </div>
 {% endblock %}

@@ -63,8 +63,8 @@
       {% else %}
         {% include "transfer/_review_records.html" %}
         <div class="actions">
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results">Back to transfer order</a>
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-review?step=approve#review-package">{{ "View transfer approval" if transfer_review_approved else "Continue to approval" }}</a>
+          <a class="button navigation" href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results">Back to transfer order</a>
+          <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/transfer-review?step=approve#review-package">{{ "View transfer approval" if transfer_review_approved else "Continue to approval" }}</a>
         </div>
       {% endif %}
     </section>
@@ -73,7 +73,7 @@
       <h2>Build the current review package first</h2>
       <p>Review the transfer contents and build a package before approving its exact scope.</p>
       <div class="actions">
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-review?step=contents#model-policies">Review transfer contents</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/transfer-review?step=contents#model-policies">Review transfer contents</a>
       </div>
     </section>
   {% endif %}

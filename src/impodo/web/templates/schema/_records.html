@@ -15,7 +15,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_workspace_revision" value="{{ migration_project.optimistic_revision }}">
             <input type="hidden" name="operation_id" value="{{ operation_id }}">
-            <button class="button primary" type="submit" {% if odoo_check_disabled %}disabled{% endif %}>
+            <button class="button action" data-next-step="100" type="submit" {% if odoo_check_disabled %}disabled{% endif %}>
               Check Odoo defaults and continue
             </button>
           </form>
@@ -90,7 +90,7 @@
       {% if not model_catalog %}
         <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+          <button class="button action" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Show available Odoo data
           </button>
         </form>
@@ -111,7 +111,7 @@
           Impodo needs to know which Odoo installation on this computer to use.
           <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button secondary" type="submit">Find local Odoo</button>
+            <button class="button action" type="submit">Find local Odoo</button>
           </form>
         </div>
       {% endif %}
@@ -135,7 +135,7 @@
         <p>Update this list only when Odoo apps or record types have changed.</p>
         <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button secondary" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+          <button class="button action" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Update available choices
           </button>
         </form>
@@ -152,7 +152,7 @@
             Find local Odoo only if you need to refresh the list.
             <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button secondary" type="submit">Find local Odoo to refresh</button>
+              <button class="button action" type="submit">Find local Odoo to refresh</button>
             </form>
           </div>
         {% endif %}
@@ -222,7 +222,7 @@
           Changing these choices clears later matching work that no longer applies.
         </small>
         <div class="actions">
-          <button class="button primary" type="submit" data-model-submit>Save record types</button>
+          <button class="button action" data-next-step="100" type="submit" data-model-submit>Save record types</button>
           <span class="muted" role="status" aria-live="polite" data-model-submit-status></span>
         </div>
       </form>

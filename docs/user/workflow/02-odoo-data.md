@@ -177,7 +177,7 @@ Impodo.
 
 The matching-rule summary separates **Suggested**, **Confirmed**, **Changed**,
 and **Needs attention** record types. When every card has a proposed or saved
-rule, select **Confirm suggested matching rules**. The suggested values are
+rule, select **Confirm suggested matching rules and continue**. The suggested values are
 already in the form; you do not need to select a suggestion on every card.
 
 For a child record, **Within** can identify the owning parent. For example,
@@ -193,7 +193,7 @@ when a location name can repeat under different parents or in different
 companies. The selected labels remain visible when you close the list. Select
 a label's remove button to remove that field, or **Clear** to remove all scope
 fields. When the rule is ready, select
-**Confirm matching rules**.
+**Confirm matching rules and continue**.
 
 This parent scope means that the child value needs to identify one line only
 inside that parent. It does not use either record's numeric Odoo ID. A component

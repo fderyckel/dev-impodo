@@ -64,7 +64,7 @@
             {% else %}
               <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="button secondary compact" type="submit" {% if not order_check.can_start %}disabled{% endif %}>
+                <button class="button action compact" type="submit" {% if not order_check.can_start %}disabled{% endif %}>
                   Check identities and update suggestion
                 </button>
               </form>
@@ -93,17 +93,17 @@
           >
           <div class="mapping-order-toolbar">
             <label
-              class="button secondary compact"
+              class="button action compact"
               for="matching-order-toggle"
               data-matching-order-toggle-label
             >Reorder tables</label>
             {% if matching_order.custom_order %}
-              <button class="button secondary compact" type="submit" name="action" value="reset">
+              <button class="button action compact" type="submit" name="action" value="reset">
                 Use Impodo order
               </button>
             {% endif %}
             {% if order_check and order_check.can_apply %}
-              <button class="button secondary compact" type="submit" name="action" value="apply_recommendation">
+              <button class="button action compact" type="submit" name="action" value="apply_recommendation">
                 Apply recommendation
               </button>
             {% endif %}
@@ -151,20 +151,20 @@
                   {% if item.active %}
                     <span class="mapping-order-editing">Editing</span>
                   {% else %}
-                    <a class="button secondary compact" href="{{ item.edit_url }}" data-mapping-table-link>Edit table</a>
+                    <a class="button action compact" href="{{ item.edit_url }}" data-mapping-table-link>Edit table</a>
                   {% endif %}
                 </div>
                 <div class="mapping-order-row-controls" data-matching-order-row-controls>
                   <span class="mapping-order-drag-handle" title="Drag to another position" aria-hidden="true">&#8597;</span>
                   <button
-                    class="button secondary compact"
+                    class="button action compact"
                     type="submit"
                     name="action"
                     value="move_up:{{ item.dataset_id }}"
                     {% if not item.can_move_up %}disabled{% endif %}
                   >Move up</button>
                   <button
-                    class="button secondary compact"
+                    class="button action compact"
                     type="submit"
                     name="action"
                     value="move_down:{{ item.dataset_id }}"
@@ -177,8 +177,8 @@
           <p class="visually-hidden" data-matching-order-announcement aria-live="polite"></p>
 
           <div class="mapping-order-save-controls" data-matching-order-save-controls>
-            <button class="button primary" type="submit" name="action" value="save">Save table order</button>
-            <label class="button secondary" for="matching-order-toggle">Cancel reordering</label>
+            <button class="button action" type="submit" name="action" value="save">Save table order</button>
+            <label class="button navigation" for="matching-order-toggle">Cancel reordering</label>
           </div>
           </form>
       </section>

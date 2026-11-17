@@ -4015,7 +4015,7 @@ class IntegratedRecipeRunBrowserTests(unittest.TestCase):
         )
         self.assertRegex(
             recovery_page.text,
-            r'class="button primary"\s+type="submit"\s*>\s*'
+            r'class="button action"[^>]*type="submit"\s*>\s*'
             r"Check Odoo defaults and continue",
         )
         self.assertNotRegex(

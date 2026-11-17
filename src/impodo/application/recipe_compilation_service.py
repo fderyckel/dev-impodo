@@ -904,6 +904,12 @@ class RecipeCompiler:
                         self._column(dataset.dataset_id, key, columns)
                         for key in dataset.source_identity_column_keys
                     ],
+                    **({
+                        "excluded_source_column_ids": [
+                            self._column(dataset.dataset_id, key, columns)
+                            for key in dataset.excluded_source_column_keys
+                        ],
+                    } if dataset.excluded_source_column_keys else {}),
                     **({"generated_ordering": {
                         **portable(asdict(dataset.generated_ordering)),
                         "group_column_keys": [self._column(dataset.dataset_id, key, columns) for key in dataset.generated_ordering.group_column_keys],
@@ -1037,6 +1043,9 @@ class RecipeCompiler:
             for key in keys:
                 self._column(dataset.dataset_id, key, columns)
                 used.setdefault((dataset.dataset_id, key), set()).add("mapping")
+            for key in dataset.excluded_source_column_keys:
+                self._column(dataset.dataset_id, key, columns)
+                used.setdefault((dataset.dataset_id, key), set()).add("exclusion")
             for condition in dataset.row_inclusion.conditions:
                 key = condition.source_column_key
                 self._column(dataset.dataset_id, key, columns)

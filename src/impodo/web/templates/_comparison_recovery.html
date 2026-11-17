@@ -53,7 +53,7 @@
           </span>
         </label>
       </fieldset>
-      <button class="button primary" type="submit">
+      <button class="button action" type="submit">
         {{ comparison_recovery.action_label }}
       </button>
       <small class="muted" data-preflight-comparison-status hidden>
@@ -64,7 +64,7 @@
     <form method="post" action="{{ comparison_recovery.action_href }}" data-preflight-compare>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-      <button class="button primary" type="submit">
+      <button class="button action" type="submit">
         {{ comparison_recovery.action_label }}
       </button>
       <small class="muted" data-preflight-comparison-status hidden>
@@ -72,7 +72,7 @@
       </small>
     </form>
   {% elif comparison_recovery.action_kind == 'link' %}
-    <a class="button primary" href="{{ comparison_recovery.action_href }}">
+    <a class="button action" href="{{ comparison_recovery.action_href }}">
       {{ comparison_recovery.action_label }}
     </a>
   {% endif %}

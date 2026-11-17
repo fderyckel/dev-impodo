@@ -45,9 +45,7 @@
       {% include "_supporting_data_review.html" %}
       {% set supporting_review_is_only_issue = supporting_review and supporting_review.error and workflow_issue_summary.issues|length == 1 and workflow_issue_summary.issues[0].code == 'SUPPORTING_CHOICES_REVIEW_REQUIRED' %}
       {% if not supporting_review_is_only_issue %}
-        {% with workflow_issue_action_class='secondary' %}
-          {% include "_workflow_issue_summary.html" %}
-        {% endwith %}
+        {% include "_workflow_issue_summary.html" %}
       {% endif %}
 
     </section>
@@ -56,7 +54,7 @@
   {% if not schema %}
     <section class="form-card">
       <h2>Save record types first</h2>
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
     </section>
   {% else %}
     {% if not supporting_review or not (supporting_review.rows or supporting_review.error or supporting_review.save_error) %}

@@ -31,7 +31,7 @@
           I understand this is an unverified local draft and cannot be submitted until a live Odoo capture replaces it.
         </label>
         <div class="actions">
-          <button class="button secondary" type="submit" {% if (workspace_state.source_mode.value == 'FILE' and not selection) or not workspace_state.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
+          <button class="button action" type="submit" {% if (workspace_state.source_mode.value == 'FILE' and not selection) or not workspace_state.intended_models %}disabled{% endif %}>Create unverified local schema draft</button>
         </div>
       </form>
     </details>

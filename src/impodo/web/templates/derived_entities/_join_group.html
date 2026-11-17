@@ -5,7 +5,7 @@
   <details class="technical-details" data-source-combination-advanced>
     <summary>Advanced options</summary>
     <p>Use a previously created table, or combine tables in separate steps.</p>
-    <button class="button secondary" type="button" data-derived-entity-target="combine-two-tables">Combine two tables</button>
+    <button class="button action" type="button" data-derived-entity-target="combine-two-tables">Combine two tables</button>
   </details>
   {% if editing_join_group %}<p>Editing a saved combination. Review your changes, then select <strong>Save changes</strong>. Saving requires you to review Match data again.</p><a href="/workspaces/{{ workspace_id }}/derived-entities">Cancel editing</a>{% endif %}
   <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/join-group/preview" data-source-editor data-exact-join-group-form{% if join_group_form and (pending_join_group or join_group_error or editing_join_group or source_operation|default('') == 'combine-source-tables') %} data-group-retained{% endif %}{% if join_group_error %} data-group-server-error{% endif %}>
@@ -123,9 +123,9 @@
             </select>
           </label>
           <div class="actions compact exact-join-field-actions" data-group-field-actions>
-            <button class="button secondary" type="button" data-group-use-recommended>Use recommended output</button>
-            <button class="button secondary" type="button" data-group-select-visible>Select visible fields</button>
-            <button class="button secondary" type="button" data-group-clear-visible>Clear visible fields</button>
+            <button class="button action" type="button" data-group-use-recommended>Use recommended output</button>
+            <button class="button action" type="button" data-group-select-visible>Select visible fields</button>
+            <button class="button action" type="button" data-group-clear-visible>Clear visible fields</button>
           </div>
           <p class="status" data-group-field-count aria-live="polite">0 / 200 output fields selected</p>
           <p class="notice error" data-group-field-limit-error hidden>Choose fewer fields before reviewing this combination.</p>
@@ -154,7 +154,7 @@
     </div>
 
     <div class="actions">
-      <button class="button primary" type="submit">Review complete combination</button>
+      <button class="button action" data-next-step="100" type="submit">Review complete combination</button>
     </div>
   </form>
   {% include "derived_entities/_join_group_review.html" %}

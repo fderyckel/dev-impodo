@@ -29,7 +29,7 @@
       <div class="notice"><strong>Production Odoo evidence needs attention.</strong><p>{{ target_error }}</p></div>
     {% endif %}
     {% if data_version.state.value != 'FROZEN' or not run_value_plan.ready_to_continue or not target_ready %}
-    <div class="actions"><a class="button secondary" href="{{ setup_destination }}">{{ setup_action_label }}</a></div>
+    <div class="actions"><a class="button action" href="{{ setup_destination }}">{{ setup_action_label }}</a></div>
     {% endif %}
   </section>
 
@@ -39,15 +39,15 @@
       <div><p class="eyebrow">Setup interrupted</p><h2>Finish creating the Production work areas</h2><p>Impodo saved your reviewed values and access evidence. Continue the same setup to finish the remaining work areas. Completed work stays in place.</p></div>
       <form method="post" action="/projects/{{ project.project_id }}/production-runs/{{ run.migration_run_id }}/activate/resume">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button primary" type="submit">Finish Production setup</button>
+        <button class="button action" data-next-step="100" type="submit">Finish Production setup</button>
       </form>
       {% else %}
       <div><p class="eyebrow">Setup interrupted</p><h2>Start a fresh Production setup</h2><p>This older setup did not save the values needed to finish its work areas. Start a new setup from the selected Cutover plan and review the latest delivery again.</p></div>
-      <a class="button primary" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
+      <a class="button action" href="/projects/{{ project.project_id }}/production-runs/new">Start Production setup</a>
       {% endif %}
     </section>
   {% elif activation_complete %}
-    <section class="next-action-card current"><div><p class="eyebrow">Ready</p><h2>Production Recipe work areas were created</h2><p>Each work area must still prepare, compare, receive approval, load, and verify its result using fresh Production evidence.</p></div><a class="button primary" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Production run</a></section>
+    <section class="next-action-card current"><div><p class="eyebrow">Ready</p><h2>Production Recipe work areas were created</h2><p>Each work area must still prepare, compare, receive approval, load, and verify its result using fresh Production evidence.</p></div><a class="button action" href="/projects/{{ project.project_id }}/runs/{{ run.migration_run_id }}">Open Production run</a></section>
   {% elif data_version.state.value == 'FROZEN' and run_value_plan.ready_to_continue and target_ready and read_status.available %}
     <form method="post" action="/projects/{{ project.project_id }}/production-runs/{{ run.migration_run_id }}/activate" class="form-card">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -68,7 +68,7 @@
       </label>
       <label class="checkbox-row"><input type="checkbox" name="remember_write_api_key"><span>Save this write key securely on this computer</span></label>
       <div class="notice"><strong>No Test evidence is reused.</strong><p>Impodo rechecks the required source shapes, uncovered values, Odoo fields, references, parameters, controls, access, order, and write ownership. Every Production Recipe work area starts without comparison, approval, load, or verification evidence.</p></div>
-      <div class="actions"><button class="button primary" type="submit">Create Production work areas</button><a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a></div>
+      <div class="actions"><button class="button action" data-next-step="100" type="submit">Create Production work areas</button><a class="button navigation" href="/projects/{{ project.project_id }}">Cancel</a></div>
     </form>
   {% endif %}
   {{ concept_help_dialog("production-run") }}

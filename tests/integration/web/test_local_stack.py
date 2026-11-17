@@ -356,7 +356,7 @@ class LocalStackBrowserTests(LocalStackBrowserTestCase):
         self.assertIn("Continue comparison", summary.text)
         self.assertRegex(
             summary.text,
-            r'<button class="button primary" type="submit"\s*>\s*Continue comparison',
+            r'<button class="button action"[^>]*type="submit"\s*>\s*Continue comparison',
         )
 
     def test_registered_recovery_rejects_another_local_database(self) -> None:

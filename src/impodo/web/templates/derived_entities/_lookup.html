@@ -15,7 +15,7 @@
       <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="actions">
-          <button class="button secondary" type="submit">Refresh Odoo record types</button>
+          <button class="button action" type="submit">Refresh Odoo record types</button>
         </div>
       </form>
     {% else %}
@@ -27,19 +27,19 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="actions">
           {% if not workspace_state.odoo_connection_mode %}
-            <a class="button primary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Set up Odoo access</a>
+            <a class="button action" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Set up Odoo access</a>
           {% elif read_credential_prompt and not read_credential_prompt.available %}
             <button
-              class="button primary"
+              class="button action"
               type="button"
               data-open-read-credential
               data-read-credential-resume="submit"
               data-read-credential-resume-action="/workspaces/{{ workspace_id }}/derived-entities/models/refresh"
             >Enter key and show Odoo record types</button>
           {% else %}
-            <button class="button primary" type="submit">Show available Odoo record types</button>
+            <button class="button action" type="submit">Show available Odoo record types</button>
           {% endif %}
-          {% if workspace_state.odoo_connection_mode %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Review Odoo access</a>{% endif %}
+          {% if workspace_state.odoo_connection_mode %}<a class="button action" href="/workspaces/{{ workspace_id }}/target?return_to=source-lookup">Review Odoo access</a>{% endif %}
         </div>
       </form>
     {% endif %}
@@ -95,7 +95,7 @@
         </label>
       </div>
       <div class="actions">
-        <button class="button primary" type="submit">Review resulting table</button>
+        <button class="button action" data-next-step="100" type="submit">Review resulting table</button>
       </div>
     </form>
     {% endif %}

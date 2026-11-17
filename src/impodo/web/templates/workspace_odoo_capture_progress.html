@@ -47,7 +47,7 @@
         <h2>The previous frozen version is unchanged</h2>
         <p data-odoo-capture-failure>{{ failure_message }}</p>
       </div>
-      <a class="button primary" href="/workspaces/{{ job.workspace_id }}/sources">Review and try again</a>
+      <a class="button action" href="/workspaces/{{ job.workspace_id }}/sources">Review and try again</a>
     </section>
 
     <section class="next-action-card review" data-odoo-capture-cancelled {% if job.status.value != 'CANCELLED' %}hidden{% endif %}>
@@ -56,7 +56,7 @@
         <h2>No candidate version was made current</h2>
         <p>The last complete frozen version, if any, remains available.</p>
       </div>
-      <a class="button primary" href="/workspaces/{{ job.workspace_id }}/sources">Return to Odoo source</a>
+      <a class="button navigation" href="/workspaces/{{ job.workspace_id }}/sources">Return to Odoo source</a>
     </section>
 
     <section class="next-action-card ready" data-odoo-capture-complete {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
@@ -65,14 +65,14 @@
         <h2>The new frozen version is current</h2>
         <p>The source page will open automatically and can be reopened without Odoo traffic.</p>
       </div>
-      <a class="button primary" data-odoo-capture-continue href="/workspaces/{{ job.workspace_id }}/sources#current-capture">View frozen source</a>
+      <a class="button action" data-odoo-capture-continue href="/workspaces/{{ job.workspace_id }}/sources#current-capture">View frozen source</a>
     </section>
 
     <div class="capture-progress-actions" data-odoo-capture-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/projects">Work on another data project</a>
+      <a class="button action" href="/projects">Work on another data project</a>
       <form method="post" action="/workspaces/{{ job.workspace_id }}/sources/odoo-capture/{{ job.job_id }}/cancel">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-odoo-capture-cancel>
+        <button class="button action" type="submit" {% if job.cancel_requested %}disabled{% endif %} data-odoo-capture-cancel>
           {% if job.cancel_requested %}Stopping safely…{% else %}Stop capture{% endif %}
         </button>
       </form>

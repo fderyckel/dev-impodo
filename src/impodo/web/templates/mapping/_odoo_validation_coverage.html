@@ -8,7 +8,7 @@
     <p>Fix identified records in the source or matching choices, or set them aside through <strong>Rows to use</strong>. Exclude their exact source keys, then check matches and review the excluded counts before confirming. Their source evidence stays available.</p>
     <div class="button-row">
       {% for view in dataset_views if view.active %}
-        <a class="button secondary" href="{{ view.edit_url.split('#')[0] }}#rows-to-use-{{ view.index }}">Rows to use · {{ view.source.name }}</a>
+        <a class="button action" href="{{ view.edit_url.split('#')[0] }}#rows-to-use-{{ view.index }}">Rows to use · {{ view.source.name }}</a>
       {% endfor %}
     </div>
   {% endif %}

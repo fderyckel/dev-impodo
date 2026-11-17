@@ -5,13 +5,13 @@
     {% elif revision_review and revision_review.pending_seed and revision_review.workspace_id == workspace_id and schema.origin.value == 'LIVE_API' and not schema.pending_refresh %}
       {% if revision_review.coverage_required %}
       <div class="actions">
-        <a class="button primary" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review advanced checks</a>
+        <a class="button action" data-next-step="100" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review advanced checks</a>
       </div>
       {% else %}
       <form class="actions" method="post" action="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="action" value="start">
-        <button class="button primary" type="submit">Open Match data</button>
+        <button class="button action" data-next-step="100" type="submit">Open Match data</button>
       </form>
       {% endif %}
     {% else %}
@@ -195,17 +195,7 @@
               tabindex="-1"
               hidden
             ></p>
-            {% if existing %}
-              <div class="actions key-editor-actions">
-                <small>Confirms all matching rules.</small>
-                <button
-                  class="button primary"
-                  type="submit"
-                  data-key-card-submit
-                  {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
-                >Save changes and continue</button>
-              </div>
-            {% endif %}
+
           </details>
 
           <details data-field-catalog>
@@ -251,17 +241,18 @@
 
       <div class="actions">
         {% if schema_journey.enabled %}
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=related">Back to related values</a>
+          <a class="button navigation" href="/workspaces/{{ workspace_id }}/schema?step=related">Back to related values</a>
         {% endif %}
         <button
-          class="button primary"
+          class="button action" data-next-step="{{ 300 if key_summary.needs_attention or key_summary.suggested else 100 }}"
+          data-schema-confirm-matching data-next-saved-priority="{{ 300 if key_summary.needs_attention or key_summary.suggested else 100 }}"
           type="submit"
           {% if workflow_issue_summary.must_fix_count %}disabled aria-describedby="matching-rules-blocked-reason"{% endif %}
         >
-          {% if key_summary.suggested and not key_summary.needs_attention %}Confirm suggested matching rules{% else %}Confirm matching rules{% endif %}
+          {% if key_summary.suggested and not key_summary.needs_attention %}Confirm suggested matching rules and continue{% else %}Confirm matching rules and continue{% endif %}
         </button>
         {% if governance and not workflow_issue_summary.must_fix_count %}
-          <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
+          <a class="button action" data-next-step="200" href="/workspaces/{{ workspace_id }}/mapping">Continue to match data</a>
         {% endif %}
       </div>
       {% if workflow_issue_summary.must_fix_count %}
@@ -279,6 +270,6 @@
 {% elif schema_journey.enabled %}
   <section class="form-card">
     <h2>Save record types first</h2>
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
+    <a class="button action" href="/workspaces/{{ workspace_id }}/schema?step=records">Choose records</a>
   </section>
 {% endif %}

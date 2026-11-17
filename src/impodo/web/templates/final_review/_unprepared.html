@@ -15,11 +15,11 @@
       </div>
       <div class="next-action-buttons">
         {% if quality and quality.blocked_count %}
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Review data checks</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Review data checks</a>
         {% else %}
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Prepare data for review</button>
+            <button class="button action" data-next-step="100" type="submit">Prepare data for review</button>
           </form>
         {% endif %}
       </div>
@@ -37,7 +37,7 @@
         {% if evaluation_scale and not evaluation_scale.supported %}
           <h2>Reduce the source size before preparing</h2>
           <p>This workspace selection has {{ "{:,}".format(evaluation_scale.physical_rows) }} source rows. {{ preparation_limit_message }}</p>
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Review source tables</a>
+          <a class="button action" href="/workspaces/{{ workspace_id }}/sources">Review source tables</a>
           <small>No data was changed.</small>
         {% else %}
           <h2>Prepare all source rows for review</h2>
@@ -47,7 +47,7 @@
           <p>Impodo will apply your confirmed field rules and data checks to {% if evaluation_scale %}{{ "{:,}".format(evaluation_scale.physical_rows) }} {% endif %}source rows.</p>
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/check">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button primary" type="submit">Prepare and review data</button>
+            <button class="button action" data-next-step="100" type="submit">Prepare and review data</button>
           </form>
           <small>Uses Impodo’s stored local copy · nothing is sent to Odoo</small>
         {% endif %}
@@ -59,7 +59,7 @@
       <div class="empty-state">
         <h2>Finish your field matches first</h2>
         <p>Confirm the field matches you want Impodo to apply to every source row.</p>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
       </div>
     </section>
 
@@ -71,8 +71,8 @@
         <div><dt>Files</dt><dd>{{ workspace_state.source_files|length }}</dd></div>
       </dl>
       <div class="actions">
-        <a class="button secondary" href="/projects">All projects</a>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/sources">Check source data</a>
+        <a class="button action" href="/projects">All projects</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/sources">Check source data</a>
       </div>
     </section>
   {% endif %}

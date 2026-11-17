@@ -12,11 +12,11 @@
       </div>
       <div class="actions">
         <span class="status registered">Complete</span>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/derived-entities?edit_join={{ rule.rule_id }}#{{ 'combine-source-tables' if rule.group_id else 'combine-two-tables' }}">Edit columns and choices</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/derived-entities?edit_join={{ rule.rule_id }}#{{ 'combine-source-tables' if rule.group_id else 'combine-two-tables' }}">Edit columns and choices</a>
         <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-          <button class="button secondary" type="submit">Remove combination</button>
+          <button class="button action" type="submit">Remove combination</button>
         </form>
       </div>
     </div>
@@ -59,7 +59,7 @@
       <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-        <button class="button secondary" type="submit">Remove split</button>
+        <button class="button action" type="submit">Remove split</button>
       </form>
     </div>
 
@@ -103,7 +103,7 @@
         <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-          <button class="button secondary" type="submit">Remove rule</button>
+          <button class="button action" type="submit">Remove rule</button>
         </form>
       </div>
       {% if view.preview_error %}

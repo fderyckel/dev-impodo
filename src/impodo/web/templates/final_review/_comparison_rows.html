@@ -12,7 +12,7 @@
             Rows {{ readiness_row_start }}-{{ readiness_row_end }} of {{ readiness_row_total }}
           </span>
           {% if status_filter or dataset_filter or readiness_issue_code %}
-            <a class="button secondary small" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ final_review_journey.view }}#readiness-rows">Clear filter</a>
+            <a class="button action small" href="/workspaces/{{ workspace_id }}/summary?step=results&amp;view={{ final_review_journey.view }}#readiness-rows">Clear filter</a>
           {% endif %}
         </div>
       </div>
@@ -29,9 +29,13 @@
                   <td>{{ row.source_row }}</td>
                   <th>{{ row.identity }}</th>
                   <td>
-                    {{ row.reason }}
-                    {% if row.field %}<small class="row-field">Field: {{ row.field }}</small>{% endif %}
-                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count - 1 }} more issue{{ "s" if row.issue_count > 2 else "" }} in Support details</small>{% endif %}
+                    {% if not row.reference_details or row.technical_code not in ['REFERENCE_NOT_FOUND', 'REFERENCE_AMBIGUOUS', 'REFERENCE_BLOCKED_BY_DEPENDENCY', 'REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED'] %}
+                      {{ row.reason }}
+                      {% if row.field %}<small class="row-field">Field: {{ row.field }}</small>{% endif %}
+                    {% endif %}
+                    {% for detail in row.reference_details %}<div class="row-field">{{ detail }}</div>{% endfor %}
+                    {% if not row.reference_details and row.technical_code in ['REFERENCE_NOT_FOUND', 'REFERENCE_AMBIGUOUS'] %}<small class="row-field">Saved lookup values are unavailable. Compare with Odoo again to see them.</small>{% endif %}
+                    {% if row.issue_count > 1 %}<small class="row-field">{{ row.issue_count }} findings on this record.</small>{% endif %}
                   </td>
                   <td>
                     {{ row.recommended_action }}
@@ -55,11 +59,11 @@
             </div>
             <div class="field-pagination">
               {% if readiness_row_previous_url %}
-                <a class="button secondary" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
+                <a class="button navigation" href="{{ readiness_row_previous_url }}" data-readiness-previous>Previous</a>
               {% endif %}
               <span class="muted">Page {{ readiness_row_page }} of {{ readiness_row_page_count }}</span>
               {% if readiness_row_next_url %}
-                <a class="button secondary" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
+                <a class="button action" href="{{ readiness_row_next_url }}" data-readiness-next>Next</a>
               {% endif %}
             </div>
           </nav>

@@ -766,7 +766,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Show fields that Odoo controls", schema_page.text)
         self.assertIn("Reference", schema_page.text)
         self.assertIn("Support options for combined matching", schema_page.text)
-        self.assertIn("Confirm suggested matching rules", schema_page.text)
+        self.assertIn("Confirm suggested matching rules and continue", schema_page.text)
         governed = self.client.post(
             f"/workspaces/{workspace_id}/schema/govern",
             data={
@@ -1166,7 +1166,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Continue to Prepare data", confirmed_mapping_page.text)
         self.assertRegex(
             confirmed_mapping_page.text,
-            rf'class="button secondary" href="/workspaces/{workspace_id}/prepare"',
+            rf'class="button action" href="/workspaces/{workspace_id}/prepare"',
         )
         revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(workspace_id)

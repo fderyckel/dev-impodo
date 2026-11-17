@@ -74,7 +74,7 @@
         <p data-recipe-run-failure>{{ job.failure_message }}</p>
         <p>No Odoo record was changed. The accepted fresh data remains available.</p>
       </div>
-      <a class="button primary" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}/odoo">Return to Check Odoo</a>
+      <a class="button navigation" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}/odoo">Return to Check Odoo</a>
     </section>
 
     <section class="next-action-card ready" data-recipe-run-complete role="status" {% if job.status.value != 'SUCCEEDED' %}hidden{% endif %}>
@@ -83,11 +83,11 @@
         <h2 data-recipe-run-complete-message>{{ job.message }}</h2>
         <p>The next page will open automatically. Use the button if it does not.</p>
       </div>
-      <a class="button primary" data-recipe-run-continue href="{{ job.redirect_url or ('/projects/' ~ job.project_id ~ '/runs/' ~ job.migration_run_id) }}">Continue</a>
+      <a class="button action" data-next-step="100" data-recipe-run-continue href="{{ job.redirect_url or ('/projects/' ~ job.project_id ~ '/runs/' ~ job.migration_run_id) }}">Continue</a>
     </section>
 
     <div class="preparation-progress-actions" data-recipe-run-active {% if not active %}hidden{% endif %}>
-      <a class="button secondary" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}">Return to run overview</a>
+      <a class="button navigation" href="/projects/{{ job.project_id }}/runs/{{ job.migration_run_id }}">Return to run overview</a>
       <span class="muted">This read-only task will continue in the background.</span>
     </div>
 

@@ -20,11 +20,11 @@
     </p>
     <div class="actions">
       {% if mapping_review_workbook_ready %}
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/review-workbook">Download matching review workbook</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping/review-workbook">Download matching review workbook</a>
       {% endif %}
       <form method="post" action="/workspaces/{{ workspace_id }}/mapping/review-workbook">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <button class="button secondary" type="submit">
+        <button class="button action" type="submit">
           {% if mapping_review_workbook_ready %}Recreate matching review workbook{% else %}Create matching review workbook{% endif %}
         </button>
       </form>

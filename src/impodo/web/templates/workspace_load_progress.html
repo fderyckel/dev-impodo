@@ -107,8 +107,8 @@
         <p><strong>Do not start a new load.</strong> Return to the saved result instead. Impodo will check Odoo again and resume only work proven safe.</p>
       </div>
       <div class="button-row">
-        <a class="button primary" href="/workspaces/{{ job.workspace_id }}/load/outcome">Review and recover saved load</a>
-        <a class="button secondary" href="/projects">Return to projects</a>
+        <a class="button action" href="/workspaces/{{ job.workspace_id }}/load/outcome">Review and recover saved load</a>
+        <a class="button navigation" href="/projects">Return to projects</a>
       </div>
       {% if job.support_reference %}
       <div>
@@ -117,7 +117,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="attempt_id" value="{{ job.support_reference }}">
           <input type="hidden" name="workspace_id" value="{{ job.workspace_id }}">
-          <button class="button secondary" type="submit">Create diagnostic bundle</button>
+          <button class="button action" type="submit">Create diagnostic bundle</button>
         </form>
       </div>
       {% endif %}
@@ -129,17 +129,17 @@
         <h2>Verify the saved Odoo result</h2>
         <p>The verification result will open automatically. Use the button if it does not.</p>
       </div>
-      <a class="button primary" data-load-continue href="/workspaces/{{ job.workspace_id }}/load/outcome">Verify result</a>
+      <a class="button action" data-next-step="100" data-load-continue href="/workspaces/{{ job.workspace_id }}/load/outcome">Verify result</a>
     </section>
 
     <div class="load-progress-actions" data-load-active {% if not active %}hidden{% endif %}>
       <form method="post" action="/workspaces/{{ job.workspace_id }}/load/stop" data-load-stop-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="execution_run_id" value="{{ job.execution_run_id }}" data-load-stop-run>
-        <button class="button secondary" type="submit" data-load-stop-button {% if not job.execution_run_id %}disabled{% endif %}>Stop further uploads</button>
+        <button class="button action" type="submit" data-load-stop-button {% if not job.execution_run_id %}disabled{% endif %}>Stop further uploads</button>
         <small>A request already in progress finishes first. Earlier accepted records remain in Odoo.</small>
       </form>
-      <a class="button secondary" href="/projects">Work on another data project</a>
+      <a class="button action" href="/projects">Work on another data project</a>
     </div>
 
     <details class="technical-details form-card">

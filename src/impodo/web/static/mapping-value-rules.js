@@ -138,9 +138,9 @@ document.addEventListener("DOMContentLoaded", () => {
       <div class="text-step-heading">
         <strong data-text-step-number></strong>
         <div class="text-step-actions">
-          <button class="button secondary compact" type="button" data-move-text-step="up">Move up</button>
-          <button class="button secondary compact" type="button" data-move-text-step="down">Move down</button>
-          <button class="button danger compact" type="button" data-remove-text-step>Remove</button>
+          <button class="button action compact" type="button" data-move-text-step="up">Move up</button>
+          <button class="button action compact" type="button" data-move-text-step="down">Move down</button>
+          <button class="button action compact" type="button" data-remove-text-step>Remove</button>
         </div>
       </div>
       <label>What should change?

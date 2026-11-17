@@ -33,6 +33,9 @@ from impodo.adapters.artifacts.reporting import (
     ReportGenerationError,
     write_review_workbook,
 )
+from impodo.adapters.artifacts.review_original_values import (
+    populate_workbook_original_values,
+)
 from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.shared.job_runtimes import PreflightJobRuntime
 from impodo.application.shared.secrets import SecretStoreError
@@ -914,6 +917,9 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                 review_evidence = context.preflight.review_workbook_evidence(
                     workspace_id,
                     report.run_id,
+                )
+                review_evidence = populate_workbook_original_values(
+                    review_evidence, context.preflight.artifacts
                 )
                 with (
                     context.artifacts.materialize_report(

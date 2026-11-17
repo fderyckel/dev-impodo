@@ -31,9 +31,9 @@
     {% endfor %}
 
     <div class="actions">
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Review rows</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/mapping/rows-to-use">Review rows</a>
       {% if row_inclusion_review.confirmable and row_inclusion_review.excluded_count and not row_inclusion_confirmation %}
-        <button class="button primary" type="submit" name="action" value="confirm_rows" data-confirm-row-inclusion>Confirm {{ row_inclusion_review.included_count }} {{ 'row' if row_inclusion_review.included_count == 1 else 'rows' }} to use</button>
+        <button class="button action" type="submit" name="action" value="confirm_rows" data-confirm-row-inclusion>Confirm {{ row_inclusion_review.included_count }} {{ 'row' if row_inclusion_review.included_count == 1 else 'rows' }} to use</button>
       {% elif row_inclusion_confirmation %}
         <span class="status ready">{{ row_inclusion_review.included_count }} {{ 'row' if row_inclusion_review.included_count == 1 else 'rows' }} confirmed</span>
       {% elif row_inclusion_review.confirmable %}

@@ -12,27 +12,55 @@ status: in-progress
 2026-10-28. Generic admission, route diagnostics, narrow indexed quality,
 compiled bounded arithmetic, native relational identity, set-based canonical
 projection, and the 50,000-row worker qualification are implemented. Quality
-reader capabilities and index results now have consumer-owned typed contracts. Complete
-prepared-evidence read contexts, bounded error-heavy finding publication, native Decimal
-qualification, browser recovery checks, and clean reproducible measurements
-remain open. Broader 100,000-row related workloads remain long-term deferred
+reader capabilities and index results now have consumer-owned typed contracts.
+Canonical reads use one explicit native metadata context per iterator. Indexed
+finding publication uses temporary disk-backed storage. Shared prepared-evidence
+read contexts across consumers, native Decimal qualification, browser recovery
+checks, and controlled platform measurements remain open. Broader 100,000-row
+related workloads remain long-term deferred
 in the [remaining-work roadmap](00-remaining-work.md#1-qualify-related-and-mixed-preparation-at-100000-rows).
 
 The focused mixed-workspace delivery now composes reviewed exact joins and
 direct outputs in one session. Its current developer workflow records
 65,299-row Recipe reuse, 100,000-row worker qualification, shared accounting,
 and volume advisories. This plan continues to own remaining derived operators,
-native direct producers inside mixed graphs, bounded error-heavy finding
-publication, and broader workload and platform release measurements.
+native direct producers inside mixed graphs, broader error-heavy platform
+qualification, and broader workload and platform release measurements.
 
 | Step | Current progress |
 | --- | --- |
 | 0: Baseline | Route diagnostics identify each table and unsupported rule. Generic regression tests compare the old scan with the shortcut. Controlled scale and timing qualification remain open. |
-| 1: Storage access and admission | Incoming identity groups are detected before transformation, and publication validates canonical records across both storage representations. Quality readers use independent capability contracts and an explicit index-result packet, with count and fact-shape checks inside the existing adapter operation. A shared adapter-bound validated read context remains open; the packet does not certify whole-run evidence or permit cross-operation reuse. |
-| 2: Narrow checks | Exact mapping and published-hash bindings allow indexed quality checks to skip the full-row identity scan. Broader value projections and bounded finding publication remain open. |
+| 1: Storage access and admission | Incoming identity groups are detected before transformation, and publication validates canonical records across both storage representations. Quality readers use independent capability contracts and an explicit index-result packet. Canonical reads validate native metadata once per iterator, check workspace and dataset bindings, and reuse the verified program receipt across batches. Artifact bytes are still verified on every materialization. A shared context across quality and accounting consumers remains open. |
+| 2: Narrow checks | Exact mapping and published-hash bindings allow indexed quality checks to skip the full-row identity scan. Indexed finding publication now uses disk-backed collections and bounded deterministic replay. Broader value projections and platform qualification remain open. |
 | 3: Arithmetic | Common arithmetic now reuses compiled instructions on the bounded Python route. Native decimal formula qualification remains open. |
 | 4: Relational identity | Direct complete-group quality uses narrow projections and a database-owned graph. Compiler v9 and Polars evaluate qualified incoming, target-catalog, and hybrid identity references; clean datasets now use exact set-based DuckDB canonical projection within the existing 50,000-row boundary. Larger complete-route scale remains open. |
 | 5: Release | Windows Python 3.12 worker measurements passed for 50,000-row custom document/entry and BoM fixtures. Full release qualification remains open. |
+
+Indexed finding storage implemented on 17 November 2026 keeps both adapter
+projections and application accumulators in a private temporary store through
+quality publication and normalization. Odoo 19/20 local/remote parity and failure
+cleanup are covered by the owning integration tests. The portable quality
+contract, hashes and atomic DuckDB publication remain unchanged. Individual
+record working limits remain; the indexed route has no total-finding allowance.
+Broader workloads, Windows and live browser qualification remain separate.
+
+Mixed-storage integration checks cover 129 native parent records and 257
+JSON child records, including linked rows set aside because their parent needs
+correction. A metadata change between quality publication and normalization is
+rejected, temporary finding storage is removed, and the preceding normalization
+result remains intact. Retry reproduces the authoritative quality evidence and
+hashes. A fresh application reads the complete saved review after scratch
+storage has closed. This is fixture-based recovery coverage, not live browser
+or Windows performance qualification.
+
+The worker checks pending cancellation between quality publication and
+normalization. Real-worker regression coverage exercises the normal cancel and
+retry APIs, scratch cleanup, preserved normalization, exact retry hashes, and
+reopened review for Odoo 19/20 local and remote configurations. An opt-in
+finding-heavy worker case checks first and repeat preparation of 54,191 rows
+with 98,931 findings. It verifies worker exit and bounds connections, schema
+checks and test-observed SQL. These fixtures do not qualify Windows timing or
+immediate cancellation within a quality phase.
 
 First-delivery verification on 2026-09-15:
 

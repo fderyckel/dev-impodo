@@ -12,7 +12,7 @@
       </div>
       <p>A data project keeps one migration effort together. It contains each delivery of source data, the workspaces used to prepare it, and any Recipes you decide to save.</p>
     </div>
-    <a class="button primary new-project-button" href="/projects/new">New project</a>
+    <a class="button action new-project-button" href="/projects/new">New project</a>
   </section>
 
   {% if projects %}
@@ -80,9 +80,9 @@
         <p>This permanently deletes the project and all of its saved evidence. This cannot be undone.</p>
         <div class="dialog-actions">
           <form method="dialog">
-            <button class="button secondary" type="submit">Cancel</button>
+            <button class="button navigation" type="submit">Cancel</button>
           </form>
-          <button class="button danger" type="button" data-project-list-delete-confirm>Delete project</button>
+          <button class="button destructive" data-button-delete type="button" data-project-list-delete-confirm><span class="button-delete-icon" aria-hidden="true">🗑︎</span>Delete project</button>
         </div>
       </dialog>
     {% endif %}
@@ -90,7 +90,7 @@
     <section class="empty-state">
       <h2>No data projects yet</h2>
       <p>Create a data project first. You can finish one-off work without saving a Recipe.</p>
-      <a class="button primary" href="/projects/new">Create the first project</a>
+      <a class="button action" href="/projects/new">Create the first project</a>
     </section>
   {% endif %}
   {{ concept_help_dialog("data-project") }}

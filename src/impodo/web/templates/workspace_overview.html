@@ -41,7 +41,7 @@
         </p>
       </div>
       {% if current_stage.href %}
-        <a class="button primary" href="{{ current_stage.href }}">
+        <a class="button action" data-next-step="100" href="{{ current_stage.href }}">
           {% if current_stage.stage_id == "source" %}Check source data{% else %}Continue to {{ current_stage.label|lower }}{% endif %}
         </a>
       {% endif %}
@@ -72,7 +72,7 @@
             <p>{{ stage.status_label }}</p>
           </div>
           {% if stage.href %}
-            <a class="button secondary small" href="{{ stage.href }}">
+            <a class="button action small" href="{{ stage.href }}">
               {% if stage.status == "complete" %}View{% elif stage.status == "attention" %}Review{% else %}Open{% endif %}
             </a>
           {% else %}

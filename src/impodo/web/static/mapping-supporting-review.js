@@ -14,7 +14,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const conflictLink = (item) => {
     const link = document.createElement("a");
-    link.className = "button secondary";
+    link.className = "button action";
     link.textContent = "Review this field";
     link.href = item.fix_url;
     link.dataset.reviewRelatedField = "";
@@ -59,7 +59,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const fields = document.createElement("p");
     fields.textContent = conflicts.map((item) => item.title).join("; ");
     const link = document.createElement("a");
-    link.className = "button secondary";
+    link.className = "button navigation";
     link.href = "#related-data-review";
     link.textContent = "Review affected fields";
     blocker.replaceChildren(title, fields, link);

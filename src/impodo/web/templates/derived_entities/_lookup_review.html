@@ -117,8 +117,8 @@
       <input type="hidden" name="parent_separator" value="{{ pending_rule.parent_separator or '' }}">
       <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
       <div class="actions source-review-actions">
-        <button class="button source-review-change" type="button" data-derived-entity-target="lookup-form">Change selections</button>
-        {% if pending_preview.can_add %}<button class="button secondary" type="submit">Use this table</button>{% endif %}
+        <button class="button action source-review-change" type="button" data-derived-entity-target="lookup-form">Change selections</button>
+        {% if pending_preview.can_add %}<button class="button action" type="submit">Use this table</button>{% endif %}
       </div>
     </form>
   </section>

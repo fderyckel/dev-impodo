@@ -8,14 +8,14 @@
         {% elif workspace_state.odoo_company %}<option value="{{ workspace_state.odoo_company.company_id }}" selected>{{ workspace_state.odoo_company.name }}</option>{% endif %}
       </select>
     </label>
-    <button class="button secondary" type="submit" name="hierarchy_lookup_action" value="companies" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>{{ 'Refresh companies' if hierarchy_parent_outcome and hierarchy_parent_outcome.companies or workspace_state.odoo_company else 'Load companies' }}</button>
+    <button class="button action" type="submit" name="hierarchy_lookup_action" value="companies" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>{{ 'Refresh companies' if hierarchy_parent_outcome and hierarchy_parent_outcome.companies or workspace_state.odoo_company else 'Load companies' }}</button>
   </div>
   {% if hierarchy_parent_outcome and hierarchy_parent_outcome.companies %}<p class="muted">Checking user: {{ hierarchy_parent_outcome.companies.login }}</p>{% endif %}
   <div class="hierarchy-parent-search">
     <label>Search parents (optional)
       <input name="existing_parent_search" value="{{ values.get('existing_parent_search', '') }}" maxlength="200" placeholder="Leave blank to browse available parents">
     </label>
-    <button class="button secondary" type="submit" name="hierarchy_lookup_action" value="parents" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>Load existing Odoo parents</button>
+    <button class="button action" type="submit" name="hierarchy_lookup_action" value="parents" formaction="/workspaces/{{ workspace_id }}/derived-entities/hierarchy/parents" data-hierarchy-load formnovalidate>Load existing Odoo parents</button>
   </div>
   <div data-hierarchy-feedback tabindex="-1"{% if hierarchy_parent_outcome or hierarchy_lookup_error %} data-source-feedback{% endif %}>
     {% if hierarchy_lookup_error %}<p class="notice warning" role="alert">{{ hierarchy_lookup_error }}</p>

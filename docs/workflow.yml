@@ -767,6 +767,9 @@ stages:
       - tests/integration/web/test_joined_recipe_preparation.py
       - tests/domain/mapping/test_relationship_blank_values.py
       - tests/integration/web/test_mapping_form_roundtrip.py
+      - tests/integration/web/test_source_column_exclusions.py
+      - tests/domain/mapping/test_column_exclusions.py
+      - tests/application/test_recipe_column_exclusions.py
       - tests/integration/web/test_mapping_source_choice_recovery.py
       - tests/domain/preparation/test_lookup_blank_source.py
       - tests/domain/preparation/test_optional_many2one.py
@@ -866,6 +869,8 @@ stages:
       - src/impodo/adapters/duckdb/preparation_numeric_precision.py::bounded_numeric_precision_rows
       - src/impodo/application/shared/build_contract.py::ApplicationBuildContract
       - src/impodo/application/workspace/preparation/quality_service.py::QualityService
+      - src/impodo/application/workspace/preparation/quality_finding_store.py::QualityFindingStore
+      - src/impodo/adapters/duckdb/preparation_quality_spill.py::quality_finding_store
       - src/impodo/adapters/duckdb/preparation_quality_index.py::PreparationQualityIndex
       - src/impodo/adapters/duckdb/quality_repository.py::_read_complete_quality_cause_counts
       - src/impodo/adapters/duckdb/quality_repository.py::_materialize_quality_cause_members
@@ -905,6 +910,7 @@ stages:
       - src/impodo/domain/recipe/value_rules.py::compile_arithmetic_formula
       - src/impodo/domain/preparation/staging_contracts.py::canonical_row_from_inclusion_decision
     tests:
+      - tests/integration/artifacts/test_quality_finding_preparation.py
       - tests/application/workspace/preparation/test_jobs.py
       - tests/application/workspace/preparation/test_thread_runtime.py
       - tests/application/workspace/preparation/test_worker_performance_integration.py
@@ -1024,9 +1030,13 @@ stages:
       - src/impodo/domain/preflight/reports.py::review_workbook_cell_feedback
       - src/impodo/domain/preflight/reports.py::review_workbook_action_priority
       - src/impodo/domain/preflight/reports.py::readiness_issue_counts
+      - src/impodo/domain/preflight/reference_review.py::readiness_reference_details
       - src/impodo/adapters/duckdb/preflight_repository.py::PreflightRepository.get_readiness_rows
       - src/impodo/domain/preflight/deferred_scope.py::preview_deferred_scope
       - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
+      - src/impodo/domain/preflight/original_values.py::OriginalSourceValue
+      - src/impodo/application/workspace/review/original_values.py::plan_workbook_original_values
+      - src/impodo/adapters/artifacts/review_original_values.py::populate_workbook_original_values
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
       - src/impodo/web/presenters/summary.py::_quality_workflow_issue_summary
       - src/impodo/adapters/duckdb/quality_review_details.py::explain_source_match_causes
@@ -1058,12 +1068,19 @@ stages:
       - tests/domain/preflight/test_attention_lineage.py
       - tests/integration/artifacts/test_attention_workbook.py
       - tests/domain/preflight/test_reports.py
+      - tests/domain/preflight/test_reference_review.py
+      - tests/integration/web/test_reference_review_results.py
       - tests/domain/preflight/test_deferred_scope.py
       - tests/domain/preflight/test_deferred_execution.py
       - tests/performance/test_preflight_scale.py
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
+      - tests/domain/preflight/test_original_values.py
+      - tests/application/workspace/review/test_original_values.py
+      - tests/integration/artifacts/test_review_original_values.py
+      - tests/integration/artifacts/test_original_value_display.py
       - tests/integration/artifacts/test_fields_set_aside_coverage.py
+      - tests/integration/artifacts/test_column_exclusions.py
       - tests/integration/artifacts/test_transformation_summary.py
       - tests/integration/artifacts/test_detailed_transformation_summary.py
       - tests/integration/artifacts/test_preflight_outputs.py
@@ -1278,6 +1295,7 @@ stages:
       - tests/domain/preparation/test_hierarchy_identity.py
       - tests/integration/duckdb/test_execution_repository.py
       - tests/application/workspace/execution/test_load_jobs.py
+      - tests/application/workspace/execution/test_stop_progress.py
       - tests/domain/execution/test_snapshot.py
       - tests/domain/execution/test_incoming_reference_snapshot.py
       - tests/domain/preparation/test_incoming_reference_shapes.py

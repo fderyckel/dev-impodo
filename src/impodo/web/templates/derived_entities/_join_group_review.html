@@ -64,8 +64,8 @@
       {% for projection_index in join_group_form.projection_indexes %}<input type="hidden" name="group_projection" value="{{ projection_index }}">{% endfor %}
       {% for projection_name in join_group_form.projection_names %}<input type="hidden" name="group_projection_name" value="{{ projection_name }}">{% endfor %}
       <div class="actions source-review-actions">
-        <button class="button source-review-change" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
-        {% if group_preview.can_save %}<button class="button secondary" type="submit">{{ "Save changes" if editing_join_group else "Use this table" }}</button>{% endif %}
+        <button class="button action source-review-change" type="button" data-derived-entity-target="combine-source-tables">Change selections</button>
+        {% if group_preview.can_save %}<button class="button action" type="submit">{{ "Save changes" if editing_join_group else "Use this table" }}</button>{% endif %}
       </div>
     </form>
   </section>

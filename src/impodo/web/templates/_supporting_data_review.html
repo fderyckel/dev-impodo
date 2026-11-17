@@ -45,7 +45,7 @@
       {% include "schema/_related_actions.html" %}
     {% else %}
     <div class="actions">
-      <button class="button primary" type="submit" data-supporting-save>Save choices</button>
+      <button class="button action" type="submit" data-supporting-save>Save choices</button>
       {% if supporting_review.current and not supporting_review.save_error %}
         <span class="status complete" role="status">Choices are saved</span>
       {% endif %}
@@ -60,7 +60,7 @@
     <input type="hidden" name="expected_version" value="{{ supporting_review.version }}">
     {% if not schema_related_step %}
     <small>This check only reads Odoo. It cannot change any records.</small>
-    <div class="actions"><button class="button secondary" type="submit">Check existing Odoo values</button></div>
+    <div class="actions"><button class="button action" type="submit">Check existing Odoo values</button></div>
     {% endif %}
   </form>
   {% endif %}

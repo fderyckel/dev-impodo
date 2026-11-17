@@ -148,12 +148,23 @@ The index returns
 [`PreparedQualityProjection`](../../../src/impodo/application/workspace/preparation/prepared_quality_projection.py)
 with explicit row counts, accounting mode, disposition counts, finding pages,
 and excluded-row membership. Its construction checks count consistency and
-fact-column shapes inside the adapter's existing operation. The adapter and
-consumer share the same finding-budget object, including charges already made
-during transport. Existing tuple pages and their payloads are reused. Issue
-decoding and individual fact validation retain their current quality owner.
+fact-column shapes inside the adapter's existing operation. Indexed preparation
+keeps replayable finding pages in a private temporary store. Application codecs
+retain ownership of issue decoding and individual fact validation. The store
+holds no prepared-database connection between quality and normalization.
 This packet does not certify a complete prepared run or reuse artifact
 verification between quality and normalization operations.
+
+Canonical reads use
+[`PreparedProjectionReadContext`](../../../src/impodo/adapters/duckdb/prepared_projection_read_context.py)
+to validate native dataset metadata once before reading value batches. The
+context binds the workspace, run, dataset names, manifest, program receipt,
+and ordinal ranges for that iterator. It reuses the program hash already
+verified by the projection decoder instead of calculating that hash again.
+A new read builds a new context from the current query. Every artifact
+materialization still verifies its file bytes, and row, storage, and lineage
+checks retain their existing owners. The context retains no database owner
+or artifact path and does not share validation between requests or phases.
 
 Admission records each dataset's actual compiler reasons and required source
 snapshot. Mixed native and Python routes are reported as `MIXED_BOUNDED`.
@@ -182,9 +193,10 @@ before matching, so duplicate keys do not multiply the join. DuckDB builds
 temporary forward readiness arcs and reverse arcs for unique incoming identity
 parents. A recursive distinct traversal propagates unsafe records. Warning
 destinations receive findings but do not become propagation steps unless they
-were already unsafe. Findings are read in bounded pages; application issue
-accumulation still uses the existing compact exceptions and needs separate
-error-heavy publication qualification.
+were already unsafe. Findings are read in bounded pages. The application stores
+issue metadata, row links, propagation membership and quarantine entries on disk,
+then publishes their complete evidence in deterministic order. This removes the
+aggregate finding-count allowance from indexed preparation.
 
 Relationship projection retains the parent dataset and affected target field.
 When propagation starts from an unsafe parent, it also retains one
@@ -440,15 +452,24 @@ or Odoo call inside either scope. Source-row accounting scans the ordinal column
 once per physical snapshot. Each group separately scans only its required keys
 and output columns once per participant, using 256 MB and two threads. Canonical
 pages contain at most 1,000 joined rows and database transport retains its byte
-budgets. The quality index shares a 64 MiB retained-evidence allowance across
-finding transport and its Python consumers. Exceeding it fails without
-whole-run fallback.
+budgets. Indexed quality stores finding transport and its consumer collections
+in a private disposable SQLite file with a two MiB page cache. The application
+owns it through quality publication and normalization, and closes and removes it
+on success or failure. This scratch file introduces no persisted format or schema
+upgrade. DuckDB remains the sole durable evidence owner and publishes atomically.
+[`QualityFindingStore`](../../../src/impodo/application/workspace/preparation/quality_finding_store.py)
+defines the temporary collection contracts;
+[`quality_finding_store`](../../../src/impodo/adapters/duckdb/preparation_quality_spill.py)
+owns the private scratch file and its cleanup.
+Issue and quarantine publication pages target two MiB and the existing row limit;
+a single larger finding can occupy a page within the 64 MiB individual-record
+working limit. Total findings can exceed that amount without whole-run fallback.
+The explicitly in-memory evaluator retains its aggregate safety allowance.
 
 Rows deliberately excluded by the confirmed row rule retain only their row IDs
 in the quality membership index. Their canonical decisions and physical lineage
-remain stored and appear in the complete review evidence. The allowance covers
-those IDs and their membership containers, without duplicating row metadata and
-lineage for every exclusion. Excluded parents still enter relationship safety
+remain stored and appear in the complete review evidence. Their compact IDs
+avoid duplicating row metadata and lineage for every exclusion. Excluded parents still enter relationship safety
 checks. Actual row findings and run-level findings retain the full metadata
 needed to explain their decisions. This keeps a mostly excluded source from
 exhausting the allowance through repeated bookkeeping alone.
@@ -784,14 +805,47 @@ Numeric capacity checks stream the selected numeric cells through the existing
 Python precision predicate. They publish value-free failures through bounded
 set-based batches. The input grouping targets 256 cells and 2 MiB; a single
 larger cell is permitted only within the existing finding envelope. The
-64 MiB retained-finding allowance is shared across indexed findings and the
-consumer's retained issue metadata. It is a retained-evidence budget, not a
-hard process-RSS limit. Excess findings stop the check before a successful
-result is published. Numeric observations report actual cells, findings,
+indexed route stores failures and consumer metadata on disk, so the number of
+findings does not exhaust an aggregate memory allowance. The 64 MiB limit
+continues to bound an individual working record; it is not a hard process-RSS
+limit. The explicitly in-memory evaluator still fails safely when its aggregate
+allowance is exhausted. Numeric observations report actual cells, findings,
 page and batch sizes, elapsed time and capture failures. This does not qualify
 new native formulas or increase the existing route limits.
 [`bounded_numeric_precision_rows`](../../../src/impodo/adapters/duckdb/preparation_numeric_precision.py)
 owns the streamed evaluation and failure transport.
+
+[`test_quality_finding_preparation.py`](../../../tests/integration/artifacts/test_quality_finding_preparation.py)
+checks complete JSON and hash parity for Odoo 19 and 20 in local and remote
+configurations, a retry above a reduced in-memory allowance, saved review after
+scratch closure, and cleanup when publication fails. Its opt-in
+`IMPODO_RUN_FINDING_PREPARATION_SCALE=1` case prepares 54,191 rows with 32,977
+invalid identifiers and expects 98,931 findings. It separately bounds physical
+opens, schema checks, and SQL by input and finding batches. These are synthetic
+macOS fixtures; Windows timing and live browser verification remain separate.
+
+[`test_mixed_finding_recovery.py`](../../../tests/integration/artifacts/test_mixed_finding_recovery.py)
+combines native parent records with JSON child records and checks that linked
+rows are set aside when their parent needs correction. It changes projection
+metadata after quality publication and verifies that normalization rejects the
+change while preserving the preceding result. Temporary finding storage closes
+on failure and success. Retry preserves exact quality evidence and hashes, and
+a fresh application can read the complete saved review after scratch cleanup.
+
+Preparation checks pending cancellation again after quality publication and
+before normalization opens its local database scope. A cancellation requested
+during quality takes effect at this phase boundary. The worker closes temporary
+finding storage and preserves the preceding normalization result. Published
+quality evidence remains durable.
+[`test_finding_preparation_worker.py`](../../../tests/integration/web/test_finding_preparation_worker.py)
+uses real spawned workers and the normal cancellation and retry APIs for Odoo
+19/20 in local and remote configurations. It checks scratch cleanup, exact
+retry hashes, worker exit, and saved review after reopening. Its opt-in
+`IMPODO_RUN_FINDING_WORKER_SCALE=1` case checks first and repeat workers with
+54,191 rows and 98,931 findings. Test-only SQL counts complement the worker's
+normal connection, schema, runtime, CPU and sampled-memory observations.
+The helper configures the native runtime before entering the production worker,
+so these are instrumented capacity checks rather than startup benchmarks.
 
 `performance-summary.json` includes logging measurements from the exporting
 recorder's memory. These measure encoding, lock waits, output handling and

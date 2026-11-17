@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="{{ url_for('static', path='/user-help.css') }}">
     {% block page_styles %}{% endblock %}
     <script src="{{ url_for('static', path='/app.js') }}" defer></script>
+    <script src="{{ url_for('static', path='/button-roles.js') }}" defer></script>
     <script src="{{ url_for('static', path='/server-recovery.js') }}" defer></script>
     <script src="{{ url_for('static', path='/operation-state.js') }}" defer></script>
     <script src="{{ url_for('static', path='/user-help.js') }}" defer></script>
@@ -270,7 +271,7 @@
             </p>
             <div class="server-recovery-actions">
               <button
-                class="button secondary compact"
+                class="button action compact"
                 type="button"
                 data-server-recovery-action
               >Check connection</button>
@@ -346,7 +347,7 @@
               <span>{{ error }}</span>
               {% if read_credential_prompt and read_credential_prompt.required %}
                 <button
-                  class="button secondary compact"
+                  class="button action compact"
                   type="button"
                   data-open-read-credential
                 >Enter the Odoo key</button>

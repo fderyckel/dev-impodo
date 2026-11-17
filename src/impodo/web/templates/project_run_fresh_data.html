@@ -56,7 +56,7 @@
           <small>CSV and modern XLSX only. Maximum accepted size: 100 MB per file.</small>
         </label>
         <div class="actions">
-          <button class="button {% if setup_state.source_files %}secondary{% else %}primary{% endif %}" type="submit">Add fresh files</button>
+          <button class="button action" type="submit">Add fresh files</button>
         </div>
       </form>
       {% if setup_state.source_files %}
@@ -64,19 +64,19 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="revision" value="{{ setup_state.revision }}">
           <div class="actions">
-            <button class="button primary" type="submit">
+            <button class="button action"{% if not inspection_complete %} data-next-step="100"{% endif %} type="submit">
               {% if inspection_complete %}Check files again{% else %}Check files and match tables{% endif %}
             </button>
           </div>
         </form>
       {% endif %}
     {% elif fresh_data_complete %}
-      <div class="actions"><a class="button primary" href="{{ action_href }}">{{ action_label }}</a></div>
+      <div class="actions"><a class="button action" data-next-step="100" href="{{ action_href }}">{{ action_label }}</a></div>
     {% elif source_selection and not accepted %}
       <form method="post" action="{{ action_href }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         {% if run_value_plan.has_values %}<input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}{% endif %}
-        {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">{{ action_label }}</button></div>{% endif %}
+        {% if run_value_plan.can_confirm %}<div class="actions"><button class="button action" data-next-step="100" type="submit">{{ action_label }}</button></div>{% endif %}
       </form>
     {% endif %}
   </section>
@@ -160,10 +160,10 @@
         {% endif %}
 
         {% if run_value_plan.requires_confirmation and run_value_plan.can_confirm %}
-          <div class="actions"><button class="button secondary" type="submit" name="intent" value="save" formnovalidate>Save run details</button></div>
+          <div class="actions"><button class="button action" type="submit" name="intent" value="save" formnovalidate>Save run details</button></div>
         {% endif %}
         {% if match_plan.can_submit and run_value_plan.can_confirm %}
-          <div class="actions"><button class="button primary" type="submit">Use this fresh data</button></div>
+          <div class="actions"><button class="button action" data-next-step="100" type="submit">Use this fresh data</button></div>
         {% else %}
           <p class="muted">Resolve the item marked "Needs attention" or the Recipe disagreement above, then check the files again.</p>
         {% endif %}
@@ -192,7 +192,7 @@
         <form method="post" action="{{ fresh_data_url }}/accept">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="parameter_revision" value="{{ run_value_plan.revision or '' }}">{% include "_run_value_fields.html" %}
-          {% if run_value_plan.can_confirm %}<div class="actions"><button class="button primary" type="submit">Save run details</button></div>{% endif %}
+          {% if run_value_plan.can_confirm %}<div class="actions"><button class="button action" type="submit">Save run details</button></div>{% endif %}
         </form>
       {% endif %}
     </section>

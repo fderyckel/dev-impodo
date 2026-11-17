@@ -28,7 +28,7 @@
                   {% endfor %}
                 </ul>
               </div>
-              <a class="button secondary" href="{{ recovery.href }}">Open {{ recovery.label }}</a>
+              <a class="button action" href="{{ recovery.href }}">Open {{ recovery.label }}</a>
             </div>
           {% endfor %}
         {% else %}
@@ -73,8 +73,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/target">Back</a>
-        <button class="button primary" type="submit" {% if problems %}disabled{% endif %}>{% if workspace_state.source_mode.value == "FILE" %}Confirm files and continue{% else %}Confirm project and continue{% endif %}</button>
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/target">Back</a>
+        <button class="button action" data-next-step="100" type="submit" {% if problems %}disabled{% endif %}>{% if workspace_state.source_mode.value == "FILE" %}Confirm files and continue{% else %}Confirm project and continue{% endif %}</button>
       </div>
     </form>
   </section>

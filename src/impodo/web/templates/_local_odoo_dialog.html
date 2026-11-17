@@ -127,7 +127,7 @@
         </label>
         <div class="stack-control-actions">
           <button
-            class="button secondary"
+            class="button action"
             type="submit"
             data-control-stack-action-value="stop"
             data-control-stack-button
@@ -135,7 +135,7 @@
             Stop managed services
           </button>
           <button
-            class="button primary"
+            class="button action"
             type="submit"
             data-control-stack-action-value="restart"
             data-control-stack-button
@@ -174,7 +174,7 @@
             <input type="checkbox" name="confirm_start" value="1" required>
             I want Impodo to start the missing local Odoo services shown above.
           </label>
-          <button class="button primary" type="submit" data-start-stack-button>
+          <button class="button action" type="submit" data-start-stack-button>
             Start local Odoo
           </button>
         </form>
@@ -193,14 +193,14 @@
     <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/select-config{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
-      <button class="button secondary" type="submit">
+      <button class="button action" type="submit">
         {% if local_stack.config_path %}Choose another local setup{% else %}Choose local Odoo setup{% endif %}
       </button>
     </form>
     <form method="post" action="/workspaces/{{ workspace_id }}/local-stack/refresh{% if source_return_token is defined and source_return_token %}?return_to={{ source_return_token }}{% endif %}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="return_to" value="{{ local_stack_return_to }}">
-      <button class="button {% if local_stack_resume_compare %}secondary{% else %}primary{% endif %}" type="submit" {% if not local_stack.profile %}disabled{% endif %}>
+      <button class="button action" type="submit" {% if not local_stack.profile %}disabled{% endif %}>
         Check again
       </button>
     </form>
@@ -208,14 +208,14 @@
       <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-        <button class="button primary" type="submit" {% if not local_stack_resume_ready %}disabled{% endif %}>
+        <button class="button action" data-next-step="100" type="submit" {% if not local_stack_resume_ready %}disabled{% endif %}>
           Continue comparison
         </button>
         <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
       </form>
     {% endif %}
     <form method="dialog">
-      <button class="button secondary" type="submit">Close</button>
+      <button class="button navigation" type="submit">Close</button>
     </form>
   </div>
 </dialog>

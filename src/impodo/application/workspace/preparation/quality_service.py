@@ -36,6 +36,7 @@ from .bounded_quality import (
     build_bounded_quality_run,
     materialize_staging_run,
 )
+from .quality_finding_store import QualityFindingStore
 from .readiness_ports import (
     QualityMappingRepository,
     QualityRepository,
@@ -336,6 +337,7 @@ class QualityService:
         planned_seed: RecipeQualitySeed | None = None,
         allow_materialized_fallback: bool = True,
         timing: PreparationTimingReporter | None = None,
+        finding_store: QualityFindingStore | None = None,
     ) -> tuple[QualityRun | StoredQualityRun, QualityRunSummary]:
         """Evaluate quality and publish its full run plus lifecycle summary.
 
@@ -409,6 +411,7 @@ class QualityService:
                                 published_staging_content_hash=staging.content_hash,
                                 definition=revision.definition,
                                 numeric_fields=numeric_fields,
+                                finding_store=finding_store,
                             )
                         )
                     except BoundedQualityUnsupported as error:

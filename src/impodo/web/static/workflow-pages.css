@@ -165,9 +165,9 @@
 }
 
 .field-count-button.active {
-  border-color: var(--impodo-red-dark);
-  background: var(--impodo-red-dark);
-  color: white;
+  border-color: var(--impodo-charcoal);
+  background: var(--impodo-soft);
+  color: var(--impodo-charcoal-dark);
 }
 
 .model-picker-list {

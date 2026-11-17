@@ -2329,6 +2329,28 @@ authoritative origin-sensitive gate. The opt-in matching-review workbook test
 uses `IMPODO_RUN_MAPPING_REVIEW_SCALE=1` to write all 50,000 value-coverage
 rows.
 
+### Explicit source-column exclusions
+
+`DatasetMapping.excluded_source_column_keys` records deliberate file-source
+choices. Empty exclusions are omitted from the portable mapping, preserving
+its existing hash. A saved nonempty choice enters the mapping hash and follows
+normal preparation invalidation. The form marker distinguishes clearing the
+active table's choices from a partial save that does not contain the control;
+other tables retain their saved choices.
+
+`target_source_column_keys` in
+[`column_exclusions.py`](../../../src/impodo/domain/mapping/column_exclusions.py)
+checks scalar rules, references, matching components, and generated ordering
+without reading rows. Semantic validation rejects unknown columns, conflicting
+providers, and protected Odoo sources. Source row identifiers and row filters
+alone do not provide an Odoo value. Issue links return to **Source columns set
+aside** under **Match fields**.
+
+Recipes store exclusions as logical column IDs. An exclusion-only source
+column has `required_by` set to `exclusion`; it binds when an exact current
+column exists and does not block reuse when absent or ambiguous. A column also
+needed by mapping or preparation keeps its required status.
+
 ## Verification
 
 `capture_match_data_recovery_screenshots.py::capture` creates isolated
@@ -2354,6 +2376,9 @@ populated level, and an entirely blank path. It uses no operator workspace or
 operational source data.
 
 - [`tests/integration/web/test_mapping_forms.py`](../../../tests/integration/web/test_mapping_forms.py)
+- [Saved exclusion controls and local read budgets](../../../tests/integration/web/test_source_column_exclusions.py)
+- [Exclusion contracts and provider conflicts](../../../tests/domain/mapping/test_column_exclusions.py)
+- [Recipe exclusion rebinding](../../../tests/application/test_recipe_column_exclusions.py)
 - [`tests/domain/mapping/test_validation.py`](../../../tests/domain/mapping/test_validation.py)
 - [`tests/domain/mapping/test_selection_rules.py`](../../../tests/domain/mapping/test_selection_rules.py)
 - [`tests/integration/web/test_mapping_impact_presenter.py`](../../../tests/integration/web/test_mapping_impact_presenter.py)

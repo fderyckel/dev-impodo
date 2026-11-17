@@ -79,8 +79,8 @@
         <p>Impodo creates one draft Test data version and one setup workspace. You will upload and accept the newer delivery, then connect the Odoo target you will use for this Test run. The saved Recipe and original Authoring workspace remain unchanged.</p>
       </div>
       <div class="actions">
-        <button class="button primary" type="submit">Create Test setup</button>
-        <a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a>
+        <button class="button action" data-next-step="100" type="submit">Create Test setup</button>
+        <a class="button navigation" href="/projects/{{ project.project_id }}">Cancel</a>
       </div>
     </form>
   {% endif %}

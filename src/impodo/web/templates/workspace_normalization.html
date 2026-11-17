@@ -53,11 +53,11 @@
         <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-          <button class="button primary" type="submit">Compare with Odoo</button>
+          <button class="button action" data-next-step="100" type="submit">Compare with Odoo</button>
           <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>
-        <a class="button secondary" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Review and save Recipe</a>
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
+        <a class="button action" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Review and save Recipe</a>
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
       </div>
     </section>
   {% elif dry_run.status.value == 'BLOCKED' %}
@@ -78,13 +78,13 @@
         <p>Preparing again without changing the source or field rule will return to this same review.</p>
       </div>
       <div class="next-action-buttons">
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/mapping">Edit field rules</a>
+        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Edit field rules</a>
         {% if rejected_items %}
           <form method="post" action="/workspaces/{{ workspace_id }}/normalization/reopen">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
             <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
-            <button class="button secondary" type="submit">Reopen review</button>
+            <button class="button action" type="submit">Reopen review</button>
           </form>
         {% endif %}
       </div>
@@ -96,7 +96,7 @@
         <h2 id="prepared-next-title">All records were set aside</h2>
         <p>There are no records to approve. Review the root findings, correct the affected field rules, then prepare the data again.</p>
       </div>
-      <a class="button primary" href="/workspaces/{{ workspace_id }}/normalization?status=set_aside#review-groups">Review why records were set aside</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/normalization?status=set_aside#review-groups">Review why records were set aside</a>
     </section>
   {% elif dry_run.status.value == 'REVIEW_REQUIRED' %}
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
@@ -114,7 +114,7 @@
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
-        <button class="button primary" type="button" data-normalization-approve-trigger>Approve all prepared data</button>
+        <button class="button action" data-next-step="100" type="button" data-normalization-approve-trigger>Approve all prepared data</button>
       </form>
     </section>
   {% endif %}
@@ -133,7 +133,7 @@
           <p>Similar changes are grouped so you can review them once.</p>
         {% endif %}
       </div>
-      {% if review_status %}<a class="button secondary small" href="/workspaces/{{ workspace_id }}/normalization#review-groups">Clear filter</a>{% endif %}
+      {% if review_status %}<a class="button action small" href="/workspaces/{{ workspace_id }}/normalization#review-groups">Clear filter</a>{% endif %}
     </div>
 
     {% if review_status == 'set_aside' %}
@@ -195,7 +195,7 @@
                                 <td>
                                   {% set route = collision_routes.get(row.dataset) %}
                                   {% if route and route.source_key_fields|length == 1 and member.source_identity_value and not restricted %}
-                                    <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping?mapping_dataset={{ route.index }}&amp;collision_run={{ normalization.quality_run_id }}&amp;collision_exclude={{ member.row_id }}#rows-to-use-{{ route.index }}">Draft exclusion for this row</a>
+                                    <a class="button action small" href="/workspaces/{{ workspace_id }}/mapping?mapping_dataset={{ route.index }}&amp;collision_run={{ normalization.quality_run_id }}&amp;collision_exclude={{ member.row_id }}#rows-to-use-{{ route.index }}">Draft exclusion for this row</a>
                                   {% else %}Review source key rule{% endif %}
                                 </td>
                               </tr>
@@ -213,11 +213,11 @@
                     {% set collision_route = collision_routes.get(row.dataset) %}
                     {% if collision and collision_route %}
                       <p>If a row should not be loaded, use <strong>Rows to use</strong> to exclude its unique source key, then review all included and excluded rows. This changes the saved mapping, not the source file, and may affect future runs.</p>
-                      <a class="button secondary small" href="{{ collision_route.rows_url }}">Review Rows to use</a>
+                      <a class="button action small" href="{{ collision_route.rows_url }}">Review Rows to use</a>
                       <p>If both rows are intended, choose a persistent, unique Odoo matching field. A source-only key cannot make the current Odoo match unique.</p>
-                      <a class="button secondary small" href="{{ collision_route.match_url }}">Review Odoo match</a>
+                      <a class="button action small" href="{{ collision_route.match_url }}">Review Odoo match</a>
                     {% else %}
-                      <a class="button secondary small" href="/workspaces/{{ workspace_id }}/mapping">Review field and row rules</a>
+                      <a class="button action small" href="/workspaces/{{ workspace_id }}/mapping">Review field and row rules</a>
                     {% endif %}
                     <details class="technical-details">
                       <summary>Support details</summary>
@@ -288,7 +288,7 @@
                         <input type="hidden" name="run_id" value="{{ normalization.run_id }}">
                         <input type="hidden" name="lifecycle_version" value="{{ normalization.lifecycle_version }}">
                         <input type="hidden" name="reason" value="" data-normalization-reject-reason-value>
-                        <button class="button secondary small" type="button" data-normalization-reject-trigger data-group-name="{{ group.name }}">Send back to fix</button>
+                        <button class="button action small" type="button" data-normalization-reject-trigger data-group-name="{{ group.name }}">Send back to fix</button>
                       </form>
                     </div>
                   {% endif %}
@@ -311,9 +311,9 @@
 
     {% if review_page_count > 1 %}
       <nav class="readiness-pagination" aria-label="{% if review_status == 'set_aside' %}Set-aside record pages{% else %}Prepared-change pages{% endif %}">
-        {% if review_previous_url %}<a class="button secondary" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
+        {% if review_previous_url %}<a class="button navigation" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
         <span class="muted">Page {{ review_page }} of {{ review_page_count }}</span>
-        {% if review_next_url %}<a class="button secondary" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
+        {% if review_next_url %}<a class="button action" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
       </nav>
     {% endif %}
 
@@ -342,8 +342,8 @@
         Nothing will be sent to Odoo.
       </p>
       <div class="dialog-actions">
-        <form method="dialog"><button class="button secondary" type="submit">Cancel</button></form>
-        <button class="button primary" type="button" data-normalization-approve-confirm>Approve all prepared data</button>
+        <form method="dialog"><button class="button navigation" type="submit">Cancel</button></form>
+        <button class="button action" data-next-step="100" type="button" data-normalization-approve-confirm>Approve all prepared data</button>
       </div>
     </dialog>
 
@@ -365,13 +365,13 @@
         <textarea rows="3" maxlength="1000" required data-normalization-reject-reason></textarea>
       </label>
       <div class="dialog-actions">
-        <form method="dialog"><button class="button secondary" type="submit">Cancel</button></form>
-        <button class="button danger" type="button" data-normalization-reject-confirm>Stop review and fix</button>
+        <form method="dialog"><button class="button navigation" type="submit">Cancel</button></form>
+        <button class="button destructive" type="button" data-normalization-reject-confirm>Stop review and fix</button>
       </div>
     </dialog>
   {% endif %}
 
   <div class="form-actions split-actions">
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
+    <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
   </div>
 {% endblock %}

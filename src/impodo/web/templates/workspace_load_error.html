@@ -39,11 +39,11 @@
   {% endif %}
   <p>Use the explanation to review the source value, matching rule, or destination rule. Keep accepted records and run the required preparation, comparison, and approval checks before another write.</p>
   <div class="actions">
-    <a class="button primary" href="/workspaces/{{ workspace_id }}/load/errors?run_id={{ saved_run_id|urlencode }}">Return to Odoo errors</a>
+    <a class="button navigation" href="/workspaces/{{ workspace_id }}/load/errors?run_id={{ saved_run_id|urlencode }}">Return to Odoo errors</a>
     {% if workspace_state.source_mode.value == 'FILE' and workspace_navigation.journey != 'RECIPE_APPLICATION' %}
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/mapping">Review Match data</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Review Match data</a>
     {% elif workspace_state.source_mode.value == 'ODOO' %}
-      <a class="button secondary" href="/workspaces/{{ workspace_id }}/destination-matching">Review Destination matching</a>
+      <a class="button action" href="/workspaces/{{ workspace_id }}/destination-matching">Review Destination matching</a>
     {% endif %}
   </div>
 </section>

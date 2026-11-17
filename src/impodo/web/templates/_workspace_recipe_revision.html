@@ -4,9 +4,9 @@
     <strong>Revising Recipe v{{ revision_review.version }}</strong>
     <div class="actions">
       {% if allow_field_refresh and selection and schema and governance %}
-        <button class="button secondary" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
+        <button class="button action" type="submit" form="check-odoo-fields">Check for new or changed Odoo fields</button>
       {% endif %}
-      <a class="button secondary" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
+      <a class="button action" href="/projects/{{ revision_review.project_id }}/recipes/{{ revision_review.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
     </div>
   </div>
 {% endif %}

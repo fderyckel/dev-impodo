@@ -108,9 +108,9 @@
       <div>
         <h3>Select and name the output fields</h3>
         <p class="muted">Choose only the fields needed later. Repeated field names from the added table automatically include its table name. You can edit the output names.</p>
-        <button class="button secondary compact" type="button" data-exact-use-recommended>Use recommended output</button>
+        <button class="button action compact" type="button" data-exact-use-recommended>Use recommended output</button>
         <p class="notice warning" data-exact-name-error role="alert" hidden></p>
-        <button class="button secondary compact" type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
+        <button class="button action compact" type="button" data-exact-fix-names hidden>Use table names for duplicates</button>
         {% for view in join_dataset_views %}
           <fieldset class="join-projection-group" data-exact-projection-dataset="{{ view.dataset.dataset_id }}">
             <legend>{{ view.dataset.name }}</legend>
@@ -159,7 +159,7 @@
     </div>
 
     <div class="actions">
-      <button class="button primary" type="submit">Review complete join</button>
+      <button class="button action" data-next-step="100" type="submit">Review complete join</button>
     </div>
   </form>
   {% include "derived_entities/_join_pair_review.html" %}

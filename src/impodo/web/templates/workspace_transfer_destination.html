@@ -110,8 +110,8 @@
       </fieldset>
 
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/sources#download-complete">Back to frozen source</a>
-        <button class="button primary" type="submit">Check and save destination</button>
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/sources#download-complete">Back to frozen source</a>
+        <button class="button action" data-next-step="100" type="submit">Check and save destination</button>
       </div>
     </form>
   </section>
@@ -154,7 +154,7 @@
       </div>
       <div class="next-action-buttons">
         <span class="status ready">Connection complete</span>
-        <a class="button primary" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
+        <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/destination-matching">Match destination data</a>
       </div>
     </section>
   {% endif %}

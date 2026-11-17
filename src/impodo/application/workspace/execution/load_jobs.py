@@ -231,7 +231,11 @@ class LoadJobManager:
         """Reflect an already durable stop while the current request finishes."""
         with self._lock:
             job = self._active_locked(workspace_id)
-            if job is not None and job.execution_run_id == run_id:
+            if (
+                job is not None
+                and job.execution_run_id == run_id
+                and job.load_control_state not in {"STOPPED", "FINISHED"}
+            ):
                 self._store(replace(job, load_control_state="STOP_REQUESTED",
                     message="Stopping after the current request", updated_at=_now()))
 

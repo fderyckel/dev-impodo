@@ -17,20 +17,20 @@
       <p>{{ 'The saved result remains available. Run another comparison when you need a fresh Odoo check.' if readiness else 'The comparison reads Odoo and saves its findings for review.' if normalization and normalization.frozen else 'Return to the existing prepared-data review in Stage 4.' if normalization else 'Open Prepared data to prepare the current source and field matches.' }}</p>
     </div>
     <div class="next-action-buttons">
-      {% if readiness %}<a class="button primary" href="/workspaces/{{ workspace_id }}/summary?step=results">Review results</a>{% endif %}
+      {% if readiness %}<a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/summary?step=results">Review results</a>{% endif %}
       {% if readiness or normalization and normalization.frozen %}
         {% if local_odoo_recovery_needed %}
-          {% if is_recipe_application %}<a class="button {{ 'secondary' if readiness else 'primary' }}" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button {{ 'secondary' if readiness else 'primary' }}" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
+          {% if is_recipe_application %}<a class="button navigation" href="{{ run_odoo_url }}">Return to Check Odoo</a>{% else %}<button class="button action" type="button" data-open-local-stack>Reconnect local Odoo</button>{% endif %}
         {% else %}
           <form method="post" action="/workspaces/{{ workspace_id }}/summary/compare" data-preflight-compare>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="operation_id" value="{{ comparison_operation_id }}">
-            <button class="button {{ 'secondary' if readiness else 'primary' }}" type="submit">{{ 'Compare with Odoo again' if readiness else 'Compare with Odoo' }}</button>
+            <button class="button action"{% if not readiness %} data-next-step="100"{% endif %} type="submit">{{ 'Compare with Odoo again' if readiness else 'Compare with Odoo' }}</button>
             <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
           </form>
         {% endif %}
-      {% elif not readiness %}<a class="button primary" href="/workspaces/{{ workspace_id }}/{{ 'normalization' if normalization else 'summary?step=prepared' }}">{{ 'Review prepared data' if normalization else 'Open Prepared data' }}</a>{% endif %}
-      {% if normalization or readiness %}<a class="button secondary" href="/workspaces/{{ workspace_id }}/summary?step=prepared">View prepared data</a>{% endif %}
+      {% elif not readiness %}<a class="button action" href="/workspaces/{{ workspace_id }}/{{ 'normalization' if normalization else 'summary?step=prepared' }}">{{ 'Review prepared data' if normalization else 'Open Prepared data' }}</a>{% endif %}
+      {% if normalization or readiness %}<a class="button action" href="/workspaces/{{ workspace_id }}/summary?step=prepared">View prepared data</a>{% endif %}
     </div>
   </section>
 {% endif %}

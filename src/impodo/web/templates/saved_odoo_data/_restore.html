@@ -98,9 +98,9 @@
       </label>
       {% if field_rows %}
         <div class="actions">
-          <button class="button secondary" type="button" data-saved-odoo-preset="use_saved">Use saved for all fields</button>
-          <button class="button secondary" type="button" data-saved-odoo-preset="keep_destination">Keep destination for all fields</button>
-          <button class="button secondary" type="button" data-saved-odoo-preset="fill_empty">Fill empty for all fields</button>
+          <button class="button action" type="button" data-saved-odoo-preset="use_saved">Use saved for all fields</button>
+          <button class="button action" type="button" data-saved-odoo-preset="keep_destination">Keep destination for all fields</button>
+          <button class="button action" type="button" data-saved-odoo-preset="fill_empty">Fill empty for all fields</button>
         </div>
         <details>
           <summary>Review {{ field_rows|length }} field choices and schema adjustments</summary>
@@ -186,8 +186,8 @@
       <span>I confirm the destination database and company above and authorize this restore. Impodo will check all included models before writing.</span>
     </label>
     <div class="actions">
-      <button class="button secondary" type="submit" name="action" value="check" formnovalidate data-submitting-label="Checking destination..." {% if job and active_job %}disabled{% endif %}>Check destination</button>
-      <button class="button primary" type="submit" name="action" value="restore" data-submitting-label="Checking and starting restoration..." {% if job and active_job %}disabled{% endif %}>Restore all</button>
+      <button class="button action" type="submit" name="action" value="check" formnovalidate data-submitting-label="Checking destination..." {% if job and active_job %}disabled{% endif %}>Check destination</button>
+      <button class="button action" data-next-step="100" type="submit" name="action" value="restore" data-submitting-label="Checking and starting restoration..." {% if job and active_job %}disabled{% endif %}>Restore all</button>
     </div>
     <p class="muted">Check destination reviews access, matching records, and schema differences without changing Odoo. Restore all checks again before loading.</p>
   </form>

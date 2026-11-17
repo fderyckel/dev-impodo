@@ -31,7 +31,7 @@
       <form method="post" action="/workspaces/{{ correction.completed_workspace_id }}/correction/start">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="request_id" value="{{ request_id }}">
-        <button class="button primary" type="submit">Start correction</button>
+        <button class="button action" data-next-step="100" type="submit">Start correction</button>
       </form>
     </section>
   {% else %}
@@ -45,7 +45,7 @@
           <div class="overview-stage-copy">
             <h3>Edit only the rules that were wrong</h3>
             <p>Formula logic, field matching, value choices, and casing rules all use the same Match data editor.</p>
-            <a class="button secondary" href="/workspaces/{{ correction.successor_workspace_id }}/mapping?correction=1">Edit correction rules</a>
+            <a class="button action" href="/workspaces/{{ correction.successor_workspace_id }}/mapping?correction=1">Edit correction rules</a>
           </div>
         </li>
         <li class="overview-stage {% if correction.has_current_plan %}complete{% else %}current{% endif %}">
@@ -58,7 +58,7 @@
               <input type="hidden" name="review_request_id" value="{{ review_request_id }}">
               <label>Odoo read API key <input type="password" name="read_api_key" autocomplete="off"><small>Leave blank to use the key already available for this correction workspace.</small></label>
               <label class="checkbox-label"><input type="checkbox" name="remember_read_api_key"> Save this read key on this computer</label>
-              <button class="button {% if correction.has_current_plan %}secondary{% else %}primary{% endif %}" type="submit">Review correction</button>
+              <button class="button action" data-next-step="100" type="submit">Review correction</button>
             </form>
           </div>
         </li>
@@ -106,11 +106,11 @@
           <label>Odoo write API key <input type="password" name="write_api_key" autocomplete="off"><small>Leave blank to use the separately saved write key.</small></label>
           <label class="checkbox-label"><input type="checkbox" name="remember_write_api_key"> Save this write key on this computer</label>
           <label class="checkbox-label"><input type="checkbox" name="confirm_apply" value="yes" required> I confirm that Impodo may update these {{ correction.plan_summary.record_count }} exact records and reviewed fields.</label>
-          <button class="button primary" type="submit">Apply {{ correction.plan_summary.record_count }} record corrections</button>
+          <button class="button action" data-next-step="100" type="submit">Apply {{ correction.plan_summary.record_count }} record corrections</button>
         </form>
       </section>
     {% endif %}
   {% endif %}
 
-  <div class="actions"><a class="button secondary" href="/projects/{{ correction.project_id }}">Back to data project</a></div>
+  <div class="actions"><a class="button navigation" href="/projects/{{ correction.project_id }}">Back to data project</a></div>
 {% endblock %}

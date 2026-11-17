@@ -57,10 +57,10 @@
         {% endfor %}
         <div class="actions">
           <a
-            class="button secondary"
+            class="button navigation"
             href="/workspaces/{{ workspace_id }}/transfer-order#transfer-order-results"
           >Back to transfer order</a>
-          <button class="button primary" type="submit">{{ 'Rebuild review package' if transfer_review_current else 'Build review package' }}</button>
+          <button class="button action" data-next-step="100" type="submit">{{ 'Rebuild review package' if transfer_review_current else 'Build review package' }}</button>
         </div>
       </form>
     </section>

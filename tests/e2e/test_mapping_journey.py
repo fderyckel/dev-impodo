@@ -98,7 +98,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
 
     def _enter_from_stage2(self):
         self.page.goto(f"{self.base}/workspaces/{self.workspace_id}/schema", wait_until="networkidle")
-        self.page.get_by_role("button", name="Confirm matching rules", exact=True).click()
+        self.page.get_by_role("button", name="Confirm matching rules and continue", exact=True).click()
         expect(self.root).to_have_attribute("data-step", "company")
         company = self.page.locator("#odoo-operation-company")
         expect(company.get_by_role("heading", name="Company for this load")).to_be_in_viewport()

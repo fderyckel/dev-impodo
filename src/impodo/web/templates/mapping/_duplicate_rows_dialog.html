@@ -12,17 +12,17 @@
   <p role="status" aria-live="polite" data-duplicate-status></p>
   <div data-duplicate-groups></div>
   <div class="actions" data-duplicate-pages hidden>
-    <button type="button" class="button secondary" data-duplicate-previous>Previous 100</button>
-    <button type="button" class="button secondary" data-duplicate-next>Next 100</button>
+    <button type="button" class="button navigation" data-duplicate-previous>Previous 100</button>
+    <button type="button" class="button navigation" data-duplicate-next>Next 100</button>
     <small>Selections apply to this page. Review and apply them before changing pages.</small>
   </div>
   <section class="notice" data-duplicate-preview hidden aria-label="Exclusion preview"></section>
   <p class="muted">Applying adds the selected unique source identifiers to Rows to use. You can restore a row by removing its identifier there. These rules may carry into a published Recipe; review exclusions for each new Data version.</p>
   <div class="notice warning" role="alert" id="duplicate-exclusion-error" data-duplicate-error hidden></div>
   <div class="dialog-actions">
-    <button type="button" class="button secondary" data-close-duplicate-rows>Cancel</button>
-    <button type="button" class="button secondary" data-duplicate-retry hidden>Try again</button>
-    <button type="button" class="button primary" data-duplicate-review aria-describedby="duplicate-exclusion-error" disabled>Review exclusions</button>
-    <button type="button" class="button primary" data-duplicate-apply hidden>{{ 'Apply exclusions and prepare again' if prepared_duplicate_review else 'Apply exclusions and check identities' }}</button>
+    <button type="button" class="button navigation" data-close-duplicate-rows>Cancel</button>
+    <button type="button" class="button action" data-duplicate-retry hidden>Try again</button>
+    <button type="button" class="button action" data-duplicate-review aria-describedby="duplicate-exclusion-error" disabled>Review exclusions</button>
+    <button type="button" class="button action" data-duplicate-apply hidden>{{ 'Apply exclusions and prepare again' if prepared_duplicate_review else 'Apply exclusions and check identities' }}</button>
   </div>
 </dialog>

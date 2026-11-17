@@ -10,7 +10,14 @@ from __future__ import annotations
 
 import json
 from collections import deque
-from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from collections.abc import (
+    Callable,
+    Iterable,
+    Iterator,
+    Mapping,
+    MutableMapping,
+    Sequence,
+)
 from collections.abc import Set as AbstractSet
 from dataclasses import dataclass
 from typing import overload
@@ -23,6 +30,10 @@ from impodo.application.workspace.preparation.prepared_quality_ports import (
 )
 from impodo.application.workspace.preparation.prepared_quality_projection import (
     PreparedQualityProjection,
+)
+from impodo.application.workspace.preparation.quality_finding_store import (
+    FindingSet,
+    QualityFindingStore,
 )
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import (
@@ -409,11 +420,11 @@ class _DirectEligibleRowIds(AbstractSet[str]):
         self,
         rows: PreparedQualityIndexReader,
         eligible_count: int,
-        excluded: set[str],
+        excluded: set[str] | FindingSet[str],
     ) -> None:
         self._rows = rows
         self._eligible_count = eligible_count
-        self._excluded = frozenset(excluded)
+        self._excluded = frozenset(excluded) if isinstance(excluded, set) else excluded
 
     def __len__(self) -> int:
         return self._eligible_count
@@ -459,6 +470,7 @@ def build_bounded_quality_run(
     published_staging_content_hash: str,
     definition: MappingDefinition | None = None,
     numeric_fields: tuple[PreparedNumericField, ...] = (),
+    finding_store: QualityFindingStore | None = None,
 ) -> StoredQualityRun:
     """Return lazy evidence for direct rows and compact mapping findings.
 
@@ -516,7 +528,13 @@ def build_bounded_quality_run(
             for item in staging.issues
             if item.dataset and item.source_row is not None
         )
-        if retained_excluded_coordinates:
+        if finding_store is not None:
+            index = build_index(
+                physical_rows, numeric_fields=numeric_fields,
+                retained_excluded_coordinates=retained_excluded_coordinates,
+                finding_store=finding_store,
+            )
+        elif retained_excluded_coordinates:
             index = build_index(
                 physical_rows, numeric_fields=numeric_fields,
                 retained_excluded_coordinates=retained_excluded_coordinates,
@@ -543,6 +561,7 @@ def build_bounded_quality_run(
                 index=index,
                 rows=staging.rows,
                 include_identity_groups=needs_identity_groups,
+                finding_store=finding_store,
             )
     if needs_identity_groups:
         raise BoundedQualityUnsupported
@@ -913,6 +932,29 @@ def build_bounded_quality_run(
     )
 
 
+def _decode_row_metadata(text: str) -> tuple[_IssueRow, set[tuple[str, int]]]:
+    raw, coordinates = json.loads(text)
+    return (
+        _IssueRow(str(raw[0]), str(raw[1]), int(raw[2]), StagingDisposition(raw[3])),
+        {(str(dataset), int(source_row)) for dataset, source_row in coordinates},
+    )
+
+
+def _encode_row_metadata(value: tuple[_IssueRow, set[tuple[str, int]]]) -> str:
+    row, coordinates = value
+    return json.dumps(([row.row_id, row.dataset, row.source_row, row.disposition.value], sorted(coordinates)))
+
+
+def _finding_set[T](
+    store: QualityFindingStore, name: str,
+    encode: Callable[[T], str], decode: Callable[[str], T],
+) -> FindingSet[T]:
+    return FindingSet(
+        store.mapping(name, encode_key=encode, decode_key=decode, encode_value=encode, decode_value=decode),
+        store.values(name, decode_value=decode),
+    )
+
+
 def _build_indexed_quality_run(
     *,
     workspace_state: WorkspaceState,
@@ -922,6 +964,7 @@ def _build_indexed_quality_run(
     index: PreparedQualityProjection,
     rows: PreparedQualityIndexReader,
     include_identity_groups: bool = False,
+    finding_store: QualityFindingStore | None = None,
 ) -> StoredQualityRun:
     """Build default-plus-exception evidence from set-validated row facts."""
 
@@ -930,17 +973,50 @@ def _build_indexed_quality_run(
     rules_by_family = {
         (rule.dataset, rule.family): rule for rule in ruleset.rules
     }
-    issue_map: dict[str, QualityIssue] = {}
-    row_issue_ids: dict[str, set[str]] = {}
-    row_metadata: dict[
+    issue_map: MutableMapping[str, QualityIssue] = {}
+    row_issue_ids: MutableMapping[str, set[str]] = {}
+    row_metadata: MutableMapping[
         str,
         tuple[_IssueRow, set[tuple[str, int]]],
     ] = {}
-    coordinate_ids: dict[tuple[str, int], str] = {}
-    excluded_ids: set[str] = set(index.excluded_row_ids)
+    coordinate_ids: MutableMapping[tuple[str, int], str] = {}
+    excluded_ids: set[str] | FindingSet[str]
+    quarantine: MutableMapping[str, QuarantineEntry] = {}
+    if finding_store is not None:
+        issue_map = finding_store.mapping(
+            "issues", encode_key=str, decode_key=str,
+            encode_value=lambda issue: json.dumps(issue.to_portable_dict()),
+            decode_value=lambda text: QualityIssue.from_dict(json.loads(text)),
+        )
+        row_issue_ids = finding_store.mapping(
+            "row_issues", encode_key=str, decode_key=str,
+            encode_value=lambda ids: json.dumps(sorted(ids)),
+            decode_value=lambda text: set(json.loads(text)),
+        )
+        row_metadata = finding_store.mapping(
+            "row_metadata", encode_key=str, decode_key=str,
+            encode_value=_encode_row_metadata, decode_value=_decode_row_metadata,
+        )
+        coordinate_ids = finding_store.mapping(
+            "coordinates", encode_key=json.dumps,
+            decode_key=lambda text: (str(json.loads(text)[0]), int(json.loads(text)[1])),
+            encode_value=str, decode_value=str,
+        )
+        quarantine = finding_store.mapping(
+            "quarantine", encode_key=str, decode_key=str,
+            encode_value=lambda entry: json.dumps(entry.to_portable_dict()),
+            decode_value=lambda text: QuarantineEntry.from_dict(json.loads(text)),
+        )
+        excluded_ids = _finding_set(finding_store, "excluded", str, str)
+        for row_id in index.excluded_row_ids:
+            excluded_ids.add(row_id)
+    else:
+        excluded_ids = set(index.excluded_row_ids)
     finding_budget = index.finding_budget
 
     def charge(byte_count: int) -> None:
+        if finding_store is not None:
+            return
         try:
             finding_budget.consume(byte_count)
         except QualityFindingBudgetExceeded as error:
@@ -957,6 +1033,7 @@ def _build_indexed_quality_run(
             if issue.issue_id not in links:
                 charge(128 + len(row_id.encode("utf-8")) + len(issue.issue_id))
                 links.add(issue.issue_id)
+                row_issue_ids[row_id] = links
 
     def register(
         row_id: object,
@@ -981,6 +1058,7 @@ def _build_indexed_quality_run(
         if physical_coordinate not in coordinates:
             charge(128 + len(physical_coordinate[0].encode("utf-8")))
             coordinates.add(physical_coordinate)
+            row_metadata[row.row_id] = (row, coordinates)
         coordinate = (row.dataset, row.source_row)
         prior_id = coordinate_ids.setdefault(coordinate, row.row_id)
         if prior_id != row.row_id:
@@ -1108,34 +1186,35 @@ def _build_indexed_quality_run(
     elif isinstance(rows, PreparedRelationshipFindingReader) and callable(
         rows.bounded_relationship_findings
     ):
-        read_relationship_findings = rows.bounded_relationship_findings
+            read_relationship_findings = (
+                lambda unsafe, datasets: rows.bounded_relationship_findings(
+                    unsafe, datasets, finding_store=finding_store,
+                )
+            ) if finding_store is not None else rows.bounded_relationship_findings
     if read_relationship_findings is not None:
         attached_relationship_causes: set[
             tuple[str, str, str, str, str | None]
-        ] = set()
+        ] | FindingSet[tuple[str, str, str, str, str | None]] = (
+            _finding_set(finding_store, "relationship_causes", json.dumps, lambda text: tuple(json.loads(text)))
+            if finding_store is not None else set()
+        )
         unsafe_dispositions = {
             QualityDisposition.BLOCKED,
             QualityDisposition.QUARANTINED,
             QualityDisposition.EXCLUDED,
         }
-        initially_unsafe = tuple(
-            sorted(
-                excluded_ids
-                | {
-                    row_id
-                    for row_id, (row, _coordinates)
-                    in row_metadata.items()
-                    if _effective_disposition(
-                        row,
-                        (
-                            issue_map[issue_id]
-                            for issue_id in row_issue_ids.get(row_id, ())
-                        ),
-                    )
-                    in unsafe_dispositions
-                }
-            )
+        unsafe_ids: set[str] | FindingSet[str] = (
+            _finding_set(finding_store, "initially_unsafe", str, str)
+            if finding_store is not None else set()
         )
+        for row_id in excluded_ids:
+            unsafe_ids.add(row_id)
+        for row_id, (row, _coordinates) in row_metadata.items():
+            if _effective_disposition(
+                row, (issue_map[issue_id] for issue_id in row_issue_ids.get(row_id, ())),
+            ) in unsafe_dispositions:
+                unsafe_ids.add(row_id)
+        initially_unsafe = unsafe_ids if isinstance(unsafe_ids, FindingSet) else tuple(sorted(unsafe_ids))
         propagating_datasets = tuple(
             sorted(
                 dataset
@@ -1314,7 +1393,6 @@ def _build_indexed_quality_run(
         "blocked_count": disposition_counts[StagingDisposition.BLOCKED],
     }
     eligible_count = summary_counts["ready_count"]
-    quarantine: list[QuarantineEntry] = []
     for row_id, (row, coordinates) in row_metadata.items():
         base = QualityDisposition(row.disposition.value)
         if base in {QualityDisposition.CANDIDATE, QualityDisposition.REFERENCE}:
@@ -1357,8 +1435,7 @@ def _build_indexed_quality_run(
             ):
                 continue
             charge(512)
-            quarantine.append(
-                QuarantineEntry(
+            entry = QuarantineEntry(
                     entry_id=_hash(
                         {
                             "effective_dataset": published_staging_content_hash,
@@ -1379,8 +1456,8 @@ def _build_indexed_quality_run(
                     owner_label=issue.owner_label,
                     review_by=None,
                     correction_route=_correction_route(issue.family),
-                )
             )
+            quarantine[entry.entry_id] = entry
     summary_counts["blocked_count"] += sum(
         issue.row_id is None and issue.policy is QualityOutcomePolicy.BLOCK
         for issue in issue_map.values()
@@ -1408,8 +1485,16 @@ def _build_indexed_quality_run(
             direct=index.direct_accounting,
             exclude_unused=_uses_reviewed_join_accounting(staging),
         ),
-        issues=tuple(sorted(issue_map.values(), key=lambda item: item.issue_id)),
-        quarantine=tuple(sorted(quarantine, key=lambda item: item.entry_id)),
+        issues=(
+            finding_store.values("issues", decode_value=lambda text: QualityIssue.from_dict(json.loads(text)))
+            if finding_store is not None
+            else tuple(sorted(issue_map.values(), key=lambda item: item.issue_id))
+        ),
+        quarantine=(
+            finding_store.values("quarantine", decode_value=lambda text: QuarantineEntry.from_dict(json.loads(text)))
+            if finding_store is not None
+            else tuple(sorted(quarantine.values(), key=lambda item: item.entry_id))
+        ),
         effective_dataset_hash=published_staging_content_hash,
         eligible_row_ids=_DirectEligibleRowIds(
             rows,

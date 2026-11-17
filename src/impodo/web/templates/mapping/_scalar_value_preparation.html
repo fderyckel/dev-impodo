@@ -53,7 +53,7 @@
       <small>Odoo precision for this field: {{ row.metadata.digits[1] }} decimal place{{ '' if row.metadata.digits[1] == 1 else 's' }} ({{ row.metadata.digits[0] }} total digits).</small>
       <button
         type="button"
-        class="button secondary compact"
+        class="button action compact"
         data-use-target-rounding
         data-target-rounding-places="{{ row.metadata.digits[1] }}"
         {% if row.metadata.digits[1] > 18 %}disabled{% endif %}
@@ -129,7 +129,7 @@
               <span>Change <code>00</code> at the beginning to <code>+</code>, then remove spaces, dots, hyphens and slashes only when they are between digits.</span>
               <small>Example: <code>00352-621.23.45</code> becomes <code>+3526212345</code>. You can change every step before saving.</small>
             </div>
-            <button class="button secondary compact" type="button" data-use-phone-cleanup>Use phone cleanup</button>
+            <button class="button action compact" type="button" data-use-phone-cleanup>Use phone cleanup</button>
           </div>
         {% endif %}
         <div class="text-step-list" data-text-step-list></div>
@@ -145,7 +145,7 @@
               <option value="pattern">Advanced pattern</option>
             </select>
           </label>
-          <button class="button secondary compact" type="button" data-add-text-step>Add cleanup step</button>
+          <button class="button action compact" type="button" data-add-text-step>Add cleanup step</button>
         </div>
         <p class="muted" data-text-step-limit role="status" aria-live="polite" hidden>You have reached the maximum of 20 cleanup steps for this field.</p>
         <label class="compact-control">Capitalisation after cleanup

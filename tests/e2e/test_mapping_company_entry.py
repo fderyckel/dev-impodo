@@ -105,7 +105,7 @@ class MappingCompanyEntryBrowserTests(unittest.TestCase):
                         link.click()
                     else:
                         page.get_by_role(
-                            "button", name="Confirm matching rules", exact=True
+                            "button", name="Confirm matching rules and continue", exact=True
                         ).click()
                     page.wait_for_url(mapping_location)
                     page.wait_for_load_state("networkidle")

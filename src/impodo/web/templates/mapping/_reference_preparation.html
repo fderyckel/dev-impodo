@@ -29,7 +29,7 @@
           {% set part = {'kind': 'source', 'source': '', 'literal': ''} %}
           {% include "mapping/_reference_part.html" %}
         </template>
-        <button type="button" class="button secondary compact" data-reference-add-part>Add a part</button>
+        <button type="button" class="button action compact" data-reference-add-part>Add a part</button>
         <small>A missing source part stops the row for review. Fixed text does not fill a missing source value.</small>
       </div>
       <div data-reference-formula {% if editor.mode != 'formula' %}hidden{% endif %}>

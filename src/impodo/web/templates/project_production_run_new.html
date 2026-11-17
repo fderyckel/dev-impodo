@@ -46,8 +46,8 @@
         <p>Impodo creates one draft Production data version and one setup workspace. You will add and accept the complete latest delivery, then connect a different Production Odoo database of the same major version used in Test, with separate read and write access.</p>
       </div>
       <div class="actions">
-        <button class="button primary" type="submit">Create Production setup</button>
-        <a class="button secondary" href="/projects/{{ project.project_id }}">Cancel</a>
+        <button class="button action" data-next-step="100" type="submit">Create Production setup</button>
+        <a class="button navigation" href="/projects/{{ project.project_id }}">Cancel</a>
       </div>
     </form>
   {% endif %}

@@ -66,15 +66,15 @@
         </details>
       {% endif %}
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ source_workspace.workspace_id }}/sources">Edit models, fields, and related data</a>
-        <button class="button primary" type="submit" data-submitting-label="Saving capture configuration...">{% if definition %}Save configuration changes{% else %}Save capture configuration{% endif %}</button>
+        <a class="button action" href="/workspaces/{{ source_workspace.workspace_id }}/sources">Edit models, fields, and related data</a>
+        <button class="button action" type="submit" data-submitting-label="Saving capture configuration...">{% if definition %}Save configuration changes{% else %}Save capture configuration{% endif %}</button>
       </div>
     </form>
   {% elif definition %}
     <p>{{ definition.label }} · Odoo {{ definition.odoo_major }} · Configuration revision {{ definition.configuration_revision }}</p>
-    <div class="actions"><a class="button secondary" href="/workspaces/{{ definition.source_workspace_id }}/sources">Open source configuration</a></div>
+    <div class="actions"><a class="button action" href="/workspaces/{{ definition.source_workspace_id }}/sources">Open source configuration</a></div>
   {% else %}
     <p>Choose an Odoo source workspace in this data project, connect its database, and select the models and related data to preserve.</p>
-    <div class="actions"><a class="button primary" href="/projects/{{ project.project_id }}">Choose source data</a></div>
+    <div class="actions"><a class="button action" href="/projects/{{ project.project_id }}">Choose source data</a></div>
   {% endif %}
 </section>

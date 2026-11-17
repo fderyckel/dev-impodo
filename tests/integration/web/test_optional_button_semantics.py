@@ -20,7 +20,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            'class="button {% if catalogs %}secondary{% else %}primary{% endif %}"',
+            'class="button action"',
             template,
         )
         self.assertIn(
@@ -50,7 +50,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         )
         self.assertRegex(
             template,
-            r'class="button secondary"[^>]*>Separate combined information<',
+            r'class="button action"[^>]*>Separate combined information<',
         )
 
     def test_optional_rule_review_and_exports_use_secondary_buttons(self) -> None:
@@ -70,7 +70,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         ):
             self.assertRegex(
                 template,
-                rf'class="button secondary"[^>]*>{re.escape(label)}<',
+                rf'class="button action"[^>]*>{re.escape(label)}<',
             )
 
     def test_review_workbook_actions_use_secondary_buttons(self) -> None:
@@ -95,7 +95,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
             )
             self.assertTrue(matches, label)
             self.assertTrue(
-                all("secondary" in classes.split() for classes in matches),
+                all("action" in classes.split() for classes in matches),
                 label,
             )
 
@@ -118,7 +118,7 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         ):
             self.assertRegex(
                 template,
-                rf'class="button secondary"[^>]*>[^<]*{re.escape(label)}',
+                rf'class="button action"[^>]*>[^<]*{re.escape(label)}',
             )
 
 

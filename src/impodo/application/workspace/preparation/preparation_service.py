@@ -89,6 +89,7 @@ from .grouped_exact_join_preparation import (
     bounded_preparation_producers,
     prepare_bounded_grouped_exact_join_session,
 )
+from .quality_finding_store import QualityFindingStoreFactory
 
 
 class PreparationOdooProvenance(Protocol):
@@ -200,6 +201,8 @@ class PreparationService:
         Each synchronous phase retains compatible local database owners and
         closes them before the next phase. Transactions remain independent;
         no connection is retained across preparation jobs.
+        After quality publication, a pending cancellation stops before
+        normalization and the temporary finding store closes.
 
         Returns:
             The current normalization run summary that the browser uses to
@@ -496,6 +499,7 @@ class PreparationService:
             impact_rows = materialized_impacts
             del staged
 
+        quality_resources = ExitStack()
         try:
             if bounded_canonical_run is not None:
                 canonical_run = bounded_canonical_run
@@ -568,6 +572,12 @@ class PreparationService:
                 schema,
                 target_float_digits=self.target_float_digits,
             )
+            finding_store = (
+                quality_resources.enter_context(canonical_run.rows.quality_finding_store())
+                if isinstance(canonical_run, StoredCanonicalStagingRun)
+                and isinstance(canonical_run.rows, QualityFindingStoreFactory)
+                else None
+            )
             with self.sessions.operation_scope():
                 quality_run, quality = self.quality.evaluate_and_publish(
                     workspace_state,
@@ -584,6 +594,7 @@ class PreparationService:
                     ),
                     reference_bundle,
                     numeric_fields=numeric_fields,
+                    finding_store=finding_store,
                     actor=actor,
                     planned_seed=quality_seed,
                     allow_materialized_fallback=(
@@ -597,6 +608,7 @@ class PreparationService:
                 total_rows,
                 "Organizing changes for review",
             )
+            check_cancelled()
             with self.sessions.operation_scope():
                 normalization = self.normalization.evaluate_and_publish(
                     workspace_state,
@@ -637,6 +649,8 @@ class PreparationService:
                         "Could not mark the failed preparation session"
                     )
             raise
+        finally:
+            quality_resources.close()
 
 
 def prepared_target_precision_error(

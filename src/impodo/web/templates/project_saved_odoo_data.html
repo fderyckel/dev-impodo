@@ -38,8 +38,8 @@
       {% endif %}
       {% if job.failure_message is defined and job.failure_message %}<p class="notice error">{{ job.failure_message }}</p>{% endif %}
       <div class="actions">
-        {% if active_job %}<a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data{% if definition %}?selected={{ definition.saved_data_id }}{% endif %}">Refresh progress</a>{% endif %}
-        {% if job.redirect_url is defined and job.redirect_url %}<a class="button primary" href="{{ job.redirect_url }}">Review result</a>{% endif %}
+        {% if active_job %}<a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data{% if definition %}?selected={{ definition.saved_data_id }}{% endif %}">Refresh progress</a>{% endif %}
+        {% if job.redirect_url is defined and job.redirect_url %}<a class="button action" href="{{ job.redirect_url }}">Review result</a>{% endif %}
       </div>
     </section>
   {% endif %}
@@ -56,7 +56,7 @@
                 <th scope="row">{{ item.label }}{% if definition and item.saved_data_id == definition.saved_data_id %} <span class="status current">Selected</span>{% endif %}</th>
                 <td>Odoo {{ item.odoo_major }}</td>
                 <td>{% if item.latest_version %}Version {{ item.latest_version }}{% else %}No data captured yet{% endif %}</td>
-                <td><a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ item.saved_data_id }}#capture-configuration">Open saved set</a></td>
+                <td><a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ item.saved_data_id }}#capture-configuration">Open saved set</a></td>
               </tr>
             {% endfor %}
           </tbody>
@@ -77,9 +77,9 @@
         <label>Saved Odoo file<input type="file" name="package_file" accept=".impodo" required></label>
         <label>Package password<input type="password" name="package_password" autocomplete="off" minlength="8" required></label>
       </div>
-      <div class="actions"><button class="button secondary" type="submit" data-submitting-label="Checking and importing package...">Import saved package</button></div>
+      <div class="actions"><button class="button action" type="submit" data-submitting-label="Checking and importing package...">Import saved package</button></div>
     </form>
   </details>
 
-  <div class="actions"><a class="button secondary" href="/projects/{{ project.project_id }}">Back to data project</a></div>
+  <div class="actions"><a class="button navigation" href="/projects/{{ project.project_id }}">Back to data project</a></div>
 {% endblock %}

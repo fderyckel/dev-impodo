@@ -69,7 +69,7 @@
                 <p>{{ issue.recovery_action }}</p>
               </div>
             {% endfor %}
-            <a class="button secondary" href="/workspaces/{{ application.workspace_id }}/overview">Open Recipe work area</a>
+            <a class="button action" href="/workspaces/{{ application.workspace_id }}/overview">Open Recipe work area</a>
           </div>
         </li>
       {% endfor %}
@@ -90,7 +90,7 @@
         <input type="hidden" name="operation_id" value="{{ operation_id }}">
         <input type="hidden" name="expected_project_revision" value="{{ expected_project_revision }}">
         <input type="hidden" name="expected_evidence_hash" value="{{ review.integrated_evidence_hash }}">
-        <button class="button" type="submit">Qualify integrated Test</button>
+        <button class="button action" type="submit">Qualify integrated Test</button>
       </form>
     </section>
   {% elif review.can_select %}
@@ -107,7 +107,7 @@
         <input type="hidden" name="operation_id" value="{{ operation_id }}">
         <input type="hidden" name="expected_project_revision" value="{{ expected_project_revision }}">
         <input type="hidden" name="qualification_id" value="{{ review.qualification.qualification_id }}">
-        <button class="button" type="submit">Select rollout candidate</button>
+        <button class="button action" type="submit">Select rollout candidate</button>
       </form>
     </section>
   {% elif review.state.value == 'SELECTED' %}
@@ -118,7 +118,7 @@
   {% endif %}
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}">Back to Test run</a>
+    <a class="button navigation" href="/projects/{{ project.project_id }}/runs/{{ review.migration_run_id }}">Back to Test run</a>
   </div>
   {{ concept_help_dialog("cutover-plan") }}
 {% endblock %}

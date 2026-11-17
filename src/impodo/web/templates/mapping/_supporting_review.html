@@ -8,7 +8,7 @@
       {% for item in related_data_review.conflict_items %}
       <li>
         <strong>{{ item.title }}</strong><p>{{ item.message }}</p>
-        <a class="button secondary" href="{{ item.fix_url }}" data-review-related-field data-review-anchor="{{ item.anchor }}" data-dataset-id="{{ item.dataset_id }}">Review this field</a>
+        <a class="button action" href="{{ item.fix_url }}" data-review-related-field data-review-anchor="{{ item.anchor }}" data-dataset-id="{{ item.dataset_id }}">Review this field</a>
       </li>
       {% endfor %}
     </ul>
@@ -19,13 +19,13 @@
     <form method="post" action="/workspaces/{{ workspace_id }}/schema/supporting/save" data-related-review-form>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
-        <button class="button primary" type="submit">Confirm choices and check matches</button>
+        <button class="button action" type="submit">Confirm choices and check matches</button>
       </div>
       <details data-related-review-details{% if related_data_review.error %} open{% endif %}>
         <summary>Review {{ related_data_review.rows|length }} choices</summary>
         {% include "_supporting_review_choices.html" %}
         <div class="actions">
-          <button class="button primary" type="submit">Confirm choices and check matches</button>
+          <button class="button action" type="submit">Confirm choices and check matches</button>
         </div>
       </details>
     </form>
@@ -36,7 +36,7 @@
     <p data-related-review-reference hidden></p>
   </details>
   <div class="actions">
-    <button class="button secondary" type="button" data-reload-related-review>Reload choices</button>
+    <button class="button action" type="button" data-reload-related-review>Reload choices</button>
     <a href="/workspaces/{{ workspace_id }}/schema#supporting-data-review">Review in Odoo data</a>
   </div>
 </section>

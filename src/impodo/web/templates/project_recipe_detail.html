@@ -12,7 +12,7 @@
 
   {% if can_revise %}
     <div class="actions">
-      <a class="button primary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision.version }}">Revise this Recipe</a>
+      <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision.version }}">Revise this Recipe</a>
     </div>
   {% endif %}
 
@@ -111,7 +111,7 @@
           <div class="overview-stage-copy">
             <h3>Recipe v{{ item.version }}</h3>
             <p>Saved {{ item.published_at.strftime('%Y-%m-%d %H:%M') }}</p>
-            {% if item.version != revision.version %}<a class="button secondary" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ item.version }}">Open version</a>{% endif %}
+            {% if item.version != revision.version %}<a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}?version={{ item.version }}">Open version</a>{% endif %}
           </div>
         </li>
       {% endfor %}
@@ -119,6 +119,6 @@
   </section>
 
   <div class="actions">
-    <a class="button secondary" href="/projects/{{ project.project_id }}#recipe-{{ recipe.recipe_id }}">Back to data project</a>
+    <a class="button navigation" href="/projects/{{ project.project_id }}#recipe-{{ recipe.recipe_id }}">Back to data project</a>
   </div>
 {% endblock %}

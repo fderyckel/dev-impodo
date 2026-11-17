@@ -296,7 +296,7 @@ class MappingDefaultsBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.assertRegex(
             page.text,
-            r'<button class="button primary"[^>]*disabled>'
+            r'<button class="button action"[^>]*disabled>'
             r"Confirm field matches</button>",
         )
         self.assertNotIn('data-target-field="field_0000"', page.text)

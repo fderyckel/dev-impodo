@@ -51,11 +51,11 @@
                   <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
                   <div class="actions">
                     {% if issue_view.fix_url %}
-                      <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                      <a class="button action" href="{{ issue_view.fix_url }}">Match this field</a>
                     {% endif %}
                     {% if issue_view.can_choose_default %}
                       <button
-                        class="button secondary"
+                        class="button action"
                         type="submit"
                         name="action"
                         value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
@@ -63,7 +63,7 @@
                     {% endif %}
                     {% if issue_view.can_choose_managed %}
                       <button
-                        class="button secondary"
+                        class="button action"
                         type="submit"
                         name="action"
                         value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"
@@ -76,9 +76,9 @@
                     · <code>{{ issue_view.issue.target_model }}.{{ issue_view.issue.target_field }}</code>
                   </details>
                 {% elif blocker.href %}
-                  <a class="button secondary" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
+                  <a class="button action" href="{{ blocker.href }}">{{ blocker.action_label }}</a>
                 {% elif blocker.action %}
-                  <button class="button secondary" type="submit" name="action" value="{{ blocker.action }}">
+                  <button class="button action" type="submit" name="action" value="{{ blocker.action }}">
                     {{ blocker.action_label }}
                   </button>
                 {% endif %}
@@ -101,11 +101,11 @@
                       <p><strong>How to fix:</strong> {{ issue_view.issue.remediation }}</p>
                       <div class="actions">
                         {% if issue_view.fix_url %}
-                          <a class="button secondary" href="{{ issue_view.fix_url }}">Match this field</a>
+                          <a class="button action" href="{{ issue_view.fix_url }}">Match this field</a>
                         {% endif %}
                         {% if issue_view.can_choose_default %}
                           <button
-                            class="button secondary"
+                            class="button action"
                             type="submit"
                             name="action"
                             value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_default"
@@ -113,7 +113,7 @@
                         {% endif %}
                         {% if issue_view.can_choose_managed %}
                           <button
-                            class="button secondary"
+                            class="button action"
                             type="submit"
                             name="action"
                             value="set_disposition:{{ issue_view.dataset_index }}:{{ issue_view.issue.target_field }}:odoo_managed"

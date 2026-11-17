@@ -16,9 +16,9 @@
     </table></div>
   {% else %}<p>No rejected records or pending relationship updates were found in this saved load.</p>{% endif %}
   <div class="actions">
-    {% if next_after is not none %}<a class="button primary" href="?run_id={{ error_run_id|urlencode }}&amp;after={{ next_after }}">Next records</a>{% endif %}
-    <a class="button secondary" href="?run_id={{ error_run_id|urlencode }}">First records</a>
-    <a class="button secondary" href="/workspaces/{{ workspace_id }}/history/6">View saved load</a>
+    {% if next_after is not none %}<a class="button navigation" href="?run_id={{ error_run_id|urlencode }}&amp;after={{ next_after }}">Next records</a>{% endif %}
+    <a class="button action" href="?run_id={{ error_run_id|urlencode }}">First records</a>
+    <a class="button action" href="/workspaces/{{ workspace_id }}/history/6">View saved load</a>
   </div>
 </section>
 {% endblock %}

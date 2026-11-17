@@ -72,8 +72,8 @@
       <input type="hidden" name="blank_policy" value="{{ pending_rule.blank_policy }}">
       <input type="hidden" name="source_dataset_use" value="{{ pending_related.source_dataset_use }}">
       <div class="actions source-review-actions">
-        <button class="button source-review-change" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
-        <button class="button secondary" type="submit">Use these tables</button>
+        <button class="button action source-review-change" type="button" data-derived-entity-target="related-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
+        <button class="button action" type="submit">Use these tables</button>
       </div>
     </form>
   </section>

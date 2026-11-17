@@ -63,8 +63,8 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       <div class="actions">
-        <a class="button secondary" href="/workspaces/{{ workspace_id }}/transfer-review#review-package">Back to approved review</a>
-        <button class="button primary" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>
+        <a class="button navigation" href="/workspaces/{{ workspace_id }}/transfer-review#review-package">Back to approved review</a>
+        <button class="button action" data-next-step="100" type="submit" {% if not destination_credential_status.available %}disabled{% endif %}>
           Run read-only preflight
         </button>
       </div>
@@ -228,7 +228,7 @@
             <h2>Continue to the guarded destination load</h2>
             <p>Impodo performs one final no-write read, prepares the exact load, then asks you to confirm the destination and record count before writing.</p>
           </div>
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-load">Prepare exact destination load</a>
+          <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/transfer-load">Prepare exact destination load</a>
         </section>
       {% else %}
         <div class="notice warning">

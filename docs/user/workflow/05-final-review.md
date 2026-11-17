@@ -112,6 +112,12 @@ identifies the completed Final review and links to its saved comparison.
 Recipe Test runs retain their existing automatic completion when no changes
 are needed.
 
+In **Review results**, a missing or ambiguous linked record shows the value
+Impodo tried to find, the matching fields, and any company or parent scope.
+For example, a missing contact can show `Reference: "000745"` rather than only
+the linked field name. Fields with several linked values identify the failed
+values. If saved lookup details are unavailable, compare with Odoo again.
+
 **Records outside this load** separates records omitted during preparation
 from records omitted by an accepted Final review decision. Open the relevant
 list to inspect its rows. The preparation list explains whether a row was
@@ -297,14 +303,25 @@ that need a data manager.
 Open **Fields set aside** from **Review overview** to see saved field
 omissions and their reasons. Red rows identify source values that need
 correction. Amber rows identify matches to review. Blue rows identify saved
-rules and choices, such as a source column used for validation only. Filter by
+rules and choices, such as a source column used for validation only or one
+you deliberately left unmapped in **Source columns set aside**. Filter by
 reason, dataset, or source field to find the entries you need.
 
 The counts separate identified source cells from whole columns. If a finding
 covers several source columns or lacks a precise source coordinate, Impodo
-lists it as a field finding. Some saved evidence has a reason without the
-original value. The workbook labels that value **Unavailable**. **Deferred
-issues** explains why whole records were set aside.
+lists it as a field finding. For direct file columns rejected during preparation,
+the workbook can show the original accepted value, including leading zeros and
+spaces. It uses saved source evidence, so recreating the workbook does not
+require the uploaded file. Excel display formatting, such as a custom date
+format, is not retained. If an original exceeds Excel's text limit or contains
+unsupported characters, workbook creation stops with a message so you can
+review the finding in Impodo.
+
+A captured blank remains blank; its cell note distinguishes a blank cell from
+empty text. **Unavailable** means exact source evidence was not established.
+**Withheld** means the value is excluded because the workspace contains restricted
+data. Combined values and later comparison findings can still show
+**Unavailable**. **Deferred issues** explains why whole records were set aside.
 
 Read the coverage note on this tab and in **Review overview**. It names gaps
 in the saved evidence, counts findings without available original values, and

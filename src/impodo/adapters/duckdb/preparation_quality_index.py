@@ -12,6 +12,10 @@ from impodo.application.workspace.preparation.prepared_quality_projection import
     PreparedQualityProjection,
     PreparedQualityProjectionError,
 )
+from impodo.application.workspace.preparation.quality_finding_store import (
+    FindingSet,
+    QualityFindingStore,
+)
 from impodo.domain.preparation.quality_budget import (
     QUALITY_FINDING_INDEX_MAX_BYTES,
     QualityFindingBudget,
@@ -42,9 +46,11 @@ def _read_finding_projection(
     cursor: duckdb.DuckDBPyConnection,
     *,
     budget: QualityFindingBudget | None = None,
-    excluded_row_ids: set[str] | None = None,
+    excluded_row_ids: set[str] | FindingSet[str] | None = None,
     retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
-) -> tuple[tuple[object, ...], ...]:
+    finding_store: QualityFindingStore | None = None,
+    collection: str = "facts",
+) -> Sequence[Sequence[object]]:
     """Bound findings, retaining base exclusions only as membership IDs.
 
     Exclusion callers project disposition at offset four and row ID at one.
@@ -53,9 +59,14 @@ def _read_finding_projection(
     Coordinates referenced by run-level findings keep their full metadata.
     """
 
-    rows: list[tuple[object, ...]] = []
+    rows = (
+        finding_store.sequence(
+            collection, encode=lambda row: json.dumps(tuple(row)),
+            decode=lambda text: tuple(json.loads(text)),
+        ) if finding_store is not None else []
+    )
     budget = budget or QualityFindingBudget(limit_bytes=QUALITY_FINDING_INDEX_MAX_BYTES)
-    while batch := cursor.fetchmany(256):
+    while batch := cursor.fetchmany(1 if finding_store is not None else 256):
         excluded = (
             {
                 str(row[1]) for row in batch
@@ -80,13 +91,21 @@ def _read_finding_projection(
                 for row_id in excluded if row_id not in excluded_row_ids
             )
         try:
-            budget.consume(estimated_bytes)
+            if finding_store is None:
+                budget.consume(estimated_bytes)
+            elif estimated_bytes > budget.limit_bytes:
+                raise QualityFindingBudgetExceeded(
+                    "One data-check finding exceeds the working memory budget. "
+                    "No partial review evidence was published."
+                )
         except QualityFindingBudgetExceeded as error:
             raise WorkspaceError(str(error)) from error
-        rows.extend(findings)
+        for finding in findings:
+            rows.append(finding)
         if excluded_row_ids is not None:
-            excluded_row_ids.update(excluded)
-    return tuple(rows)
+            for row_id in excluded:
+                excluded_row_ids.add(row_id)
+    return rows if finding_store is not None else tuple(rows)
 
 
 class PreparationQualityIndex:
@@ -220,6 +239,7 @@ class PreparationQualityIndex:
         *,
         numeric_fields: tuple[PreparedNumericField, ...] = (),
         retained_excluded_coordinates: frozenset[tuple[str, int]] = frozenset(),
+        finding_store: QualityFindingStore | None = None,
     ) -> PreparedQualityProjection | None:
         """Validate prepared rows and arbitrary physical lineage using narrow facts."""
 
@@ -350,7 +370,8 @@ class PreparationQualityIndex:
                 return None
             finding_volume = connection.execute(
                 """
-                SELECT COALESCE(SUM(octet_length(encode(issue.issue_json)) + 512), 0)
+                SELECT COALESCE(SUM(octet_length(encode(issue.issue_json)) + 512), 0),
+                       COALESCE(MAX(octet_length(encode(issue.issue_json)) + 512), 0)
                   FROM canonical_staging_row_issue AS issue
                   JOIN canonical_staging_row AS row
                     ON row.run_id = issue.run_id AND row.ordinal = issue.ordinal
@@ -361,7 +382,15 @@ class PreparationQualityIndex:
                 """,
                 [session_id],
             ).fetchone()
-            if finding_volume is None or int(finding_volume[0]) > QUALITY_FINDING_INDEX_MAX_BYTES:
+            if finding_volume is not None and finding_store is not None and int(finding_volume[1]) > QUALITY_FINDING_INDEX_MAX_BYTES:
+                raise WorkspaceError(
+                    "One data-check finding exceeds the working memory budget. "
+                    "No partial review evidence was published."
+                )
+            if finding_volume is None or (
+                finding_store is None
+                and int(finding_volume[0]) > QUALITY_FINDING_INDEX_MAX_BYTES
+            ):
                 raise WorkspaceError(
                     "The data-check findings exceed the bounded review memory budget. "
                     "Correct the repeated source errors and prepare again; no whole-run fallback was run."
@@ -385,7 +414,7 @@ class PreparationQualityIndex:
                  ORDER BY issue.ordinal, issue.issue_ordinal
                 """,
                 [session_id],
-            ), budget=finding_budget)
+            ), budget=finding_budget, finding_store=finding_store, collection="source_findings")
             collisions = _read_finding_projection(connection.execute(
                 """
                 WITH collision AS (
@@ -409,8 +438,16 @@ class PreparationQualityIndex:
                  ORDER BY row.ordinal
                 """,
                 [session_id, session_id],
-            ), budget=finding_budget)
-            excluded_row_ids: set[str] = set()
+            ), budget=finding_budget, finding_store=finding_store, collection="collision_findings")
+            excluded_row_ids: set[str] | FindingSet[str] = (
+                FindingSet(
+                    finding_store.mapping(
+                        "base_excluded", encode_key=str, decode_key=str,
+                        encode_value=str, decode_value=str,
+                    ),
+                    finding_store.values("base_excluded", decode_value=str),
+                ) if finding_store is not None else set()
+            )
             exception_rows = _read_finding_projection(connection.execute(
                 """
                 SELECT row.ordinal, row.row_id, row.dataset, row.source_row,
@@ -427,7 +464,8 @@ class PreparationQualityIndex:
                 """,
                 [session_id],
             ), budget=finding_budget, excluded_row_ids=excluded_row_ids,
-                retained_excluded_coordinates=retained_excluded_coordinates)
+                retained_excluded_coordinates=retained_excluded_coordinates,
+                finding_store=finding_store, collection="exception_findings")
             precision_rows = PreparationQualityIndex._bounded_numeric_precision_rows(
                 self,
                 connection,
@@ -435,6 +473,7 @@ class PreparationQualityIndex:
                 session_id,
                 numeric_fields,
                 finding_budget=finding_budget,
+                finding_store=finding_store,
             )
             try:
                 return PreparedQualityProjection(
@@ -455,7 +494,10 @@ class PreparationQualityIndex:
                     issue_rows=issue_rows,
                     collisions=collisions,
                     exception_rows=exception_rows,
-                    excluded_row_ids=frozenset(excluded_row_ids),
+                    excluded_row_ids=(
+                        excluded_row_ids if isinstance(excluded_row_ids, FindingSet)
+                        else frozenset(excluded_row_ids)
+                    ),
                     precision_rows=precision_rows,
                     finding_budget=finding_budget,
                 )
@@ -473,14 +515,17 @@ class PreparationQualityIndex:
         numeric_fields: tuple[PreparedNumericField, ...],
         *,
         finding_budget: QualityFindingBudget | None = None,
-    ) -> tuple[tuple[object, ...], ...]:
+        finding_store: QualityFindingStore | None = None,
+    ) -> Sequence[Sequence[object]]:
         """Stream values and transport failures before retaining capped findings."""
 
         return bounded_numeric_precision_rows(
             host, connection, workspace_id, session_id, numeric_fields,
             max_bytes=QUALITY_FINDING_INDEX_MAX_BYTES,
+            retain_in_memory=finding_store is None,
             read_findings=lambda cursor: _read_finding_projection(
                 cursor, budget=finding_budget,
+                finding_store=finding_store, collection="numeric_findings",
             ),
         )
 
@@ -490,7 +535,8 @@ class PreparationQualityIndex:
         session_id: str,
         unsafe_row_ids: Sequence[str],
         propagating_datasets: Sequence[str],
-    ) -> tuple[tuple[object, ...], ...]:
+        *, finding_store: QualityFindingStore | None = None,
+    ) -> Sequence[Sequence[object]]:
         """Return only affected children after one recursive set operation."""
 
         canonical_session_id = canonical_preparation_session_id(session_id)
@@ -524,13 +570,13 @@ class PreparationQualityIndex:
                     )
                     """
                 )
-                if unsafe_row_ids:
+                for start in range(0, len(unsafe_row_ids), 256):
                     connection.execute(
                         """
                         INSERT INTO relationship_initial_unsafe
                         SELECT DISTINCT CAST(unnest(?) AS VARCHAR)
                         """,
-                        [list(unsafe_row_ids)],
+                        [list(unsafe_row_ids[start:start + 256])],
                     )
                 connection.execute(
                     """
@@ -649,7 +695,7 @@ class PreparationQualityIndex:
                                   edge.target_field, edge.resolution_state
                         """,
                         [canonical_session_id],
-                    )
+                    ), finding_store=finding_store, collection="relationship_findings",
                 )
                 connection.commit()
                 return findings

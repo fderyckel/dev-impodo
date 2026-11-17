@@ -588,6 +588,10 @@ class PreflightWorkspaceRepository(Protocol):
 class PreflightSourceRepository(Protocol):
     """Load the effective frozen selection used by the submitted mapping."""
 
+    def get_source_selection(self, workspace_id: str) -> SourceSelection | None:
+        """Return the physical selection binding immutable source snapshots."""
+        ...
+
     def get_mapping_source_selection(self, workspace_id: str) -> SourceSelection | None:
         """Return stable dataset and column identities used by final review."""
         ...

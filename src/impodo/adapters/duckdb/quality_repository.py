@@ -20,6 +20,9 @@ import duckdb
 
 from impodo.adapters.artifacts.local_store import LocalArtifactStore
 from impodo.application.shared.artifacts import WorkspaceArtifactStore
+from impodo.application.workspace.preparation.quality_finding_store import (
+    FindingBatchReader,
+)
 from impodo.domain.preparation.quality import (
     QUALITY_CONTRACT_VERSION,
     QUALITY_EVALUATOR_VERSION,
@@ -563,6 +566,22 @@ def _projected_quality_cause_counts(
         raise WorkspaceError(
             "Stored quality cause projection is invalid"
         ) from error
+
+
+def _quality_evidence_batches[T](values: Sequence[T]) -> Iterator[tuple[int, Sequence[T]]]:
+    """Publish every finding in canonical order with bounded input pages."""
+    batches = (
+        values.iter_batches(QUALITY_ROW_BATCH_SIZE)
+        if isinstance(values, FindingBatchReader)
+        else (values[start:start + QUALITY_ROW_BATCH_SIZE]
+              for start in range(0, len(values), QUALITY_ROW_BATCH_SIZE))
+    )
+    start = 0
+    for batch in batches:
+        yield start, batch
+        start += len(batch)
+    if start != len(values):
+        raise WorkspaceError("Quality evidence pages are incomplete")
 
 
 def _quality_issue_rows(
@@ -2092,8 +2111,7 @@ class QualityRepository(DuckDbRepository):
         )
         hasher.add_value("evaluator_version", run.evaluator_version)
         hasher.start_array("issues")
-        for start in range(0, len(run.issues), QUALITY_ROW_BATCH_SIZE):
-            batch = run.issues[start : start + QUALITY_ROW_BATCH_SIZE]
+        for start, batch in _quality_evidence_batches(run.issues):
 
             inserted_issues = 0
             for encoded_batch in iter_encoded_json_batches(
@@ -2129,8 +2147,7 @@ class QualityRepository(DuckDbRepository):
         hasher.end_array()
         hasher.add_value("mapping_hash", run.mapping_hash)
         hasher.start_array("quarantine")
-        for start in range(0, len(run.quarantine), QUALITY_ROW_BATCH_SIZE):
-            batch = run.quarantine[start : start + QUALITY_ROW_BATCH_SIZE]
+        for start, batch in _quality_evidence_batches(run.quarantine):
 
             inserted_entries = 0
             for encoded_batch in iter_encoded_json_batches(

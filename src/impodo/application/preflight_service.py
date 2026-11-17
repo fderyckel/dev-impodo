@@ -23,6 +23,9 @@ from impodo.application.shared.artifacts import (
     GovernedArtifactStores,
 )
 from impodo.application.shared.performance import performance_count, performance_phase
+from impodo.application.workspace.review.original_values import (
+    plan_workbook_original_values,
+)
 from impodo.domain.execution.models import ExecutionRun
 from impodo.domain.execution.planner import (
     PreflightRequirementPlan,
@@ -39,6 +42,7 @@ from impodo.domain.odoo.contracts import (
 )
 from impodo.domain.preflight.attention import AttentionExport
 from impodo.domain.preflight.mapping_summary import workbook_mapping_rules
+from impodo.domain.preflight.reference_review import readiness_reference_details
 from impodo.domain.preparation.preflight import PreflightEngine
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
@@ -706,9 +710,19 @@ class PreflightService:
                 )
             )
         models = frozen.captured_schema.models if frozen.captured_schema else ()
+        fields, original_requests = plan_workbook_original_values(
+            fields=frozen.fields_set_aside,
+            selection=frozen.workbook_selection,
+            physical_selection_hash=frozen.workbook_physical_selection_hash,
+            mappings=frozen.workbook_mappings,
+            sources=self.sources,
+            workspace_id=workspace_id,
+            restricted=workspace_state.data_classification is DataClassification.RESTRICTED,
+        )
         return ReviewWorkbookEvidence(
             frozen_input_hash=frozen.content_hash,
-            fields_set_aside=frozen.fields_set_aside,
+            fields_set_aside=fields,
+            original_source_requests=original_requests,
             omitted_rows=frozen.workbook_omitted_rows,
             mapping_rules=frozen.workbook_mapping_rules or {},
             records=tuple(frozen.prepared.records),
@@ -1549,6 +1563,10 @@ class PreflightService:
             with timed_preflight_publication("manifest_serialization"):
                 manifest_content = canonical_json_bytes(manifest) + b"\n"
             del manifest
+            reference_details = readiness_reference_details(
+                result, frozen.prepared.records, frozen.plan.datasets,
+                getattr(frozen, "captured_schema", None),
+            )
             report = _readiness_report(
                 run_id,
                 workspace_state,
@@ -1564,6 +1582,7 @@ class PreflightService:
                 requirement_plan_hash=requirement_plan_hash,
                 metadata_snapshot_hash=result.metadata_snapshot_hash,
                 record_snapshot_hash=result.record_snapshot_hash,
+                reference_details=reference_details,
             )
             report = replace(
                 report,

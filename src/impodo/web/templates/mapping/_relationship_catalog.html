@@ -11,7 +11,7 @@
               Find an Odoo list or linked field
               <input type="search" value="{{ view.relation_query }}" data-relation-field-search placeholder="For example: Category or Company" autocomplete="off">
             </label>
-            <button class="button secondary" type="button" data-relation-search-submit>Search</button>
+            <button class="button action" type="button" data-relation-search-submit>Search</button>
             <p class="muted" data-relation-field-count role="status" aria-live="polite">
               Showing {{ view.relation_rows|length }} of {{ view.relation_matching_total }} linked fields · {{ view.relation_mapped_total }} connected
             </p>
@@ -41,7 +41,7 @@
                     </strong>
                     <p>Impodo will leave this linked field out when it prepares records.</p>
                     <button
-                      class="button secondary compact"
+                      class="button action compact"
                       type="submit"
                       name="action"
                       value="clear_disposition:{{ dataset_index }}:{{ row.metadata.name }}"
@@ -140,7 +140,7 @@
                             <option value="">Check this record to load available choices</option>
                           </select>
                         </label>
-                        <button class="button secondary compact" type="button" data-check-constant-record>Check this record</button>
+                        <button class="button action compact" type="button" data-check-constant-record>Check this record</button>
                         <small data-constant-choice-status role="status" aria-live="polite">
                           {% if row.constant_component_values %}{{ row.constant_component_values|join(' · ') }} will be used for all {{ view.source.row_count }} {{ view.source.name }} rows.{% else %}Impodo stores only the portable business key, never the Odoo database ID.{% endif %}
                         </small>
@@ -215,7 +215,7 @@
                       </label>
                       {% if row.can_choose_matching_field %}
                         <div data-relationship-field-picker {% if selected_origin != 'target_catalog' %}hidden{% endif %}>
-                          <button type="button" class="button secondary compact" data-load-linked-matching-fields
+                          <button type="button" class="button action compact" data-load-linked-matching-fields
                             data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
                             data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
                           <small role="status" data-linked-matching-field-status></small>
@@ -282,7 +282,7 @@
                       <div class="value-match-entry relationship-value-match-entry" data-linked-value-match-entry {% if row.chosen_matching_field %}hidden{% endif %}>
                         {% if row.related_keys %}
                         <button
-                          class="button secondary compact"
+                          class="button action compact"
                           type="button"
                           data-open-value-match
                           data-value-match-kind="relationship"
@@ -347,9 +347,9 @@
               {% endfor %}
             </div>
             <div class="field-pagination">
-              {% if view.relation_previous_url %}<a class="button secondary" href="{{ view.relation_previous_url }}">Previous</a>{% endif %}
+              {% if view.relation_previous_url %}<a class="button navigation" href="{{ view.relation_previous_url }}">Previous</a>{% endif %}
               <span class="muted">Page {{ view.relation_page }} of {{ view.relation_page_count }}</span>
-              {% if view.relation_next_url %}<a class="button secondary" href="{{ view.relation_next_url }}">Show more fields</a>{% endif %}
+              {% if view.relation_next_url %}<a class="button action" href="{{ view.relation_next_url }}">Show more fields</a>{% endif %}
             </div>
           </nav>
           </div>

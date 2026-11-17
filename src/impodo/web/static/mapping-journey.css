@@ -320,7 +320,7 @@
     width: 100%;
   }
 
-  .mapping-journey-action-group .button.primary {
+  .mapping-journey-action-group [data-next-step] {
     flex: 1 1 auto;
   }
 

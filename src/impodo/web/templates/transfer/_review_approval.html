@@ -13,7 +13,7 @@
           resolution with the destination transfer key. It cannot write to Odoo.
         </div>
         <div class="actions">
-          <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-preflight">Continue to destination preflight</a>
+          <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/transfer-preflight">Continue to destination preflight</a>
         </div>
       {% else %}
         <form method="post" action="/workspaces/{{ workspace_id }}/transfer-review/approve">
@@ -37,10 +37,10 @@
           </label>
           <div class="actions">
             <a
-              class="button secondary"
+              class="button navigation"
               href="/workspaces/{{ workspace_id }}/transfer-review?step=contents#review-package"
             >Back to transfer contents</a>
-            <button class="button primary" type="submit">Approve exact transfer package</button>
+            <button class="button action" data-next-step="100" type="submit">Approve exact transfer package</button>
           </div>
         </form>
       {% endif %}

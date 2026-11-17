@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
   if (!discard) {
     discard = document.createElement("button");
     discard.type = "button";
-    discard.className = "button secondary";
+    discard.className = "button navigation";
     discard.dataset.sourceDiscard = "";
     discard.textContent = "Discard unsaved change";
     discard.hidden = true;
@@ -309,7 +309,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (bar.querySelector("[data-source-read-back]")) return;
     const check = document.createElement("button");
     check.type = "button";
-    check.className = "button secondary";
+    check.className = "button action";
     check.dataset.sourceReadBack = "";
     check.textContent = "Check saved changes";
     check.addEventListener("click", async () => {
@@ -323,7 +323,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (submitted !== current) {
           showNotice("Saved changes are available. Open them to check the result before making another change.");
           const open = document.createElement("a");
-          open.className = "button secondary";
+          open.className = "button action";
           open.textContent = "Open saved changes";
           open.href = `${sourcePath}#saved-source-changes`;
           open.dataset.sourceOpenSaved = "";

@@ -99,7 +99,7 @@ class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("How should Impodo find an existing Asset?", page.text)
         self.assertIn("Common Odoo convention", page.text)
         self.assertIn("Enforced by Odoo", page.text)
-        self.assertIn("Confirm suggested matching rules", page.text)
+        self.assertIn("Confirm suggested matching rules and continue", page.text)
         self.assertEqual(self._connector_calls(), before_review)
 
         confirmed = self.client.post(
@@ -228,11 +228,12 @@ class Stage2MatchingRuleJourneyTests(ProjectSetupBrowserTestCase):
             re.compile(
                 r"How should Impodo find an existing Product\?.*?"
                 r"Confirmed matching rule.*?Internal Reference.*?"
-                r"Save changes and continue",
+                r"Confirm matching rules and continue",
                 re.DOTALL,
             ),
         )
         self.assertIn("data-key-confirmed=\"true\"", reopened.text)
+        self.assertNotIn("data-key-card-submit", reopened.text)
 
         selections["product.template"] = (
             ("x_legacy_code",),

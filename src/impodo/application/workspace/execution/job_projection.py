@@ -41,16 +41,22 @@ def project_load_progress(
         if progress.active_component is not None
         else group_count
     )
+    control_state = progress.load_control_state
+    pause_reason = progress.load_pause_reason
+    if (
+        job.load_control_state == "STOP_REQUESTED"
+        and control_state not in {"STOPPED", "FINISHED"}
+    ):
+        # The stop was recorded after this worker snapshot was captured.
+        control_state = "STOP_REQUESTED"
+        pause_reason = job.load_pause_reason
     message = LOAD_PHASE_LABELS[effective_phase]
     if effective_phase is LoadPhase.WRITING and group_number and group_count:
         message = f"Sending load group {group_number} of {group_count} to Odoo"
-    control_state = progress.load_control_state
     if control_state == "PAUSED":
         message = "Upload paused after repeated failures; review the saved results"
     elif control_state == "STOP_REQUESTED":
         message = "Stopping after the current request"
-    if job.load_control_state == "STOP_REQUESTED" and control_state == "RUNNING":
-        control_state = "STOP_REQUESTED"
     return replace(
         job,
         phase=effective_phase,
@@ -67,7 +73,7 @@ def project_load_progress(
         progress_percent=max(job.progress_percent, percent),
         execution_run_id=progress.run_id,
         load_control_state=control_state,
-        load_pause_reason=progress.load_pause_reason,
+        load_pause_reason=pause_reason,
         rejected_count=progress.rejected_count,
         blocked_count=progress.blocked_count,
         unattempted_count=progress.unattempted_count,

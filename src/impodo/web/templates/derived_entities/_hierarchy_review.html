@@ -66,8 +66,8 @@
         <input type="hidden" name="existing_parent_choice" value="{{ hierarchy_parent_outcome.choices[0].value if hierarchy_parent_outcome and hierarchy_parent_outcome.choices else '' }}">
       {% endif %}
       <div class="actions source-review-actions">
-        <button class="button source-review-change" type="button" data-derived-entity-target="hierarchy-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
-        <button class="button secondary" type="submit">Use this table</button>
+        <button class="button action source-review-change" type="button" data-derived-entity-target="hierarchy-source-{{ pending_rule.source_dataset_id }}">Change selections</button>
+        <button class="button action" type="submit">Use this table</button>
       </div>
     </form>
   </section>

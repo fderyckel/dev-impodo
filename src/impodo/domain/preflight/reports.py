@@ -37,6 +37,7 @@ from .frozen_input import (
     ReviewWorkbookOmittedRow,
 )
 from .mapping_summary import ReviewWorkbookFieldRule
+from .original_values import OriginalSourceRequest
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +47,8 @@ class ReadinessRow:
     ``status`` is the review state (ready/review/blocked), while
     ``classification`` preserves the engine outcome such as ``CREATE`` or
     ``UPDATE``. ``source_trace_id`` links back to the eligible canonical row.
+    ``reference_details`` retains exact failed lookup keys for the authorized
+    operator; aggregate issue counts never contain these private row values.
     """
 
     dataset: str
@@ -61,12 +64,14 @@ class ReadinessRow:
     issue_count: int = 0
     source_trace_id: str = ""
     technical_codes: tuple[str, ...] = ()
+    reference_details: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         codes = tuple(dict.fromkeys(self.technical_codes))
         if not codes and self.technical_code:
             codes = (self.technical_code,)
         object.__setattr__(self, "technical_codes", codes)
+        object.__setattr__(self, "reference_details", tuple(self.reference_details))
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,6 +192,7 @@ class ReviewWorkbookEvidence:
     fields_set_aside: FieldSetAsideEvidence | None = None
     omitted_rows: tuple[ReviewWorkbookOmittedRow, ...] = ()
     mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] = field(default_factory=dict)
+    original_source_requests: tuple[OriginalSourceRequest, ...] = ()
 
 
 def review_workbook_action_priority(
@@ -523,11 +529,15 @@ def _readiness_report(
     metadata_snapshot_hash: str,
     record_snapshot_hash: str,
     manifest_hash: str = "",
+    reference_details: Mapping[str, tuple[str, ...]] | None = None,
 ) -> ReadinessReport:
     """Bind engine decisions and every evidence hash into a portable report."""
 
     rows = tuple(
-        _readiness_row(decision, dataset_labels, source_labels)
+        _readiness_row(
+            decision, dataset_labels, source_labels,
+            (reference_details or {}).get(decision.source_trace_id, ()),
+        )
         for decision in result.decisions
     )
     target_by_dataset: dict[str, str] = {}
@@ -760,6 +770,7 @@ def _readiness_row(
     decision: Decision,
     labels: Mapping[str, str],
     source_labels: Mapping[tuple[str, str], str],
+    reference_details: tuple[str, ...] = (),
 ) -> ReadinessRow:
     """Translate one technical decision into status, reason, and next action."""
 
@@ -810,6 +821,7 @@ def _readiness_row(
         issue_count=len(decision.issues),
         source_trace_id=decision.source_trace_id,
         technical_codes=technical_codes,
+        reference_details=reference_details,
     )
 
 
@@ -870,7 +882,7 @@ def plain_readiness_guidance(
         ),
         "REFERENCE_NOT_FOUND": (
             "A related record cannot be found.",
-            "Add or correct the related key.",
+            "Check the linked value and matching rule in Match data, including company or parent scope, then compare again.",
         ),
         "REFERENCE_AMBIGUOUS": (
             "A related key matches more than one record.",

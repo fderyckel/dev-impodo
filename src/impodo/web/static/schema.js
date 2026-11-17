@@ -75,10 +75,8 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   const supportingContinue = supportingSaveForm?.querySelector("[data-schema-related-continue]");
   if (supportingContinue) {
-    const save = supportingSaveForm.querySelector("[data-supporting-save]");
     const markChoicesUnsaved = () => {
-      save?.classList.replace("secondary", "primary");
-      supportingContinue.classList.replace("primary", "secondary");
+      supportingContinue.removeAttribute("data-next-step");
     };
     supportingSaveForm.addEventListener("input", markChoicesUnsaved);
     supportingSaveForm.addEventListener("change", markChoicesUnsaved);
@@ -167,7 +165,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const decisionStatus = decision.querySelector(
       "[data-key-decision-status]"
     );
-    const cardSubmit = decision.querySelector("[data-key-card-submit]");
     const keyForm = decision.closest("form");
     const wasConfirmed = decision.dataset.keyConfirmed === "true";
     let hasFieldConflict = false;
@@ -210,11 +207,9 @@ document.addEventListener("DOMContentLoaded", () => {
         decisionStatus.classList.toggle("attention", changed);
         decisionStatus.textContent = changed ? "Unsaved change" : "Rule confirmed";
       }
-      if (cardSubmit) {
-        cardSubmit.textContent = changed
-          ? "Save changes and continue"
-          : "Continue to Match data";
-      }
+      const confirm = keyForm?.querySelector("[data-schema-confirm-matching]");
+      if (confirm) confirm.setAttribute("data-next-step",
+        keyForm.querySelector(".has-unconfirmed-changes") ? "300" : confirm.dataset.nextSavedPriority);
     };
     const clearDescriptionForChangedIdentity = () => {
       if (!description || descriptionEdited) {

@@ -30,8 +30,8 @@
                   </div>
                   <textarea hidden readonly data-missing-parent-copy-values>{{ group.copy_text }}</textarea>
                   <div class="actions">
-                    <button class="button secondary small" type="button" data-copy-missing-parent-values>Copy {{ view.source_name }} {{ 'list' if group.stage3_list_supported else 'values' }}</button>
-                    {% if view.draft_url %}<a class="button secondary small" href="{{ view.draft_url }}">Draft exclusion rule</a>{% endif %}
+                    <button class="button action small" type="button" data-copy-missing-parent-values>Copy {{ view.source_name }} {{ 'list' if group.stage3_list_supported else 'values' }}</button>
+                    {% if view.draft_url %}<a class="button action small" href="{{ view.draft_url }}">Draft exclusion rule</a>{% endif %}
                   </div>
                   {% if view.draft_url %}<p class="muted">The draft opens Rows to use without saving. Check its included and excluded counts before confirming the rule.</p>{% endif %}
                 </article>

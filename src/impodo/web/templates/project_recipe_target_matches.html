@@ -73,7 +73,7 @@
           </div>
 
           {% if field.mapping_kind == 'scalar' %}
-            <button class="button secondary compact" type="button" data-refresh-selection
+            <button class="button action compact" type="button" data-refresh-selection
               data-target-model="{{ field.target_model }}" data-target-field="{{ field.target_field }}"
               data-refresh-url="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/applications/{{ application.application_id }}/target-matches/refresh">
               {% if field.target_field == 'lang' %}Refresh languages from Odoo{% else %}Refresh Odoo choices{% endif %}
@@ -138,13 +138,13 @@
 
       <div class="actions">
         {% if review.can_confirm %}
-          <button class="button primary" type="submit">
+          <button class="button action" data-next-step="100" type="submit">
             {% if review.needs_review_count %}Save matches and continue{% else %}Confirm and continue{% endif %}
           </button>
         {% endif %}
-        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+        <a class="button navigation" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
         {% if not review.can_confirm %}
-          <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
+          <a class="button action" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
         {% endif %}
       </div>
     </form>
@@ -154,8 +154,8 @@
       {% if review %}{% for reason in review.blocking_reasons %}<p>{{ reason }}</p>{% endfor %}{% endif %}
       <p>Review the run's checks. If the source data needs correction, start a new run with the corrected delivery. If a field rule needs changing, save a new Recipe version from its data project workspace.</p>
       <div class="actions">
-        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
-        <a class="button secondary" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
+        <a class="button navigation" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}">Back to run</a>
+        <a class="button action" href="/projects/{{ project_id }}/runs/{{ application.migration_run_id }}/odoo">Recheck Odoo</a>
       </div>
     </section>
   {% endif %}

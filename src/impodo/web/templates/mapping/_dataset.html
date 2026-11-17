@@ -21,7 +21,7 @@
             </div>
             <div>
               {% if not view.active %}
-                <a class="button secondary" href="{{ view.edit_url }}" data-mapping-table-link>Edit this table</a>
+                <a class="button action" href="{{ view.edit_url }}" data-mapping-table-link>Edit this table</a>
               {% endif %}
               <details class="technical-details">
                 <summary>Support details</summary>
@@ -209,7 +209,7 @@
                           <p>Choose <strong>{{ original_column.source_name }}</strong> for this Odoo field to keep the source spelling and capitalization. Keep the generated matching key under <strong>Unique row identifier</strong>.</p>
                           {% if row.original_spelling_column %}
                             <p>This field currently uses the matching key, which normalizes case. Select <strong>Use original spelling</strong>, then save and check your matches. If these records were already loaded, correct the existing records before loading again.</p>
-                            <button type="button" class="button secondary compact" data-use-original-spelling data-column-key="{{ row.original_spelling_column.stable_key }}">Use original spelling</button>
+                            <button type="button" class="button action compact" data-use-original-spelling data-column-key="{{ row.original_spelling_column.stable_key }}">Use original spelling</button>
                           {% endif %}
                         </details>
                       {% endif %}
@@ -258,7 +258,7 @@
                           </select>
                           {% if row.can_choose_matching_field %}
                             <div data-relationship-field-picker {% if row.selected_origin != 'target_catalog' %}hidden{% endif %}>
-                              <button type="button" class="button secondary compact" data-load-linked-matching-fields
+                              <button type="button" class="button action compact" data-load-linked-matching-fields
                                 data-endpoint="/workspaces/{{ workspace_id }}/mapping/linked-matching-fields"
                                 data-target-model="{{ view.selected_model }}">Load Odoo matching fields</button>
                               <small role="status" data-linked-matching-field-status></small>
@@ -277,7 +277,7 @@
               {% else %}
                 <div class="empty-state compact">
                   <p>No matching rule has been confirmed for {{ view.selected_model }}.</p>
-                  <a class="button secondary" href="/workspaces/{{ workspace_id }}/schema">Set an Odoo matching rule</a>
+                  <a class="button action" href="/workspaces/{{ workspace_id }}/schema">Set an Odoo matching rule</a>
                 </div>
               {% endif %}
               </div>
@@ -285,7 +285,7 @@
           </div>
           {% if view.active and identity_health %}
             <div class="actions mapping-early-check">
-              <button class="button secondary" type="submit" form="mapping-identity-check" data-mapping-early-check {% if not identity_health.can_start %}disabled{% endif %}>Check saved identities</button>
+              <button class="button action" type="submit" form="mapping-identity-check" data-mapping-early-check {% if not identity_health.can_start %}disabled{% endif %}>Check saved identities</button>
               <small class="muted">Save your choices before checking.</small>
             </div>
           {% endif %}
@@ -300,6 +300,21 @@
               <div id="mapping-table-fields-{{ dataset_index }}" data-table-fields-panel>
                 {% include "mapping/_scalar_fields.html" %}
               </div>
+              {% if not view.odoo_pinned %}
+                <details class="technical-details">
+                  <summary>Source columns set aside</summary>
+                  <input type="hidden" name="excluded_source_columns_present_{{ dataset_index }}" value="1">
+                  <label>
+                    Deliberately leave these columns unmapped
+                    <select id="source-columns-set-aside-{{ dataset_index }}" name="excluded_source_column_{{ dataset_index }}" multiple size="{{ [view.source.columns|length, 6]|min }}">
+                      {% for column in view.source.columns %}
+                        <option value="{{ column.stable_key }}" {% if view.mapping and column.stable_key in view.mapping.excluded_source_column_keys %}selected{% endif %}>{{ column.source_name }}</option>
+                      {% endfor %}
+                    </select>
+                  </label>
+                  <small>Hold Ctrl or Command to select several columns. Save your choices to record them in Fields set aside. Remove a choice here before using that column in a field match.</small>
+                </details>
+              {% endif %}
             </div>
             {% if not view.odoo_pinned %}
               <div data-mapping-task-panel="links" {% if mapping_journey.task != 'links' %}hidden{% endif %}>
@@ -307,7 +322,7 @@
                 {% include "mapping/_relationship_fields.html" %}
                 {% if relationship_health %}
                   <div class="actions mapping-early-check">
-                    <button class="button secondary" type="submit" form="mapping-relationship-check" data-mapping-early-check {% if not relationship_health.can_start %}disabled{% endif %}>Check saved relationships</button>
+                    <button class="button action" type="submit" form="mapping-relationship-check" data-mapping-early-check {% if not relationship_health.can_start %}disabled{% endif %}>Check saved relationships</button>
                     <small class="muted">Save your choices before checking.</small>
                   </div>
                 {% endif %}

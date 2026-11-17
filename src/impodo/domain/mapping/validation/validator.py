@@ -26,6 +26,7 @@ from ...relationship_dependencies import extract_dataset_dependency_edges
 from ...schema.governance import SchemaGovernance
 from ...source_binding import OdooSourceBinding, SourceOriginKind
 from ..canonicalization import canonicalize_mapping_definition
+from ..column_exclusions import validate_source_column_exclusions
 from ..contracts import (
     DatasetMapping,
     MappingDefinition,
@@ -206,6 +207,10 @@ class MappingSemanticValidator:
                 item.stable_key: item for item in source_dataset.columns
             }
             _validate_row_inclusion(dataset, base, columns, issues)
+            issues.extend(validate_source_column_exclusions(
+                dataset, source_dataset.columns, origin=source_dataset.origin,
+                path=f"{base}/excluded_source_column_keys",
+            ))
             is_odoo_source = source_dataset.origin is SourceOriginKind.ODOO
             is_pinned_update = (
                 dataset.mode is MappingTargetMode.ODOO_PINNED_UPDATE

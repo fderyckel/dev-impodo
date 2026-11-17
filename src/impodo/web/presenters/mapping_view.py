@@ -1648,7 +1648,10 @@ def _mapping_issue_views(
                 "relation_target": None,
             }
             anchor = f"mapping-dataset-{dataset_index}"
-            if field is not None and field.type in {
+            if issue.code.startswith("MAPPING_SOURCE_EXCLUSION_"):
+                updates["task"] = "fields"
+                anchor = f"source-columns-set-aside-{dataset_index}"
+            elif field is not None and field.type in {
                 "many2one",
                 "many2many",
                 "one2many",
@@ -1687,6 +1690,8 @@ def _mapping_issue_views(
                 "field_label": (
                     field.label
                     if field is not None
+                    else "Source columns set aside"
+                    if issue.code.startswith("MAPPING_SOURCE_EXCLUSION_")
                     else issue.target_field or "Field"
                 ),
                 "field_type": field.type if field is not None else "",
@@ -1758,7 +1763,6 @@ def _mapping_next_step(
             "available": True,
             "kind": "link",
             "href": f"/workspaces/{workspace_id}/prepare",
-            "button_style": "secondary",
             "blockers": (),
             "previous_check_items": (),
         }
@@ -1936,7 +1940,6 @@ def _mapping_next_step(
         "available": not blockers,
         "kind": "submit",
         "action": "submit",
-        "button_style": "primary",
         "blockers": tuple(blockers),
         "previous_check_items": tuple(previous_check_items),
     }

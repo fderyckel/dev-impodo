@@ -934,7 +934,9 @@ class DatasetMapping:
 
     The object groups source/target identity, scope, scalar providers,
     relationship providers, target mode, and optional business control totals.
-    Semantic validation, not ``__post_init__``, checks cross-object meaning.
+    Explicit source-column exclusions record deliberate omission choices while
+    preserving the accepted source data. Semantic validation, not
+    ``__post_init__``, checks cross-object meaning.
     """
 
     dataset_id: str
@@ -952,12 +954,23 @@ class DatasetMapping:
     fields: tuple[ScalarFieldMapping, ...] = ()
     relationships: tuple[RelationshipMapping, ...] = ()
     target_field_dispositions: tuple[TargetFieldDisposition, ...] = ()
+    excluded_source_column_keys: tuple[str, ...] = ()
     approved_write_fields: tuple[str, ...] = ()
     control_definitions: tuple[BusinessControlDefinition, ...] = ()
     control_expectations: tuple[MappingControlExpectation, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", MappingTargetMode(self.mode))
+        excluded_columns = tuple(self.excluded_source_column_keys)
+        if (
+            any(not isinstance(key, str) or not key.strip() or len(key) > 500
+                for key in excluded_columns)
+            or len(set(excluded_columns)) != len(excluded_columns)
+        ):
+            raise ValueError("Excluded source columns require distinct valid keys")
+        object.__setattr__(
+            self, "excluded_source_column_keys", tuple(sorted(excluded_columns))
+        )
         approved_write_fields = tuple(sorted(set(self.approved_write_fields)))
         if any(
             not item.strip() or len(item) > 200
@@ -1274,6 +1287,9 @@ class MappingDefinition:
                                     ),
                                 )
                             ),
+                            excluded_source_column_keys=tuple(
+                                sorted(item.excluded_source_column_keys)
+                            ),
                             approved_write_fields=tuple(
                                 sorted(item.approved_write_fields)
                             ),
@@ -1355,6 +1371,8 @@ def _dataset_mapping_from_dict(
     contract_version: int,
 ) -> DatasetMapping:
     expected_fields = _contract_fields(DatasetMapping)
+    if "excluded_source_column_keys" not in payload:
+        expected_fields.remove("excluded_source_column_keys")
     if "source_record_identity" not in payload:
         expected_fields.remove("source_record_identity")
     if "generated_ordering" not in payload:
@@ -1416,6 +1434,9 @@ def _dataset_mapping_from_dict(
             _target_field_disposition_from_dict(item)
             for item in payload.get("target_field_dispositions", ())
         ),
+        excluded_source_column_keys=tuple(
+            payload.get("excluded_source_column_keys", ())
+        ),
         approved_write_fields=tuple(payload.get("approved_write_fields", ())),
         control_definitions=tuple(
             _business_control_definition_from_dict(item)
@@ -1434,6 +1455,8 @@ def _dataset_mapping_to_dict(
     contract_version: int,
 ) -> dict[str, Any]:
     payload = _portable(asdict(mapping))
+    if not payload["excluded_source_column_keys"]:
+        payload.pop("excluded_source_column_keys")
     for group in ("target_identity", "target_scope", "relationships"):
         for component in payload.get(group, ()):
             resolver = component.get("resolver")

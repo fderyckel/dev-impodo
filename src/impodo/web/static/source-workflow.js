@@ -374,8 +374,6 @@ document.addEventListener("DOMContentLoaded", () => {
         status.innerHTML = dirty ? "Changes not confirmed" : savedStatuses[index];
       });
       if (confirmationAction) {
-        confirmationAction.classList.toggle("secondary", wasConfirmed && !dirty);
-        confirmationAction.classList.toggle("primary", dirty || !wasConfirmed);
         confirmationAction.textContent = dirty ? "Confirm changes" : savedAction;
       }
       if (discard) discard.hidden = !dirty;

@@ -1,14 +1,15 @@
 """Stream authoritative numeric checks into bounded, value-free SQL batches.
 
 Source cursors own their result sets while the caller's connection publishes
-failure batches. Final findings retain the existing bounded quality envelope;
-this module does not claim constant memory for the complete preparation worker.
+failure batches. Indexed callers replay final findings from temporary storage;
+explicitly in-memory callers retain the aggregate safety envelope. This module
+does not claim constant memory for the complete preparation worker.
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import closing
 
 import duckdb
@@ -299,9 +300,10 @@ def bounded_numeric_precision_rows(
     *,
     max_bytes: int,
     read_findings: Callable[
-        [duckdb.DuckDBPyConnection], tuple[tuple[object, ...], ...]
+        [duckdb.DuckDBPyConnection], Sequence[Sequence[object]]
     ],
-) -> tuple[tuple[object, ...], ...]:
+    retain_in_memory: bool = True,
+) -> Sequence[Sequence[object]]:
     """Evaluate all source routes and retain only the bounded finding envelope."""
 
     if not numeric_fields:
@@ -331,9 +333,10 @@ def bounded_numeric_precision_rows(
                 numeric_fields,
                 max_bytes,
             ):
-                temporary_budget.consume(
-                    512 + len(json.dumps(finding, ensure_ascii=False).encode("utf-8"))
-                )
+                if retain_in_memory:
+                    temporary_budget.consume(
+                        512 + len(json.dumps(finding, ensure_ascii=False).encode("utf-8"))
+                    )
                 yield finding
 
         try:

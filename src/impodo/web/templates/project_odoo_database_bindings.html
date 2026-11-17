@@ -14,7 +14,7 @@
         <label>Workspace<select name="workspace_id" required><option value="">Choose a workspace in this data project</option>{% for workspace in workspaces %}<option value="{{ workspace.workspace_id }}" {% if workspace.workspace_id == selected_workspace_id %}selected{% endif %}>{{ workspace.display_name }}</option>{% endfor %}</select></label>
         <label>Connection used by this workspace<select name="role"><option value="SOURCE" {% if selected_role == 'SOURCE' %}selected{% endif %}>Source Odoo database</option><option value="DESTINATION" {% if selected_role == 'DESTINATION' %}selected{% endif %}>Destination Odoo database</option></select></label>
       </div>
-      <div class="actions"><button class="button secondary" type="submit">Review this connection</button></div>
+      <div class="actions"><button class="button action" type="submit">Review this connection</button></div>
     </form>
     {% if not workspaces %}<p>Open a workspace and check its Odoo connection before reviewing its database.</p>{% endif %}
     {% if connection_problem %}<p class="notice warning">{{ connection_problem }}</p>{% endif %}
@@ -40,7 +40,7 @@
           {% if definition %}<input type="hidden" name="saved_data_id" value="{{ definition.saved_data_id }}">{% endif %}
           <label class="checkbox"><input type="checkbox" name="confirm_recreated" value="yes" required {% if values.get('confirm_recreated') == 'yes' %}checked{% endif %}><span>I confirm that this Odoo database has already been recreated.</span></label>
           <div class="form-grid"><label>Type the exact database name<input name="confirm_database" value="{{ values.get('confirm_database', '') }}" autocomplete="off" required maxlength="300"></label><label>Reason<textarea name="reason" required maxlength="1000" rows="3">{{ values.get('reason', '') }}</textarea></label></div>
-          <div class="actions"><button class="button primary" type="submit" data-submitting-label="Recording the database reset...">Record this database reset</button></div>
+          <div class="actions"><button class="button action" type="submit" data-submitting-label="Recording the database reset...">Record this database reset</button></div>
           <p class="muted">This records the declaration locally. It does not reset or write to Odoo.</p>
         </form>
       {% else %}<p>An administrator with organization-wide access must record this database reset.</p>{% endif %}
@@ -55,7 +55,7 @@
       <form method="get" action="/projects/{{ project.project_id }}/odoo-database-bindings">
         <input type="hidden" name="saved_data_id" value="{{ definition.saved_data_id }}"><input type="hidden" name="workspace_id" value="{{ selected_workspace_id }}"><input type="hidden" name="role" value="{{ selected_role }}">
         <label>Fresh source workspace<select name="rebind_workspace_id" required><option value="">Choose the source workspace reviewed after the reset</option>{% for workspace in workspaces %}{% if workspace.workspace_id != definition.source_workspace_id %}<option value="{{ workspace.workspace_id }}" {% if workspace.workspace_id == rebind_workspace_id %}selected{% endif %}>{{ workspace.display_name }}</option>{% endif %}{% endfor %}</select></label>
-        <div class="actions"><button class="button secondary" type="submit">Review this source</button></div>
+        <div class="actions"><button class="button action" type="submit">Review this source</button></div>
       </form>
       {% if replacement_problem %}<p class="notice warning">{{ replacement_problem }}</p>{% endif %}
       {% if replacement %}
@@ -64,12 +64,12 @@
           <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/{{ definition.saved_data_id }}/rebind-source" data-single-submit>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="revision" value="{{ values.get('revision', definition.revision) }}"><input type="hidden" name="workspace_id" value="{{ replacement.connection.workspace.workspace_id }}">
             <div class="form-grid"><label>Type the source database name<input name="confirm_database" value="{{ values.get('confirm_database', '') }}" required maxlength="300" autocomplete="off"></label><label>Type the reviewed source company name<input name="confirm_company" value="{{ values.get('confirm_company', '') }}" required maxlength="300" autocomplete="off"></label></div>
-            <div class="actions"><button class="button primary" type="submit" {% if replacement_problem %}disabled{% endif %} data-submitting-label="Saving the reviewed source...">Use this source for future updates</button></div>
+            <div class="actions"><button class="button action" type="submit" {% if replacement_problem %}disabled{% endif %} data-submitting-label="Saving the reviewed source...">Use this source for future updates</button></div>
           </form>
         {% else %}<p>You need permission to configure this saved source.</p>{% endif %}
       {% endif %}
     </section>
-    <div class="actions"><a class="button primary" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}#restore-saved-data">Start a fresh restore review</a><a class="button secondary" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}">Return to saved data</a></div>
+    <div class="actions"><a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}#restore-saved-data">Start a fresh restore review</a><a class="button navigation" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}">Return to saved data</a></div>
   {% endif %}
-  <div class="actions"><a class="button secondary" href="/projects/{{ project.project_id }}">Open data project to review a fresh workspace</a></div>
+  <div class="actions"><a class="button action" href="/projects/{{ project.project_id }}">Open data project to review a fresh workspace</a></div>
 {% endblock %}

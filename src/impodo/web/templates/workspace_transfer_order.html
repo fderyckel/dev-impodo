@@ -51,10 +51,10 @@
       <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
       <div class="actions">
         <a
-          class="button secondary"
+          class="button navigation"
           href="/workspaces/{{ workspace_id }}/destination-matching#matching-results"
         >Back to destination matching</a>
-        <button class="button primary" type="submit">
+        <button class="button action" type="submit">
           {% if transfer_order_plan %}Rebuild transfer order{% else %}Build transfer order{% endif %}
         </button>
       </div>
@@ -181,7 +181,7 @@
           </div>
           <div class="next-action-buttons">
             <span class="status ready">Order ready</span>
-            <a class="button primary" href="/workspaces/{{ workspace_id }}/transfer-review">Review transfer</a>
+            <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/transfer-review">Review transfer</a>
           </div>
         </section>
       {% endif %}
