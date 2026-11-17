@@ -1296,11 +1296,31 @@ rejected-form recovery. Overview navigation and rendering reuse owners within
 one local page read. These scopes preserve independent repository transactions
 and do not cache owners across requests.
 
+The queued worker groups its fresh intent and recovery checks before probing
+the target. After those probes, a separate local callback stores or audits the
+loading key and verifies Production authority. `ExecutionService` receives the
+application's `LocalOperation` port from composition. It bounds local admission,
+journal start, recovery, stop handling and committed read-back, and passes the
+same operation to `LoadWriter` and `JournalTransitions`. Transfer recovery
+closes its local owners before checking that proposed creates remain absent,
+then publishes recovery in a new local phase before resolving identities.
+
+Every before-call receipt and after-call outcome keeps its own durable
+transaction. Local owners close before identity lookups, request pacing,
+transport and progress sink callbacks. The lifecycle mutability checks and
+post-commit reads still run; sharing an owner does not combine their
+transactions. The complete mixed-write worker regression includes verification
+and correction publication, so those later costs remain visible separately
+from the write phase. Its restart cases preserve in-flight evidence and avoid
+repeating an accepted write.
+
 `web/load_performance.py` observes existing DuckDB timing collectors without
 opening databases or retaining owners. `observe_load_local_phase` aggregates
 journal-start, saved-outcome, and progress callback costs without writing a
-diagnostic event per row. Saved-outcome costs also include locally blocked rows;
-their count does not imply an Odoo write occurred. Coarse stages keep inclusive
+diagnostic event per row. `worker_admission` and `execution_checks` attribute the
+bounded local checks. Saved-outcome costs also include locally blocked rows
+and publication of a proven rejected batch before splitting it; their count
+does not imply another Odoo write occurred. Coarse stages keep inclusive
 elapsed time and database counters separately. CPU observations label their
 owning thread; a submission stage spanning awaits does not measure all worker
 CPU.
@@ -1415,6 +1435,8 @@ cover Odoo 19 and 20, LOCAL and REMOTE modes, and Authoring and Recipe jobs.
 
 - [`tests/integration/web/test_load_page_performance.py`](../../../tests/integration/web/test_load_page_performance.py)
 - [`tests/integration/web/test_load_submission_performance.py`](../../../tests/integration/web/test_load_submission_performance.py)
+- [`tests/integration/duckdb/test_load_worker_performance.py`](../../../tests/integration/duckdb/test_load_worker_performance.py)
+- [`tests/application/workspace/execution/test_local_phase_boundaries.py`](../../../tests/application/workspace/execution/test_local_phase_boundaries.py)
 
 - [Business effect assessment tests](../../../tests/domain/workspace/test_business_intent_assessment.py)
 - [Business intent execution qualification](../../../tests/integration/duckdb/test_business_intent_assessment.py)

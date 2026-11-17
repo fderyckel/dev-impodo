@@ -46,12 +46,19 @@ owner release. Check matches uses fewer physical opens but more SQL because
 publication now compares the captured inputs explicitly. Removing proven
 duplicate reads while preserving that comparison remains open.
 
-Worker admission and journal lifecycle, verification, and correction
-publication remain planned below. The complete worker baseline and its
-structural regression suite also remain open. The table in section 2 records
-the baseline before these implementations; the page and command scope changes
-have now been implemented. Windows latency and the restarted live session
-remain unverified.
+The third implementation bounds worker admission, journal lifecycle and
+receipt phases through the existing local-operation port. It retains the
+repository mutability checks, independent transactions and committed read-back.
+A real-store mixed-write fixture measures the complete queued worker for both
+majors and access modes, including verification and correction publication.
+Separate assertions cover the write stage, journal phases and progress.
+Restart and unknown-outcome cases retain receipts and prevent duplicate writes.
+
+Verification and correction publication remain planned below. Journal phases
+now have bounded owners; further SQL consolidation still requires evidence of
+redundant reads. The table in section 2 records the baseline before these
+implementations; the page and command scope changes have now been implemented.
+Windows latency and the restarted live session remain unverified.
 
 ## Design to retain
 

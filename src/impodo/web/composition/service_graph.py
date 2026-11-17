@@ -109,6 +109,7 @@ from impodo.application.shared.artifacts import (
     GovernedArtifactStores,
     WorkspaceArtifactStore,
 )
+from impodo.application.shared.local_operations import LocalOperation
 from impodo.application.source_workspace_service import (
     OdooCaptureSchemaReader,
     SourceWorkspaceRepository,
@@ -865,6 +866,7 @@ def build_execution_service_graph(
     provenance: OdooProvenanceService,
     current_read_credential_binding: ReadCredentialBindingProvider,
     fallout_workbook_renderer: FalloutWorkbookRenderer,
+    local_operation: LocalOperation | None = None,
 ) -> ExecutionServiceGraph:
     """Wire reviewed loading and read-back without choosing deployment adapters."""
 
@@ -877,6 +879,7 @@ def build_execution_service_graph(
         require_remote_write_identity=True,
         current_read_credential_binding=current_read_credential_binding,
         load_controls=journal,
+        local_operation=local_operation,
     )
     transfer_execution = TransferExecutionService(
         sources,

@@ -613,6 +613,7 @@ def create_local_app(
         provenance=odoo_sources.provenance,
         current_read_credential_binding=current_read_credential_binding,
         fallout_workbook_renderer=build_fallout_workbook,
+        local_operation=run_local_operation_sync,
     )
     cutover_services = build_cutover_service_graph(
         foundation=foundation_services,

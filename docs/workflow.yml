@@ -1290,6 +1290,7 @@ stages:
       - scripts/hierarchy_qualification_journey.py::LiveHierarchyJourney
     tests:
       - tests/application/workspace/execution/test_service.py
+      - tests/application/workspace/execution/test_local_phase_boundaries.py
       - tests/application/workspace/execution/test_company_context.py
       - tests/application/workspace/execution/test_transfer_approval_admission.py
       - tests/integration/duckdb/test_retired_transfer_projection.py
@@ -1310,6 +1311,7 @@ stages:
       - tests/integration/odoo/test_hierarchy_qualification.py
       - tests/domain/preparation/test_hierarchy_identity.py
       - tests/integration/duckdb/test_execution_repository.py
+      - tests/integration/duckdb/test_load_worker_performance.py
       - tests/application/workspace/execution/test_load_jobs.py
       - tests/application/workspace/execution/test_stop_progress.py
       - tests/domain/execution/test_snapshot.py

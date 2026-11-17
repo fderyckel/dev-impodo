@@ -27,6 +27,7 @@ from impodo.application.shared.secrets import SecretStoreError
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.job_models import LoadJob, LoadJobStatus
 from impodo.application.workspace.execution.load_observation import (
+    observe_load_local_phase,
     observe_load_stage,
     record_load_failure,
 )
@@ -1668,54 +1669,58 @@ def build_execution_router(
                     raise MigrationConflictError(
                         "The authorized workspace changed before the load began"
                     )
-                run_local_operation_sync(
-                    context.execution.require_business_intent, workspace_id,
-                    expected_snapshot_hash=snapshot_hash,
-                    expected_assessment_hash=intent_assessment_hash,
-                    recovery_run_id=recovery_run_id, actor=actor,
-                )
-                if recovering or prior_run_id:
-                    expected_write_credential = saved_write_credential
-                    if expected_write_credential is None:
-                        raise WorkspaceError(
-                            "Recovery requires the original saved loading key",
-                            load_failure_code="LOAD_RECOVERY_REQUIRES_THE_ORIGINAL_SAVED_LOADING_KEY",
-                        )
-                    current_preview = context.execution.current_preview(
+                def admit_worker() -> None:
+                    context.execution.require_business_intent(
                         workspace_id,
-                        actor=actor,
+                        expected_snapshot_hash=snapshot_hash,
+                        expected_assessment_hash=intent_assessment_hash,
+                        recovery_run_id=recovery_run_id, actor=actor,
                     )
-                    current_state = context.queries.get(workspace_id)
-                    current_credential = get_target_credential(
-                        context.secret_store,
-                        credential_owner,
-                        TargetCredentialRole.WRITE,
-                    )
-                    current_run = (
-                        current_preview.current_run if recovering and current_preview is not None
-                        else getattr(current_preview, "prior_interrupted_run", None)
-                    )
-                    if (
-                        current_state.revision != workspace_state.revision
-                        or current_preview is None
-                        or current_preview.scope_error
-                        or current_preview.snapshot.semantic_hash != snapshot_hash
-                        or current_run is None
-                        or current_run.run_id != (recovery_run_id or prior_run_id)
-                        or current_run.status
-                        is not ExecutionRunStatus.RUNNING
-                        or current_credential is None
-                        or current_credential.binding_hash
-                        != expected_write_credential.binding_hash
-                    ):
-                        raise WorkspaceError(
-                            "The interrupted load, preview, or loading key changed "
-                            "before recovery began",
-                            load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_OR_LOADING_KEY_CHANGED_BEFORE_RECOVERY_BEGAN",
+                    if recovering or prior_run_id:
+                        expected_write_credential = saved_write_credential
+                        if expected_write_credential is None:
+                            raise WorkspaceError(
+                                "Recovery requires the original saved loading key",
+                                load_failure_code="LOAD_RECOVERY_REQUIRES_THE_ORIGINAL_SAVED_LOADING_KEY",
+                            )
+                        current_preview = context.execution.current_preview(
+                            workspace_id,
+                            actor=actor,
                         )
-                    context.cutover_plans.assert_application_can_execute(
-                        workspace_id, actor=actor,
-                    )
+                        current_state = context.queries.get(workspace_id)
+                        current_credential = get_target_credential(
+                            context.secret_store,
+                            credential_owner,
+                            TargetCredentialRole.WRITE,
+                        )
+                        current_run = (
+                            current_preview.current_run if recovering and current_preview is not None
+                            else getattr(current_preview, "prior_interrupted_run", None)
+                        )
+                        if (
+                            current_state.revision != workspace_state.revision
+                            or current_preview is None
+                            or current_preview.scope_error
+                            or current_preview.snapshot.semantic_hash != snapshot_hash
+                            or current_run is None
+                            or current_run.run_id != (recovery_run_id or prior_run_id)
+                            or current_run.status
+                            is not ExecutionRunStatus.RUNNING
+                            or current_credential is None
+                            or current_credential.binding_hash
+                            != expected_write_credential.binding_hash
+                        ):
+                            raise WorkspaceError(
+                                "The interrupted load, preview, or loading key changed "
+                                "before recovery began",
+                                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_OR_LOADING_KEY_CHANGED_BEFORE_RECOVERY_BEGAN",
+                            )
+                        context.cutover_plans.assert_application_can_execute(
+                            workspace_id, actor=actor,
+                        )
+
+                with observe_load_local_phase("worker_admission"):
+                    run_local_operation_sync(admit_worker)
                 with _diagnostic_load_stage(
                     diagnostic_recorder,
                     "target_authority",
@@ -1736,43 +1741,50 @@ def build_execution_router(
                         preview,
                         api_key,
                     )
-                    write_credential = saved_write_credential
-                    if submitted_key:
-                        write_credential = store_target_credential(
-                            context.secret_store,
-                            credential_owner,
-                            TargetCredentialRole.WRITE,
-                            submitted_key,
-                            persistent=remember_write_key,
+                    def authorize_target() -> tuple[TargetCredential, str]:
+                        write_credential = saved_write_credential
+                        if submitted_key:
+                            write_credential = store_target_credential(
+                                context.secret_store,
+                                credential_owner,
+                                TargetCredentialRole.WRITE,
+                                submitted_key,
+                                persistent=remember_write_key,
+                            )
+                            audit_stored_target_credential(
+                                context.workspace_states,
+                                workspace_state,
+                                TargetCredentialRole.WRITE,
+                                write_credential,
+                                actor=actor,
+                            )
+                        if write_credential is None:
+                            raise SecretStoreError(
+                                "Enter an Odoo API key approved for loading on this "
+                                "exact target"
+                            )
+                        read_binding_hash = (
+                            read_credential.binding_hash
+                            if read_credential is not None
+                            else ""
                         )
-                        audit_stored_target_credential(
-                            context.workspace_states,
-                            workspace_state,
-                            TargetCredentialRole.WRITE,
-                            write_credential,
+                        context.production_runs.assert_execution_authority(
+                            workspace_id,
+                            read_identity=read_identity,
+                            read_credential_generation=read_binding_hash,
+                            expected_read_credential_generation=(
+                                preview.snapshot.read_credential_binding_hash
+                            ),
+                            write_identity=write_identity,
+                            write_credential_generation=write_credential.binding_hash,
                             actor=actor,
                         )
-                    if write_credential is None:
-                        raise SecretStoreError(
-                            "Enter an Odoo API key approved for loading on this "
-                            "exact target"
+                        return write_credential, read_binding_hash
+
+                    with observe_load_local_phase("worker_admission"):
+                        write_credential, read_credential_binding_hash = (
+                            run_local_operation_sync(authorize_target)
                         )
-                    read_credential_binding_hash = (
-                        read_credential.binding_hash
-                        if read_credential is not None
-                        else ""
-                    )
-                    context.production_runs.assert_execution_authority(
-                        workspace_id,
-                        read_identity=read_identity,
-                        read_credential_generation=read_credential_binding_hash,
-                        expected_read_credential_generation=(
-                            preview.snapshot.read_credential_binding_hash
-                        ),
-                        write_identity=write_identity,
-                        write_credential_generation=write_credential.binding_hash,
-                        actor=actor,
-                    )
                 if prior_run_id:
                     if read_identity is None or write_identity is None:
                         raise WorkspaceError(

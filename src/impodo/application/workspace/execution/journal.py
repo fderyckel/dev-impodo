@@ -6,6 +6,10 @@ from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from typing import Any, Protocol
 
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.domain.execution.load_control import LoadControl
 from impodo.domain.execution.models import (
     ExecutionRowAttempt,
@@ -120,11 +124,13 @@ class JournalTransitions:
         publisher: ExecutionProgressPublisher | None = None,
         *,
         protected_values: Mapping[str, Any] | None = None,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.journal = journal
         self.recorded = recorded
         self.publisher = publisher
         self.protected_values = protected_values
+        self._run_local = local_operation or direct_local_operation
         self._committed_rows = {
             item.row_id
             for item in recorded.values()
@@ -154,7 +160,10 @@ class JournalTransitions:
         error: OdooWriteRejected,
     ) -> None:
         """Save a proven rollback before making split attempts eligible again."""
-        retries = controls.record_rejected_batch(workspace_id, run_id, rows, error)
+        with observe_load_local_phase("journal_after_call"):
+            retries = self._run_local(
+                lambda: controls.record_rejected_batch(workspace_id, run_id, rows, error)
+            )
         self._progress_transitions(retries)
         self.recorded.update({item.row_id: item for item in retries})
 
@@ -172,7 +181,8 @@ class JournalTransitions:
         protected_values = (
             protected_values if protected_values is not None else self.protected_values
         )
-        with observe_load_local_phase("journal_after_call"):
+
+        def save_outcomes() -> None:
             detail = error.operator_detail if error is not None else None
             if detail is not None and isinstance(self.journal, OperatorErrorRepository):
                 detail = detail.redact(
@@ -183,6 +193,9 @@ class JournalTransitions:
                 )
             else:
                 self.journal.record_outcomes(workspace_id, run_id, rows)
+
+        with observe_load_local_phase("journal_after_call"):
+            self._run_local(save_outcomes)
 
         self._progress_transitions(rows)
 
@@ -222,10 +235,12 @@ class JournalTransitions:
             for row in rows
         )
         with observe_load_local_phase("journal_before_call"):
-            self.journal.record_batch_started(
-                workspace_id,
-                run_id,
-                attempts,
+            self._run_local(
+                lambda: self.journal.record_batch_started(
+                    workspace_id,
+                    run_id,
+                    attempts,
+                )
             )
         observe_journal_batch(attempts)
         self._progress_transitions(attempts)

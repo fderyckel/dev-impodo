@@ -143,6 +143,12 @@ application's `LocalOperation` port lets composition supply
 worker](../../src/impodo/application/data_version/source_worker.py) and [local
 operation port](../../src/impodo/application/shared/local_operations.py).
 
+`ExecutionService` uses that same port for load admission, lifecycle changes
+and recovery. It passes the operation to `LoadWriter` and `JournalTransitions`
+for each local receipt phase. Owners close before target lookups, request
+pacing, Odoo transport and progress callbacks. Repository checks, mutations
+and committed read-back keep their independent transactions.
+
 On the first access to a retained store, `ensure_current_schema` validates its
 exact schema and applies any supported upgrade. The registry, Data version,
 Workspace linkage, and Workspace engine stores each check their own contract.

@@ -6,6 +6,10 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.domain.execution.batch_policy import validated_create_batch_rows
 from impodo.domain.execution.dependency_scheduler import dependency_component_pages
 from impodo.domain.execution.identity import portable_key
@@ -44,7 +48,7 @@ from .journal import (
     require_dependency_receipts,
     write_diagnostic,
 )
-from .load_observation import observe_load_transport
+from .load_observation import observe_load_local_phase, observe_load_transport
 from .load_transport import LoadControlRepository, admit_write, create_transport_results
 from .progress import ExecutionProgressPublisher
 from .relationship_completion import RelationshipCompletion, deferred_create_intents
@@ -58,9 +62,12 @@ class LoadWriter:
         self,
         journal: ExecutionJournalRepository,
         load_controls: LoadControlRepository | None,
+        *,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.journal = journal
         self.load_controls = load_controls
+        self._run_local = local_operation or direct_local_operation
 
     def run(
         self,
@@ -96,7 +103,8 @@ class LoadWriter:
             item.row_id: item for item in run.rows
         }
         transitions = JournalTransitions(
-            self.journal, recorded, progress, protected_values=protected_values
+            self.journal, recorded, progress, protected_values=protected_values,
+            local_operation=self._run_local,
         )
         completion = RelationshipCompletion(transitions)
         accepted_models = {
@@ -605,18 +613,22 @@ class LoadWriter:
                 ExecutionRowStatus.RETRY_READY,
             }
         )
-        if remaining and self.load_controls is not None:
-            control = self.load_controls.get_load_control(workspace_id, run.run_id)
-            if control is not None:
-                control.require_running()
         if remaining:
-            transitions.record_blocked(
-                workspace_id,
-                run.run_id,
-                remaining,
-                recorded,
-                "The load ended before this record was sent to Odoo",
-            )
+            def settle_remaining() -> None:
+                if self.load_controls is not None:
+                    control = self.load_controls.get_load_control(workspace_id, run.run_id)
+                    if control is not None:
+                        control.require_running()
+                transitions.record_blocked(
+                    workspace_id,
+                    run.run_id,
+                    remaining,
+                    recorded,
+                    "The load ended before this record was sent to Odoo",
+                )
+
+            with observe_load_local_phase("execution_checks"):
+                self._run_local(settle_remaining)
             progress.publish(changed_rows=len(remaining), force=True)
         statuses = {item.status for item in recorded.values()}
         final_status = (
@@ -634,11 +646,14 @@ class LoadWriter:
                 else ExecutionRunStatus.COMPLETED
             )
         )
-        completed_run = self.journal.finish_run(
-            workspace_id,
-            run.run_id,
-            final_status,
-            actor=actor,
-        )
+        with observe_load_local_phase("execution_checks"):
+            completed_run = self._run_local(
+                lambda: self.journal.finish_run(
+                    workspace_id,
+                    run.run_id,
+                    final_status,
+                    actor=actor,
+                )
+            )
         progress.finish(completed_run)
         return completed_run

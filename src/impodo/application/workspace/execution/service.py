@@ -9,6 +9,10 @@ from datetime import UTC, datetime
 from typing import Any, Protocol
 from uuid import uuid4
 
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.application.workspace.execution.navigation import (
     ExecutionNavigationState,
     ExecutionReviewProjection,
@@ -84,6 +88,7 @@ from .load_observation import (
     emit_load_evidence,
     observe_load_context,
     observe_load_journal,
+    observe_load_local_phase,
 )
 from .load_transport import (
     LoadControlRepository,
@@ -171,6 +176,32 @@ class RecoveryResumePlan:
     load_control_hash: str = ""
 
 
+@dataclass(frozen=True, slots=True, repr=False)
+class _ExecutionAdmission:
+    """Bind checked local execution facts without retaining a database owner."""
+
+    workspace_state: WorkspaceState
+    preview: ExecutionPreview
+    batch_rows: int
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _RecoveryAdmission:
+    """Carry the exact locally validated journal to a later remote phase."""
+
+    workspace_state: WorkspaceState
+    snapshot: ExecutionSnapshot
+    run: ExecutionRun
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class _SettledHalt:
+    """Preserve which progress path follows a local stopped-run settlement."""
+
+    run: ExecutionRun
+    was_terminal: bool
+
+
 class ExecutionService:
     """Validate, journal, and execute a reviewed disposable-target load."""
 
@@ -187,6 +218,7 @@ class ExecutionService:
             ReadCredentialBindingProvider | None
         ) = None,
         load_controls: LoadControlRepository | None = None,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.workspaces = workspaces
         self.preflight = preflight
@@ -196,6 +228,13 @@ class ExecutionService:
         self.require_remote_write_identity = require_remote_write_identity
         self.current_read_credential_binding = current_read_credential_binding
         self.load_controls = load_controls
+        self._run_local = local_operation or direct_local_operation
+
+    def _local_execution_check[T](self, function: Callable[[], T]) -> T:
+        """Observe one bounded local check without extending its owner lifetime."""
+
+        with observe_load_local_phase("execution_checks"):
+            return self._run_local(function)
 
     def current_preview(
         self,
@@ -373,87 +412,90 @@ class ExecutionService:
         certify its outcome or write to Odoo; the new comparison owns any work
         subsequently confirmed by the operator.
         """
-        self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
-        workspace = self.workspaces.get(workspace_id)
-        if workspace.source_mode is SourceMode.ODOO:
-            raise WorkspaceError(
-                "Use the transfer recovery action for an Odoo-to-Odoo load",
-                load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_ODOO_TO_ODOO_LOAD",
-            )
-        preview = self.current_preview(workspace_id, actor=actor)
-        run = self.journal.get_current_run(workspace_id)
-        if (
-            preview is None or preview.snapshot.semantic_hash != expected_snapshot_hash
-            or not preview.can_load or run is None
-            or run.run_id != expected_execution_run_id
-            or run.status is not ExecutionRunStatus.RUNNING
-            or run.snapshot_hash == expected_snapshot_hash
-        ):
-            raise WorkspaceError(
-                "The interrupted load or fresh comparison is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_FRESH_COMPARISON_IS_NO_LONGER_CURRENT",
-            )
-        _validate_read_identity(preview, read_identity, read_credential_binding_hash, required=True)
-        _validate_write_identity(preview, write_identity, write_credential_binding_hash, required=True)
-        if (
-            run.target_hash != preview.snapshot.target_hash
-            or run.target_database != preview.snapshot.target_database
-            or write_credential_binding_hash != run.write_credential_binding_hash
-            or write_identity.principal_hash != run.write_principal_hash
-            or read_identity.principal_hash != write_identity.principal_hash
-            or read_identity.context_hash != write_identity.context_hash
-        ):
-            raise WorkspaceError(
-                "Fresh recovery requires the original loading key and principal on the same target",
-                load_failure_code="LOAD_FRESH_RECOVERY_REQUIRES_THE_ORIGINAL_LOADING_KEY_AND_PRINCIPAL_ON_THE_SAME_TARGET",
-            )
-        original = self.preflight.execution_snapshot(workspace_id, run.preflight_run_id)
-        def identity(row):
-            # Preparation trace hashes include mapping and schema lineage, so
-            # rebuilding the approved review changes them. Match the source
-            # row and business keys, then check the exact saved Odoo receipts.
-            return (row.dataset, row.source_row, row.target_model,
-                    portable_key(row.source_identity), portable_key(row.business_identity),
-                    portable_key(row.business_scope))
-        fresh = {identity(row): row for row in preview.snapshot.rows}
-        if len(fresh) != len(preview.snapshot.rows) or set(fresh) != {identity(row) for row in original.rows}:
-            raise WorkspaceError(
-                "Fresh recovery must account for the same original prepared rows and identities",
-                load_failure_code="LOAD_FRESH_RECOVERY_MUST_ACCOUNT_FOR_THE_SAME_ORIGINAL_PREPARED_ROWS_AND_IDENTITIES",
-            )
-        original_by_id = {row.row_id: row for row in original.rows}
-        for attempt in run.rows:
-            row = original_by_id.get(attempt.row_id)
-            if row is None or row.disposition != "CREATE" or attempt.operation != "CREATE":
+        def local_command() -> ExecutionRun:
+            self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
+            workspace = self.workspaces.get(workspace_id)
+            if workspace.source_mode is SourceMode.ODOO:
                 raise WorkspaceError(
-                    "Fresh recovery supports interrupted create loads only",
-                    load_failure_code="LOAD_FRESH_RECOVERY_SUPPORTS_INTERRUPTED_CREATE_LOADS_ONLY",
+                    "Use the transfer recovery action for an Odoo-to-Odoo load",
+                    load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_ODOO_TO_ODOO_LOAD",
                 )
-            compared = fresh[identity(row)]
-            if compared.disposition not in {"CREATE", "UPDATE", "UNCHANGED"} or compared.target_match_count != (
-                0 if compared.disposition == "CREATE" else 1
+            preview = self.current_preview(workspace_id, actor=actor)
+            run = self.journal.get_current_run(workspace_id)
+            if (
+                preview is None or preview.snapshot.semantic_hash != expected_snapshot_hash
+                or not preview.can_load or run is None
+                or run.run_id != expected_execution_run_id
+                or run.status is not ExecutionRunStatus.RUNNING
+                or run.snapshot_hash == expected_snapshot_hash
             ):
                 raise WorkspaceError(
-                    "Fresh recovery requires an unambiguous current Odoo comparison",
-                    load_failure_code="LOAD_FRESH_RECOVERY_REQUIRES_AN_UNAMBIGUOUS_CURRENT_ODOO_COMPARISON",
+                    "The interrupted load or fresh comparison is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_FRESH_COMPARISON_IS_NO_LONGER_CURRENT",
                 )
-            if attempt.odoo_id is not None and compared.target_binding_hash != target_record_binding_hash(
-                attempt.target_model, attempt.odoo_id
+            _validate_read_identity(preview, read_identity, read_credential_binding_hash, required=True)
+            _validate_write_identity(preview, write_identity, write_credential_binding_hash, required=True)
+            if (
+                run.target_hash != preview.snapshot.target_hash
+                or run.target_database != preview.snapshot.target_database
+                or write_credential_binding_hash != run.write_credential_binding_hash
+                or write_identity.principal_hash != run.write_principal_hash
+                or read_identity.principal_hash != write_identity.principal_hash
+                or read_identity.context_hash != write_identity.context_hash
             ):
                 raise WorkspaceError(
-                    "Fresh comparison no longer matches an original Odoo receipt",
-                    load_failure_code="LOAD_FRESH_COMPARISON_NO_LONGER_MATCHES_AN_ORIGINAL_ODOO_RECEIPT",
+                    "Fresh recovery requires the original loading key and principal on the same target",
+                    load_failure_code="LOAD_FRESH_RECOVERY_REQUIRES_THE_ORIGINAL_LOADING_KEY_AND_PRINCIPAL_ON_THE_SAME_TARGET",
                 )
-            if attempt.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED} and (
-                attempt.odoo_id is None or compared.disposition == "CREATE"
-            ):
+            original = self.preflight.execution_snapshot(workspace_id, run.preflight_run_id)
+            def identity(row):
+                # Preparation trace hashes include mapping and schema lineage, so
+                # rebuilding the approved review changes them. Match the source
+                # row and business keys, then check the exact saved Odoo receipts.
+                return (row.dataset, row.source_row, row.target_model,
+                        portable_key(row.source_identity), portable_key(row.business_identity),
+                        portable_key(row.business_scope))
+            fresh = {identity(row): row for row in preview.snapshot.rows}
+            if len(fresh) != len(preview.snapshot.rows) or set(fresh) != {identity(row) for row in original.rows}:
                 raise WorkspaceError(
-                    "An originally accepted Odoo record is missing from the fresh comparison",
-                    load_failure_code="LOAD_AN_ORIGINALLY_ACCEPTED_ODOO_RECORD_IS_MISSING_FROM_THE_FRESH_COMPARISON",
+                    "Fresh recovery must account for the same original prepared rows and identities",
+                    load_failure_code="LOAD_FRESH_RECOVERY_MUST_ACCOUNT_FOR_THE_SAME_ORIGINAL_PREPARED_ROWS_AND_IDENTITIES",
                 )
-        return self.journal.close_interrupted_run_for_recomparison(
-            workspace_id, run, preview.snapshot.preflight_run_id, actor=actor,
-        )
+            original_by_id = {row.row_id: row for row in original.rows}
+            for attempt in run.rows:
+                row = original_by_id.get(attempt.row_id)
+                if row is None or row.disposition != "CREATE" or attempt.operation != "CREATE":
+                    raise WorkspaceError(
+                        "Fresh recovery supports interrupted create loads only",
+                        load_failure_code="LOAD_FRESH_RECOVERY_SUPPORTS_INTERRUPTED_CREATE_LOADS_ONLY",
+                    )
+                compared = fresh[identity(row)]
+                if compared.disposition not in {"CREATE", "UPDATE", "UNCHANGED"} or compared.target_match_count != (
+                    0 if compared.disposition == "CREATE" else 1
+                ):
+                    raise WorkspaceError(
+                        "Fresh recovery requires an unambiguous current Odoo comparison",
+                        load_failure_code="LOAD_FRESH_RECOVERY_REQUIRES_AN_UNAMBIGUOUS_CURRENT_ODOO_COMPARISON",
+                    )
+                if attempt.odoo_id is not None and compared.target_binding_hash != target_record_binding_hash(
+                    attempt.target_model, attempt.odoo_id
+                ):
+                    raise WorkspaceError(
+                        "Fresh comparison no longer matches an original Odoo receipt",
+                        load_failure_code="LOAD_FRESH_COMPARISON_NO_LONGER_MATCHES_AN_ORIGINAL_ODOO_RECEIPT",
+                    )
+                if attempt.status in {ExecutionRowStatus.COMMITTED, ExecutionRowStatus.PARTIALLY_APPLIED} and (
+                    attempt.odoo_id is None or compared.disposition == "CREATE"
+                ):
+                    raise WorkspaceError(
+                        "An originally accepted Odoo record is missing from the fresh comparison",
+                        load_failure_code="LOAD_AN_ORIGINALLY_ACCEPTED_ODOO_RECORD_IS_MISSING_FROM_THE_FRESH_COMPARISON",
+                    )
+            return self.journal.close_interrupted_run_for_recomparison(
+                workspace_id, run, preview.snapshot.preflight_run_id, actor=actor,
+            )
+
+        return self._local_execution_check(local_command)
 
     def require_business_intent(
         self, workspace_id: str, *, expected_snapshot_hash: str,
@@ -505,60 +547,69 @@ class ExecutionService:
         credentials, and authority before journaling any remote write; the
         lower-level ``_continue_run`` owns batch transport and receipts.
         """
-        self.authorization.require(
-            actor,
-            Capability.EXPORT_PLAN_EXECUTE,
-            workspace_id=workspace_id,
-        )
-        workspace_state = self.workspaces.get(workspace_id)
-        if workspace_state.source_mode is SourceMode.ODOO:
-            raise WorkspaceError(
-                "Use the confirmed transfer route for an Odoo-to-Odoo load.",
-                load_failure_code="LOAD_USE_THE_CONFIRMED_TRANSFER_ROUTE_FOR_AN_ODOO_TO_ODOO_LOAD",
+        def admit() -> _ExecutionAdmission:
+            self.authorization.require(
+                actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                workspace_id=workspace_id,
             )
-        create_batch_rows = validated_create_batch_rows(batch_rows)
-        preview = self.current_preview(workspace_id, actor=actor)
-        if preview is None:
-            raise WorkspaceError(
-                "Compare the prepared data with Odoo first",
-                load_failure_code="LOAD_PREVIEW_MISSING",
+            workspace_state = self.workspaces.get(workspace_id)
+            if workspace_state.source_mode is SourceMode.ODOO:
+                raise WorkspaceError(
+                    "Use the confirmed transfer route for an Odoo-to-Odoo load.",
+                    load_failure_code="LOAD_USE_THE_CONFIRMED_TRANSFER_ROUTE_FOR_AN_ODOO_TO_ODOO_LOAD",
+                )
+            create_batch_rows = validated_create_batch_rows(batch_rows)
+            preview = self.current_preview(workspace_id, actor=actor)
+            if preview is None:
+                raise WorkspaceError(
+                    "Compare the prepared data with Odoo first",
+                    load_failure_code="LOAD_PREVIEW_MISSING",
+                )
+            snapshot = preview.snapshot
+            observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
+            if snapshot.semantic_hash != expected_snapshot_hash:
+                raise WorkspaceError(
+                    "The load preview changed. Review it again.",
+                    load_failure_code="LOAD_PREVIEW_CHANGED",
+                )
+            if preview.scope_error:
+                raise WorkspaceError(
+                    preview.scope_error,
+                    load_failure_code="LOAD_SCOPE_CHECK_FAILED",
+                )
+            if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
+                raise WorkspaceError(
+                    "Business expectations changed after confirmation; review them again",
+                    load_failure_code="LOAD_BUSINESS_EXPECTATIONS_CHANGED_AFTER_CONFIRMATION_REVIEW_THEM_AGAIN",
+                )
+            self._validate_execution_scope(workspace_state, preview, executor)
+            _validate_write_identity(
+                preview,
+                write_identity,
+                write_credential_binding_hash,
+                required=(
+                    self.require_remote_write_identity
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
             )
+            _validate_read_identity(
+                preview,
+                read_identity,
+                read_credential_binding_hash,
+                required=(
+                    self.require_remote_read_identity
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
+            )
+
+            return _ExecutionAdmission(workspace_state, preview, create_batch_rows)
+
+        admission = self._local_execution_check(admit)
+        workspace_state = admission.workspace_state
+        preview = admission.preview
         snapshot = preview.snapshot
-        observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
-        if snapshot.semantic_hash != expected_snapshot_hash:
-            raise WorkspaceError(
-                "The load preview changed. Review it again.",
-                load_failure_code="LOAD_PREVIEW_CHANGED",
-            )
-        if preview.scope_error:
-            raise WorkspaceError(
-                preview.scope_error,
-                load_failure_code="LOAD_SCOPE_CHECK_FAILED",
-            )
-        if expected_intent_assessment_hash is not None and expected_intent_assessment_hash != preview.business_intent_assessment_hash:
-            raise WorkspaceError(
-                "Business expectations changed after confirmation; review them again",
-                load_failure_code="LOAD_BUSINESS_EXPECTATIONS_CHANGED_AFTER_CONFIRMATION_REVIEW_THEM_AGAIN",
-            )
-        self._validate_execution_scope(workspace_state, preview, executor)
-        _validate_write_identity(
-            preview,
-            write_identity,
-            write_credential_binding_hash,
-            required=(
-                self.require_remote_write_identity
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            ),
-        )
-        _validate_read_identity(
-            preview,
-            read_identity,
-            read_credential_binding_hash,
-            required=(
-                self.require_remote_read_identity
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            ),
-        )
+        create_batch_rows = admission.batch_rows
 
         write_rows = tuple(
             row
@@ -617,7 +668,13 @@ class ExecutionService:
         )
         if self.load_controls is not None:
             control = LoadControl(policy=rejection_policy)
-            self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash, load_control=control)
+            self._local_execution_check(
+                lambda: self.journal.start_run(
+                    workspace_id, run, actor=actor,
+                    intent_assessment_hash=preview.business_intent_assessment_hash,
+                    load_control=control,
+                )
+            )
             run = replace(run, load_control=control)
         else:
             if rejection_policy is not RejectionPolicy.STOP:
@@ -625,7 +682,12 @@ class ExecutionService:
                     "Load continuation is unavailable for this journal",
                     load_failure_code="LOAD_LOAD_CONTINUATION_IS_UNAVAILABLE_FOR_THIS_JOURNAL",
                 )
-            self.journal.start_run(workspace_id, run, actor=actor, intent_assessment_hash=preview.business_intent_assessment_hash)
+            self._local_execution_check(
+                lambda: self.journal.start_run(
+                    workspace_id, run, actor=actor,
+                    intent_assessment_hash=preview.business_intent_assessment_hash,
+                )
+            )
         return self._continue_run(
             workspace_state,
             snapshot,
@@ -668,75 +730,82 @@ class ExecutionService:
         """
         """Enter the shared writer from a current, confirmed transfer snapshot."""
 
-        self.authorization.require(
-            actor,
-            Capability.EXPORT_PLAN_EXECUTE,
-            workspace_id=workspace_id,
-        )
-        source_workspace = self.workspaces.get(workspace_id)
-        if source_workspace.source_mode is not SourceMode.ODOO:
-            raise WorkspaceError(
-                "The destination load requires a frozen Odoo source",
-                load_failure_code="LOAD_THE_DESTINATION_LOAD_REQUIRES_A_FROZEN_ODOO_SOURCE",
+        def admit() -> _ExecutionAdmission:
+            self.authorization.require(
+                actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                workspace_id=workspace_id,
             )
-        report = source_workspace.transfer_preflight_report
-        if (
-            report is None
-            or not source_workspace.transfer_preflight_ready(
-                source_selection_hash=report.source_selection_hash,
-                source_schema_hash=report.source_schema_hash,
+            source_workspace = self.workspaces.get(workspace_id)
+            if source_workspace.source_mode is not SourceMode.ODOO:
+                raise WorkspaceError(
+                    "The destination load requires a frozen Odoo source",
+                    load_failure_code="LOAD_THE_DESTINATION_LOAD_REQUIRES_A_FROZEN_ODOO_SOURCE",
+                )
+            report = source_workspace.transfer_preflight_report
+            if (
+                report is None
+                or not source_workspace.transfer_preflight_ready(
+                    source_selection_hash=report.source_selection_hash,
+                    source_schema_hash=report.source_schema_hash,
+                )
+                or not report.ready
+                or report.content_hash != expected_preflight_hash
+                or snapshot.preflight_result_hash != report.content_hash
+                or snapshot.workspace_id != workspace_id
+                or snapshot.semantic_hash != expected_snapshot_hash
+            ):
+                raise WorkspaceError(
+                    "The destination preflight changed. Run it again before loading.",
+                    load_failure_code="LOAD_THE_DESTINATION_PREFLIGHT_CHANGED_RUN_IT_AGAIN_BEFORE_LOADING",
+                )
+            destination_workspace = transfer_destination_workspace(source_workspace)
+            observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
+            create_batch_rows = validated_create_batch_rows(batch_rows)
+            current = self.journal.get_current_run(workspace_id)
+            preview = ExecutionPreview(
+                snapshot=snapshot,
+                datasets=(),
+                current_run=current,
+                api_scope=execution_api_scope(snapshot),
+                deferred_create_count=planned_deferred_create_count(
+                    snapshot,
+                    create_batch_rows=create_batch_rows,
+                ),
+                scope_error=execution_snapshot_message(execution_snapshot_issue(snapshot, connection_mode=destination_workspace.odoo_connection_mode)),
             )
-            or not report.ready
-            or report.content_hash != expected_preflight_hash
-            or snapshot.preflight_result_hash != report.content_hash
-            or snapshot.workspace_id != workspace_id
-            or snapshot.semantic_hash != expected_snapshot_hash
-        ):
-            raise WorkspaceError(
-                "The destination preflight changed. Run it again before loading.",
-                load_failure_code="LOAD_THE_DESTINATION_PREFLIGHT_CHANGED_RUN_IT_AGAIN_BEFORE_LOADING",
+            if current is not None:
+                raise WorkspaceError(
+                    "This approved transfer already has a load journal. Verify its outcome.",
+                    load_failure_code="LOAD_THIS_APPROVED_TRANSFER_ALREADY_HAS_A_LOAD_JOURNAL_VERIFY_ITS_OUTCOME",
+                )
+            self._validate_execution_scope(destination_workspace, preview, executor)
+            _validate_read_identity(
+                preview,
+                read_identity,
+                credential_binding_hash,
+                required=True,
             )
-        destination_workspace = transfer_destination_workspace(source_workspace)
-        observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
-        create_batch_rows = validated_create_batch_rows(batch_rows)
-        current = self.journal.get_current_run(workspace_id)
-        preview = ExecutionPreview(
-            snapshot=snapshot,
-            datasets=(),
-            current_run=current,
-            api_scope=execution_api_scope(snapshot),
-            deferred_create_count=planned_deferred_create_count(
-                snapshot,
-                create_batch_rows=create_batch_rows,
-            ),
-            scope_error=execution_snapshot_message(execution_snapshot_issue(snapshot, connection_mode=destination_workspace.odoo_connection_mode)),
-        )
-        if current is not None:
-            raise WorkspaceError(
-                "This approved transfer already has a load journal. Verify its outcome.",
-                load_failure_code="LOAD_THIS_APPROVED_TRANSFER_ALREADY_HAS_A_LOAD_JOURNAL_VERIFY_ITS_OUTCOME",
+            _validate_write_identity(
+                preview,
+                write_identity,
+                credential_binding_hash,
+                required=True,
             )
-        self._validate_execution_scope(destination_workspace, preview, executor)
-        _validate_read_identity(
-            preview,
-            read_identity,
-            credential_binding_hash,
-            required=True,
-        )
-        _validate_write_identity(
-            preview,
-            write_identity,
-            credential_binding_hash,
-            required=True,
-        )
-        if (
-            write_identity.principal_hash != read_identity.principal_hash
-            or write_identity.context_hash != read_identity.context_hash
-        ):
-            raise WorkspaceError(
-                "The destination transfer key changed principal or company context",
-                load_failure_code="LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT",
-            )
+            if (
+                write_identity.principal_hash != read_identity.principal_hash
+                or write_identity.context_hash != read_identity.context_hash
+            ):
+                raise WorkspaceError(
+                    "The destination transfer key changed principal or company context",
+                    load_failure_code="LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT",
+                )
+
+            return _ExecutionAdmission(destination_workspace, preview, create_batch_rows)
+
+        admission = self._local_execution_check(admit)
+        destination_workspace = admission.workspace_state
+        create_batch_rows = admission.batch_rows
 
         write_rows = tuple(
             row for row in snapshot.rows if row.disposition in {"CREATE", "UPDATE"}
@@ -790,11 +859,13 @@ class ExecutionService:
             write_permission_hash=write_identity.permission_hash,
             write_context_hash=write_identity.context_hash,
         )
-        self.journal.start_run(
-            workspace_id,
-            run,
-            actor=actor,
-            transfer_preflight_hash=expected_preflight_hash,
+        self._local_execution_check(
+            lambda: self.journal.start_run(
+                workspace_id,
+                run,
+                actor=actor,
+                transfer_preflight_hash=expected_preflight_hash,
+            )
         )
         return self._continue_run(
             destination_workspace,
@@ -829,115 +900,123 @@ class ExecutionService:
         """
         """Resume an interrupted journal only from exact read-back evidence."""
 
-        self.authorization.require(
-            actor,
-            Capability.EXPORT_PLAN_EXECUTE,
-            workspace_id=workspace_id,
-        )
-        workspace_state = self.workspaces.get(workspace_id)
-        if workspace_state.source_mode is SourceMode.ODOO:
-            raise WorkspaceError(
-                "Use the transfer recovery action for an interrupted "
-                "Odoo-to-Odoo load.",
-                load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD",
+        def admit() -> _RecoveryAdmission:
+            self.authorization.require(
+                actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                workspace_id=workspace_id,
             )
-        snapshot = self.preflight.current_execution_snapshot(workspace_id)
-        if snapshot is None:
-            raise WorkspaceError(
-                "The interrupted load preview is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT",
-            )
-        if not assess_odoo_operation(
-            snapshot.target_odoo_version, OdooOperation.RECOVER,
-        ).allowed:
-            raise WorkspaceError(
-                "This Odoo version is not enabled for the schema-bound load path",
-                load_failure_code="LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH",
-            )
-        observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
-        run = self.journal.get_run(workspace_id, expected_execution_run_id)
-        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
-        if (
-            run is None
-            or current is None
-            or current.run_id != expected_execution_run_id
-            or run.status is not ExecutionRunStatus.RUNNING
-            or run.snapshot_hash != snapshot.semantic_hash
-            or run.snapshot_root_hash != snapshot.root_hash
-            or run.preflight_run_id != snapshot.preflight_run_id
-            or run.target_hash != snapshot.target_hash
-            or run.target_database != snapshot.target_database
-        ):
-            raise WorkspaceError(
-                "The interrupted load or preview is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT",
-            )
-        self.preflight.require_business_intent_approval(workspace_id, run)
-        paused_control = run.load_control
-        paused = paused_control is not None and paused_control.state is LoadControlState.PAUSED
-        if paused_control is not None and paused and (
-            self.load_controls is None
-            or expected_load_control_hash != paused_control.content_hash
-        ):
-            raise WorkspaceError(
-                "Review the paused load before continuing the next group",
-                load_failure_code="LOAD_REVIEW_THE_PAUSED_LOAD_BEFORE_CONTINUING_THE_NEXT_GROUP",
-            )
-        if executor.target_hash != snapshot.target_hash:
-            raise WorkspaceError(
-                "The recovery writer points to a different Odoo target",
-                load_failure_code="LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET",
-            )
-        if executor.scope_hash != execution_api_scope(snapshot).semantic_hash:
-            raise WorkspaceError(
-                "The recovery writer is not bound to this reviewed load preview",
-                load_failure_code="LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_REVIEWED_LOAD_PREVIEW",
-            )
-        _require_resume_write_identity(
-            run,
-            write_identity,
-            write_credential_binding_hash,
-            required=(
-                self.require_remote_write_identity
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            ),
-        )
-        recovery = ReconciliationRun.from_json(recovery.to_json())
-        recovery_hash = recovery.semantic_hash
-        already_applied = (
-            not run.in_flight_count
-            and all(
-                item.recovery_hash == recovery_hash
-                for item in run.rows
-            )
-        )
-        if not already_applied:
-            recovered = classify_recovery(
-                snapshot, run, recovery, targeted=True,
-            )
-            self.journal.record_recovery(
-                workspace_id,
-                run.run_id,
-                recovered,
-                actor=actor,
-            )
-            run = self.journal.get_run(workspace_id, run.run_id)
-            if run is None:
+            workspace_state = self.workspaces.get(workspace_id)
+            if workspace_state.source_mode is SourceMode.ODOO:
                 raise WorkspaceError(
-                    "The recovered load journal could not be reloaded",
-                    load_failure_code="LOAD_THE_RECOVERED_LOAD_JOURNAL_COULD_NOT_BE_RELOADED",
+                    "Use the transfer recovery action for an interrupted "
+                    "Odoo-to-Odoo load.",
+                    load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD",
                 )
+            snapshot = self.preflight.current_execution_snapshot(workspace_id)
+            if snapshot is None:
+                raise WorkspaceError(
+                    "The interrupted load preview is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT",
+                )
+            if not assess_odoo_operation(
+                snapshot.target_odoo_version, OdooOperation.RECOVER,
+            ).allowed:
+                raise WorkspaceError(
+                    "This Odoo version is not enabled for the schema-bound load path",
+                    load_failure_code="LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH",
+                )
+            observe_load_context(snapshot, source_mode=workspace_state.source_mode.value, connection_mode=workspace_state.odoo_connection_mode.value if workspace_state.odoo_connection_mode is not None else "")
+            run = self.journal.get_run(workspace_id, expected_execution_run_id)
+            current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+            if (
+                run is None
+                or current is None
+                or current.run_id != expected_execution_run_id
+                or run.status is not ExecutionRunStatus.RUNNING
+                or run.snapshot_hash != snapshot.semantic_hash
+                or run.snapshot_root_hash != snapshot.root_hash
+                or run.preflight_run_id != snapshot.preflight_run_id
+                or run.target_hash != snapshot.target_hash
+                or run.target_database != snapshot.target_database
+            ):
+                raise WorkspaceError(
+                    "The interrupted load or preview is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT",
+                )
+            self.preflight.require_business_intent_approval(workspace_id, run)
+            paused_control = run.load_control
+            paused = paused_control is not None and paused_control.state is LoadControlState.PAUSED
+            if paused_control is not None and paused and (
+                self.load_controls is None
+                or expected_load_control_hash != paused_control.content_hash
+            ):
+                raise WorkspaceError(
+                    "Review the paused load before continuing the next group",
+                    load_failure_code="LOAD_REVIEW_THE_PAUSED_LOAD_BEFORE_CONTINUING_THE_NEXT_GROUP",
+                )
+            if executor.target_hash != snapshot.target_hash:
+                raise WorkspaceError(
+                    "The recovery writer points to a different Odoo target",
+                    load_failure_code="LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET",
+                )
+            if executor.scope_hash != execution_api_scope(snapshot).semantic_hash:
+                raise WorkspaceError(
+                    "The recovery writer is not bound to this reviewed load preview",
+                    load_failure_code="LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_REVIEWED_LOAD_PREVIEW",
+                )
+            _require_resume_write_identity(
+                run,
+                write_identity,
+                write_credential_binding_hash,
+                required=(
+                    self.require_remote_write_identity
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
+            )
+            checked_recovery = ReconciliationRun.from_json(recovery.to_json())
+            recovery_hash = checked_recovery.semantic_hash
+            already_applied = (
+                not run.in_flight_count
+                and all(
+                    item.recovery_hash == recovery_hash
+                    for item in run.rows
+                )
+            )
+            if not already_applied:
+                recovered = classify_recovery(
+                    snapshot, run, checked_recovery, targeted=True,
+                )
+                self.journal.record_recovery(
+                    workspace_id,
+                    run.run_id,
+                    recovered,
+                    actor=actor,
+                )
+                run = self.journal.get_run(workspace_id, run.run_id)
+                if run is None:
+                    raise WorkspaceError(
+                        "The recovered load journal could not be reloaded",
+                        load_failure_code="LOAD_THE_RECOVERED_LOAD_JOURNAL_COULD_NOT_BE_RELOADED",
+                    )
 
-        if paused:
-            if self.load_controls is None:
-                raise WorkspaceError(
-                    "This load has no durable continuation control",
-                    load_failure_code="LOAD_THIS_LOAD_HAS_NO_DURABLE_CONTINUATION_CONTROL",
+            if paused:
+                if self.load_controls is None:
+                    raise WorkspaceError(
+                        "This load has no durable continuation control",
+                        load_failure_code="LOAD_THIS_LOAD_HAS_NO_DURABLE_CONTINUATION_CONTROL",
+                    )
+                control = self.load_controls.resume_load_control(
+                    workspace_id, run.run_id, expected_hash=expected_load_control_hash, actor=actor,
                 )
-            control = self.load_controls.resume_load_control(
-                workspace_id, run.run_id, expected_hash=expected_load_control_hash, actor=actor,
-            )
-            run = replace(run, load_control=control)
+                run = replace(run, load_control=control)
+
+            return _RecoveryAdmission(workspace_state, snapshot, run)
+
+        admission = self._local_execution_check(admit)
+        workspace_state = admission.workspace_state
+        snapshot = admission.snapshot
+        run = admission.run
 
         write_rows = tuple(
             row
@@ -977,101 +1056,104 @@ class ExecutionService:
     ) -> RecoveryResumePlan:
         """Validate read-only recovery evidence and summarize the safe resume."""
 
-        self.authorization.require(
-            actor,
-            Capability.EXPORT_PLAN_EXECUTE,
-            workspace_id=workspace_id,
-        )
-        workspace_state = self.workspaces.get(workspace_id)
-        if workspace_state.source_mode is SourceMode.ODOO:
-            raise WorkspaceError(
-                "Use the transfer recovery action for an interrupted "
-                "Odoo-to-Odoo load.",
-                load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD",
+        def local_command() -> RecoveryResumePlan:
+            self.authorization.require(
+                actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                workspace_id=workspace_id,
             )
-        snapshot = self.preflight.current_execution_snapshot(workspace_id)
-        if snapshot is None:
-            raise WorkspaceError(
-                "The interrupted load preview is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT",
+            workspace_state = self.workspaces.get(workspace_id)
+            if workspace_state.source_mode is SourceMode.ODOO:
+                raise WorkspaceError(
+                    "Use the transfer recovery action for an interrupted "
+                    "Odoo-to-Odoo load.",
+                    load_failure_code="LOAD_USE_THE_TRANSFER_RECOVERY_ACTION_FOR_AN_INTERRUPTED_ODOO_TO_ODOO_LOAD",
+                )
+            snapshot = self.preflight.current_execution_snapshot(workspace_id)
+            if snapshot is None:
+                raise WorkspaceError(
+                    "The interrupted load preview is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_LOAD_PREVIEW_IS_NO_LONGER_CURRENT",
+                )
+            if not assess_odoo_operation(
+                snapshot.target_odoo_version,
+                OdooOperation.RECOVER,
+            ).allowed:
+                raise WorkspaceError(
+                    "This Odoo version is not enabled for the schema-bound load path",
+                    load_failure_code="LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH",
+                )
+            run = self.journal.get_run(workspace_id, expected_execution_run_id)
+            current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+            if (
+                run is None
+                or current is None
+                or current.run_id != expected_execution_run_id
+                or run.status is not ExecutionRunStatus.RUNNING
+                or run.snapshot_hash != snapshot.semantic_hash
+                or run.snapshot_root_hash != snapshot.root_hash
+                or run.preflight_run_id != snapshot.preflight_run_id
+                or run.target_hash != snapshot.target_hash
+                or run.target_database != snapshot.target_database
+            ):
+                raise WorkspaceError(
+                    "The interrupted load or preview is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT",
+                )
+            _require_resume_write_identity(
+                run,
+                write_identity,
+                write_credential_binding_hash,
+                required=(
+                    self.require_remote_write_identity
+                    and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
+                ),
             )
-        if not assess_odoo_operation(
-            snapshot.target_odoo_version,
-            OdooOperation.RECOVER,
-        ).allowed:
-            raise WorkspaceError(
-                "This Odoo version is not enabled for the schema-bound load path",
-                load_failure_code="LOAD_THIS_ODOO_VERSION_IS_NOT_ENABLED_FOR_THE_SCHEMA_BOUND_LOAD_PATH",
+            classified = classify_recovery(
+                snapshot,
+                run,
+                ReconciliationRun.from_json(recovery.to_json()),
+                targeted=True,
             )
-        run = self.journal.get_run(workspace_id, expected_execution_run_id)
-        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
-        if (
-            run is None
-            or current is None
-            or current.run_id != expected_execution_run_id
-            or run.status is not ExecutionRunStatus.RUNNING
-            or run.snapshot_hash != snapshot.semantic_hash
-            or run.snapshot_root_hash != snapshot.root_hash
-            or run.preflight_run_id != snapshot.preflight_run_id
-            or run.target_hash != snapshot.target_hash
-            or run.target_database != snapshot.target_database
-        ):
-            raise WorkspaceError(
-                "The interrupted load or preview is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_LOAD_OR_PREVIEW_IS_NO_LONGER_CURRENT",
+            original = {item.row_id: item for item in run.rows}
+            confirmed_after_interruption_count = sum(
+                original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
+                and item.status is ExecutionRowStatus.COMMITTED
+                for item in classified
             )
-        _require_resume_write_identity(
-            run,
-            write_identity,
-            write_credential_binding_hash,
-            required=(
-                self.require_remote_write_identity
-                and workspace_state.odoo_connection_mode is OdooConnectionMode.REMOTE
-            ),
-        )
-        classified = classify_recovery(
-            snapshot,
-            run,
-            ReconciliationRun.from_json(recovery.to_json()),
-            targeted=True,
-        )
-        original = {item.row_id: item for item in run.rows}
-        confirmed_after_interruption_count = sum(
-            original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
-            and item.status is ExecutionRowStatus.COMMITTED
-            for item in classified
-        )
-        safe_to_retry_count = sum(
-            original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
-            and item.status is ExecutionRowStatus.RETRY_READY
-            for item in classified
-        )
-        relationship_pending_count = sum(
-            item.status is ExecutionRowStatus.PARTIALLY_APPLIED
-            for item in classified
-        )
-        resume_count = sum(
-            item.diagnostic is None and item.status
-            in {
-                ExecutionRowStatus.PLANNED,
-                ExecutionRowStatus.RETRY_READY,
-                ExecutionRowStatus.PARTIALLY_APPLIED,
-            }
-            for item in classified
-        )
-        return RecoveryResumePlan(
-            execution_run_id=run.run_id,
-            snapshot_hash=snapshot.semantic_hash,
-            total_count=run.total_count,
-            already_accepted_count=run.committed_count,
-            waiting_count=run.planned_count + run.retry_ready_count,
-            uncertain_count=run.in_flight_count + run.unknown_count,
-            confirmed_after_interruption_count=confirmed_after_interruption_count,
-            safe_to_retry_count=safe_to_retry_count,
-            relationship_pending_count=relationship_pending_count,
-            resume_count=resume_count,
-            load_control_hash=run.load_control.content_hash if run.load_control else "",
-        )
+            safe_to_retry_count = sum(
+                original[item.row_id].status is ExecutionRowStatus.IN_FLIGHT
+                and item.status is ExecutionRowStatus.RETRY_READY
+                for item in classified
+            )
+            relationship_pending_count = sum(
+                item.status is ExecutionRowStatus.PARTIALLY_APPLIED
+                for item in classified
+            )
+            resume_count = sum(
+                item.diagnostic is None and item.status
+                in {
+                    ExecutionRowStatus.PLANNED,
+                    ExecutionRowStatus.RETRY_READY,
+                    ExecutionRowStatus.PARTIALLY_APPLIED,
+                }
+                for item in classified
+            )
+            return RecoveryResumePlan(
+                execution_run_id=run.run_id,
+                snapshot_hash=snapshot.semantic_hash,
+                total_count=run.total_count,
+                already_accepted_count=run.committed_count,
+                waiting_count=run.planned_count + run.retry_ready_count,
+                uncertain_count=run.in_flight_count + run.unknown_count,
+                confirmed_after_interruption_count=confirmed_after_interruption_count,
+                safe_to_retry_count=safe_to_retry_count,
+                relationship_pending_count=relationship_pending_count,
+                resume_count=resume_count,
+                load_control_hash=run.load_control.content_hash if run.load_control else "",
+            )
+
+        return self._local_execution_check(local_command)
 
     def resume_transfer(
         self,
@@ -1097,105 +1179,112 @@ class ExecutionService:
         """
         """Resume one interrupted transfer from exact same-key read-back."""
 
-        self.authorization.require(
-            actor,
-            Capability.EXPORT_PLAN_EXECUTE,
-            workspace_id=workspace_id,
-        )
-        source_workspace = self.workspaces.get(workspace_id)
-        report = source_workspace.transfer_preflight_report
-        if (
-            source_workspace.source_mode is not SourceMode.ODOO
-            or report is None
-            or not source_workspace.transfer_preflight_ready(
-                source_selection_hash=report.source_selection_hash,
-                source_schema_hash=report.source_schema_hash,
+        def admit() -> _RecoveryAdmission:
+            self.authorization.require(
+                actor,
+                Capability.EXPORT_PLAN_EXECUTE,
+                workspace_id=workspace_id,
             )
-            or not report.ready
-            or report.content_hash != expected_preflight_hash
-            or snapshot.workspace_id != workspace_id
-            or snapshot.semantic_hash != expected_snapshot_hash
-            or snapshot.preflight_result_hash != report.content_hash
-        ):
-            raise WorkspaceError(
-                "The interrupted transfer preview or preflight is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_PREVIEW_OR_PREFLIGHT_IS_NO_LONGER_CURRENT",
-            )
-        run = self.journal.get_run(workspace_id, expected_execution_run_id)
-        current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
-        if (
-            run is None
-            or current is None
-            or current.run_id != expected_execution_run_id
-            or run.status is not ExecutionRunStatus.RUNNING
-            or run.snapshot_hash != snapshot.semantic_hash
-            or run.snapshot_root_hash != snapshot.root_hash
-            or run.preflight_run_id != snapshot.preflight_run_id
-            or run.target_hash != snapshot.target_hash
-            or run.target_database != snapshot.target_database
-        ):
-            raise WorkspaceError(
-                "The interrupted transfer journal is no longer current",
-                load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_JOURNAL_IS_NO_LONGER_CURRENT",
-            )
+            source_workspace = self.workspaces.get(workspace_id)
+            report = source_workspace.transfer_preflight_report
+            if (
+                source_workspace.source_mode is not SourceMode.ODOO
+                or report is None
+                or not source_workspace.transfer_preflight_ready(
+                    source_selection_hash=report.source_selection_hash,
+                    source_schema_hash=report.source_schema_hash,
+                )
+                or not report.ready
+                or report.content_hash != expected_preflight_hash
+                or snapshot.workspace_id != workspace_id
+                or snapshot.semantic_hash != expected_snapshot_hash
+                or snapshot.preflight_result_hash != report.content_hash
+            ):
+                raise WorkspaceError(
+                    "The interrupted transfer preview or preflight is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_PREVIEW_OR_PREFLIGHT_IS_NO_LONGER_CURRENT",
+                )
+            run = self.journal.get_run(workspace_id, expected_execution_run_id)
+            current = self.journal.get_current_run(workspace_id, snapshot.semantic_hash)
+            if (
+                run is None
+                or current is None
+                or current.run_id != expected_execution_run_id
+                or run.status is not ExecutionRunStatus.RUNNING
+                or run.snapshot_hash != snapshot.semantic_hash
+                or run.snapshot_root_hash != snapshot.root_hash
+                or run.preflight_run_id != snapshot.preflight_run_id
+                or run.target_hash != snapshot.target_hash
+                or run.target_database != snapshot.target_database
+            ):
+                raise WorkspaceError(
+                    "The interrupted transfer journal is no longer current",
+                    load_failure_code="LOAD_THE_INTERRUPTED_TRANSFER_JOURNAL_IS_NO_LONGER_CURRENT",
+                )
 
-        destination_workspace = transfer_destination_workspace(source_workspace)
-        observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
-        preview = ExecutionPreview(
-            snapshot=snapshot,
-            datasets=(),
-            current_run=run,
-            api_scope=execution_api_scope(snapshot),
-            deferred_create_count=0,
-            scope_error=execution_snapshot_message(execution_snapshot_issue(snapshot, connection_mode=destination_workspace.odoo_connection_mode, operation=OdooOperation.RECOVER)),
-        )
-        if preview.scope_error:
-            raise WorkspaceError(
-                preview.scope_error,
-                load_failure_code="LOAD_SCOPE_CHECK_FAILED",
+            destination_workspace = transfer_destination_workspace(source_workspace)
+            observe_load_context(snapshot, source_mode="ODOO", connection_mode=destination_workspace.odoo_connection_mode.value if destination_workspace.odoo_connection_mode is not None else "")
+            preview = ExecutionPreview(
+                snapshot=snapshot,
+                datasets=(),
+                current_run=run,
+                api_scope=execution_api_scope(snapshot),
+                deferred_create_count=0,
+                scope_error=execution_snapshot_message(execution_snapshot_issue(snapshot, connection_mode=destination_workspace.odoo_connection_mode, operation=OdooOperation.RECOVER)),
             )
-        if executor.target_hash != snapshot.target_hash:
-            raise WorkspaceError(
-                "The recovery writer points to a different Odoo target",
-                load_failure_code="LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET",
+            if preview.scope_error:
+                raise WorkspaceError(
+                    preview.scope_error,
+                    load_failure_code="LOAD_SCOPE_CHECK_FAILED",
+                )
+            if executor.target_hash != snapshot.target_hash:
+                raise WorkspaceError(
+                    "The recovery writer points to a different Odoo target",
+                    load_failure_code="LOAD_THE_RECOVERY_WRITER_POINTS_TO_A_DIFFERENT_ODOO_TARGET",
+                )
+            if executor.scope_hash != preview.api_scope.semantic_hash:
+                raise WorkspaceError(
+                    "The recovery writer is not bound to this transfer preview",
+                    load_failure_code="LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_TRANSFER_PREVIEW",
+                )
+            _validate_read_identity(
+                preview,
+                read_identity,
+                credential_binding_hash,
+                required=True,
             )
-        if executor.scope_hash != preview.api_scope.semantic_hash:
-            raise WorkspaceError(
-                "The recovery writer is not bound to this transfer preview",
-                load_failure_code="LOAD_THE_RECOVERY_WRITER_IS_NOT_BOUND_TO_THIS_TRANSFER_PREVIEW",
+            _validate_write_identity(
+                preview,
+                write_identity,
+                credential_binding_hash,
+                required=True,
             )
-        _validate_read_identity(
-            preview,
-            read_identity,
-            credential_binding_hash,
-            required=True,
-        )
-        _validate_write_identity(
-            preview,
-            write_identity,
-            credential_binding_hash,
-            required=True,
-        )
-        _require_resume_write_identity(
-            run,
-            write_identity,
-            credential_binding_hash,
-            required=True,
-        )
-        if (
-            write_identity.principal_hash != read_identity.principal_hash
-            or write_identity.context_hash != read_identity.context_hash
-        ):
-            raise WorkspaceError(
-                "The destination transfer key changed principal or company context",
-                load_failure_code="LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT",
+            _require_resume_write_identity(
+                run,
+                write_identity,
+                credential_binding_hash,
+                required=True,
             )
-        if recovery.verification_credential_binding_hash != credential_binding_hash:
-            raise WorkspaceError(
-                "The recovery evidence was collected with another destination "
-                "transfer key",
-                load_failure_code="LOAD_THE_RECOVERY_EVIDENCE_WAS_COLLECTED_WITH_ANOTHER_DESTINATION_TRANSFER_KEY",
-            )
+            if (
+                write_identity.principal_hash != read_identity.principal_hash
+                or write_identity.context_hash != read_identity.context_hash
+            ):
+                raise WorkspaceError(
+                    "The destination transfer key changed principal or company context",
+                    load_failure_code="LOAD_THE_DESTINATION_TRANSFER_KEY_CHANGED_PRINCIPAL_OR_COMPANY_CONTEXT",
+                )
+            if recovery.verification_credential_binding_hash != credential_binding_hash:
+                raise WorkspaceError(
+                    "The recovery evidence was collected with another destination "
+                    "transfer key",
+                    load_failure_code="LOAD_THE_RECOVERY_EVIDENCE_WAS_COLLECTED_WITH_ANOTHER_DESTINATION_TRANSFER_KEY",
+                )
+
+            return _RecoveryAdmission(destination_workspace, snapshot, run)
+
+        admission = self._local_execution_check(admit)
+        destination_workspace = admission.workspace_state
+        run = admission.run
 
         recovery = ReconciliationRun.from_json(recovery.to_json())
         recovery_hash = recovery.semantic_hash
@@ -1226,18 +1315,22 @@ class ExecutionService:
             executor,
         )
         if not already_applied:
-            self.journal.record_recovery(
-                workspace_id,
-                run.run_id,
-                recovered,
-                actor=actor,
-            )
-            run = self.journal.get_run(workspace_id, run.run_id)
-            if run is None:
-                raise WorkspaceError(
-                    "The recovered transfer journal could not be reloaded",
-                    load_failure_code="LOAD_THE_RECOVERED_TRANSFER_JOURNAL_COULD_NOT_BE_RELOADED",
+            def publish_recovery() -> ExecutionRun:
+                self.journal.record_recovery(
+                    workspace_id,
+                    run.run_id,
+                    recovered,
+                    actor=actor,
                 )
+                saved = self.journal.get_run(workspace_id, run.run_id)
+                if saved is None:
+                    raise WorkspaceError(
+                        "The recovered transfer journal could not be reloaded",
+                        load_failure_code="LOAD_THE_RECOVERED_TRANSFER_JOURNAL_COULD_NOT_BE_RELOADED",
+                    )
+                return saved
+
+            run = self._local_execution_check(publish_recovery)
 
         by_source = {
             (row.dataset, portable_key(row.source_identity)): row
@@ -1263,22 +1356,27 @@ class ExecutionService:
 
     def request_stop(self, workspace_id: str, run_id: str, *, actor: Actor) -> LoadControl:
         """Authorize a durable stop for the exact current load."""
-        self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
-        if self.load_controls is None:
-            raise WorkspaceError(
-                "Durable load stopping is unavailable",
-                load_failure_code="LOAD_DURABLE_LOAD_STOPPING_IS_UNAVAILABLE",
-            )
-        control = self.load_controls.request_load_stop(workspace_id, run_id, actor=actor)
-        saved = self.journal.get_run(workspace_id, run_id)
-        if saved is not None and not saved.in_flight_count and saved.status is ExecutionRunStatus.RUNNING:
-            pending = tuple(replace(row, status=ExecutionRowStatus.BLOCKED,
-                safe_error="Not attempted because the operator stopped further uploads")
-                for row in saved.rows if row.status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
-            if pending:
-                JournalTransitions(self.journal, {}).record_outcomes(workspace_id, run_id, pending)
-            self.journal.finish_run(workspace_id, run_id, ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
-        return control
+        def local_command() -> LoadControl:
+            self.authorization.require(actor, Capability.EXPORT_PLAN_EXECUTE, workspace_id=workspace_id)
+            if self.load_controls is None:
+                raise WorkspaceError(
+                    "Durable load stopping is unavailable",
+                    load_failure_code="LOAD_DURABLE_LOAD_STOPPING_IS_UNAVAILABLE",
+                )
+            control = self.load_controls.request_load_stop(workspace_id, run_id, actor=actor)
+            saved = self.journal.get_run(workspace_id, run_id)
+            if saved is not None and not saved.in_flight_count and saved.status is ExecutionRunStatus.RUNNING:
+                pending = tuple(replace(row, status=ExecutionRowStatus.BLOCKED,
+                    safe_error="Not attempted because the operator stopped further uploads")
+                    for row in saved.rows if row.status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
+                if pending:
+                    JournalTransitions(
+                        self.journal, {}, local_operation=self._run_local,
+                    ).record_outcomes(workspace_id, run_id, pending)
+                self.journal.finish_run(workspace_id, run_id, ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
+            return control
+
+        return self._local_execution_check(local_command)
 
     def _continue_run(
         self, workspace_state: WorkspaceState, snapshot: ExecutionSnapshot,
@@ -1290,11 +1388,15 @@ class ExecutionService:
         observe_load_journal(run, projection="INITIAL")
         publisher = ExecutionProgressPublisher(run, progress, row_interval=min(validated_create_batch_rows(run.batch_rows or 0), MAX_PROGRESS_ROWS_BETWEEN_UPDATES))
         try:
-            return LoadWriter(self.journal, self.load_controls).run(workspace_state, snapshot, run, executor, actor,
+            return LoadWriter(
+                self.journal, self.load_controls, local_operation=self._run_local,
+            ).run(workspace_state, snapshot, run, executor, actor,
                 identity_cache=identity_cache, progress=publisher, protected_values=protected_values,
                 create_with_external_ids=create_with_external_ids)
         except OdooRequestDeferred:
-            saved = self.journal.get_run(run.workspace_id, run.run_id)
+            saved = self._local_execution_check(
+                lambda: self.journal.get_run(run.workspace_id, run.run_id)
+            )
             if saved is None or saved.in_flight_count:
                 raise
             if progress is not None:
@@ -1304,41 +1406,50 @@ class ExecutionService:
                     publisher.finish(saved)
             return saved
         except (LoadHalted, WorkspaceError) as error:
-            saved = self.journal.get_run(run.workspace_id, run.run_id)
-            if isinstance(error, WorkspaceError) and not (
-                saved is not None and saved.load_control is not None
-                and saved.load_control.state is LoadControlState.STOPPED
-                and saved.status is ExecutionRunStatus.COMPLETED_WITH_ERRORS
-                and not saved.in_flight_count
-            ):
-                raise
-            if saved is None or saved.load_control is None or saved.in_flight_count:
-                raise WorkspaceError(
-                    "The halted load needs read-back before continuation",
-                    load_failure_code="LOAD_THE_HALTED_LOAD_NEEDS_READ_BACK_BEFORE_CONTINUATION",
-                ) from None
-            if saved.status is not ExecutionRunStatus.RUNNING:
-                if progress is not None:
-                    if saved.load_control.state is LoadControlState.STOPPED:
-                        publisher.reconcile_stopped_run(saved)
-                    else:
-                        publisher.finish(saved)
-                return saved
-            if saved.load_control.state is LoadControlState.STOP_REQUESTED:
-                recorded = {row.row_id: row for row in saved.rows}
-                pending = tuple(row for row in snapshot.rows if row.row_id in recorded
-                    and recorded[row.row_id].status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
-                JournalTransitions(self.journal, recorded, publisher).record_blocked(run.workspace_id, run.run_id, pending, recorded,
-                    "Not attempted because the operator stopped further uploads")
-                saved = self.journal.finish_run(run.workspace_id, run.run_id,
-                    ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
+            failure = error
+
+            def settle_halt() -> _SettledHalt:
+                saved = self.journal.get_run(run.workspace_id, run.run_id)
+                if isinstance(failure, WorkspaceError) and not (
+                    saved is not None and saved.load_control is not None
+                    and saved.load_control.state is LoadControlState.STOPPED
+                    and saved.status is ExecutionRunStatus.COMPLETED_WITH_ERRORS
+                    and not saved.in_flight_count
+                ):
+                    raise failure
+                if saved is None or saved.load_control is None or saved.in_flight_count:
+                    raise WorkspaceError(
+                        "The halted load needs read-back before continuation",
+                        load_failure_code="LOAD_THE_HALTED_LOAD_NEEDS_READ_BACK_BEFORE_CONTINUATION",
+                    ) from None
+                if saved.status is not ExecutionRunStatus.RUNNING:
+                    return _SettledHalt(saved, was_terminal=True)
+                if saved.load_control.state is LoadControlState.STOP_REQUESTED:
+                    recorded = {row.row_id: row for row in saved.rows}
+                    pending = tuple(row for row in snapshot.rows if row.row_id in recorded
+                        and recorded[row.row_id].status in {ExecutionRowStatus.PLANNED, ExecutionRowStatus.RETRY_READY})
+                    JournalTransitions(
+                        self.journal, recorded, publisher, local_operation=self._run_local,
+                    ).record_blocked(run.workspace_id, run.run_id, pending, recorded,
+                        "Not attempted because the operator stopped further uploads")
+                    saved = self.journal.finish_run(run.workspace_id, run.run_id,
+                        ExecutionRunStatus.COMPLETED_WITH_ERRORS, actor=actor)
+                return _SettledHalt(saved, was_terminal=False)
+
+            settled = self._local_execution_check(settle_halt)
+            saved = settled.run
             if progress is not None:
-                publisher.finish(saved)
+                if settled.was_terminal and saved.load_control is not None and saved.load_control.state is LoadControlState.STOPPED:
+                    publisher.reconcile_stopped_run(saved)
+                else:
+                    publisher.finish(saved)
             return saved
         finally:
             if current_load_observation() is not None:
                 try:
-                    observed_run = self.journal.get_run(run.workspace_id, run.run_id)
+                    observed_run = self._local_execution_check(
+                        lambda: self.journal.get_run(run.workspace_id, run.run_id)
+                    )
                 except Exception as capture_error:  # noqa: BLE001 - optional evidence read
                     emit_load_evidence("capture_failed", exception_class=type(capture_error).__name__)
                 else:
@@ -1346,7 +1457,6 @@ class ExecutionService:
                         observe_load_journal(observed_run, projection="FINAL")
                     else:
                         emit_load_evidence("capture_failed", reason="JOURNAL_UNAVAILABLE")
-
 
     def complete_no_changes(
         self,
