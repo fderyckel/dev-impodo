@@ -1278,6 +1278,7 @@ stages:
       - src/impodo/domain/mapping/validation/dependencies.py::_validate_dependencies
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.reconcile
+      - src/impodo/application/fallout_workbook_service.py::FalloutWorkbookService.generate
       - src/impodo/application/workspace/execution/reconciliation.py::ReconciliationService.assess_recovery
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_batch_started
       - src/impodo/adapters/duckdb/execution_repository.py::ExecutionRepository.record_recovery

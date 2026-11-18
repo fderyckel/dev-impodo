@@ -1,16 +1,20 @@
 """Exercise continuation with reviewed dependency plans for both supported majors."""
 
+import json
+import unittest
 from dataclasses import replace
 from datetime import UTC, datetime
+from itertools import product
 from uuid import uuid4
-import unittest
 
+from impodo.adapters.odoo.writer import Json2WriteExecutor
 from impodo.domain.execution.load_control import (
     LoadControlState,
     RejectionPolicy,
     can_set_aside,
 )
 from impodo.domain.execution.models import ExecutionRowStatus, ExecutionRunStatus
+from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.odoo_write import OdooWriteRejected
 from impodo.domain.reconciliation import (
     ReconciliationRun,
@@ -20,12 +24,16 @@ from impodo.domain.reconciliation import (
 )
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
+    OdooWriteErrorType,
     WriteFailureCode,
 )
 from impodo.domain.execution_snapshot import FieldIntent
 from impodo.domain.shared.access import LOCAL_ACTOR
+from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from tests.application.workspace.execution import test_service as fixtures
+from tests.integration.odoo.test_load_request_pacing import config
+from tests.support.odoo_read_clock import ReadClock
 
 
 class _ControlledJournal(fixtures._Journal):
@@ -122,6 +130,77 @@ class ContinuationTests(unittest.TestCase):
         service.journal = journal
         service.load_controls = journal
         return service, journal
+
+    def test_http_validation_rejection_respects_policy_for_independent_updates(self):
+        template = fixtures._snapshot()
+        rows = tuple(
+            fixtures._row(
+                dataset="contacts",
+                model="res.partner",
+                source_row=index,
+                source_identity=(ref,),
+                business_identity=(ref,),
+                disposition="UPDATE",
+                fields=(FieldIntent("email", "SET_VALUE", f"{ref}@example.test"),),
+            )
+            for index, ref in enumerate(("C1", "C2"), start=2)
+        )
+        for major, mode, policy in product(
+            (19, 20), (OdooConnectionMode.LOCAL, OdooConnectionMode.REMOTE),
+            tuple(RejectionPolicy),
+        ):
+            with self.subTest(major=major, mode=mode, policy=policy):
+                cfg = config(major, mode.value)
+                snapshot = fixtures._with_plan(replace(
+                    template,
+                    rows=rows,
+                    datasets=(template.datasets[-1],),
+                    counts={**template.counts, "CREATE": 0, "UPDATE": 2},
+                    target_odoo_version=f"{major}.0",
+                    target_module_versions={"base": f"{major}.0.1.0"},
+                    target_database=cfg.database,
+                    target_hash=target_identity_hash(
+                        connection_mode=mode.value,
+                        base_url=cfg.base_url,
+                        database=cfg.database,
+                    ),
+                ))
+                calls = []
+
+                def transport(url, _headers, body, *_):
+                    if url.endswith("/search_read"):
+                        return 200, [{"id": 41, "ref": "C1"}, {"id": 42, "ref": "C2"}]
+                    self.assertTrue(url.endswith("/res.partner/write"))
+                    record_id, = json.loads(body)["ids"]
+                    calls.append(record_id)
+                    if record_id == 41:
+                        return 422, OdooWriteErrorType.VALIDATION
+                    return 200, True
+
+                service, journal = self._service(snapshot, mode)
+                writer = Json2WriteExecutor(
+                    cfg, execution_api_scope(snapshot), transport,
+                    request_pacer=ReadClock().pacer(),
+                )
+                result = service.execute(
+                    snapshot.workspace_id,
+                    expected_snapshot_hash=snapshot.semantic_hash,
+                    executor=writer,
+                    actor=LOCAL_ACTOR,
+                    rejection_policy=policy,
+                )
+                continued = policy is RejectionPolicy.CONTINUE
+                self.assertEqual(calls, [41, 42] if continued else [41])
+                self.assertEqual(result.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+                self.assertEqual(journal.run.status, result.status)
+                rejected, remaining = result.rows
+                self.assertEqual(rejected.status, ExecutionRowStatus.FAILED)
+                self.assertEqual(rejected.diagnostic.code, WriteFailureCode.VALIDATION)
+                self.assertEqual(rejected.diagnostic.fields, ())
+                self.assertEqual(
+                    remaining.status,
+                    ExecutionRowStatus.COMMITTED if continued else ExecutionRowStatus.BLOCKED,
+                )
 
     def test_failed_parent_blocks_child_but_independent_update_continues(self):
         for major in (19, 20):

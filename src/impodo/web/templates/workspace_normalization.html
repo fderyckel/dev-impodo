@@ -78,7 +78,7 @@
         <p>Preparing again without changing the source or field rule will return to this same review.</p>
       </div>
       <div class="next-action-buttons">
-        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Edit field rules</a>
+        <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/mapping">Edit field rules</a>
         {% if rejected_items %}
           <form method="post" action="/workspaces/{{ workspace_id }}/normalization/reopen">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -96,7 +96,7 @@
         <h2 id="prepared-next-title">All records were set aside</h2>
         <p>There are no records to approve. Review the root findings, correct the affected field rules, then prepare the data again.</p>
       </div>
-      <a class="button action" href="/workspaces/{{ workspace_id }}/normalization?status=set_aside#review-groups">Review why records were set aside</a>
+      <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/normalization?status=set_aside#review-groups">Review why records were set aside</a>
     </section>
   {% elif dry_run.status.value == 'REVIEW_REQUIRED' %}
     <section class="next-action-card ready" aria-labelledby="prepared-next-title">
@@ -313,7 +313,7 @@
       <nav class="readiness-pagination" aria-label="{% if review_status == 'set_aside' %}Set-aside record pages{% else %}Prepared-change pages{% endif %}">
         {% if review_previous_url %}<a class="button navigation" href="{{ review_previous_url }}#review-groups">Previous</a>{% endif %}
         <span class="muted">Page {{ review_page }} of {{ review_page_count }}</span>
-        {% if review_next_url %}<a class="button action" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
+        {% if review_next_url %}<a class="button navigation" href="{{ review_next_url }}#review-groups">Next</a>{% endif %}
       </nav>
     {% endif %}
 

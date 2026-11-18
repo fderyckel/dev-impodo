@@ -52,6 +52,28 @@ The proposed acceptance budgets remain:
 Treat these as qualification targets until repeated platform runs establish
 release evidence. Do not report an unmeasured target as an achieved guarantee.
 
+### Temporary Windows diagnostic kit
+
+Extract the supplied kit to a short, writable local folder and double-click
+**Run-Windows-Check.cmd**. The first run may download the pinned Python
+runtime and its packages. Keep the laptop awake and return the
+`impodo-windows-diagnostic-*.zip` beside the launcher. This separate
+collection uses fictional data and temporary projects.
+
+The ZIP records the eight launcher and restart checks and the Windows event-loop check in
+`windows-qualification.json`. Page measurements are in
+`workflow-liveness.json` once collection reaches that stage. Check coverage
+and the application, fixture and runtime identities against the retained
+macOS samples before accepting a Windows pass. A setup interruption can
+produce a ZIP with the last recorded stage. Record the outcome and missing
+evidence in the private performance history.
+
+After reviewing the returned ZIP and finishing any required rerun, retire the
+[temporary launcher](../../scripts/Run-Windows-Check.cmd), its
+[collector](../../scripts/windows_workflow_diagnostic.py), the distributed
+kit and this subsection. The four-page benchmark, ordinary diagnostic export
+and retained evidence have separate ongoing uses.
+
 ## Conditional follow-up
 
 - Measure the bounded uncached navigation query first. Add a cross-request

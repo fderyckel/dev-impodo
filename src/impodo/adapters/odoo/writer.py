@@ -624,15 +624,19 @@ class Json2WriteExecutor:
             return response
         if write:
             unknown = status >= 500 or status in {408, 425, 429}
-            code = (
-                WriteFailureCode.UNKNOWN if unknown
-                else WriteFailureCode.ACCESS_DENIED if status in {401, 403}
-                else WriteFailureCode.REJECTED
-            )
+            error_type = response if isinstance(response, OdooWriteErrorType) else None
+            if unknown:
+                code = WriteFailureCode.UNKNOWN
+            elif status in {401, 403}:
+                code = WriteFailureCode.ACCESS_DENIED
+            elif status in {400, 422} and error_type is OdooWriteErrorType.VALIDATION:
+                code = WriteFailureCode.VALIDATION
+            else:
+                code = WriteFailureCode.REJECTED
             diagnostic = OdooWriteDiagnostic(
                 code, model, method, batch_size=batch_size,
                 http_status=status if 100 <= status <= 599 else None,
-                error_type=response if isinstance(response, OdooWriteErrorType) else None,
+                error_type=error_type,
             )
             if unknown:
                 raise OdooWriteOutcomeUnknown(diagnostic.summary, diagnostic=diagnostic)

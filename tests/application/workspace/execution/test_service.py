@@ -4083,9 +4083,11 @@ class Json2WriteExecutorTests(unittest.TestCase):
                 self.assertEqual(diagnostic.http_status, 422)
                 self.assertEqual(diagnostic.method, method)
                 self.assertEqual(diagnostic.error_type, OdooWriteErrorType.VALIDATION)
+                self.assertEqual(diagnostic.code, WriteFailureCode.VALIDATION)
+                self.assertEqual(diagnostic.fields, ())
                 self.assertNotIn("private", json.dumps(diagnostic.to_dict()))
                 self.assertIn("ValidationError", diagnostic.summary)
-                self.assertFalse(can_set_aside(caught.exception))
+                self.assertTrue(can_set_aside(caught.exception))
                 self.assertTrue(response.closed)
 
 

@@ -240,6 +240,7 @@ document.addEventListener("DOMContentLoaded", () => {
       "[data-mapping-save-status]"
     );
     const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
+    const confirmRows = mappingForm.querySelector("[data-confirm-row-inclusion]");
     let dirty = false;
     let submitting = false;
     let activeOperation = null;
@@ -387,6 +388,11 @@ document.addEventListener("DOMContentLoaded", () => {
       if (confirmMapping) {
         confirmMapping.disabled = true;
         confirmMapping.title = "Check the latest changes before confirming.";
+      }
+      // Keep the highlight on rechecking until the row review is refreshed.
+      if (confirmRows?.hasAttribute("data-next-step")) {
+        confirmRows.removeAttribute("data-next-step");
+        confirmRows.setAttribute("data-row-confirmation-stale", "");
       }
       window.impodoMappingPosition?.rememberInteraction(event.target);
       const scalarRow = event.target.closest("[data-scalar-mapping-row]");

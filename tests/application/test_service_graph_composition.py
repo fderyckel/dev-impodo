@@ -224,6 +224,8 @@ class ExecutionServiceGraphTests(unittest.TestCase):
             workspaces=workspaces,
             preflight=preflight,
             journal=journal,
+            mapping_revision=Mock(),
+            derived_plan=Mock(),
             reconciliation_results=reconciliation_results,
             sources=sources,
             staging=staging,

@@ -2,11 +2,11 @@
 
 ## Status and remaining scope
 
-**Status:** Ranked sixth in the cross-plan implementation order as of
-2026-10-28, but the write-capable repair still requires an explicit activation
-decision. Source-cell workbooks, grouped outcome explanations, numeric
-precision checks, HTML normalization, and append-only re-verification are
-implemented.
+**Status:** The remaining feature is exact-record repair for known fallout.
+Activating the writer requires an explicit product decision. Stage 6 already
+provides attempt-specific workbook downloads, source-cell highlights based on
+saved field inputs, grouped outcome explanations, numeric precision checks,
+HTML normalization, and append-only re-verification.
 
 The [Load into Odoo developer workflow](../developer/workflow/06-load-into-odoo.md#implementation-flow)
 and [execution and reconciliation contract](../developer/contracts/execution-and-reconciliation.md#reconciliation)

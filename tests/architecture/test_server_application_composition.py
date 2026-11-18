@@ -257,6 +257,8 @@ class ServerApplicationCompositionTests(unittest.TestCase):
             workspaces=workspace_states,
             preflight=preparation.preflight,
             journal=_fake("execution_journal"),
+            mapping_revision=_fake("historical_mapping"),
+            derived_plan=_fake("historical_preparation"),
             reconciliation_results=_fake("reconciliation_results"),
             sources=source_repository,
             staging=staging_repository,

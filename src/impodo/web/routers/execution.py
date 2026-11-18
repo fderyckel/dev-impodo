@@ -578,6 +578,8 @@ def build_execution_router(
             and current_run.load_control.state is LoadControlState.PAUSED
         )
         fallout_detail_available = False
+        workbook_history = ()
+        workbook_page = 0
         fallout_groups = ()
         fallout_detail_page = None
         reconciliation_summary = None
@@ -590,36 +592,38 @@ def build_execution_router(
             )
         elif reconciliation is not None:
             load_rows = reconciliation.rows
-            fallout_detail_available = (
-                context.reconciliation.current_detail_available(workspace_id)
-            )
             reason_counts: Counter[tuple[str, str]] = Counter()
-            if fallout_detail_available:
+            try:
+                detail = context.reconciliation.detail_for(reconciliation, actor=actor)
+            except WorkspaceError:
+                detail = None
+            if detail is not None:
+                fallout_detail_available = True
+                reason_counts.update(
+                    (item.field, item.reason_code)
+                    for item in detail.differences
+                )
+                fallout_detail_page = _fallout_detail_page(
+                    detail.differences,
+                    snapshot_rows=(
+                        getattr(preview.snapshot, "rows", ())
+                        if getattr(detail, "snapshot_hash", None)
+                        == preview.snapshot.semantic_hash
+                        else ()
+                    ),
+                    requested_field=request.query_params.get("fallout_field"),
+                    requested_query=request.query_params.get("fallout_query"),
+                    requested_page=request.query_params.get("fallout_page"),
+                )
+            if step == "outcome" and "workbook_page" in request.query_params:
                 try:
-                    detail = context.reconciliation.current_detail(
-                        workspace_id,
-                        actor=actor,
-                    )
-                except WorkspaceError:
-                    fallout_detail_available = False
-                else:
-                    if detail is not None:
-                        reason_counts.update(
-                            (item.field, item.reason_code)
-                            for item in detail.differences
-                        )
-                        fallout_detail_page = _fallout_detail_page(
-                            detail.differences,
-                            snapshot_rows=(
-                                getattr(preview.snapshot, "rows", ())
-                                if getattr(detail, "snapshot_hash", None)
-                                == preview.snapshot.semantic_hash
-                                else ()
-                            ),
-                            requested_field=request.query_params.get("fallout_field"),
-                            requested_query=request.query_params.get("fallout_query"),
-                            requested_page=request.query_params.get("fallout_page"),
-                        )
+                    workbook_page = max(1, int(request.query_params["workbook_page"]))
+                except ValueError:
+                    workbook_page = 1
+                workbook_page = min(workbook_page, 2**31 - 1)
+                workbook_history = context.fallout_workbooks.previous_workbooks(
+                    workspace_id, reconciliation, offset=(workbook_page - 1) * 20, actor=actor,
+                )
             fallout_groups = _fallout_groups(
                 reconciliation,
                 reason_counts,
@@ -730,6 +734,8 @@ def build_execution_router(
             review_workbook_comparison_id=review_workbook_comparison_id,
             review_workbook_ready=review_workbook_ready,
             fallout_detail_available=fallout_detail_available,
+            workbook_history=workbook_history,
+            workbook_page=workbook_page,
             fallout_groups=fallout_groups,
             fallout_detail_page=fallout_detail_page,
             reconciliation_summary=reconciliation_summary,
@@ -2170,7 +2176,7 @@ def build_execution_router(
         def download():
             try:
                 generated = context.fallout_workbooks.generate(
-                    workspace_id, actor=actor,
+                    workspace_id, request.query_params.get("verification") or "", actor=actor,
                 )
             except (WorkspaceError, OSError, ValueError) as error:
                 request.session["load_export_error"] = str(error)

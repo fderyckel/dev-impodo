@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from uuid import UUID
 
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import WorkspaceStateNotFoundError
 
-from ...domain.reconciliation import ReconciliationRun
+from ...domain.reconciliation import (
+    ReconciliationRun,
+    ReconciliationRunStatus,
+    VerificationWorkbook,
+)
 from ...domain.reconciliation_detail import ReconciliationDetailManifest
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
@@ -189,6 +194,31 @@ class ReconciliationRepository(DuckDbRepository):
         except (TypeError, ValueError) as error:
             raise WorkspaceError("Stored verification detail is invalid") from error
 
+    def previous_workbooks(
+        self, workspace_id: str, report: ReconciliationRun, *, offset: int, limit: int
+    ) -> tuple[VerificationWorkbook, ...]:
+        """Page through downloadable attempts of this load without opening row detail."""
+
+        if report.workspace_id != workspace_id or offset < 0 or not 1 <= limit <= 21:
+            raise WorkspaceError("Invalid verification history selection")
+        database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            rows = connection.execute(
+                """
+                SELECT reconciliation_id, verified_at, status FROM reconciliation_run
+                 WHERE execution_run_id = ? AND reconciliation_id <> ?
+                   AND detail_storage_name IS NOT NULL
+                 ORDER BY verified_at DESC, reconciliation_id DESC
+                 LIMIT ? OFFSET ?
+                """,
+                [report.execution_run_id, report.reconciliation_id, limit, offset],
+            ).fetchall()
+        return tuple(
+            VerificationWorkbook(str(identifier), datetime.fromisoformat(timestamp), ReconciliationRunStatus(status))
+            for identifier, timestamp, status in rows
+        )
+
     def history(
         self,
         workspace_id: str,
@@ -244,4 +274,6 @@ class ReconciliationRepository(DuckDbRepository):
         report = ReconciliationRun.from_json(str(row[0]))
         if report.workspace_id != workspace_id:
             raise WorkspaceError("Verification result belongs to another workspace")
+        if report.reconciliation_id != canonical_id:
+            raise WorkspaceError("The saved verification failed its integrity check")
         return report

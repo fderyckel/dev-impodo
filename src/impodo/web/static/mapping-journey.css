@@ -298,6 +298,10 @@
   margin-bottom: 0;
 }
 
+[data-mapping-form]:not(:has([data-confirm-mapping]:disabled, [data-row-confirmation-stale])) .mapping-confirm-edit-notice {
+  display: none;
+}
+
 .mapping-company-next {
   justify-content: flex-end;
   margin-bottom: 1.5rem;

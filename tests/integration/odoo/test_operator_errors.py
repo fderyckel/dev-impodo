@@ -8,6 +8,7 @@ from unittest.mock import patch
 from urllib.error import HTTPError
 
 from impodo.adapters.odoo.writer import Json2WriteExecutor
+from impodo.domain.execution.load_control import can_set_aside
 from impodo.domain.execution.odoo_scope import OdooApiScope, OdooModelScope
 from impodo.domain.execution.odoo_write import (
     OdooWriteOutcomeUnknown,
@@ -17,6 +18,7 @@ from impodo.domain.execution.operator_errors import (
     OperatorErrorDetail,
     capture_operator_error,
 )
+from impodo.domain.execution.write_diagnostics import OdooWriteErrorType, WriteFailureCode
 from tests.integration.odoo.test_load_request_pacing import config
 from tests.support.odoo_read_clock import ReadClock
 
@@ -122,12 +124,33 @@ class OperatorErrorAdapterTests(unittest.TestCase):
                 self.assertIn("destination rule", detail.messages[0].text)
                 self.assertNotIn("/private", detail.to_json())
                 self.assertEqual(detail.messages[0].fields, ())
+                self.assertTrue(can_set_aside(caught.exception))
         writer = Json2WriteExecutor(
-            config(), SCOPE, lambda *_: (503, None), request_pacer=ReadClock().pacer()
+            config(),
+            SCOPE,
+            lambda *_: (503, OdooWriteErrorType.VALIDATION),
+            request_pacer=ReadClock().pacer(),
         )
         with self.assertRaises(OdooWriteOutcomeUnknown) as caught:
             writer.create_rows("res.partner", ({"name": "Prepared name"},))
         self.assertIsNone(caught.exception.operator_detail)
+        self.assertEqual(caught.exception.diagnostic.code, WriteFailureCode.UNKNOWN)
+
+    def test_http_write_rejection_requires_typed_validation_to_continue(self):
+        for status, error_type, code in (
+            (403, OdooWriteErrorType.VALIDATION, WriteFailureCode.ACCESS_DENIED),
+            (422, OdooWriteErrorType.USER, WriteFailureCode.REJECTED),
+            (422, None, WriteFailureCode.REJECTED),
+        ):
+            with self.subTest(status=status, error_type=error_type):
+                writer = Json2WriteExecutor(
+                    config(), SCOPE, lambda *_: (status, error_type),
+                    request_pacer=ReadClock().pacer(),
+                )
+                with self.assertRaises(OdooWriteRejected) as caught:
+                    writer.update_row("res.partner", 42, {"name": "Prepared name"})
+                self.assertEqual(caught.exception.diagnostic.code, code)
+                self.assertFalse(can_set_aside(caught.exception))
 
     def test_bounds_protected_values_and_invalid_contracts(self):
         messages = [

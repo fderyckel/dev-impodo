@@ -94,7 +94,7 @@ class GeneratedDisplayNameBrowserTests(unittest.TestCase):
         for service, method, value in (
             (context.execution, "current_preview", preview),
             (context.reconciliation, "current", report),
-            (context.reconciliation, "current_detail_available", False),
+            (context.reconciliation, "detail_for", None),
         ):
             mock = patch.object(type(service), method, return_value=value)
             mock.start()

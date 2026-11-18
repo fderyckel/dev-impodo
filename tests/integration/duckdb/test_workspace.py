@@ -327,6 +327,13 @@ class WorkspaceLifecycleTests(unittest.TestCase):
         self.assertEqual(snapshot.preparation_plan, plan)
         self.assertEqual(snapshot.source_catalogs, (self.catalog,))
 
+        updated = replace(plan, version=2)
+        self.derived_entity_repository.save_derived_entity_plan(
+            self.workspace_state.workspace_id, updated, expected_parent_version=1, actor=LOCAL_ACTOR,
+        )
+        self.assertEqual(self.derived_entity_repository.plan_by_hash(self.workspace_state.workspace_id, plan.content_hash), plan)
+        self.assertEqual(self.derived_entity_repository.plan_by_hash(self.workspace_state.workspace_id, updated.content_hash), updated)
+
     def test_schema_capture_rejects_a_different_read_credential_generation(
         self,
     ) -> None:

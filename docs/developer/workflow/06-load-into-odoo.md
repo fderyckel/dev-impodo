@@ -642,7 +642,13 @@ calls out BOM lines whose prepared Sequence is empty and whose returned value
 is 0 without inferring why Odoo stored that value. When the current snapshot
 hash matches the detail, the card uses the already loaded execution rows to
 show the BOM and component business keys for each affected line.
-`GET .../load/fallout.xlsx` joins the bound detail to frozen lineage and
+`GET .../load/fallout.xlsx?verification=<id>` opens the selected verification
+and its protected detail. The load journal identifies the historical execution
+snapshot. File-backed differences use the mapping revision and preparation
+rules bound to that snapshot. The same field-input and physical-column
+resolution used in Final review identifies the cells that contributed to each
+value. The export checks the accepted source file's SHA-256 before rendering.
+It joins the bound detail to frozen lineage and
 generates a derivative copy with an **Impodo Fallout** sheet, exact-cell links,
 highlights, and comments while leaving the accepted source artifact unchanged.
 It compares `physical_selection_hash` with the frozen physical source selection;
@@ -652,6 +658,9 @@ workbook and adds an **Impodo Verification** sheet. The outcome offers
 **Download verified source workbook (.xlsx)** for that result, including after
 restart. Admission and generation share one bounded local page operation;
 export failures return to the saved outcome with an actionable error.
+**Earlier verification workbooks** lists 20 downloadable checks per page
+from the same load. Opening the list reads saved dates and outcomes. Each
+download link retains its verification ID across re-checks and restarts.
 The [workbook download regressions](../../../tests/integration/web/test_fallout_workbook_download.py)
 cover combined selections, repeat downloads, changed sources, and denied access.
 

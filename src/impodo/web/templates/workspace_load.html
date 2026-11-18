@@ -492,9 +492,9 @@
         <div class="button-row">
           {% if fallout_detail_available %}
             {% if reconciliation.status.value == 'VERIFIED' %}
-              <a class="button action" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download verified source workbook (.xlsx)</a>
+              <a class="button action" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx?verification={{ reconciliation.reconciliation_id }}">Download verified source workbook (.xlsx)</a>
             {% elif reconciliation.fallout_count %}
-              <a class="button action" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx">Download highlighted source workbook (.xlsx)</a>
+              <a class="button action" href="/workspaces/{{ workspace_id }}/load/fallout.xlsx?verification={{ reconciliation.reconciliation_id }}">Download highlighted source workbook (.xlsx)</a>
             {% endif %}
           {% endif %}
           {% if migration_workspace.state.value == 'CLOSED' %}
@@ -513,6 +513,27 @@
           {% endif %}
         </div>
       </section>
+
+      {% if reconciliation.reconciliation_id and workspace_state.source_mode.value == 'FILE' %}
+        <section id="verification-workbooks">
+          {% if workbook_page %}
+            <h3>Earlier verification workbooks</h3>
+            {% if workbook_history %}
+              <ul>
+                {% for attempt in workbook_history[:20] %}
+                  <li><a href="/workspaces/{{ workspace_id }}/load/fallout.xlsx?verification={{ attempt.reconciliation_id }}">{{ attempt.verified_at.strftime('%Y-%m-%d %H:%M:%S UTC') }} · {{ 'Verified' if attempt.status.value == 'VERIFIED' else 'Needs review' if attempt.status.value == 'FALLOUT' else 'Outcome unknown' }} (.xlsx)</a></li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p>No earlier workbooks on this page.</p>
+            {% endif %}
+            {% if workbook_page > 1 %}<a href="?workbook_page={{ workbook_page - 1 }}#verification-workbooks">Newer checks</a>{% endif %}
+            {% if workbook_history|length > 20 %}<a href="?workbook_page={{ workbook_page + 1 }}#verification-workbooks">Older checks</a>{% endif %}
+          {% else %}
+            <a href="?workbook_page=1#verification-workbooks">Earlier verification workbooks</a>
+          {% endif %}
+        </section>
+      {% endif %}
 
       {% if review_workbook_comparison_id %}
         <section class="form-card" id="review-workbook" aria-labelledby="review-workbook-title">

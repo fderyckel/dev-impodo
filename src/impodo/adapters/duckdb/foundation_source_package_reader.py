@@ -171,12 +171,9 @@ def read_source_package_store(
             else None
         ),
     )
-    if (
-        package.content_hash != str(state[3])
-        or (
-            identity[2] is not None
-            and package.content_hash != str(identity[2])
-        )
+    computed_hash = package.content_hash
+    if computed_hash != str(state[3]) or (
+        identity[2] is not None and computed_hash != str(identity[2])
     ):
         raise MigrationConflictError(
             "Stored source package hash is inconsistent"

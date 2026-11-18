@@ -9,10 +9,13 @@
     {% set dataset_index = view.index %}
     {% include "mapping/_control_totals.html" %}
   {% endfor %}
-  {% if next_step.blockers %}
-    <div class="notice warning">
+  {% set check_blockers = next_step.blockers|rejectattr('action', 'equalto', 'confirm_rows')|list %}
+  {% if next_step.blockers or (next_step.available and next_step.kind == 'submit') %}
+    <div class="notice warning{% if not check_blockers %} mapping-confirm-edit-notice{% endif %}">
       <strong>Some decisions still need attention.</strong>
-      <a href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check">Review what needs attention</a>
+      <div class="actions">
+        <a class="button action" href="/workspaces/{{ workspace_id }}/mapping?step=check" data-mapping-go-step="check" data-next-step="50">Review what needs attention</a>
+      </div>
     </div>
   {% endif %}
 </div>

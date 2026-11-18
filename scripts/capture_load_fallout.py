@@ -218,14 +218,7 @@ def capture(output: Path, *, browser_channel: str) -> None:
             patches.enter_context(
                 patch.object(
                     type(context.reconciliation),
-                    "current_detail_available",
-                    return_value=True,
-                )
-            )
-            patches.enter_context(
-                patch.object(
-                    type(context.reconciliation),
-                    "current_detail",
+                    "detail_for",
                     return_value=detail,
                 )
             )

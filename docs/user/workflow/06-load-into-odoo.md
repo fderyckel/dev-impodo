@@ -320,7 +320,12 @@ sequence above for an Odoo-to-Odoo workspace.
    the intended line order; the read-back difference alone does not mean the
    component is missing. Select **Re-check Odoo now** for a
    fresh read-only attempt, or download the highlighted source workbook to
-   locate the original worksheet cells. The original source workbook is never
+   locate the worksheet cells that contributed to each difference. If a formula
+   chose one of two columns, only the column it used is highlighted when that
+   choice was recorded. **No proven source cell** means Impodo can show the
+   difference but cannot identify a cell to highlight.
+   Select **Earlier verification workbooks** and choose the date and outcome
+   to download the result of an earlier check. The original source workbook is never
    changed. Do not load the same review again.
 
 ![Current Check changes screen with exact new, changed, up-to-date, and per-table totals.](../../images/user/17-load-preview.png)
@@ -352,7 +357,10 @@ continuing.
 
 With **Set aside rejected records and continue**, Impodo isolates a known
 rejection, retains its diagnostic, and continues independent records. A rejected
-parent blocks records that need it. Previously accepted records remain in Odoo.
+parent blocks records that need it. For example, if Odoo rejects one contact
+update with a validation error, Impodo saves that rejection for review and
+sends the next independent contact update. Previously accepted records remain
+in Odoo.
 
 Impodo pauses after ten consecutive record rejections for one record type and
 operation, or a rejection rate of at least 20% after twenty settled records in

@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
-from tests.support.paths import REPOSITORY_ROOT
-
+import unittest
 from dataclasses import replace
 from hashlib import sha256
 from io import BytesIO
 from pathlib import Path
-import shutil
-import unittest
+from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from uuid import uuid4
 
 import duckdb
 
-from impodo.domain.shared.access import (
-    Actor,
-    ActorIdentity,
-    AuthorizationError,
-    CapabilityAuthorizationPolicy,
-    LOCAL_ACTOR,
+from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
+from impodo.adapters.duckdb.foundation_source_package_reader import (
+    read_source_package_store,
 )
-from impodo.application.shared.artifacts import StoredArtifact
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
 )
@@ -31,7 +26,6 @@ from impodo.adapters.duckdb.migration_foundation_repository import (
 from impodo.adapters.duckdb.migration_workspace_engine_database import (
     FixedMigrationWorkspaceEngineDatabase,
 )
-from impodo.adapters.duckdb.derived_entity_repository import DerivedEntityRepository
 from impodo.adapters.duckdb.projected_preparation_source_repository import (
     ProjectedPreparationSourceRepository,
 )
@@ -44,13 +38,11 @@ from impodo.adapters.duckdb.schema.migration_registry import (
 from impodo.adapters.duckdb.schema.migration_workspace_store import (
     MIGRATION_WORKSPACE_GENERATION,
 )
-from impodo.application.workspace_source_projection import (
-    WorkspaceMappingSourceProjection,
-)
+from impodo.application.data_version.service import DataVersionService
 from impodo.application.data_version.source_packages import (
+    DataVersionSourceIntakeService,
     DataVersionSourcePackage,
     DataVersionSourcePackageService,
-    DataVersionSourceIntakeService,
     SourcePackageCatalog,
     SourcePackageConfiguration,
     SourcePackageDataset,
@@ -60,10 +52,15 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
-from impodo.application.data_version.service import DataVersionService
+from impodo.application.project.service import MigrationProjectService
+from impodo.application.run.service import MigrationRunService
+from impodo.application.shared.artifacts import StoredArtifact
+from impodo.application.workspace.preparation.job_models import PreparationWorkspace
+from impodo.application.workspace.service import MigrationWorkspaceService
+from impodo.application.workspace_source_projection import (
+    WorkspaceMappingSourceProjection,
+)
 from impodo.domain.data_version.models import DataVersionState
-from impodo.domain.serialization import content_hash
-from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationFoundationError,
@@ -71,15 +68,17 @@ from impodo.domain.project.foundation import (
     MigrationStorageCompatibilityError,
     utc_now,
 )
-from impodo.application.project.service import MigrationProjectService
-from impodo.application.run.service import MigrationRunService
-from impodo.application.workspace.service import MigrationWorkspaceService
-from impodo.application.workspace.preparation.job_models import PreparationWorkspace
 from impodo.domain.run.models import MigrationRunPurpose
+from impodo.domain.serialization import content_hash
+from impodo.domain.shared.access import (
+    LOCAL_ACTOR,
+    Actor,
+    ActorIdentity,
+    AuthorizationError,
+    CapabilityAuthorizationPolicy,
+)
+from impodo.domain.source_binding import FileSourceBinding, OdooSourceBinding
 from impodo.domain.workspace.contracts import SourceDatasetColumn
-
-
-ROOT = REPOSITORY_ROOT
 
 
 class SimulatedCrash(RuntimeError):
@@ -127,9 +126,7 @@ def _crash_at(expected_stage: str):
 
 class DataVersionSourcePackageTests(unittest.TestCase):
     def setUp(self) -> None:
-        (ROOT / ".tmp").mkdir(exist_ok=True)
-        self.root = ROOT / ".tmp" / f"data-version-source-packages-{uuid4()}"
-        self.root.mkdir()
+        self.root = Path(self.enterContext(TemporaryDirectory())).resolve()
         self.database = MigrationFoundationDatabase(self.root)
         self.repository = MigrationFoundationRepository(self.database)
         authorization = CapabilityAuthorizationPolicy()
@@ -161,9 +158,6 @@ class DataVersionSourcePackageTests(unittest.TestCase):
             purpose="AUTHORING",
             label="Representative source package",
         )
-
-    def tearDown(self) -> None:
-        shutil.rmtree(self.root, ignore_errors=True)
 
     def _package(self, *, revision: int = 1) -> DataVersionSourcePackage:
         received_at = utc_now()
@@ -666,6 +660,51 @@ class DataVersionSourcePackageTests(unittest.TestCase):
                 expected_package_revision=frozen.revision,
                 actor=LOCAL_ACTOR,
             )
+
+    def test_each_frozen_package_read_computes_one_complete_digest(self) -> None:
+        frozen = self._freeze()
+        expected_digest = frozen.content_hash
+        package_digests = []
+
+        def observe_hash(payload: object) -> str:
+            digest = content_hash(payload)
+            if digest == expected_digest:
+                package_digests.append(digest)
+            return digest
+
+        with patch(
+            "impodo.application.data_version.source_packages.content_hash", observe_hash,
+        ):
+            for _ in range(2):
+                package_digests.clear()
+                saved = self.repository.get_source_package(frozen.data_version_id)
+                self.assertEqual(saved, frozen)
+                self.assertEqual(package_digests, [expected_digest])
+
+    def test_frozen_package_read_rejects_each_stored_digest_and_changed_contents(self) -> None:
+        frozen = self._freeze()
+        path = self.database.data_version_store_path(frozen.project_id, frozen.data_version_id)
+        wrong_digest = "sha256:" + "0" * 64
+        for update, value in (
+            ("UPDATE source_package_state SET package_hash = ?", wrong_digest),
+            ("UPDATE data_version_identity SET source_package_hash = ?", wrong_digest),
+            (
+                "UPDATE source_package_dataset SET display_name = ? WHERE dataset_id = 'customers'",
+                "Archived customers",
+            ),
+        ):
+            with self.subTest(update=update), self.database.connect(path) as connection:
+                connection.begin()
+                connection.execute(update, [value])
+                with self.assertRaisesRegex(
+                    MigrationConflictError, "Stored source package hash is inconsistent",
+                ):
+                    read_source_package_store(
+                        connection,
+                        expected_data_version_id=frozen.data_version_id,
+                        expected_project_id=frozen.project_id,
+                    )
+                connection.rollback()
 
     def test_odoo_package_uses_the_same_data_version_boundary(self) -> None:
         saved = self.sources.replace_draft(

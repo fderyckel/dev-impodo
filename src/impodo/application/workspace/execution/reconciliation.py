@@ -313,34 +313,21 @@ class ReconciliationService:
         """Open protected difference details only for the current published run."""
 
         report = self.current(workspace_id)
-        reconciliation_id = getattr(report, "reconciliation_id", "")
-        if report is None or not reconciliation_id or self.evidence is None:
+        return self.detail_for(report, actor=actor) if report is not None else None
+
+    def detail_for(
+        self, report: ReconciliationRun, *, actor: Actor,
+    ) -> ReconciliationDetailArtifact | None:
+        """Open only the protected evidence bound to this immutable attempt."""
+
+        if self.evidence is None:
             return None
         manifest = self.results.get_detail_manifest(
-            workspace_id,
-            reconciliation_id,
+            report.workspace_id, report.reconciliation_id,
         )
         if manifest is None:
             return None
         return self.evidence.open(report, manifest, actor=actor)
-
-    def current_detail_available(self, workspace_id: str) -> bool:
-        """Tell page composition whether current protected details can be opened.
-
-        Called before rendering evidence controls. It intentionally avoids
-        opening the artifact; ``current_detail`` remains the authorized read.
-        """
-        report = self.current(workspace_id)
-        reconciliation_id = getattr(report, "reconciliation_id", "")
-        return bool(
-            report is not None
-            and reconciliation_id
-            and self.evidence is not None
-            and self.results.get_detail_manifest(
-                workspace_id,
-                reconciliation_id,
-            )
-        )
 
     def _target_digits(
         self,

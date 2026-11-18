@@ -138,11 +138,12 @@ class _FrozenSourceReads:
         return self.sources.get_source_selection(self.workspace_id)
 
     @cached_property
-    def snapshots(self) -> dict[str, SourceSnapshot]:
-        return {
-            item.dataset_id: item
-            for item in self.sources.get_current_source_snapshots(self.workspace_id)
-        }
+    def snapshots(self) -> tuple[SourceSnapshot, ...]:
+        return self.sources.get_current_source_snapshots(self.workspace_id)
+
+    @cached_property
+    def snapshots_by_dataset(self) -> dict[str, SourceSnapshot]:
+        return {item.dataset_id: item for item in self.snapshots}
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,7 +220,7 @@ class CategoricalCoverageService:
         if reads.physical is None:
             raise WorkspaceError("Frozen parent source evidence is incomplete")
         return included_parent_rows_from_snapshots(
-            datasets, reads.physical, reads.snapshots.values(), self.artifacts,
+            datasets, reads.physical, reads.snapshots, self.artifacts,
         )
 
     def source_value_choices(
@@ -748,8 +749,9 @@ class CategoricalCoverageService:
         *, included_parents: Mapping[str, IncludedParentRows] | None = None,
     ) -> CategoricalCoverageCollection:
         """Build hash-bound evidence and blocking issues for the current mapping."""
+        reads = _FrozenSourceReads(self.sources, workspace_id)
         if included_parents is None:
-            included_parents = self.included_parent_rows(workspace_id, definition.datasets)
+            included_parents = self._included_parent_rows(reads, definition.datasets)
         fields = _coverage_fields(definition, schema)
         by_dataset: dict[str, list[_CoverageField]] = {}
         for item in fields:
@@ -760,7 +762,7 @@ class CategoricalCoverageService:
         selection_dataset_ids: set[str] = set()
         has_joined_values = False
         if by_dataset:
-            physical_selection = self.sources.get_source_selection(workspace_id)
+            physical_selection = reads.physical
             if physical_selection is None:
                 raise WorkspaceError("Frozen source evidence is incomplete")
             selection_dataset_ids = {
@@ -849,6 +851,7 @@ class CategoricalCoverageService:
                 selection,
                 dataset_id,
                 source_keys,
+                source_reads=reads,
             )
             if gate is not None:
                 frame = _parent_scoped_frame(frame, dataset_fields[0].dataset.row_inclusion, gate)
@@ -858,16 +861,7 @@ class CategoricalCoverageService:
                 if issue is not None:
                     issues.append(issue)
 
-        snapshots = (
-            tuple(
-                sorted(
-                    self.sources.get_current_source_snapshots(workspace_id),
-                    key=lambda item: item.dataset_id,
-                )
-            )
-            if by_dataset
-            else ()
-        )
+        snapshots = sorted(reads.snapshots, key=lambda item: item.dataset_id) if by_dataset else ()
         evidence = CategoricalCoverageEvidence(
             mapping_content_hash=definition.content_hash,
             effective_source_selection_hash=selection.content_hash,
@@ -938,7 +932,7 @@ class CategoricalCoverageService:
             (item for item in selection.datasets if item.dataset_id == dataset_id),
             None,
         )
-        snapshot = reads.snapshots.get(dataset_id)
+        snapshot = reads.snapshots_by_dataset.get(dataset_id)
         if dataset is None or snapshot is None:
             raise WorkspaceError("Frozen source snapshot is incomplete")
         try:

@@ -116,6 +116,8 @@ class OdooWriteDiagnostic:
             if self.code is WriteFailureCode.REJECTED and self.error_type
             else _MESSAGES[self.code]
         )
+        if self.code is WriteFailureCode.VALIDATION and not self.fields:
+            message = "Odoo rejected this operation during validation"
         return f"{message}.{field_text}{rows}{status}{error_type} [{self.code.value}]"
 
     def to_dict(self) -> dict[str, object]:

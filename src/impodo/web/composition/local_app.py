@@ -605,6 +605,8 @@ def create_local_app(
         workspaces=workspace_state_repository,
         preflight=preflight,
         journal=execution_repository,
+        mapping_revision=mapping_repository.get_mapping_revision,
+        derived_plan=derived_entity_repository.plan_by_hash,
         reconciliation_results=reconciliation_repository,
         sources=source_repository,
         staging=staging_repository,

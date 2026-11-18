@@ -64,6 +64,17 @@ class DerivedEntityRepository(DuckDbRepository):
             """,
         )
         return DerivedEntityPlan.from_json(value) if value else None
+
+    def plan_by_hash(self, workspace_id: str, content_hash: str) -> DerivedEntityPlan | None:
+        """Read the immutable preparation rules named by a saved staging run."""
+
+        values = self._read_json_rows(
+            workspace_id,
+            "SELECT plan_json FROM derived_entity_plan_revision WHERE content_hash = ? LIMIT 1",
+            [content_hash],
+        )
+        return DerivedEntityPlan.from_json(values[0]) if values else None
+
     def save_derived_entity_plan(
         self,
         workspace_id: str,

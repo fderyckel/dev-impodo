@@ -76,6 +76,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
                 "current",
                 return_value=reconciliation,
             ),
+            patch.object(type(context.reconciliation), "detail_for", return_value=None),
         ):
             page = self.client.get(
                 f"/workspaces/{workspace_state.workspace_id}/load/outcome"
@@ -156,8 +157,8 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             ),
             patch.object(
                 type(context.reconciliation),
-                "current_detail_available",
-                return_value=False,
+                "detail_for",
+                return_value=None,
             ),
         ):
             page = self.client.get(
@@ -246,7 +247,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         with (
             patch.object(type(context.execution), "current_preview", return_value=preview),
             patch.object(type(context.reconciliation), "current", return_value=reconciliation),
-            patch.object(type(context.reconciliation), "current_detail_available", return_value=False),
+            patch.object(type(context.reconciliation), "detail_for", return_value=None),
         ):
             for major in (19, 20):
                 with self.subTest(major=major):
@@ -351,10 +352,9 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         with (
             patch.object(type(context.execution), "current_preview", return_value=preview),
             patch.object(type(context.reconciliation), "current", return_value=reconciliation),
-            patch.object(type(context.reconciliation), "current_detail_available", return_value=True),
             patch.object(
                 type(context.reconciliation),
-                "current_detail",
+                "detail_for",
                 return_value=SimpleNamespace(
                     differences=differences,
                     snapshot_hash=preview.snapshot.semantic_hash,

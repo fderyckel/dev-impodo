@@ -60,6 +60,7 @@ from impodo.application.fallout_workbook_service import (
     FalloutStagingReader,
     FalloutWorkbookService,
     FalloutWorkspaceReader,
+    WorkbookVerificationReader,
 )
 from impodo.application.migration_project_authoring_service import (
     MigrationProjectAuthoringService,
@@ -232,6 +233,7 @@ from impodo.application.workspace.service import MigrationWorkspaceService
 from impodo.application.workspace_data_version_source_service import (
     WorkspaceDataVersionSourceService,
 )
+from impodo.domain.mapping.artifacts import MappingRevision
 from impodo.domain.mapping.contracts import MappingDefinition
 from impodo.domain.preparation.quality import QualityRule
 from impodo.domain.reconciliation import ReconciliationRun
@@ -245,6 +247,7 @@ from impodo.domain.shared.access import (
     AuthorizationPolicy,
     WorkspaceAuthorizationPolicy,
 )
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -307,6 +310,10 @@ class ExecutionWorkspacePorts(
     Protocol,
 ):
     """Combine Workspace state reads used by loading and fallout evidence."""
+
+
+class ExecutionVerificationPorts(ReconciliationResultRepository, WorkbookVerificationReader, Protocol):
+    """Publish read-back results and open a selected workbook attempt."""
 
 
 class ExecutionSourcePorts(
@@ -860,7 +867,9 @@ def build_execution_service_graph(
     workspaces: ExecutionWorkspacePorts,
     preflight: PreflightService,
     journal: ExecutionJournalPorts,
-    reconciliation_results: ReconciliationResultRepository,
+    reconciliation_results: ExecutionVerificationPorts,
+    mapping_revision: Callable[[str, int], MappingRevision | None],
+    derived_plan: Callable[[str, str], DerivedEntityPlan | None],
     sources: ExecutionSourcePorts,
     staging: FalloutStagingReader,
     schemas: ReconciliationSchemaReader,
@@ -921,6 +930,9 @@ def build_execution_service_graph(
         artifacts,
         authorization,
         fallout_workbook_renderer,
+        verifications=reconciliation_results,
+        mapping_revision=mapping_revision,
+        derived_plan=derived_plan,
     )
     return ExecutionServiceGraph(
         execution=execution,

@@ -1313,6 +1313,11 @@ commits independently. A later mapping conflict preserves the saved choices
 and follows the usual receipt recovery path. The [linked check regression](../../../tests/integration/web/test_mapping_linked_check.py)
 removes a target value between checks and verifies the second result.
 
+When validation checks categorical values in physical tables, it reads the
+frozen source selection and snapshot list once for the collection. It verifies
+each table's Parquet file against its manifest and uses that same manifest
+when recording coverage. A later check reads the source metadata again.
+
 The [command performance tests](../../../tests/integration/web/test_mapping_command_performance.py)
 bound complete save, replay, stale-save, check and confirmation requests for
 both Odoo majors and access modes. They count physical opens, schema checks

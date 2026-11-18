@@ -2,6 +2,8 @@
 {% block title %}Review possible duplicates - {{ migration_project.display_name }} - Impodo{% endblock %}
 {% block content %}
   {% set restricted = migration_project.data_classification.value == 'RESTRICTED' %}
+  {% set next_pair = review.candidates|selectattr('decision', 'none')|first %}
+  {% set next_field = review.fields|selectattr('decision', 'none')|first %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_APPLICATION' %}Review and load · Review possible duplicates{% else %}Stage 4 of 6 · Prepare data{% endif %}</p>
@@ -14,6 +16,16 @@
   </div>
 
   <p class="muted">This review is local and source-side. Odoo is not contacted.</p>
+
+  {% if pending_pairs or pending_fields %}
+    <div class="actions">
+      {% if pending_pairs %}
+        <a class="button action" data-next-step="100" href="#next-duplicate-pair">Review next pair</a>
+      {% else %}
+        <a class="button action" data-next-step="100" href="#next-duplicate-field">Review next field choice</a>
+      {% endif %}
+    </div>
+  {% endif %}
 
   <section class="form-card" aria-labelledby="candidate-title">
     <div class="page-heading compact">
@@ -28,7 +40,7 @@
           <thead><tr><th>First record</th><th>Second record</th><th>Similarity</th><th>Decision</th></tr></thead>
           <tbody>
             {% for item in review.candidates %}
-              <tr>
+              <tr{% if item is sameas next_pair %} id="next-duplicate-pair" tabindex="-1"{% endif %}>
                 <td>
                   {% if restricted %}
                     <strong>Protected record</strong><small class="row-field">Values are hidden for restricted data.</small>
@@ -92,7 +104,7 @@
           <thead><tr><th>Field</th><th>Available values</th><th>Decision</th></tr></thead>
           <tbody>
             {% for item in review.fields %}
-              <tr>
+              <tr{% if item is sameas next_field %} id="next-duplicate-field" tabindex="-1"{% endif %}>
                 <th>{{ item.field }}</th>
                 <td>
                   {% if restricted %}

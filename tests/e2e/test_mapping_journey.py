@@ -1,10 +1,10 @@
 """Walk Stage 3 in an isolated authenticated browser with real saved decisions."""
 
 import os
-from pathlib import Path
 import re
 import sys
 import unittest
+from pathlib import Path
 
 try:
     from playwright.sync_api import expect, sync_playwright
@@ -330,6 +330,7 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         self._capture("11v-stage3-check-resolve.png")
         revision = self.fixture.context.queries.get_mapping_revision(self.workspace_id)
         self.assertIsNone(self.fixture.context.queries.get_mapping_submission(self.workspace_id, revision.version))
+        self._confirm_blocker_returns_to_checks()
         with self.page.expect_navigation(wait_until="networkidle"):
             issue.get_by_role("link", name="Match this field", exact=True).click()
         expect(self.root).to_have_attribute("data-task", "fields")
@@ -351,19 +352,58 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         revision = self.fixture.context.queries.get_mapping_revision(self.workspace_id)
         self.assertIsNone(self.fixture.context.queries.get_mapping_submission(self.workspace_id, revision.version))
 
+    def _confirm_blocker_returns_to_checks(self):
+        self.page.locator('.sidebar-subnav-link[href*="step=confirm"]').click()
+        expect(self.root).to_have_attribute("data-step", "confirm")
+        next_action = self.page.get_by_role("link", name="Review what needs attention")
+        self._assert_red_next(next_action)
+        next_action.click()
+        expect(self.root).to_have_attribute("data-step", "check")
+
     def _confirm_rows_and_matches(self):
         rows = self.page.locator("#rows-to-use-review")
-        rows.get_by_role("button", name="Confirm 1 row to use", exact=True).click()
+        confirm_rows = rows.get_by_role("button", name="Confirm 1 row to use", exact=True)
+        self._assert_red_next(confirm_rows)
+        self._check_unsaved_confirmation("rows-to-use-review")
+        for width, height in ((390, 844), (1440, 1024)):
+            self.page.set_viewport_size({"width": width, "height": height})
+            confirm_rows.scroll_into_view_if_needed()
+            expect(confirm_rows).to_be_in_viewport()
+            self._assert_red_next(confirm_rows)
+        with self.page.expect_navigation(wait_until="domcontentloaded"):
+            confirm_rows.click()
         expect(self.root).to_have_attribute("data-step", "confirm")
         expect(rows).to_contain_text("1 row confirmed")
+        self._check_unsaved_confirmation("confirm-matches")
         self._capture("11w-stage3-confirm-matches.png")
         confirm = self.page.get_by_role("button", name="Confirm field matches", exact=True)
         expect(confirm).to_be_enabled()
+        self._assert_red_next(confirm)
         confirm.click()
         self.page.wait_for_url(re.compile(r"/prepare(?:\?.*)?$"))
         expect(self.page.get_by_text("Stage 4 of 6 · Prepare data", exact=True)).to_be_visible()
         revision = self.fixture.context.queries.get_mapping_revision(self.workspace_id)
         self.assertIsNotNone(self.fixture.context.queries.get_mapping_submission(self.workspace_id, revision.version))
+        self.page.goto(f"{self.mapping_url}?step=confirm", wait_until="networkidle")
+        self._assert_red_next(self.page.get_by_role("link", name="Continue to Prepare data", exact=True))
+
+    def _check_unsaved_confirmation(self, destination):
+        self.page.locator('.sidebar-subnav-link[href*="step=tables"]').click()
+        expect(self.root).to_have_attribute("data-step", "tables")
+        self._go_task("fields")
+        note = self._task("fields").locator('[data-scalar-mapping-row][data-target-field="note"] [data-literal-value]')
+        note.fill("Unsaved confirmation test")
+        self._confirm_blocker_returns_to_checks()
+        self.page.once("dialog", lambda dialog: dialog.accept())
+        self.page.goto(f"{self.mapping_url}?step=confirm#{destination}", wait_until="networkidle")
+
+    def _assert_red_next(self, action):
+        expect(self.page.locator("[data-next-active]")).to_have_count(1)
+        expect(action).to_have_attribute("data-next-active", "")
+        self.assertIn(
+            action.evaluate("el => getComputedStyle(el).backgroundColor"),
+            {"rgb(201, 60, 53)", "rgb(169, 47, 41)"},
+        )
 
     @staticmethod
     def _column(dataset, name):

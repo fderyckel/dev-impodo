@@ -58,12 +58,32 @@ _STALE = (
 
 
 @dataclass(frozen=True, slots=True)
-class _Provider:
+class WorkbookFieldProvider:
+    """Bind a mapped field to the inputs that can be proven for one row."""
+
     dataset: SourceDataset
     saved_keys: tuple[str, ...] | None
     input_keys: tuple[str, ...] | None
     relationship: bool
     source_keys: frozenset[str]
+
+    def inputs_for(
+        self, field: str, saved: tuple[str, ...], lineage: CanonicalLineage | None
+    ) -> tuple[str, ...] | None:
+        """Prefer the actual scalar read set, including a recorded empty set."""
+        if lineage is not None and not self.relationship and field in lineage.field_input_keys:
+            if lineage.field_sources.get(field) != saved:
+                return None
+            inputs = lineage.field_input_keys[field]
+        elif self.saved_keys == saved:
+            inputs = self.input_keys
+        else:
+            return None
+        if inputs is not None and (
+            not {*saved, *inputs} <= self.source_keys or len(set(inputs)) != len(inputs)
+        ):
+            raise ReadinessError(_STALE)
+        return inputs
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,23 +180,27 @@ def _clear_inputs(
     return replace(fields, findings=findings, source_values_restricted=restricted)
 
 
-def _providers(
+def workbook_field_providers(
     selection: SourceSelection,
     mappings: tuple[DatasetMapping, ...],
-    fields: FieldSetAsideEvidence,
-) -> dict[tuple[str, str], list[_Provider]]:
+    target_models: Mapping[str, str],
+    *,
+    include_identity: bool = False,
+) -> dict[tuple[str, str], list[WorkbookFieldProvider]]:
+    """Index the reviewed mapping once for workbook source-cell resolution."""
+
     datasets = {dataset.dataset_id: dataset for dataset in selection.datasets}
     if len(datasets) != len(selection.datasets):
         raise ReadinessError(_STALE)
     aliases: dict[str, Mapping[str, str] | None] = {}
     dataset_keys: dict[str, frozenset[str]] = {}
-    result: dict[tuple[str, str], list[_Provider]] = {}
+    result: dict[tuple[str, str], list[WorkbookFieldProvider]] = {}
     for mapping in mappings:
         dataset = datasets.get(mapping.dataset_id)
         if (
             dataset is None
             or dataset.origin is SourceOriginKind.ODOO
-            or fields.target_models.get(dataset.name) != mapping.target_model
+            or target_models.get(dataset.name) != mapping.target_model
         ):
             continue
         if dataset.dataset_id not in dataset_keys:
@@ -193,12 +217,12 @@ def _providers(
                 field, source_keys=keys, formula_aliases=aliases.get(dataset.dataset_id)
             )
             result.setdefault((dataset.name, field.target_field), []).append(
-                _Provider(dataset, inputs, inputs, False, keys)
+                WorkbookFieldProvider(dataset, inputs, inputs, False, keys)
             )
         for relationship in mapping.relationships:
             inputs = relationship_original_inputs(relationship)
             result.setdefault((dataset.name, relationship.target_field), []).append(
-                _Provider(
+                WorkbookFieldProvider(
                     dataset,
                     inputs.saved_keys if inputs is not None else None,
                     inputs.input_keys if inputs is not None else None,
@@ -206,6 +230,17 @@ def _providers(
                     keys,
                 )
             )
+        if include_identity:
+            # A write can also supply a field from its direct identity or scope.
+            # An explicit field mapping takes precedence in canonical lineage.
+            for component in (*mapping.target_identity, *mapping.target_scope):
+                if component.resolver is not None or len(component.target_fields) != len(component.source_column_keys):
+                    continue
+                for target, source in zip(component.target_fields, component.source_column_keys, strict=True):
+                    result.setdefault(
+                        (dataset.name, target),
+                        [WorkbookFieldProvider(dataset, component.source_column_keys, (source,), False, keys)],
+                    )
     return result
 
 
@@ -215,7 +250,7 @@ def _candidate_groups(
     mappings: tuple[DatasetMapping, ...],
     workbook_lineage: Mapping[str, CanonicalLineage] | None,
 ) -> tuple[_InputGroup, ...]:
-    providers = _providers(selection, mappings, fields)
+    providers = workbook_field_providers(selection, mappings, fields.target_models)
     result: list[_InputGroup] = []
     for finding_index, finding in enumerate(fields.findings):
         matches = providers.get((finding.dataset, finding.target_field), ())
@@ -232,32 +267,10 @@ def _candidate_groups(
             raise ReadinessError(_STALE)
         if provider.dataset.origin is SourceOriginKind.DERIVED and lineage is None:
             continue
-        recorded = (
-            lineage is not None
-            and not provider.relationship
-            and finding.target_field in lineage.field_input_keys
-        )
-        if recorded and lineage is not None:
-            if lineage.field_sources.get(finding.target_field) != finding.source_keys:
-                continue
-            input_keys = lineage.field_input_keys[finding.target_field]
-            saved_keys = finding.source_keys
-        else:
-            input_keys = provider.input_keys
-            saved_keys = provider.saved_keys
-        if (
-            input_keys is None
-            or saved_keys is None
-            or saved_keys != finding.source_keys
-        ):
+        input_keys = provider.inputs_for(finding.target_field, finding.source_keys, lineage)
+        if input_keys is None:
             continue
-        keys = provider.source_keys
-        if (
-            type(finding.source_row) is not int
-            or finding.source_row < 1
-            or not {*saved_keys, *input_keys} <= keys
-            or len(set(input_keys)) != len(input_keys)
-        ):
+        if type(finding.source_row) is not int or finding.source_row < 1:
             raise ReadinessError(_STALE)
         occurrence = OriginalSourceOccurrence(
             finding.dataset,

@@ -287,7 +287,9 @@ failure limits beside the journal. A historical run without this companion
 retains `STOP`. Transfers and completed-load correction retain their existing
 strict policy. Snapshot and historical row hashes are unchanged.
 
-Continuation applies only to classified, uncommitted data rejections. A rejected
+Continuation applies only to classified, uncommitted data rejections. The JSON-2
+writer classifies a typed Odoo `ValidationError` with HTTP 400 or 422 as a data
+rejection even when Odoo supplies only a record-level explanation. A rejected
 create group is retained in `execution_rejected_transport` before its rows
 become retry-ready. Deterministic bisection keeps original values and External
 IDs. Each child has a new journalled transport batch and incremented attempt.
@@ -542,7 +544,11 @@ The initial workspace schema permits multiple immutable reconciliation rows for
 one execution run. The execution's current-result pointer moves only after a
 new result is published; earlier attempts remain queryable history. An
 authorized manual re-verification performs the same exact-ID, exact-field read
-and appends a new attempt.
+and appends a new attempt. A workbook download identifies one attempt in its
+workspace. Its protected detail, execution snapshot, preparation rules, mapping
+revision and accepted file bytes must match the saved verification. Missing
+evidence leaves that workbook unavailable. Creating a workbook uses local
+evidence and issues no Odoo requests.
 
 For each differing field, reconciliation may publish a companion local JSON
 artifact with the prepared value, observed value, stable source trace, target

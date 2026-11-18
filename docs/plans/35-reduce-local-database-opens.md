@@ -322,6 +322,45 @@ rows per table, the median repeat access step went from 28.1 to 5.7 ms.
 Both wide-table pairs also finished the complete request sooner. The wide
 fixture had only two pairs.
 
+#### Verifying the package hash
+
+The Data version reader computes the package hash once per read and checks
+it against both stored hashes. On the linked fixture, the reader's full-package
+hash calculations fell from 28 to 14 on the first POST, from 20 to 10 on the
+repeat POST, and from eight to four when opening the result. Each request
+issued the same number of SQL statements as before.
+
+Six alternating macOS process pairs compared builds `c193d022` and
+`1c6b1ab7` against identical DuckDB files. Each pair timed nine reads per
+build after one warmup. Median time per verified read fell from 1.38 to
+1.25 ms for two three-column tables and from 11.60 to 9.09 ms for two
+128-column tables. Both fixtures improved in all six pairs. Two separate
+HTTP pairs per fixture had mixed repeat POST and result GET timings.
+
+#### Validating categorical values across tables
+
+After Odoo supplies linked values, validation reads the frozen selection
+and snapshot list once for the physical tables it checks. The two-table
+fixture previously read each three times. Reuse reduced this part of
+validation from 39 to 13 SQL statements and from three verified source
+package reads to one. Both tables still required verification of their
+individual Parquet files. A new check reads the metadata again.
+
+The first **Check matches** POST went from 372 to 346 statements and the
+repeat POST from 252 to 226. Their physical opens and schema checks held
+steady. Opening and reopening the result each used 119 statements.
+The simple mapping had no categorical values to check and its SQL counts
+held steady.
+
+Four alternating macOS process pairs compared builds `e5c70b84` and
+`48e4a98d` on the two-table, 1,000-row linked fixture. Median repeat
+categorical validation fell from 13.99 to 6.47 ms. All four first checks
+reached the result page sooner, and two of the four repeat checks did so.
+Two additional pairs used eight rows and 128 source columns per table.
+Median repeat categorical validation on that fixture fell from 42.24 to
+18.71 ms. These timings use an in-process HTTP client and a fictional
+Odoo 20 remote reader.
+
 **Remaining qualification.** Measure from the click until the correct control
 is visible and keyboard-usable on matched macOS and Windows fixtures. Record
 first and repeat checks separately with at least three comparable runs per

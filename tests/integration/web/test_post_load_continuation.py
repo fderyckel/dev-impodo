@@ -30,7 +30,7 @@ from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
 
 class PostLoadContinuationTests(HierarchyWorkflowFixture):
-    def _initial_load(self, major, mode, model):
+    def _initial_load(self, major, mode, model, *, seal=True):
         workspace = self.freeze_files({"records": b"Code,Name\nA1,Alpha\nB1,Beta\n"})
         key = "ref" if model == "res.partner" else "default_code"
         extra = (
@@ -182,7 +182,8 @@ class PostLoadContinuationTests(HierarchyWorkflowFixture):
             },
         )
         self.assertEqual(reconciliation.status.value, "VERIFIED")
-        self.context.corrections.publish_completed_load(workspace, actor=self.actor)
+        if seal:
+            self.context.corrections.publish_completed_load(workspace, actor=self.actor)
         return workspace, schema, target
 
     def test_completed_load_downloads_verified_source_after_restart(self):
@@ -204,12 +205,15 @@ class PostLoadContinuationTests(HierarchyWorkflowFixture):
                     outcome = self.client.get(f"/workspaces/{workspace}/load/outcome")
                     self.assertEqual(outcome.status_code, 200, outcome.text)
                     self.assertIn("Download verified source workbook (.xlsx)", outcome.text)
+                    report = self.context.reconciliation.current(workspace)
+                    url = f"/workspaces/{workspace}/load/fallout.xlsx?verification={report.reconciliation_id}"
+                    self.assertIn(url, outcome.text)
                     with (
                         collect_duckdb_request_timings() as timings,
                         count_duckdb_statements() as statements,
                     ):
                         response = self.client.get(
-                            f"/workspaces/{workspace}/load/fallout.xlsx", follow_redirects=False,
+                            url, follow_redirects=False,
                         )
                     self.assertEqual(response.status_code, 200, response.text[:200])
                     self.assertIn(".xlsx", response.headers["content-disposition"])
@@ -238,15 +242,49 @@ class PostLoadContinuationTests(HierarchyWorkflowFixture):
                             side_effect=ValueError(message),
                         ):
                             failed = self.client.get(
-                                f"/workspaces/{workspace}/load/fallout.xlsx",
+                                url,
                                 follow_redirects=False,
                             )
                         self.assertEqual(failed.status_code, 303)
                         recovery = self.client.get(failed.headers["location"])
                         self.assertEqual(recovery.status_code, 200)
                         self.assertIn(message, recovery.text)
-                        retry = self.client.get(f"/workspaces/{workspace}/load/fallout.xlsx")
+                        retry = self.client.get(url)
                         self.assertEqual(retry.status_code, 200)
+
+    def test_earlier_fallout_download_preserves_the_original_check_after_restart(self):
+        workspace, _, target = self._initial_load(20, "LOCAL", "product.template", seal=False)
+        original = self.context.reconciliation.current(workspace)
+        record = next(value for value in target.records.values() if value.get("name") == "Alpha")
+        record["name"] = "Observed during the earlier check"
+        earlier = self.context.reconciliation.reverify(
+            workspace, expected_execution_run_id=original.execution_run_id,
+            reader=target, actor=self.actor,
+        )
+        self.assertEqual(earlier.status.value, "FALLOUT")
+        record["name"] = "Alpha"
+        latest = self.context.reconciliation.reverify(
+            workspace, expected_execution_run_id=original.execution_run_id, reader=target, actor=self.actor,
+        )
+        self.assertEqual(latest.status.value, "VERIFIED")
+        self.reopen()
+        base = f"/workspaces/{workspace}/load"
+        url = f"{base}/fallout.xlsx?verification={earlier.reconciliation_id}"
+        outcome = self.client.get(f"{base}/outcome?workbook_page=1")
+        self.assertEqual(outcome.status_code, 200)
+        self.assertIn(url, outcome.text)
+        self.assertIn(f"fallout.xlsx?verification={latest.reconciliation_id}", outcome.text)
+        download = self.client.get(url, follow_redirects=False)
+        self.assertEqual(download.status_code, 200, download.text[:150])
+        self.assertIn(earlier.reconciliation_id, download.headers["content-disposition"])
+        workbook = load_workbook(BytesIO(download.content))
+        self.assertIn(earlier.reconciliation_id, workbook["Impodo Fallout"]["A5"].value)
+        self.assertIn("Observed during the earlier check", workbook["records"]["B2"].comment.text)
+        self.assertIsNone(workbook["records"]["A2"].comment)
+        workbook.close()
+        for query in ("", "?verification=invalid", f"?verification={uuid4()}"):
+            response = self.client.get(f"{base}/fallout.xlsx{query}", follow_redirects=False)
+            self.assertEqual(response.status_code, 303)
 
     def _continue(self, workspace, schema):
         async def capture(context, state, *, actor):

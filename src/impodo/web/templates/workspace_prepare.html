@@ -33,7 +33,7 @@
     {% else %}
       <h2>Confirm the field matches first</h2>
       <p>Preparation starts only from explicitly confirmed matching rules.</p>
-      <a class="button action" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
+      <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/mapping">Continue field matching</a>
     {% endif %}
   </section>
 {% endblock %}

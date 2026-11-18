@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
+from hashlib import file_digest
 from pathlib import Path
 from typing import Protocol
+from uuid import UUID
 
 from openpyxl.utils import get_column_letter, range_boundaries
 
@@ -17,14 +20,26 @@ from impodo.application.shared.artifacts import GovernedArtifactStores
 from impodo.application.workspace.execution.reconciliation import (
     ReconciliationService,
 )
+from impodo.application.workspace.review.original_values import workbook_field_providers
 from impodo.domain.execution_snapshot import ExecutionSnapshot
+from impodo.domain.mapping.artifacts import MappingRevision
+from impodo.domain.preflight.physical_lineage import PhysicalColumnIndex
 from impodo.domain.preparation.staging_contracts import CanonicalStagingRun
+from impodo.domain.reconciliation import ReconciliationRun, VerificationWorkbook
+from impodo.domain.reconciliation_detail import ReconciliationDetailArtifact
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.shared.models import portable_value
 from impodo.domain.source_binding import FileSourceBinding
-from impodo.domain.workspace.contracts import SourceSelection
+from impodo.domain.workspace.contracts import (
+    SourceSelection,
+    canonical_mapping_source_selection,
+)
+from impodo.domain.workspace.derived_entities import (
+    DerivedEntityPlan,
+    mapping_source_selection,
+)
 from impodo.domain.workspace.errors import WorkspaceError
-from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.workspace.workbench import SourceFile, WorkspaceState
 
 
 class FalloutPreflightReader(Protocol):
@@ -33,6 +48,14 @@ class FalloutPreflightReader(Protocol):
         workspace_id: str,
         preflight_run_id: str,
     ) -> ExecutionSnapshot: ...
+
+
+class WorkbookVerificationReader(Protocol):
+    def get(self, workspace_id: str, reconciliation_id: str) -> ReconciliationRun | None: ...
+
+    def previous_workbooks(
+        self, workspace_id: str, report: ReconciliationRun, *, offset: int, limit: int
+    ) -> tuple[VerificationWorkbook, ...]: ...
 
 
 class FalloutStagingReader(Protocol):
@@ -77,6 +100,10 @@ class FalloutWorkbookService:
         artifacts: GovernedArtifactStores,
         authorization: WorkspaceAuthorizationPolicy,
         workbook_renderer: FalloutWorkbookRenderer,
+        *,
+        verifications: WorkbookVerificationReader,
+        mapping_revision: Callable[[str, int], MappingRevision | None],
+        derived_plan: Callable[[str, str], DerivedEntityPlan | None],
     ) -> None:
         self._reconciliation = reconciliation
         self._preflight = preflight
@@ -86,10 +113,22 @@ class FalloutWorkbookService:
         self._artifacts = artifacts
         self._authorization = authorization
         self._workbook_renderer = workbook_renderer
+        self._verifications = verifications
+        self._mapping_revision = mapping_revision
+        self._derived_plan = derived_plan
+
+    def previous_workbooks(
+        self, workspace_id: str, report: ReconciliationRun, *, offset: int, actor: Actor,
+    ) -> tuple[VerificationWorkbook, ...]:
+        """Return one page and a lookahead without opening workbook artifacts."""
+
+        self._authorization.require(actor, Capability.PROTECTED_EVIDENCE_READ, workspace_id=workspace_id)
+        return self._verifications.previous_workbooks(workspace_id, report, offset=offset, limit=21)
 
     def generate(
         self,
         workspace_id: str,
+        reconciliation_id: str,
         *,
         actor: Actor,
     ) -> GeneratedFalloutWorkbook:
@@ -98,14 +137,16 @@ class FalloutWorkbookService:
             Capability.PROTECTED_EVIDENCE_READ,
             workspace_id=workspace_id,
         )
-        report = self._reconciliation.current(workspace_id)
-        detail = self._reconciliation.current_detail(workspace_id, actor=actor)
-        if report is None:
-            raise WorkspaceError("Verify the completed Odoo load first")
+        try:
+            identifier = str(UUID(reconciliation_id))
+        except ValueError as error:
+            raise WorkspaceError("Choose a verification workbook on the load outcome page.") from error
+        report = self._verifications.get(workspace_id, identifier)
+        if report is None or report.reconciliation_id != identifier or report.workspace_id != workspace_id:
+            raise WorkspaceError("This verification is unavailable in the selected workspace.")
+        detail = self._reconciliation.detail_for(report, actor=actor)
         if detail is None:
-            raise WorkspaceError(
-                "Re-check Odoo now to create exact source-cell fallout evidence"
-            )
+            raise WorkspaceError("This verification has no saved source-cell evidence. Choose another verification.")
         execution_run = self._reconciliation.execution.get_run(
             workspace_id,
             report.execution_run_id,
@@ -116,6 +157,18 @@ class FalloutWorkbookService:
             workspace_id,
             execution_run.preflight_run_id,
         )
+        if (
+            execution_run.run_id != report.execution_run_id
+            or execution_run.target_hash != report.target_hash
+            or execution_run.target_database != report.target_database
+            or execution_run.snapshot_hash != report.snapshot_hash
+            or snapshot.semantic_hash != report.snapshot_hash
+            or snapshot.root_hash != execution_run.snapshot_root_hash
+            or snapshot.target_hash != report.target_hash
+            or snapshot.target_database != report.target_database
+            or snapshot.workspace_id != workspace_id
+        ):
+            raise WorkspaceError("The saved verification no longer matches its load.")
         staging = self._staging.get_canonical_staging_run(
             workspace_id,
             snapshot.staging_run_id,
@@ -130,6 +183,73 @@ class FalloutWorkbookService:
                 "preparation. Open the original data version to export its workbook."
             )
 
+        workspace = self._workspaces.get(workspace_id)
+        source_files = {item.file_id: item for item in workspace.source_files}
+        workbook_cells, used_file_ids = self._source_cells(
+            workspace_id, snapshot, staging, selection, detail, source_files
+        )
+        if not used_file_ids:
+            used_file_ids.update(
+                item.source.file_id
+                for item in selection.datasets
+                if isinstance(item.source, FileSourceBinding)
+            )
+        if len(used_file_ids) != 1:
+            raise WorkspaceError(
+                "This load uses several source files or has no source workbook. "
+                "Download the review workbook from the saved outcome."
+            )
+        file_id = next(iter(used_file_ids))
+        source_file = source_files.get(file_id)
+        if source_file is None:
+            raise WorkspaceError("The accepted source workbook is unavailable")
+        binding = next(
+            (
+                item.source
+                for item in selection.datasets
+                if isinstance(item.source, FileSourceBinding)
+                and item.source.file_id == file_id
+            ),
+            None,
+        )
+        if (
+            binding is None
+            or _canonical_hash(source_file.sha256) != binding.source_sha256
+        ):
+            raise WorkspaceError("The accepted source workbook failed verification")
+        with self._artifacts.materialize_source(
+            selection.data_version_id,
+            source_file.stored_name,
+        ) as source_path:
+            with source_path.open("rb") as source:
+                if _canonical_hash(file_digest(source, "sha256").hexdigest()) != binding.source_sha256:
+                    raise WorkspaceError("The saved source file no longer matches the accepted upload.")
+            content = self._workbook_renderer(
+                Path(source_path),
+                source_display_name=source_file.display_name,
+                source_header_row=binding.header_row,
+                source_encoding=binding.encoding,
+                source_delimiter=binding.delimiter,
+                report=report,
+                cells=workbook_cells,
+            )
+        return GeneratedFalloutWorkbook(
+            filename=f"impodo-load-results-{report.reconciliation_id}.xlsx",
+            content=content,
+            affected_cell_count=sum(bool(item.coordinate) for item in workbook_cells),
+        )
+
+    def _source_cells(
+        self,
+        workspace_id: str,
+        snapshot: ExecutionSnapshot,
+        staging: CanonicalStagingRun,
+        selection: SourceSelection,
+        detail: ReconciliationDetailArtifact,
+        source_files: dict[str, SourceFile],
+    ) -> tuple[list[FalloutWorkbookCell], set[str]]:
+        if not detail.differences:
+            return [], set()
         execution_rows = {item.source_trace_id: item for item in snapshot.rows}
         canonical_rows = {item.row_id: item for item in staging.rows}
         datasets = {item.dataset_id: item for item in selection.datasets}
@@ -137,52 +257,62 @@ class FalloutWorkbookService:
             item.file_id: item
             for item in self._sources.get_source_catalogs(workspace_id)
         }
-        workspace = self._workspaces.get(workspace_id)
-        source_files = {item.file_id: item for item in workspace.source_files}
         workbook_cells: list[FalloutWorkbookCell] = []
         used_file_ids: set[str] = set()
 
+        plan = self._derived_plan(workspace_id, staging.derived_plan_hash) if staging.derived_plan_hash else None
+        if (plan.content_hash if plan else None) != staging.derived_plan_hash or (
+            plan is not None and plan.workspace_id != workspace_id
+        ):
+            raise WorkspaceError("The preparation rules saved for this load are unavailable.")
+        effective = mapping_source_selection(
+            canonical_mapping_source_selection(selection), plan, source_catalogs.values()
+        )
+        if effective.content_hash != staging.source_selection_hash:
+            raise WorkspaceError("The source columns no longer match this verification.")
+        revision = self._mapping_revision(workspace_id, snapshot.mapping_version)
+        if (
+            revision is None or revision.mapping_id != snapshot.mapping_id
+            or revision.definition.content_hash != snapshot.mapping_content_hash
+            or revision.version != snapshot.mapping_version
+        ):
+            raise WorkspaceError("The field mapping saved for this load is unavailable.")
+        index = PhysicalColumnIndex(effective, selection, plan)
+        providers = workbook_field_providers(
+            effective, revision.definition.datasets, {item.dataset: item.target_model for item in snapshot.datasets},
+            include_identity=True,
+        )
+        columns = {
+            (dataset.dataset_id, column.stable_key): column
+            for dataset in selection.datasets for column in dataset.columns
+        }
         for difference in detail.differences:
             execution_row = execution_rows.get(difference.source_trace_id)
             canonical_row = canonical_rows.get(difference.source_trace_id)
             if execution_row is None or canonical_row is None:
                 raise WorkspaceError("A fallout row no longer matches frozen lineage")
-            field_sources = canonical_row.lineage.field_sources.get(
-                difference.field,
-                (),
-            )
+            lineage = canonical_row.lineage
+            if (
+                lineage.dataset != difference.dataset or lineage.source_row != difference.source_row
+                or canonical_row.target_model != difference.target_model
+            ):
+                raise WorkspaceError("A verification field no longer matches its saved source row.")
+            matches = providers.get((lineage.dataset, difference.field), ())
             resolved = []
-            for (
-                physical_dataset_id,
-                source_rows,
-            ) in canonical_row.lineage.physical_sources.items():
-                source_dataset = datasets.get(physical_dataset_id)
-                if source_dataset is None or not isinstance(
-                    source_dataset.source, FileSourceBinding
-                ):
-                    continue
-                columns = {item.stable_key: item for item in source_dataset.columns}
-                binding = source_dataset.source
-                for field_source in field_sources:
-                    column = columns.get(field_source)
-                    if column is None:
-                        continue
-                    for source_row in source_rows:
-                        column_number = _source_column_number(
-                            binding,
-                            column.ordinal,
-                            source_catalogs.get(binding.file_id),
-                        )
-                        resolved.append(
-                            (
-                                binding.file_id,
-                                _worksheet_name(
-                                    binding.table_key,
-                                    source_files.get(binding.file_id),
-                                ),
-                                f"{get_column_letter(column_number)}{source_row}",
-                            )
-                        )
+            if len(matches) == 1:
+                provider = matches[0]
+                keys = provider.inputs_for(
+                    difference.field, lineage.field_sources.get(difference.field, ()), lineage
+                )
+                coordinates = index.resolve(provider.dataset.dataset_id, keys, lineage) if keys else ()
+                for cell in coordinates or ():
+                    binding = datasets[cell.dataset_id].source
+                    if not isinstance(binding, FileSourceBinding):
+                        raise WorkspaceError("The saved source cell does not belong to a file.")
+                    column = columns[cell.dataset_id, cell.source_key]
+                    number = _source_column_number(binding, column.ordinal, source_catalogs.get(binding.file_id))
+                    worksheet = _worksheet_name(binding.table_key, source_files.get(binding.file_id))
+                    resolved.append((binding.file_id, worksheet, f"{get_column_letter(number)}{cell.source_row}"))
             if not resolved:
                 primary = datasets.get(canonical_row.lineage.physical_dataset_id)
                 if primary is not None and isinstance(
@@ -218,53 +348,7 @@ class FalloutWorkbookService:
                     )
                 )
 
-        if not used_file_ids:
-            used_file_ids.update(
-                item.source.file_id
-                for item in selection.datasets
-                if isinstance(item.source, FileSourceBinding)
-            )
-        if len(used_file_ids) != 1:
-            raise WorkspaceError(
-                "This load uses several source files or has no source workbook. "
-                "Download the review workbook from the saved outcome."
-            )
-        file_id = next(iter(used_file_ids))
-        source_file = source_files.get(file_id)
-        if source_file is None:
-            raise WorkspaceError("The accepted source workbook is unavailable")
-        binding = next(
-            (
-                item.source
-                for item in selection.datasets
-                if isinstance(item.source, FileSourceBinding)
-                and item.source.file_id == file_id
-            ),
-            None,
-        )
-        if (
-            binding is None
-            or _canonical_hash(source_file.sha256) != binding.source_sha256
-        ):
-            raise WorkspaceError("The accepted source workbook failed verification")
-        with self._artifacts.materialize_source(
-            selection.data_version_id,
-            source_file.stored_name,
-        ) as source_path:
-            content = self._workbook_renderer(
-                Path(source_path),
-                source_display_name=source_file.display_name,
-                source_header_row=binding.header_row,
-                source_encoding=binding.encoding,
-                source_delimiter=binding.delimiter,
-                report=report,
-                cells=workbook_cells,
-            )
-        return GeneratedFalloutWorkbook(
-            filename=f"impodo-load-results-{report.reconciliation_id}.xlsx",
-            content=content,
-            affected_cell_count=sum(bool(item.coordinate) for item in workbook_cells),
-        )
+        return workbook_cells, used_file_ids
 
 
 def _workbook_cell(

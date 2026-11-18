@@ -73,8 +73,8 @@ class LinkedCheckTests(CheckFixture):
             mapping_routes, "_capture_mapping_supporting_values", observe_capture
         ):
             for tools_only, expected, sql_limit, opens, schema_checks in (
-                (False, ("Parts", "Tools"), 372, 20, 15),
-                (True, ("Tools",), 252, 16, 12),
+                (False, ("Parts", "Tools"), 346, 20, 15),
+                (True, ("Tools",), 226, 16, 12),
             ):
                 self.tools_only = tools_only
                 result = check_once(self, workspace, "linked", structure=True)

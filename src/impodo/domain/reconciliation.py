@@ -21,6 +21,15 @@ class ReconciliationRunStatus(StrEnum):
     OUTCOME_UNKNOWN = "OUTCOME_UNKNOWN"
 
 
+@dataclass(frozen=True, slots=True)
+class VerificationWorkbook:
+    """Saved download choice for one verification, without its row payload."""
+
+    reconciliation_id: str
+    verified_at: datetime
+    status: ReconciliationRunStatus
+
+
 class ReconciliationRowStatus(StrEnum):
     VERIFIED = "VERIFIED"
     NOT_WRITTEN = "NOT_WRITTEN"

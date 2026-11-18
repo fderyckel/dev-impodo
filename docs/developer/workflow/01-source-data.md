@@ -885,8 +885,10 @@ no database work as the saved rule count grows. The explicit **Review resulting
 table** command is different: it opens exactly one verified local source
 snapshot and scans the selected field outside the event loop. It accepts at
 most 50,000 source rows and 5,000 resulting related records. It performs zero
-Odoo calls. The package reader checks hashes inside one read transaction; there
-is no transaction shared across stores.
+Odoo calls. The package reader computes the content hash once per Data version
+read transaction. It compares the result with the stored package hash and,
+when present, the hash recorded on the Data version. Workspace projections
+verify the package against the reference in their own store.
 
 `review_derived_entities` and the full preparation evaluator both use
 `_group_lookup_values`. Capitalization, Unicode normalization, spacing,
