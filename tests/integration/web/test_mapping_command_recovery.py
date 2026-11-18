@@ -1,7 +1,7 @@
 """Reject changed authoring inputs while preserving concurrent Match data work."""
 
 from dataclasses import replace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import uuid4
 
 from impodo.domain.mapping.contracts import (
@@ -13,6 +13,7 @@ from impodo.domain.mapping.contracts import (
 from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo.contracts import ConnectorTransportError
 from impodo.domain.shared.models import target_identity_hash
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.routers import mapping as mapping_routes
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
@@ -157,7 +158,6 @@ class MappingCommandRecoveryTests(MappingCommandFixture):
                 expected_version=before.version,
                 actor=actor,
             )
-            return ()
 
         with patch.object(
             mapping_routes,
@@ -195,7 +195,6 @@ class MappingCommandRecoveryTests(MappingCommandFixture):
                 business_keys=before.business_keys,
                 actor=actor,
             )
-            return ()
 
         with patch.object(
             mapping_routes,
@@ -240,7 +239,6 @@ class MappingCommandRecoveryTests(MappingCommandFixture):
                 expected_content_hash=schema.content_hash,
                 expected_read_credential_binding_hash=schema.read_credential_binding_hash,
             )
-            return ()
 
         with patch.object(
             mapping_routes, "_capture_mapping_supporting_values", side_effect=change_credential
@@ -277,4 +275,28 @@ class MappingCommandRecoveryTests(MappingCommandFixture):
         self.assertEqual(
             context.queries.get_mapping_working_draft(workspace_id), before
         )
+        self.assertIsNone(context.queries.get_mapping_revision(workspace_id))
+
+    def test_supporting_save_failure_rejects_check_before_changing_mapping(self):
+        workspace_id, entries = self.command_fixture(19, "LOCAL")
+        context = self.app.state.context
+        before = context.queries.get_mapping_working_draft(workspace_id)
+        operation_id = str(uuid4())
+        checked = self.changed_entries(entries, action="draft", operation_id=operation_id)
+        publish = Mock(side_effect=WorkspaceError("Supporting values changed during the lookup"))
+        with (
+            patch.object(mapping_routes, "_capture_mapping_supporting_values", return_value=publish),
+            patch.object(context.mapping_workspace, "check_definition") as check,
+        ):
+            rejected = self.post_command(workspace_id, checked)
+        publish.assert_called_once_with()
+        check.assert_not_called()
+        self.assertEqual(rejected.status_code, 422, rejected.text)
+        self.assertEqual(rejected.json()["operation_id"], operation_id)
+        receipt = context.mapping_workspace.get_mutation_receipt(
+            workspace_id, operation_id, actor=resolve_local_actor(context),
+        )
+        self.assertEqual(receipt.state.value, "REJECTED")
+        self.assertEqual(receipt.failure_code, "MAPPING_INPUT_INVALID")
+        self.assertEqual(context.queries.get_mapping_working_draft(workspace_id), before)
         self.assertIsNone(context.queries.get_mapping_revision(workspace_id))

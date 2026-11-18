@@ -79,6 +79,23 @@ class IncludedParentRowsTests(HierarchyWorkflowFixture):
             )
             for item in revision.definition.datasets
         )
+        # A linked lookup uses the same admitted parents as review/preparation.
+        # Repeated names in the parent table are requested only once.
+        parent_mapping = next(item for item in mappings if item.dataset_id == parents.dataset_id)
+        category_table = next(item for item in selection.datasets if item.dataset_id == parents.dataset_id)
+        category_name = next(col.stable_key for col in category_table.columns if col.source_name == "Name")
+        product_mapping = next(item for item in mappings if item.dataset_id == products.dataset_id)
+        parent_keys = (parents.dataset_id, parent_mapping.row_inclusion)
+        child_keys = (products.dataset_id, policy)
+        lookup_keys = self.context.categorical_coverage.source_distinct_key_projections(
+            workspace_id,
+            {parent_keys: (category_name,), child_keys: product_mapping.source_identity_column_keys},
+            mappings,
+        )
+        self.assertCountEqual(lookup_keys[parent_keys], (
+            ("Machines",), ("Pumps",), ("Service",), ("Seals",), ("Valves",), ("Maintenance",),
+        ))
+        self.assertCountEqual(lookup_keys[child_keys], [(f"PX10{index}",) for index in range(1, 6)])
         if mode == "REMOTE":
             # Exercise the large-table reader with the same small, inspectable data.
             with patch(

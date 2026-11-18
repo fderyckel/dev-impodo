@@ -295,13 +295,16 @@ class PreparedReferenceCheckTests(TestCase):
         bom = replace(bom, relationships=(relationship,))
         calls = []
 
-        def read(_workspace, _dataset, columns, _inclusion, **_kwargs):
-            calls.append(columns)
-            return (("P", "001"), ("P", "001"), (None, None))
+        identity = (bom.dataset_id, bom.row_inclusion)
+
+        def read(_workspace, projections, datasets):
+            calls.append(projections)
+            self.assertEqual(datasets, (bom,))
+            return {identity: (("P", "001"), (None, None))}
 
         context = SimpleNamespace(
             queries=SimpleNamespace(get=lambda _: object()),
-            categorical_coverage=SimpleNamespace(source_included_key_tuples=read),
+            categorical_coverage=SimpleNamespace(source_distinct_key_projections=read),
         )
         with (
             patch(
@@ -310,13 +313,14 @@ class PreparedReferenceCheckTests(TestCase):
             ),
             patch(
                 "impodo.web.composition.target_readers._capture_supporting_values",
-                return_value=(),
             ) as capture,
         ):
-            _capture_mapping_supporting_values(
+            publish = _capture_mapping_supporting_values(
                 context, "workspace", schema, (bom,), actor=LOCAL_ACTOR
             )
-        self.assertEqual(calls, [("column:article", "suffix")])
+        self.assertIs(publish, capture.return_value)
+        publish.assert_not_called()
+        self.assertEqual(calls, [{identity: ("column:article", "suffix")}])
         self.assertEqual(
             capture.call_args.kwargs["targeted_values"],
             {

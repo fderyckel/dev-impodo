@@ -848,8 +848,10 @@ The integration fixture verifies six physical connections and one schema check
 for summary, Check changes, confirmation, editor, and detail requests. The save
 request also uses six connections: two authorization opens and four retained
 database path/configuration owners. These controlled counts are not a live
-latency guarantee. The 25,000-row action-rich performance fixture has a separate
-seven-connection summary ceiling because it traverses another evidence owner.
+latency guarantee. The 25,000-row fixture allows four physical connections for
+each of Final review and Check changes. The comparison worker checks each
+participating store schema at most once in each local phase. It closes local
+owners between preparation, the target reader and publication.
 
 See [bounded DTO tests](../../../tests/application/workspace/execution/test_business_review.py),
 [route and stale-approval tests](../../../tests/integration/web/test_business_expectations.py),

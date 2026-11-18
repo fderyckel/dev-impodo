@@ -240,7 +240,7 @@ def build_supporting_review_router(context: WebContext) -> APIRouter:
             )
         _flash(
             request,
-            f"Checked {len(snapshots)} supporting value sets. Match data still checks the actual mapped choices.",
+            f"Checked {len(snapshots or ())} supporting value sets. Match data still checks the actual mapped choices.",
         )
         return RedirectResponse(
             f"/workspaces/{workspace_id}/schema#supporting-data-review", status_code=303

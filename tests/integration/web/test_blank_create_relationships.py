@@ -164,7 +164,7 @@ class BlankCreateRelationshipBrowserTests(ProjectSetupBrowserTestCase):
         with (
             patch(
                 "impodo.web.routers.mapping._capture_mapping_supporting_values",
-                return_value=(),
+                return_value=None,
             ),
             patch.object(
                 context.categorical_coverage,

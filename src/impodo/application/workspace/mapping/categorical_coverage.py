@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cached_property
 from typing import Protocol
 
 from impodo.application.data_version.source_snapshots import (
@@ -118,6 +119,32 @@ class CategoricalSourceRepository(Protocol):
         ...
 
 
+@dataclass
+class _FrozenSourceReads:
+    """Share immutable source metadata for the lifetime of one local scan."""
+
+    sources: CategoricalSourceRepository
+    workspace_id: str
+
+    @cached_property
+    def selection(self) -> SourceSelection:
+        selection = self.sources.get_mapping_source_selection(self.workspace_id)
+        if selection is None:
+            raise WorkspaceError("Frozen source evidence is incomplete")
+        return selection
+
+    @cached_property
+    def physical(self) -> SourceSelection | None:
+        return self.sources.get_source_selection(self.workspace_id)
+
+    @cached_property
+    def snapshots(self) -> dict[str, SourceSnapshot]:
+        return {
+            item.dataset_id: item
+            for item in self.sources.get_current_source_snapshots(self.workspace_id)
+        }
+
+
 @dataclass(frozen=True, slots=True)
 class CategoricalCoverageCollection:
     """Evidence plus deterministic validation issues produced by one scan."""
@@ -182,13 +209,17 @@ class CategoricalCoverageService:
     ) -> dict[str, IncludedParentRows]:
         """Read parent keys only when a mapping explicitly follows a parent."""
 
+        return self._included_parent_rows(_FrozenSourceReads(self.sources, workspace_id), datasets)
+
+    def _included_parent_rows(
+        self, reads: _FrozenSourceReads, datasets: tuple[DatasetMapping, ...],
+    ) -> dict[str, IncludedParentRows]:
         if not any(item.row_inclusion.included_parent_field for item in datasets):
             return {}
-        selection = self.sources.get_source_selection(workspace_id)
-        if selection is None:
+        if reads.physical is None:
             raise WorkspaceError("Frozen parent source evidence is incomplete")
         return included_parent_rows_from_snapshots(
-            datasets, selection, self.sources.get_current_source_snapshots(workspace_id), self.artifacts,
+            datasets, reads.physical, reads.snapshots.values(), self.artifacts,
         )
 
     def source_value_choices(
@@ -623,12 +654,43 @@ class CategoricalCoverageService:
         returned for every included source row.
         """
 
+        reads = _FrozenSourceReads(self.sources, workspace_id)
+        return tuple(self._included_key_rows(
+            reads, dataset_id, source_column_keys, row_inclusion, included_parent,
+        ))
+
+    def source_distinct_key_projections(
+        self,
+        workspace_id: str,
+        projections: Mapping[tuple[str, RowInclusionPolicy], tuple[str, ...]],
+        datasets: tuple[DatasetMapping, ...],
+    ) -> dict[tuple[str, RowInclusionPolicy], tuple[tuple[str | None, ...], ...]]:
+        """Read distinct inputs to linked lookups from the included rows of each table."""
+
+        reads = _FrozenSourceReads(self.sources, workspace_id)
+        parents = (
+            self._included_parent_rows(reads, datasets)
+            if any(policy.included_parent_field for _, policy in projections) else {}
+        )
+        return {
+            (dataset_id, policy): tuple(dict.fromkeys(self._included_key_rows(
+                reads, dataset_id, columns, policy, parents.get(dataset_id),
+            )))
+            for (dataset_id, policy), columns in projections.items()
+        }
+
+    def _included_key_rows(
+        self,
+        reads: _FrozenSourceReads,
+        dataset_id: str,
+        source_column_keys: Sequence[str],
+        row_inclusion: RowInclusionPolicy,
+        included_parent: IncludedParentRows | None,
+    ) -> Iterator[tuple[str | None, ...]]:
         keys = tuple(source_column_keys)
         if len(keys) != len(set(keys)):
             raise WorkspaceError("Choose current source matching columns")
-        selection = self.sources.get_mapping_source_selection(workspace_id)
-        if selection is None:
-            raise WorkspaceError("Frozen source evidence is incomplete")
+        selection = reads.selection
         dataset = next(
             (item for item in selection.datasets if item.dataset_id == dataset_id),
             None,
@@ -655,12 +717,12 @@ class CategoricalCoverageService:
                 raise WorkspaceError("Frozen source evidence has no columns")
             scan_keys = (dataset.columns[0].stable_key,)
         frame = self._scan_dataset(
-            workspace_id,
+            reads.workspace_id,
             selection,
             dataset_id,
             scan_keys,
+            source_reads=reads,
         )
-        result: list[tuple[str | None, ...]] = []
         for row in frame.select(scan_keys).iter_rows(named=True):
             try:
                 if not row_is_included(row_inclusion, row, included_parent):
@@ -670,17 +732,12 @@ class CategoricalCoverageService:
                     "The saved row-inclusion rule cannot be evaluated on "
                     "the current frozen source"
                 ) from error
-            result.append(
-                tuple(
-                    None
-                    if row[key] is None
-                    or row[key] is False
-                    or not str(row[key]).strip()
-                    else str(row[key]).strip()
-                    for key in keys
-                )
+            yield tuple(
+                None
+                if row[key] is None or row[key] is False or not str(row[key]).strip()
+                else str(row[key]).strip()
+                for key in keys
             )
-        return tuple(result)
 
     def collect(
         self,
@@ -853,8 +910,10 @@ class CategoricalCoverageService:
         source_column_keys: Sequence[str],
         *, source_positions: Sequence[int] | None = None,
         include_source_numbers: bool = False,
+        source_reads: _FrozenSourceReads | None = None,
     ) -> pl.DataFrame:
-        physical = self.sources.get_source_selection(workspace_id)
+        reads = source_reads or _FrozenSourceReads(self.sources, workspace_id)
+        physical = reads.physical
         physical_dataset = next(
             (item for item in physical.datasets if item.dataset_id == dataset_id), None
         ) if physical else None
@@ -879,14 +938,7 @@ class CategoricalCoverageService:
             (item for item in selection.datasets if item.dataset_id == dataset_id),
             None,
         )
-        snapshot = next(
-            (
-                item
-                for item in self.sources.get_current_source_snapshots(workspace_id)
-                if item.dataset_id == dataset_id
-            ),
-            None,
-        )
+        snapshot = reads.snapshots.get(dataset_id)
         if dataset is None or snapshot is None:
             raise WorkspaceError("Frozen source snapshot is incomplete")
         try:

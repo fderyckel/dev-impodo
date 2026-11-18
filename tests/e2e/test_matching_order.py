@@ -3,7 +3,6 @@
 import os
 import sys
 import unittest
-from pathlib import Path
 from threading import Event
 
 try:
@@ -24,7 +23,7 @@ class MatchingOrderBrowserTests(unittest.TestCase):
         f = HierarchyWorkflowFixture("runTest")
         f.setUp()
         self.addCleanup(f.tearDown)
-        wid, reads = ordering_workspace(f, partial=True)
+        wid, reads = ordering_workspace(f)
         server, thread, port = _start_server(f.app)
         self.addCleanup(_stop_server, server, thread)
         playwright = sync_playwright().start()
@@ -60,7 +59,6 @@ class MatchingOrderBrowserTests(unittest.TestCase):
         original = rows.locator(".mapping-order-table strong").all_text_contents()
         self.assertEqual(original, ["categories", "products"])
         expect(panel).to_contain_text("Match after categories")
-        self.capture(page, panel, "recommendation")
         toggle = panel.locator("[data-matching-order-toggle]")
         toggle.focus()
         toggle.press("Space")
@@ -68,7 +66,6 @@ class MatchingOrderBrowserTests(unittest.TestCase):
         expect(rows.first).to_contain_text("products")
         warning = panel.locator(".mapping-order-warnings")
         expect(warning).to_contain_text("categories first")
-        self.capture(page, warning, "custom-order-warning")
         expect(toggle).to_be_checked()
         rows.last.drag_to(rows.first, target_position={"x": 20, "y": 4})
         expect(rows.first.locator("strong").first).to_have_text("categories")
@@ -105,9 +102,6 @@ class MatchingOrderBrowserTests(unittest.TestCase):
             "Partial", timeout=30000
         )
         expect(panel).to_contain_text("unchecked")
-        self.capture(
-            page, panel.locator(".mapping-order-live-check"), "partial-coverage"
-        )
         apply = panel.get_by_role("button", name="Apply recommendation")
         expect(rows.first.locator("strong").first).to_have_text("products")
         apply.press("Enter")
@@ -121,14 +115,3 @@ class MatchingOrderBrowserTests(unittest.TestCase):
         self.assertEqual(len(reads), 1)
         confirmation = page.get_by_text("Odoo-refined recommendation applied.", exact=True)
         expect(confirmation).to_be_visible()
-        self.capture(page, confirmation, "apply-recommendation")
-
-    def capture(self, page, target, name):
-        output = os.environ.get("IMPODO_ORDER_SCREENSHOT_DIRECTORY")
-        if output:
-            target.scroll_into_view_if_needed()
-            directory = Path(output)
-            directory.mkdir(parents=True, exist_ok=True)
-            path = directory / f"stage3-order-{name}.png"
-            page.screenshot(path=str(path))
-            print(f"Captured {path.name}", flush=True)

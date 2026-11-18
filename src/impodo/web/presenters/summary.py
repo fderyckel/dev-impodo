@@ -379,7 +379,7 @@ def _render_summary(
     navigation_read_ms = (perf_counter() - navigation_started) * 1000
     workspace_state = navigation_snapshot.workspace_state
     source_stage_readiness = assess_source_stage_readiness(
-        workspace_state,
+        workspace_state.source_mode,
         navigation_snapshot.facts,
     )
     if not source_stage_readiness.ready:

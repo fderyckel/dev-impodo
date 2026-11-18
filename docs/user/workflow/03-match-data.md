@@ -152,6 +152,11 @@ company and their available companies. Choose **Odoo company**, then select
 Impodo opens **Match tables**. **Check matches** automatically refreshes the
 saved Odoo record-type and field checks when the checking-key setup or selected
 company has changed. It keeps the edits submitted with that check.
+The red action follows loading, saving the company, and continuing to matching
+tables. Changing **Odoo company** highlights **Use this company and continue**.
+Restoring the saved company highlights **Continue to matching tables** again.
+The optional company-specific check keeps its blue outline.
+
 When you open **Match source choices** for a linked field such as **Unit**,
 Impodo also checks the fields under the selected company if the previous
 check used a different company context.
@@ -1382,6 +1387,9 @@ the browser knows that a formula is invalid or is still being checked. If the
 quick check is temporarily unavailable, saving remains safe and the complete
 server-side match check still validates the formula before confirmation.
 
+Use the red **Go to issue** action to open the formula. After correcting it,
+return to **Check and resolve** and select **Check matches**.
+
 ![A malformed formula remains saved for correction, with Must fix beside the formula and the saved outcome beside the workflow actions.](../../images/user/11x-stage3-formula-recovery.png)
 
 ### If a save is interrupted
@@ -1389,8 +1397,7 @@ server-side match check still validates the formula before confirmation.
 Impodo gives each **Save progress**, **Check matches**, Odoo-field decision,
 and confirmation its own support reference. A finished save shows its saved
 time beside the bottom actions. If the browser waits 15 seconds without a
-usable response, it stops showing the page as busy and checks that reference
-instead of repeating the save.
+usable response, it checks that reference. You can keep editing while it waits.
 
 The bottom message distinguishes these outcomes:
 
@@ -1398,13 +1405,16 @@ The bottom message distinguishes these outcomes:
   current match check it opens the same correction, row review or confirmation
   you would have seen after the original click. If you edited the form while
   waiting, those edits stay on screen for you to save.
-- **Not saved** means the operation did not reach Impodo or was rejected. Your
-  values remain on the page, so correct the displayed problem and try again.
+- If Impodo rejects the action, your values remain on the page. Correct the
+  displayed problem and try again.
 - **Conflict** means another tab saved a newer version. Impodo does not apply
   the older form. Select **Copy my edits**, then **Reload saved version** and
   reapply only the choices that are still needed.
 - **Save outcome unknown** means Impodo cannot yet prove either outcome. Keep
-  the tab open, do not repeat the action, and select **Check save outcome**.
+  the tab open and select **Check save outcome**. If Impodo still has no
+  receipt after waiting, **Retry original action** sends the same edits with
+  the same support reference. Any edits you made since then stay on screen
+  for a separate save.
 
 If the earlier check finished but the matching choices have since changed,
 select **Copy my edits** if needed, then **Reload saved version** to review
@@ -1417,6 +1427,12 @@ to recover the saved version.
 
 The full recovery message and support reference remain beside the bottom
 workflow actions. They are also announced to assistive technology.
+
+During recovery, **Check save outcome** or **Reload saved version** becomes
+the red next action. **Copy my edits** keeps its blue outline. Once recovery
+finishes, the highlight returns to the next matching action.
+
+![Check save outcome is the red recovery action while newer unsaved field edits remain on the page.](../../images/user/11y-stage3-save-outcome.png)
 
 ### If a step takes longer or the connection is interrupted
 

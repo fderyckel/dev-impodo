@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 import unittest
+from types import SimpleNamespace
 from unittest.mock import Mock
 from uuid import uuid4
 
@@ -15,7 +15,6 @@ from impodo.application.workspace.execution.service import ExecutionService
 from impodo.application.workspace.navigation import (
     WorkspaceNavigationFacts,
     WorkspaceNavigationQueryService,
-    WorkspaceNavigationSnapshot,
 )
 from impodo.application.workspace.source_readiness import (
     SourceStageIssue,
@@ -23,8 +22,8 @@ from impodo.application.workspace.source_readiness import (
 )
 from impodo.application.workspace.views import WorkspaceOwnerViewService
 from impodo.domain.shared.access import (
-    CapabilityAuthorizationPolicy,
     LOCAL_ACTOR,
+    CapabilityAuthorizationPolicy,
 )
 from impodo.domain.shared.models import target_identity_hash
 from impodo.domain.workspace.workbench import (
@@ -32,7 +31,6 @@ from impodo.domain.workspace.workbench import (
     SourceMode,
     WorkspaceState,
 )
-
 
 HASH = "sha256:" + "1" * 64
 
@@ -113,15 +111,13 @@ class WorkspaceNavigationQueryServiceTests(unittest.TestCase):
             source_selection_hash=HASH,
         )
         repository = Mock()
-        repository.get_snapshot.return_value = WorkspaceNavigationSnapshot(
-            workspace,
-            facts,
-        )
+        repository.get_source_readiness_inputs.return_value = (workspace.source_mode, facts)
         service = WorkspaceNavigationQueryService(repository, Mock())
 
         readiness = service.get_source_readiness(workspace.workspace_id)
 
-        repository.get_snapshot.assert_called_once_with(workspace.workspace_id)
+        repository.get_source_readiness_inputs.assert_called_once_with(workspace.workspace_id)
+        repository.get_snapshot.assert_not_called()
         self.assertFalse(readiness.ready)
         self.assertEqual(
             readiness.issue,
@@ -140,11 +136,11 @@ class SourceStageReadinessTests(unittest.TestCase):
         )
 
         missing = assess_source_stage_readiness(
-            workspace,
+            workspace.source_mode,
             WorkspaceNavigationFacts(workspace_id=workspace.workspace_id),
         )
         ready = assess_source_stage_readiness(
-            workspace,
+            workspace.source_mode,
             WorkspaceNavigationFacts(
                 workspace_id=workspace.workspace_id,
                 source_selection_hash=HASH,
@@ -173,11 +169,11 @@ class SourceStageReadinessTests(unittest.TestCase):
         }
 
         incomplete = assess_source_stage_readiness(
-            workspace,
+            workspace.source_mode,
             WorkspaceNavigationFacts(**common),
         )
         not_frozen = assess_source_stage_readiness(
-            workspace,
+            workspace.source_mode,
             WorkspaceNavigationFacts(
                 **{
                     **common,
@@ -187,7 +183,7 @@ class SourceStageReadinessTests(unittest.TestCase):
             ),
         )
         ready = assess_source_stage_readiness(
-            workspace,
+            workspace.source_mode,
             WorkspaceNavigationFacts(
                 **{
                     **common,

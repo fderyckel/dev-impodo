@@ -1104,6 +1104,14 @@ class ServerSupervisorTests(unittest.TestCase):
             f"{DIAGNOSTIC_LOG_NAME}.process-{os.getpid()}",
         )
 
+    def test_child_reports_a_bounded_reason_when_both_diagnostic_logs_fail(self):
+        with (
+            patch("impodo.web.server_supervisor.LocalDiagnosticRecorder", side_effect=OSError("private path")),
+            self.assertLogs("uvicorn.error", level="WARNING") as logs,
+        ):
+            self.assertIsNone(_open_child_diagnostic_recorder(Path("diagnostics")))
+        self.assertEqual([record.getMessage() for record in logs.records], ["CHILD_DIAGNOSTICS_UNAVAILABLE"])
+
     def test_console_interrupt_allows_child_to_finish_gracefully(self) -> None:
         listener = bind_loopback_listener(0)
         self.assertIsNotNone(listener)

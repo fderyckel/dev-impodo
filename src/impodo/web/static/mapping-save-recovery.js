@@ -9,6 +9,7 @@
     setDirty,
     onCommitted,
     hasNewerEdits,
+    retryOriginal,
     currentEntries,
   }) => {
     const saveOutcome = mappingForm.querySelector(
@@ -35,6 +36,7 @@
     const checkMappingOutcome = mappingForm.querySelector(
       "[data-check-mapping-outcome]"
     );
+    const retryMissing = mappingForm.querySelector("[data-retry-missing-save]");
     const mutationTimeoutMs = Number.parseInt(
       mappingForm.dataset.mutationTimeoutMs || "15000",
       10
@@ -80,7 +82,7 @@
 
     const showFailure = (
       message,
-      { operationId = "", conflict = false, unknown = false, focus = true } = {}
+      { operationId = "", conflict = false, unknown = false, retry = false, focus = true } = {}
     ) => {
       if (saveOutcomeMessage) {
         saveOutcomeMessage.textContent = message;
@@ -95,6 +97,7 @@
       if (unknownRecovery) {
         unknownRecovery.hidden = !unknown;
       }
+      if (retryMissing) retryMissing.hidden = !retry;
       if (saveOutcome) {
         saveOutcome.hidden = false;
         if (focus) {
@@ -123,7 +126,7 @@
       try {
         const response = await fetch(url, { ...options, signal: controller.signal });
         const payload = await responseJson(response);
-        return { ok: response.ok, payload };
+        return { ok: response.ok, statusCode: response.status, payload };
       } finally {
         window.clearTimeout(timer);
       }
@@ -222,22 +225,6 @@
         return "committed";
       }
       window.impodoMappingJourney?.cancelContinuation(operation);
-      if (status === "not_found") {
-        unresolvedOperation = null;
-        staleConflict = false;
-        if (operation.action !== "submit") {
-          setDirty(true);
-        }
-        const message =
-          "Impodo checked the operation receipt: nothing was saved. You can try the action again." +
-          failureSuffix(operation);
-        showFailure(message, { operationId: currentOperationId });
-        if (saveStatus) {
-          saveStatus.textContent = "Not saved. Your edits are retained.";
-          saveStatus.classList.add("unsaved");
-        }
-        return "not_found";
-      }
       if (superseded || (status === "rejected" && payload.failure_code === "MAPPING_VERSION_CONFLICT")) {
         unresolvedOperation = null;
         staleConflict = true;
@@ -311,24 +298,17 @@
         }
         return "rejected";
       }
-      unresolvedOperation = operation;
-      showFailure(
-        "Impodo has not confirmed whether this operation finished. Do not repeat it yet. Check the save outcome using the button below.",
-        { operationId: currentOperationId, unknown: true }
-      );
-      if (saveStatus) {
-        saveStatus.textContent = "Save outcome unknown. Check before retrying.";
-        saveStatus.classList.add("unsaved");
-      }
-      return "pending";
+      return showUnknownOutcome(operation, status === "not_found");
     };
 
-    const showUnknownOutcome = (operation) => {
+    const showUnknownOutcome = (operation, missing = false) => {
       window.impodoMappingJourney?.cancelContinuation(operation);
       unresolvedOperation = operation;
       showFailure(
-        "Impodo could not verify whether this operation was saved. Do not repeat it yet. Keep this tab open and check the save outcome again.",
-        { operationId: operation.operationId, unknown: true }
+        missing
+          ? "Impodo has no receipt yet. Check again or retry the original action with the same edits and support reference."
+          : "Impodo could not verify whether this operation was saved. Keep this tab open and check the save outcome again.",
+        { operationId: operation.operationId, unknown: true, retry: missing }
       );
       if (saveStatus) {
         saveStatus.textContent = "Save outcome unknown. Check before retrying.";
@@ -361,7 +341,7 @@
         if (!payload.operation_id) {
           payload.operation_id = operation.operationId;
         }
-        if (String(payload.status || "") !== "pending") {
+        if (payload.status !== "pending" && payload.status !== "not_found") {
           return applyMutationOutcome(payload, operation);
         }
 
@@ -371,9 +351,13 @@
           return applyMutationOutcome(payload, operation);
         }
         if (saveStatus) {
-          saveStatus.textContent = operation.action === "draft"
-            ? "Still checking matches..."
-            : "The operation is still running. Waiting for its saved outcome...";
+          if (payload.status === "not_found") {
+            saveStatus.textContent = "Waiting for Impodo to record the action...";
+          } else {
+            saveStatus.textContent = operation.action === "draft"
+              ? "Still checking matches..."
+              : "The operation is still running. Waiting for its saved outcome...";
+          }
           saveStatus.classList.remove("unsaved");
         }
         await wait(Math.min(receiptPollMs, remainingMs));
@@ -384,7 +368,7 @@
       if (unresolvedOperation) {
         showFailure(
           "Impodo has not confirmed the previous save outcome. Check that outcome before trying another action.",
-          { operationId: unresolvedOperation.operationId, unknown: true }
+          { operationId: unresolvedOperation.operationId, unknown: true, retry: retryMissing?.hidden === false }
         );
         return true;
       }
@@ -425,6 +409,7 @@
       if (!unresolvedOperation) {
         return;
       }
+      if (retryMissing) retryMissing.hidden = true;
       checkMappingOutcome.disabled = true;
       checkMappingOutcome.textContent = "Checking outcome...";
       try {
@@ -433,6 +418,12 @@
         checkMappingOutcome.disabled = false;
         checkMappingOutcome.textContent = "Check save outcome";
       }
+    });
+
+    retryMissing?.addEventListener("click", async () => {
+      if (!unresolvedOperation || retryMissing.hidden || checkMappingOutcome?.disabled) return;
+      retryMissing.hidden = true;
+      await retryOriginal(unresolvedOperation);
     });
 
     copyMappingEdits?.addEventListener("click", async () => {

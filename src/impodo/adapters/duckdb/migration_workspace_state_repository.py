@@ -31,6 +31,7 @@ from impodo.domain.workspace.workbench import (
     WorkspaceStateError,
     WorkspaceStateNotFoundError,
     WorkspaceStatus,
+    transfer_destination_matches_source,
 )
 
 from ...domain.workspace.models import (
@@ -136,15 +137,25 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
         return self.get_with_source_package(workspace_id)[0]
 
     def get_with_source_package(
-        self, workspace_id: str,
+        self, workspace_id: str, *, verified_package: DataVersionSourcePackage | None = None,
     ) -> tuple[WorkspaceState, DataVersionSourcePackage]:
-        """Return state and its verified source package for one browser page query."""
+        """Read current state, reusing a frozen package verified in the same local operation."""
 
         workspace = self.foundation.get_migration_workspace(workspace_id)
         database_path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
         if not database_path.is_file():
             raise WorkspaceStateNotFoundError("MigrationWorkspace engine not found")
-        package = self.foundation.get_source_package(workspace.data_version_id)
+        package = verified_package
+        if package is None:
+            package = self.foundation.get_source_package(workspace.data_version_id)
+        elif (
+            package.state is not SourcePackageState.FROZEN
+            or package.data_version_id != workspace.data_version_id
+            or package.project_id != workspace.project_id
+        ):
+            raise MigrationConflictError(
+                "This workspace requires a frozen source package from its own DataVersion"
+            )
         if package is None:
             raise WorkspaceStateError(
                 "The MigrationWorkspace DataVersion source package is missing"
@@ -212,18 +223,27 @@ class MigrationWorkspaceStateRepository(WorkspaceStateRepository):
                 )
                 projected = replace(projected, source_database_binding=source_binding,
                     source_database_generation_hash=source_current or "")
-            if projected.destination_configured:
-                destination_binding, destination_current = self.database_bindings.workspace_binding_status(
-                    workspace_id, workspace.project_id, OdooDatabaseBindingRole.DESTINATION,
-                    database_scope_hash(projected.destination_odoo_base_url, projected.destination_odoo_database),
-                )
-                projected = replace(projected, destination_database_binding=destination_binding,
-                    destination_database_generation_hash=destination_current or "",
-                    saved_restore_database_reset_admitted=self.can_restore_to_declared_database(
-                        workspace_id, base_url=projected.destination_odoo_base_url,
-                        database=projected.destination_odoo_database,
-                    ) if restore is not None else False)
+            projected = self.with_destination_binding(projected, workspace.project_id)
         return projected, package
+
+    def with_destination_binding(self, state: WorkspaceState, project_id: str | None = None) -> WorkspaceState:
+        """Read the current destination generation independently of the saved transfer decision."""
+
+        if not state.destination_configured or self.database_bindings is None:
+            return state
+        if project_id is None:
+            project_id = self.foundation.get_migration_workspace(state.workspace_id).project_id
+        binding, current = self.database_bindings.workspace_binding_status(
+            state.workspace_id, project_id, OdooDatabaseBindingRole.DESTINATION,
+            database_scope_hash(state.destination_odoo_base_url, state.destination_odoo_database),
+        )
+        check_reset = state.saved_restore_generation_id is not None or transfer_destination_matches_source(state)
+        return replace(
+            state, destination_database_binding=binding, destination_database_generation_hash=current or "",
+            saved_restore_database_reset_admitted=check_reset and self.can_restore_to_declared_database(
+                state.workspace_id, base_url=state.destination_odoo_base_url, database=state.destination_odoo_database,
+            ),
+        )
 
     def can_restore_to_declared_database(
         self, workspace_id: str, *, base_url: str, database: str,

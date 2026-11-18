@@ -301,6 +301,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         return window.impodoMappingJourney?.committed?.(operation, payload);
       },
+      retryOriginal: (operation) => sendOperation(operation, true),
       hasNewerEdits: (operation) => operation.editGeneration !== editGeneration,
       currentEntries: (action) => sparseMappingEntries(action),
       setDirty: (value) => {
@@ -513,8 +514,14 @@ document.addEventListener("DOMContentLoaded", () => {
         entries: sparseMappingEntries(action),
         journeyContinuation: window.impodoMappingJourney?.continuationFor?.(event.submitter),
       });
-      activeOperation = operation;
       operation.editGeneration = editGeneration;
+      await sendOperation(operation);
+    });
+
+    async function sendOperation(operation, retry = false) {
+      if (submitting) return;
+      const { action, choosesOdooDefault, changesDisposition } = operation;
+      activeOperation = operation;
       submitting = true;
       mappingForm.setAttribute("aria-busy", "true");
       saveRecovery.clear();
@@ -526,7 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (choosesOdooDefault) {
           saveStatus.textContent =
             "Saving the Odoo decision and checking matches...";
-        } else if (changesFieldDisposition) {
+        } else if (changesDisposition) {
           saveStatus.textContent = "Saving the Odoo-field decision...";
         } else if (action === "confirm_rows") {
           saveStatus.textContent = "Confirming checked rows...";
@@ -545,7 +552,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!mappingSaveUrl) {
           throw new Error("The mapping save URL is missing.");
         }
-        const { ok, payload } = await saveRecovery.fetchSave(
+        const { ok, statusCode, payload } = await saveRecovery.fetchSave(
           mappingSaveUrl,
           {
             method: "POST",
@@ -560,6 +567,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!ok) {
           if (payload.status) {
             saveRecovery.applyMutationOutcome(payload, operation);
+          } else if (retry || statusCode >= 500 || statusCode === 408) {
+            await saveRecovery.resolveMutationOutcome(operation);
           } else {
             if (action !== "submit") {
               dirty = true;
@@ -592,7 +601,7 @@ document.addEventListener("DOMContentLoaded", () => {
         submitting = false;
         mappingForm.removeAttribute("aria-busy");
       }
-    });
+    }
 
     window.addEventListener("beforeunload", (event) => {
       if (!dirty || submitting) {

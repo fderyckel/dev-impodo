@@ -156,18 +156,26 @@ reverted edits, stale-save recovery, persisted choices, and continuation. Set
 Matching-rule cards retain their controls while the footer owns the complete
 confirmation. The duplicate card submission has been removed. A confirmed
 page highlights **Continue to match data**; editing a saved rule highlights
-**Confirm matching rules and continue**. Save progress, previews, exports,
-and help retain their supporting roles.
+**Confirm matching rules and continue**. Restoring every edited rule restores
+the continuation. Each existing card carries its stored matching fields, scope,
+and description; `schema.js` compares controls with that saved selection and
+clears the form's edited state only when every rule is restored. Rejected
+entries remain drafts relative to the stored selection. `schema-journey.js`
+refreshes compact summaries after scope-button actions, using the original
+event path when a removed chip has already left the document. Save progress,
+previews, exports, and help retain their supporting roles.
 
 The [button contract checks](../../../tests/architecture/test_button_roles.py)
 enforce explicit roles and central ownership of the red fill. The
 [selection tests](../../../tests/e2e/button-roles.test.cjs) exercise hidden,
 disabled, edited and dialog states. The
 [browser tests](../../../tests/e2e/test_button_roles.py) verify both supported
-Odoo majors, native confirmation and saved rule descriptions at desktop and
+Odoo majors and access modes, native confirmation, reverted fields and scope,
+multiple edited cards, rejected drafts, and saved descriptions at desktop and
 phone widths. Set `IMPODO_BUTTON_SCREENSHOT_DIR` to a unique temporary trial
 directory when running that browser module to reproduce
-`08d-odoo-matching-next-action.png` at 1440 by 1024.
+`08d-odoo-matching-next-action.png` and `08g-odoo-matching-restored.png` at
+1440 by 1024.
 
 ### Matching-rule scope selection
 

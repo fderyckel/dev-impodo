@@ -4,7 +4,12 @@ Run `python -m tests.performance.check_matches_runner` on each fixed candidate. 
 first check in a fresh workspace, a new explicit check of the same mapping,
 and reopening each result. Use separate fresh processes for repeated samples.
 The in-process HTTP client measures server responses, excluding browser paint
-and network time. Pass --structure in a separate run to collect query counts.
+and network time. Pass --structure in a separate run to collect query counts
+and per-phase DuckDB timings. Each phase includes its database and fictional
+Odoo callback durations. Lock wait is part of connection setup. Supporting
+save measures the publication callback. Opening and closing its dedicated
+scope belongs to supporting_scope. If the save shares the final publication
+scope, closing that owner belongs to publication_and_response.
 """
 
 from __future__ import annotations
@@ -37,12 +42,112 @@ from impodo.domain.mapping.contracts import (
 )
 from impodo.domain.shared.models import TargetRecord
 from impodo.domain.workspace.workbench import OdooConnectionMode
+from impodo.web.composition import target_readers
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.routers import mapping as mapping_routes
 from tests.support.browser_scenarios import POST_HEADERS
 from tests.support.database_probe import count_duckdb_statements
 from tests.support.hierarchy_correction import MappingForm
 from tests.support.mapping_journey import MappingJourneyFixture
+
+
+class _PostPhases:
+    """Partition cumulative counters across the serial phases of one test POST."""
+
+    def __init__(self):
+        self.totals = {}
+        self.previous = None
+        self.phase = None
+        self.odoo_seconds = 0.0
+        self.in_odoo_callback = False
+
+    def begin(self, statements, db):
+        # TestClient and each awaited worker record into this one collector.
+        self.statements = statements
+        self.db = db
+        self.switch("admission")
+
+    def switch(self, phase):
+        current = {
+            **asdict(self.db),
+            "sql": len(self.statements),
+            "odoo_fixture_ms": self.odoo_seconds * 1000,
+            "wall_ms": perf_counter() * 1000,
+        }
+        if self.previous is not None:
+            self.totals.setdefault(self.phase, Counter()).update({
+                key: value - self.previous[key] for key, value in current.items()
+            })
+        self.previous = current
+        self.phase = phase
+
+    def observe_read(self, callback):
+        def measured(*args, **kwargs):
+            if self.in_odoo_callback:
+                return callback(*args, **kwargs)
+            start = perf_counter()
+            self.in_odoo_callback = True
+            try:
+                return callback(*args, **kwargs)
+            finally:
+                self.odoo_seconds += perf_counter() - start
+                self.in_odoo_callback = False
+
+        return measured
+
+    def attach(self, fixture, stack):
+        # These are the injected adapter boundaries. Calling the original
+        # doubles keeps their normal responses and verifies the requested keys.
+        for owner, names in (
+            (fixture.context, (
+                "read_identity_probe", "schema_reader", "model_catalog_reader", "readiness_reader",
+            )),
+            (fixture.local_odoo_reader, (
+                "get_model_metadata", "get_company_access", "get_model_catalog", "get_preflight_snapshots",
+            )),
+        ):
+            for name in names:
+                callback = getattr(owner, name)
+                if callback is not None:
+                    stack.enter_context(patch.object(
+                        owner, name, side_effect=self.observe_read(callback),
+                    ))
+        read_group = target_readers._read_planned_supporting_values
+
+        def read_supporting(*args, **kwargs):
+            self.switch("supporting_read")
+            try:
+                return read_group(*args, **kwargs)
+            finally:
+                self.switch("supporting_verification")
+
+        stack.enter_context(patch.object(
+            target_readers, "_read_planned_supporting_values", read_supporting,
+        ))
+        capture = target_readers._capture_supporting_values
+
+        def capture_supporting(*args, publish_operation, **kwargs):
+            def schedule_publication(publish):
+                def save():
+                    previous = self.phase
+                    self.switch("supporting_save")
+                    try:
+                        return publish()
+                    finally:
+                        self.switch(previous)
+
+                previous = self.phase
+                self.switch("supporting_scope")
+                try:
+                    return publish_operation(save)
+                finally:
+                    self.switch(previous)
+
+            return capture(*args, publish_operation=schedule_publication, **kwargs)
+
+        stack.enter_context(patch.object(
+            target_readers, "_capture_supporting_values", capture_supporting,
+        ))
 
 
 class CheckFixture(MappingJourneyFixture):
@@ -157,15 +262,19 @@ class CheckFixture(MappingJourneyFixture):
         )
         return workspace_id
 
-    def request(self, callback, *, structure):
+    def request(self, callback, *, structure, phases=None):
         previous = self.read_counts()
         with ExitStack() as stack:
             if structure:
                 sql = stack.enter_context(count_duckdb_statements())
                 db = stack.enter_context(collect_duckdb_request_timings())
+                if phases is not None:
+                    phases.begin(sql, db)
             start = perf_counter()
             cpu = process_time()
             response = callback()
+            if phases is not None:
+                phases.switch(None)
             result = {
                 "wall_ms": round((perf_counter() - start) * 1000, 2),
                 "cpu_ms": round((process_time() - cpu) * 1000, 2),
@@ -176,6 +285,13 @@ class CheckFixture(MappingJourneyFixture):
             )
             if structure:
                 result.update(sql=len(sql), **asdict(db))
+                if phases is not None:
+                    result["phases"] = phases.totals
+                    for key in ("sql", "connection_count", "schema_check_count", "lock_retry_count"):
+                        self.assertEqual(
+                            sum(phase[key] for phase in phases.totals.values()), result[key],
+                        )
+                    result["odoo_fixture_ms"] = phases.odoo_seconds * 1000
         self.assertEqual(response.status_code, 200, response.text[:900])
         return response, result
 
@@ -191,19 +307,28 @@ def check_once(fixture, workspace_id, workload, structure):
     ]
     entries.extend([["operation_id", str(uuid4())], ["action", "draft"]])
     timings = {}
+    phases = _PostPhases() if structure else None
     access = mapping_routes.check_matching_access
     capture = mapping_routes._capture_mapping_supporting_values
 
     async def check_access(*values, **options):
+        if phases is not None:
+            phases.switch("access")
         timings["access_start"] = perf_counter()
         result = await access(*values, **options)
         timings["access_end"] = perf_counter()
+        if phases is not None:
+            phases.switch("dispatch_to_supporting")
         return result
 
     def supporting(*values, **options):
+        if phases is not None:
+            phases.switch("supporting_inputs")
         timings["support_start"] = perf_counter()
         result = capture(*values, **options)
         timings["support_end"] = perf_counter()
+        if phases is not None:
+            phases.switch("publication_and_response")
         return result
 
     def submit():
@@ -218,10 +343,13 @@ def check_once(fixture, workspace_id, workload, structure):
         return response
 
     with (
+        ExitStack() as stack,
         patch.object(mapping_routes, "check_matching_access", check_access),
         patch.object(mapping_routes, "_capture_mapping_supporting_values", supporting),
     ):
-        result, post = fixture.request(submit, structure=structure)
+        if phases is not None:
+            phases.attach(fixture, stack)
+        result, post = fixture.request(submit, structure=structure, phases=phases)
     payload = result.json()
     fixture.assertEqual(payload["status"], "committed", payload)
     destination = payload["redirect_url"]

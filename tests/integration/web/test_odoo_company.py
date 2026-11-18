@@ -495,10 +495,11 @@ class OdooCompanyWorkflowTests(ProjectSetupBrowserTestCase):
                 )
                 self.assertIsNone(context.queries.get(workspace_id).odoo_company)
 
-    def configured(self):
+    def configured(self, *, major=19, mode=OdooConnectionMode.REMOTE):
         workspace_id, dataset, _key = self._mapping_ready_workspace(
             scalar_field_count=1,
-            connection_mode=OdooConnectionMode.REMOTE,
+            connection_mode=mode,
+            odoo_major=major,
         )
         context = self.app.state.context
         actor = resolve_local_actor(context)

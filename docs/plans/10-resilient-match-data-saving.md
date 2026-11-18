@@ -1,56 +1,45 @@
 # Qualify Match data saving on macOS
 
-## Status and remaining scope
+## Verified on 18 November 2026
 
-**Status:** Ranked tenth in the cross-plan implementation order. macOS
-qualification remains open as of 2026-10-28.
+Six fresh processes exercised the 1,000-field fixture with two authenticated
+editors sharing a workspace. Two obsolete searches yielded HTTP 204. Both
+current searches completed, one save advanced the draft once, the stale save
+received HTTP 409, and the health request answered during the search burst.
+The [raw macOS samples](../developer/reference/mapping-save-macos.json)
+include the application build, runtime, request timings, event-loop delay,
+queue time and process peak memory.
 
-Formula feedback, recoverable saves, mutation receipts, stale-tab handling,
-catalogue scheduling, process recovery, diagnostics, and paired documentation
-are implemented. Their current contracts and focused tests belong to the
-[Match data developer workflow](../developer/workflow/03-match-data.md#operational-diagnostics-and-responsiveness).
-The [user workflow](../user/workflow/03-match-data.md) explains the available
-controls. Completed delivery records remain in Git history.
+Three additional trials killed the application process before receipt
+reservation, after reservation, and after commit. A replacement process read
+the original operation with the same session in each case. The recovered
+states were absent, pending and committed respectively. The working draft
+advanced only in the committed case.
 
-This plan retains the missing platform evidence. It does not reopen the
-implemented design or change request timeouts without measurement.
+The [Match data workflow](../developer/workflow/03-match-data.md#operational-diagnostics-and-responsiveness)
+owns save recovery. The editor waits for a late receipt and an explicit
+retry keeps the same operation and original edits.
+The [shared liveness plan](09-responsive-workflow-liveness-and-navigation.md)
+owns navigation, health budgets across pages and the connectivity indicator.
 
-## Remaining qualification
+## Remaining macOS checks
 
-Repeat the separate-editor concurrency qualification on macOS using fictional
-large catalogues and isolated workspaces:
+Run the following on a fixed checkout with Python 3.12, the test dependencies
+and a matching Playwright Chromium installation. Use the ordinary user
+account and isolated fictional workspaces.
 
-1. Open concurrent catalogue reads from separate editor identities. Verify
-   that the workspace projection gate prevents DuckDB attachment collisions
-   and that obsolete searches cannot starve a save or health request.
-2. Record cold and warm page time, search latency, mutation latency, event-loop
-   delay, queue delay, and peak process memory in fresh runs. Compare them with
-   the documented Windows fixture and its current budgets.
-3. Exercise committed and uncommitted save timeouts, stale versions, interrupted
-   requests, process loss, and restart. Resolve uncertain saves through their
-   receipts without automatically repeating a mutation.
-4. Verify that invalid formulas remain recoverable drafts and cannot pass
-   **Check matches**, including when browser validation is bypassed.
-5. Verify visible, keyboard-accessible failure messages and privacy-safe
-   diagnostics. Bundles must exclude formulas, full forms, business values,
-   credentials, tokens, and raw request details.
+1. Run `python -m pytest -q tests/e2e/test_mapping_save_keyboard.py`.
+   Verify that the visible alert receives focus, both recovery buttons work
+   by keyboard, the explicit retry saves the draft once, and a stale editor
+   can reload the newer draft.
+2. Run `python -m pytest -q tests/integration/web/test_diagnostics.py::ServerSupervisorTests::test_spawned_server_reuses_listener_and_session_after_restart`
+   in three fresh processes. Verify that the second server accepts the same
+   session on the original loopback port. Run
+   `python -m pytest -q tests/integration/web/test_diagnostics.py::LauncherDiagnosticTests`
+   there as well. Both launcher logging tests bind a loopback socket before
+   checking the normal and exceptional shutdown records.
 
-Run this qualification without administrator-only macOS changes. Use
-repository-local Python, operating-system temporary directories, independent
-authenticated test clients or headless browser contexts, and subprocess
-restart tests. Inspect DOM roles, names, focus order, and keyboard behavior in
-the browser test itself; do not require macOS Accessibility, Screen Recording,
-system-wide browser configuration, or installation under `/Applications`.
-
-Use the current operation and connectivity model documented in the workflow.
-The later [navigation and liveness qualification](09-responsive-workflow-liveness-and-navigation.md)
-owns platform p95 measurements for shared pages; do not restore the retired
-three-failure heartbeat behavior from the original save delivery.
-
-## Completion evidence
-
-Retain exact revisions, runtime versions, fixture sizes, raw repeat timings,
-request counts, memory measurements, and restart outcomes under the testing
-workflow. Run the focused mapping, catalogue, receipt, security, and launcher
-checks linked from the developer page. Mark this plan complete only after the
-macOS separate-editor and restart runs pass repeatedly, then remove it.
+The managed test session denied Chromium's macOS Mach registration and
+binding a loopback listener. Retain the revision, runtime and outcomes from
+a macOS session that permits these operations. Remove this plan after both
+checks pass and the complete repository gate succeeds.

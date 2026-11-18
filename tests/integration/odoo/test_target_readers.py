@@ -816,9 +816,9 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
                     with self.assertRaisesRegex(WorkspaceError, "supported Odoo version"):
                         _capture_mapping_supporting_values(context, "workspace", schema, (), actor=LOCAL_ACTOR)
                 else:
-                    self.assertEqual(_capture_mapping_supporting_values(
+                    self.assertIsNone(_capture_mapping_supporting_values(
                         context, "workspace", schema, (), actor=LOCAL_ACTOR,
-                    ), ())
+                    ))
                 operation.assert_not_called()
         with self.assertRaisesRegex(WorkspaceError, "live Odoo details"):
             _capture_mapping_supporting_values(
@@ -1245,21 +1245,23 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
                 ),
             )
 
-        source_calls = []
-
-        def included_source_keys(
-            _workspace, dataset_id, columns, _rows, *, included_parent=None
-        ):
-            self.assertIsNone(included_parent)
-            source_calls.append((dataset_id, tuple(columns)))
-            return source_values[(dataset_id, tuple(columns))]
+        def included_source_keys(_workspace, projections, source_datasets):
+            self.assertEqual(source_datasets, datasets)
+            self.assertCountEqual(
+                [(identity[0], columns) for identity, columns in projections.items()],
+                list(source_values),
+            )
+            return {
+                identity: source_values[(identity[0], columns)]
+                for identity, columns in projections.items()
+            }
 
         captures = []
         context = SimpleNamespace(
             actor=SimpleNamespace(),
             readiness_reader=reader,
             categorical_coverage=SimpleNamespace(
-                source_included_key_tuples=included_source_keys
+                source_distinct_key_projections=included_source_keys
             ),
             supporting_lookups=SimpleNamespace(
                 capture=lambda _workspace, **values: (
@@ -1268,7 +1270,7 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             ),
         )
 
-        stored = _capture_mapping_supporting_values(
+        publish = _capture_mapping_supporting_values(
             context,
             workspace,
             schema,
@@ -1276,8 +1278,11 @@ class RecipeSupportingValueBatchTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
+        self.assertEqual(captures, [])
         self.assertEqual(len(calls), 1)
-        self.assertCountEqual(source_calls, list(source_values))
+        self.assertIsNotNone(publish)
+        stored = publish()
+        self.assertEqual(len(calls), 1)
         metadata_requests, record_requests = calls[0]
         self.assertEqual(
             tuple(request.model for request in metadata_requests),

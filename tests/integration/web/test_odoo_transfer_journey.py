@@ -616,12 +616,11 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
             },
         )
         self.assertEqual(same_database.status_code, 422)
-        self.assertIn(
-            "Choose a different Odoo database for the destination",
-            same_database.text,
-        )
+        self.assertIn("Choose a different Odoo database", same_database.text)
+        self.assertIn("start a fresh restore", same_database.text)
 
         current = self.app.state.context.queries.get(workspace_id)
+        self.assertFalse(current.destination_configured)
         destination_checked = self._post(
             f"/workspaces/{workspace_id}/transfer-destination",
             {

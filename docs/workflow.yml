@@ -724,6 +724,8 @@ stages:
       - tests/integration/web/test_mapping_check_receipts.py
       - tests/integration/web/test_mapping_row_checks.py
       - tests/e2e/mapping-save-recovery.test.cjs
+      - tests/e2e/test_mapping_recovery_actions.py
+      - tests/e2e/test_mapping_check_actions.py
       - tests/e2e/mapping-check-timeout.test.cjs
       - tests/e2e/mapping-journey.test.cjs
       - tests/e2e/test_mapping_journey.py
@@ -821,6 +823,8 @@ stages:
       - tests/integration/web/test_matching_health_issues_presenter.py
       - tests/integration/web/test_mapping_catalog_scale.py
       - tests/integration/web/test_mapping_catalog_runtime.py
+      - tests/integration/web/test_mapping_interrupted_save.py
+      - tests/e2e/test_mapping_save_keyboard.py
       - tests/integration/web/test_diagnostics.py
       - tests/integration/web/test_supporting_diagnostics.py
       - tests/integration/web/test_supporting_access_diagnostics.py
@@ -853,8 +857,6 @@ stages:
       - docs/developer/contracts/evidence-lifecycle.md
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/canonical-staging.md
-    references:
-      - docs/developer/reference/match-order-measurements.json
 
   - id: prepare
     order: 4

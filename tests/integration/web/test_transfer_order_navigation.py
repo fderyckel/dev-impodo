@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 import unittest
 from uuid import uuid4
 
 from impodo.application.transfer_review_service import TransferReviewService
 from impodo.application.transfer_preflight_service import TransferPreflightService
-from impodo.application.workspace.navigation import WorkspaceNavigationFacts
+from impodo.application.workspace.navigation import TransferNavigationProgress, WorkspaceNavigationFacts
 from impodo.domain.shared.access import LOCAL_ACTOR
 from impodo.domain.workspace.transfer_review import TransferReviewApproval
 from impodo.web.presenters.navigation import build_workspace_navigation
@@ -97,6 +97,37 @@ class TransferOrderNavigationTests(unittest.TestCase):
             f"/workspaces/{workspace.workspace_id}/transfer-preflight",
         )
         self.assertEqual(navigation.viewed_stage_id, "transfer-review")
+
+    def test_saved_approval_respects_expiry_and_current_bindings(self) -> None:
+        workspace, selection, schema = _stage_five_state()
+        match, order = workspace.destination_match_plan, workspace.transfer_order_plan
+        package = TransferReviewService().build(
+            workspace, match, order, run_id=str(uuid4()), data_version_id=str(uuid4()),
+            built_by=LOCAL_ACTOR.identity,
+        )
+        approved_at = datetime.now(UTC) - timedelta(minutes=10)
+        approval = TransferReviewApproval.approve(
+            package, approval_id=str(uuid4()), actor=LOCAL_ACTOR, approved_at=approved_at,
+        )
+        expired = replace(approval, export_approval=replace(
+            approval.export_approval, expires_at=approved_at + timedelta(minutes=5)))
+        for decision, generation, source, expected_approval in (
+            (approval, workspace.destination_database_generation_hash, selection.content_hash, True),
+            (expired, workspace.destination_database_generation_hash, selection.content_hash, False),
+            (approval, "sha256:" + "a" * 64, selection.content_hash, False),
+            (approval, workspace.destination_database_generation_hash, "sha256:" + "9" * 64, False),
+        ):
+            state = replace(workspace, transfer_review_package=package, transfer_review_approval=decision,
+                            destination_database_generation_hash=generation)
+            progress = TransferNavigationProgress.from_workspace(state)
+            self.assertTrue(progress.review_approved)
+            facts = replace(_facts(state, selection, schema), source_selection_hash=source,
+                            transfer_progress=progress)
+            compact = replace(state, destination_match_plan=None, transfer_order_plan=None,
+                              transfer_review_package=None, transfer_review_approval=None)
+            navigation = build_workspace_navigation(facts, compact, "workspace_overview.html")
+            stage = next(item for item in navigation.stages if item.stage_id == "transfer-review")
+            self.assertEqual(stage.status == "complete", expected_approval)
 
     def test_passed_preflight_advances_stage_six_without_claiming_a_load(self) -> None:
         workspace, selection, schema = _stage_five_state()

@@ -68,7 +68,7 @@ class WorkspaceStateQueryRepository(Protocol):
 
     def get(self, workspace_id: str) -> WorkspaceState: ...
     def get_with_source_package(
-        self, workspace_id: str
+        self, workspace_id: str, *, verified_package: DataVersionSourcePackage | None = None,
     ) -> tuple[WorkspaceState, DataVersionSourcePackage]: ...
     def has_audit_event(self, workspace_id: str, event_type: str) -> bool: ...
 
@@ -108,6 +108,10 @@ class MappingSourceQueryRepository(Protocol):
     def get_mapping_source_selection(
         self, workspace_id: str
     ) -> SourceSelection | None: ...
+
+    def get_mapping_source_selection_with_package(
+        self, workspace_id: str,
+    ) -> tuple[SourceSelection, DataVersionSourcePackage] | None: ...
 
 
 class DerivedEntityQueryRepository(Protocol):
@@ -243,6 +247,15 @@ class BrowserQueryService:
     def get(self, workspace_id: str) -> WorkspaceState:
         return self._workspace_states.get(workspace_id)
 
+    def get_with_verified_source(
+        self, workspace_id: str, package: DataVersionSourcePackage,
+    ) -> WorkspaceState:
+        """Read live workspace settings against the source already verified for this command."""
+        state, _ = self._workspace_states.get_with_source_package(
+            workspace_id, verified_package=package,
+        )
+        return state
+
     def get_source_page(self, workspace_id: str) -> SourceReviewPage:
         """Build source review from the package already verified for workspace state."""
 
@@ -271,6 +284,11 @@ class BrowserQueryService:
         self, workspace_id: str
     ) -> SourceSelection | None:
         return self._mapping_sources.get_mapping_source_selection(workspace_id)
+
+    def get_mapping_source_selection_with_package(
+        self, workspace_id: str,
+    ) -> tuple[SourceSelection, DataVersionSourcePackage] | None:
+        return self._mapping_sources.get_mapping_source_selection_with_package(workspace_id)
 
     def get_current_source_snapshots(
         self, workspace_id: str

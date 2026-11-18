@@ -1,12 +1,24 @@
 "use strict";
 
 document.addEventListener("DOMContentLoaded", () => {
+  let stopped = false;
+  const stopHandlers = [];
+  const stopPolling = () => {
+    if (stopped) return;
+    stopped = true;
+    for (const stop of stopHandlers) stop();
+  };
+  document.addEventListener("impodo:session-ended", stopPolling);
+  window.addEventListener("pagehide", stopPolling);
   const fetchStatus = async (url, options) => {
+    if (stopped) return null;
     const response = await fetch(url, options);
     window.impodoServerRecovery?.noteResponse?.(response);
+    if (response.status === 401) stopPolling();
+    if (stopped) return null;
     if (response.ok) {
       response.clone().json().then((payload) => {
-        if (!["QUEUED", "RUNNING"].includes(payload?.status)) {
+        if (!stopped && !["QUEUED", "RUNNING"].includes(payload?.status)) {
           window.impodoServerRecovery?.endOperation?.({ outcomeKnown: true });
         }
       }).catch(() => {});
@@ -143,6 +155,7 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (response.status === 410) {
           const interrupted = await response.json();
           if (interrupted.redirect_url) {
@@ -157,6 +170,7 @@ document.addEventListener("DOMContentLoaded", () => {
           pollTimer = window.setTimeout(pollPreflight, 750);
         }
       } catch {
+        if (stopped) return;
         updatesPaused = true;
         updateHeartbeat();
         pollTimer = window.setTimeout(pollPreflight, 1500);
@@ -165,7 +179,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     heartbeatTimer = window.setInterval(updateHeartbeat, 1000);
     if (statusUrl) pollPreflight();
-    window.addEventListener("pagehide", () => {
+    stopHandlers.push(() => {
       window.clearTimeout(pollTimer);
       window.clearInterval(heartbeatTimer);
     });
@@ -266,11 +280,13 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (!response.ok) throw new Error("Progress is temporarily unavailable");
         if (showStatus(await response.json())) {
           pollTimer = window.setTimeout(pollPreparation, 750);
         }
       } catch {
+        if (stopped) return;
         if (message) message.textContent = "Reconnecting to preparation…";
         pollTimer = window.setTimeout(pollPreparation, 1500);
       }
@@ -279,7 +295,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (statusUrl) {
       pollPreparation();
     }
-    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+    stopHandlers.push(() => window.clearTimeout(pollTimer));
   }
 
   const odooCaptureJob = document.querySelector("[data-odoo-capture-job]");
@@ -356,18 +372,20 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (!response.ok) throw new Error("Capture progress is temporarily unavailable");
         if (showCaptureStatus(await response.json())) {
           pollTimer = window.setTimeout(pollOdooCapture, 750);
         }
       } catch {
+        if (stopped) return;
         if (message) message.textContent = "Reconnecting to capture…";
         pollTimer = window.setTimeout(pollOdooCapture, 1500);
       }
     };
 
     if (statusUrl) pollOdooCapture();
-    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+    stopHandlers.push(() => window.clearTimeout(pollTimer));
   }
 
   const loadJob = document.querySelector("[data-load-job]");
@@ -489,18 +507,20 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (!response.ok) throw new Error("Load progress is temporarily unavailable");
         if (showLoadStatus(await response.json())) {
           pollTimer = window.setTimeout(pollLoad, 750);
         }
       } catch {
+        if (stopped) return;
         if (message) message.textContent = "Reconnecting to the saved load progress…";
         pollTimer = window.setTimeout(pollLoad, 1500);
       }
     };
 
     if (statusUrl) pollLoad();
-    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+    stopHandlers.push(() => window.clearTimeout(pollTimer));
   }
 
   const integratedRun = document.querySelector("[data-integrated-run-review]");
@@ -515,6 +535,7 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (!response.ok) throw new Error("Run progress is temporarily unavailable");
         const status = await response.json();
         if (status.view_hash && status.view_hash !== initialHash) {
@@ -541,12 +562,13 @@ document.addEventListener("DOMContentLoaded", () => {
           pollTimer = window.setTimeout(pollIntegratedRun, 1000);
         }
       } catch {
+        if (stopped) return;
         pollTimer = window.setTimeout(pollIntegratedRun, 2000);
       }
     };
 
     if (statusUrl) pollIntegratedRun();
-    window.addEventListener("pagehide", () => window.clearTimeout(pollTimer));
+    stopHandlers.push(() => window.clearTimeout(pollTimer));
   }
 
   const recipeRunJob = document.querySelector("[data-recipe-run-job]");
@@ -652,12 +674,14 @@ document.addEventListener("DOMContentLoaded", () => {
           headers: { Accept: "application/json" },
           cache: "no-store",
         });
+        if (!response) return;
         if (!response.ok) throw new Error("Progress is temporarily unavailable");
         updatesPaused = false;
         if (showRecipeRunStatus(await response.json())) {
           pollTimer = window.setTimeout(pollRecipeRun, 750);
         }
       } catch {
+        if (stopped) return;
         updatesPaused = true;
         updateHeartbeat();
         pollTimer = window.setTimeout(pollRecipeRun, 1500);
@@ -666,7 +690,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     heartbeatTimer = window.setInterval(updateHeartbeat, 1000);
     if (statusUrl) pollRecipeRun();
-    window.addEventListener("pagehide", () => {
+    stopHandlers.push(() => {
       window.clearTimeout(pollTimer);
       window.clearInterval(heartbeatTimer);
     });

@@ -405,7 +405,7 @@ def _open_child_diagnostic_recorder(
                 log_name=f"impodo.jsonl.process-{os.getpid()}",
             )
         except OSError:
-            # Optional support evidence must not make the local server fail.
+            logging.getLogger("uvicorn.error").warning("CHILD_DIAGNOSTICS_UNAVAILABLE")
             return None
 
 

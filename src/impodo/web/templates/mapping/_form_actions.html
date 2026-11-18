@@ -10,12 +10,13 @@
           <p class="technical-note">
             Support reference: <code data-mapping-operation-reference></code>
           </p>
-          <div class="mapping-save-recovery" data-mapping-conflict-recovery hidden>
+          <div class="mapping-save-recovery" data-mapping-conflict-recovery data-next-scope hidden>
             <button class="button action compact" type="button" data-copy-mapping-edits>Copy my edits</button>
-            <button class="button action compact" type="button" data-reload-saved-mapping>Reload saved version</button>
+            <button class="button action compact" type="button" data-reload-saved-mapping data-next-step="100">Reload saved version</button>
           </div>
-          <div class="mapping-save-recovery" data-mapping-unknown-recovery hidden>
-            <button class="button action compact" type="button" data-check-mapping-outcome>Check save outcome</button>
+          <div class="mapping-save-recovery" data-mapping-unknown-recovery data-next-scope hidden>
+            <button class="button action compact" type="button" data-check-mapping-outcome data-next-step="100">Check save outcome</button>
+            <button class="button action compact" type="button" data-retry-missing-save hidden>Retry original action</button>
           </div>
         </div>
         <p
@@ -53,7 +54,7 @@
               {{ formula_authoring_issue_payloads|length }} formula issue{% if formula_authoring_issue_payloads|length != 1 %}s{% endif %} must be fixed before checking matches.
             {% endif %}
           </span>
-          <button class="button action compact" type="button" data-go-to-formula-issue>Go to issue</button>
+          <button class="button action compact" type="button" data-go-to-formula-issue data-next-step="300">Go to issue</button>
         </div>
         <button class="button action" name="action" value="save_progress" type="submit" data-save-mapping-progress>Save progress</button>
         <div class="mapping-journey-action-group" data-mapping-step-panel="tables" {% if mapping_journey.step != 'tables' %}hidden{% endif %}>
@@ -80,7 +81,7 @@
             aria-describedby="formula-check-help"
             {% if formula_authoring_issue_payloads %}disabled{% endif %}
           >Check matches</button>
-          <a class="button action"{% if validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %} data-next-step="200"{% endif %} href="/workspaces/{{ workspace_id }}/mapping?step=confirm" data-mapping-go-step="confirm">Review confirmation</a>
+          <a class="button action"{% if validation and validation.status.value != 'INVALID' and not has_unvalidated_changes %} data-next-step="200"{% endif %} href="/workspaces/{{ workspace_id }}/mapping?step=confirm" data-mapping-go-step="confirm" data-review-mapping-confirmation>Review confirmation</a>
         </div>
         <span class="visually-hidden" id="formula-check-help" data-formula-check-help>
           {% if formula_authoring_issue_payloads %}Correct formula issues before checking matches.{% endif %}

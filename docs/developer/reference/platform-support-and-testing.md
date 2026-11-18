@@ -64,6 +64,36 @@ contracts once. Larger scale cases keep their explicit opt-in
 requirements. Its final `quality` job preserves the required
 `Python quality / quality` check name and passes only when both matrices pass.
 
+The optional **workflow_liveness** input measures Overview, Match data, Final
+review and Check changes on Windows and macOS. Each page gets 20 fresh
+processes and five warm reads per process. A cold sample is the first page
+request after application startup. The fixture contains 25,000 unchanged
+rows and a published execution snapshot. Authenticated health and running-job
+clients poll the same event loop during page construction.
+
+To reproduce the measurement locally, set `IMPODO_RUN_PREFLIGHT_SCALE=1`,
+`IMPODO_PREFLIGHT_SCALE_RUNS=1` and `IMPODO_WORKFLOW_LIVENESS_OUTPUT` to an
+absolute JSON output path. Use the checkout runner with Python 3.12.14:
+
+```text
+uv run --frozen --python 3.12.14 --extra test --group quality python -m pytest -q tests/performance/test_preflight_scale.py
+```
+
+The output keeps per-request samples, platform and build identity, and the
+source and snapshot identities. Compare hosts using the same application
+build, fixture, mapping, Python and dependency versions. Synthetic fixture
+identifiers can differ between independent publications. The qualification
+limits are 1,500 ms warm and 3,000 ms cold for Overview at p95. For each page,
+both probe types must have p95 at or below 250 ms and every probe below one
+second. The reported process CPU time and working-set change include the
+overlapping requests. File I/O coverage identifies the instrumented boundaries.
+
+The [macOS samples from 18 November 2026](workflow-liveness-macos.json) cover
+80 fresh processes and 480 page requests on the synthetic Odoo 19 fixture.
+Overview took 108 ms cold and 79 ms warm at p95. Across all four pages, the
+slowest individual health or running-job response took 74 ms. These are
+authenticated in-process HTTP measurements. Windows requires a matching run.
+
 Host-owned suites run separately:
 
 - `.github/workflows/windows-release-quality.yml` runs the Windows installer

@@ -53,6 +53,7 @@ function progressPage(outcomes, initialStatus = "RUNNING") {
     fetch: async () => {
       const outcome = outcomes[Math.min(calls++, outcomes.length - 1)];
       if (outcome instanceof Error) throw outcome;
+      if (typeof outcome === "number") return { ok: false, status: outcome };
       return {
         ok: true, status: 200,
         json: async () => outcome,
@@ -193,4 +194,13 @@ test("a failure after saving retains the confirmed result instead of claiming no
   assert.equal(page.element("intro").textContent, outcome_message);
   assert.equal(page.element("previous-review").hidden, true);
   assert.equal(page.element("progress-card").hidden, true);
+});
+
+test("an expired session stops status reads while transient failures keep polling", async () => {
+  const page = progressPage([429, 500, 503, 401]);
+  await page.flush();
+  for (let retry = 0; retry < 3; retry++) await page.poll();
+  assert.equal(page.calls, 4);
+  assert.equal(page.timers.length, 0);
+  assert.deepEqual(page.navigations, []);
 });

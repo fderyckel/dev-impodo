@@ -156,7 +156,7 @@ def _workspace_values(workspace: WorkspaceState) -> list[object]:
     ]
 
 
-def _workspace_from_rows(
+def decode_workspace_state(
     data: dict[str, object],
     source_rows: list[tuple[object, ...]],
     *,

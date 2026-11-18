@@ -4,6 +4,11 @@ name: Python quality
 
 on:
   workflow_dispatch:
+    inputs:
+      workflow_liveness:
+        description: Measure four workflow pages with 25,000 rows on Windows and macOS
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -56,6 +61,9 @@ jobs:
           - macos-latest
           - windows-latest
     steps:
+      - name: Preserve source bytes for cross-platform build comparison
+        if: inputs.workflow_liveness && runner.os == 'Windows' && matrix.shard == 1
+        run: git config --global core.autocrlf false
       - name: Check out the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install uv
@@ -74,6 +82,23 @@ jobs:
       - name: Run default performance contracts
         if: runner.os == 'Linux' && matrix.shard == 1
         run: uv run --frozen --group quality --extra test pytest -q tests/performance
+
+      - name: Qualify workflow liveness
+        if: inputs.workflow_liveness && runner.os != 'Linux' && matrix.shard == 1
+        env:
+          IMPODO_RUN_PREFLIGHT_SCALE: '1'
+          IMPODO_PREFLIGHT_SCALE_RUNS: '1'
+          IMPODO_WORKFLOW_LIVENESS_OUTPUT: ${{ runner.temp }}/workflow-liveness.json
+        run: >-
+          uv run --frozen --python 3.12.14 --extra test --group quality
+          python -m pytest -q tests/performance/test_preflight_scale.py
+      - name: Retain workflow liveness measurements
+        if: always() && inputs.workflow_liveness && runner.os != 'Linux' && matrix.shard == 1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: workflow-liveness-${{ runner.os }}-${{ github.sha }}
+          path: ${{ runner.temp }}/workflow-liveness.json
+          if-no-files-found: error
 
   quality:
     name: quality

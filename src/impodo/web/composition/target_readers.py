@@ -1590,7 +1590,7 @@ def _capture_recipe_supporting_values(
 ) -> tuple[SupportingLookupSnapshot, ...]:
     """Refresh every Recipe-owned supporting value set in one bounded read."""
 
-    return _capture_supporting_values(
+    snapshots = _capture_supporting_values(
         context,
         workspace_state,
         schema,
@@ -1598,8 +1598,10 @@ def _capture_recipe_supporting_values(
         purpose=ReferenceReadPurpose.RECIPE_APPLICATION,
         operation=OdooOperation.RECIPE,
         workflow_label="Recipe",
+        publish_operation=lambda publish: publish(),
         actor=actor,
     )
+    return snapshots or ()
 
 
 def _supporting_read_policy(
@@ -1633,8 +1635,8 @@ def _capture_mapping_supporting_values(
     datasets: Iterable[DatasetMapping],
     *,
     actor: Actor,
-) -> tuple[SupportingLookupSnapshot, ...]:
-    """Capture every external resolver required by the submitted mapping.
+) -> Callable[[], tuple[SupportingLookupSnapshot, ...]] | None:
+    """Read external references and return the local operation that saves them.
 
     Only distinct keys from included frozen source rows are queried. Related
     models remain supporting read evidence and never enter ``intended_models``
@@ -1647,7 +1649,7 @@ def _capture_mapping_supporting_values(
         _supporting_read_policy(
             schema, operation=OdooOperation.COMPARE, workflow_label="mapping",
         )
-        return ()
+        return None
     workspace_id = (
         workspace_state if isinstance(workspace_state, str) else workspace_state.workspace_id
     )
@@ -1657,21 +1659,11 @@ def _capture_mapping_supporting_values(
             context.queries.get(workspace_id)
             if isinstance(workspace_state, str) else workspace_state
         )
-        needs_parent_rows = any(
-            source.row_inclusion.included_parent_field
-            for requirement in requirements for source in requirement.sources
-        )
-        parents = (
-            context.categorical_coverage.included_parent_rows(
-                workspace_id, mappings
-            ) if needs_parent_rows else {}
-        )
         targeted: dict[
             tuple[str, tuple[str, ...], tuple[str, ...]],
             tuple[tuple[str, ...], ...],
         ] = {}
         projections = {}
-        source_rows = {}
         for requirement in requirements:
             for source in requirement.sources:
                 identity = (source.dataset_id, source.row_inclusion)
@@ -1680,17 +1672,17 @@ def _capture_mapping_supporting_values(
                     resolver_preparations(source.source_column_keys, source.reference_mappings),
                 )
                 projections[identity] = tuple(dict.fromkeys((*projections.get(identity, ()), *columns)))
+        source_rows = (
+            context.categorical_coverage.source_distinct_key_projections(
+                workspace_id, projections, mappings,
+            ) if projections else {}
+        )
         for requirement in requirements:
             values = set(requirement.constant_values)
             field_count = len((*requirement.key_fields, *requirement.scope_fields))
             for source in requirement.sources:
                 identity = (source.dataset_id, source.row_inclusion)
                 projected = projections[identity]
-                if identity not in source_rows:
-                    source_rows[identity] = context.categorical_coverage.source_included_key_tuples(
-                        workspace_id, source.dataset_id, projected, source.row_inclusion,
-                        included_parent=parents.get(source.dataset_id),
-                    )
                 blank_source = source.blank_source_column_key
                 rows = prepared_reference_rows(
                     source.source_column_keys, projected, source_rows[identity],
@@ -1747,12 +1739,12 @@ def _capture_mapping_supporting_values(
         operation=OdooOperation.COMPARE,
         workflow_label="mapping",
         targeted_values=targeted,
-        publish_operation=run_local_operation_sync,
+        publish_operation=lambda publish: publish,
         actor=actor,
     )
 
 
-def _capture_supporting_values(
+def _capture_supporting_values[T](
     context: WebContext,
     workspace_state: WorkspaceState,
     schema: OdooSchemaCatalog,
@@ -1769,10 +1761,10 @@ def _capture_supporting_values(
         tuple[tuple[str, ...], ...],
     ]
     | None = None,
-    publish_operation: Callable[[Callable[[], tuple[SupportingLookupSnapshot, ...]]], tuple[SupportingLookupSnapshot, ...]] | None = None,
+    publish_operation: Callable[[Callable[[], tuple[SupportingLookupSnapshot, ...]]], T],
     require_current_access: bool = False,
-) -> tuple[SupportingLookupSnapshot, ...]:
-    """Authorize, batch, verify, and persist supporting destination values."""
+) -> T | None:
+    """Read and verify supporting values, then hand their local save to the caller."""
 
     odoo_major_version, current_reference_policy_hash = _supporting_read_policy(
         schema, operation=operation, workflow_label=workflow_label,
@@ -1920,7 +1912,7 @@ def _capture_supporting_values(
         )
 
     if not prepared:
-        return ()
+        return None
     captures = {}
     for selected_field in (False, True):
         group = tuple(item for item in prepared if item.selected_field == selected_field)
@@ -2092,7 +2084,7 @@ def _capture_supporting_values(
             )
         return tuple(stored)
 
-    return publish_operation(publish) if publish_operation is not None else publish()
+    return publish_operation(publish)
 
 
 def _read_planned_supporting_values(

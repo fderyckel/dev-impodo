@@ -212,6 +212,23 @@ test("compact rule summaries reflect edits after the existing field editor updat
   assert.equal(card.children[0].value, "unsaved-0");
 });
 
+test("removing a scope chip refreshes its card summary after the chip leaves the DOM", async () => {
+  const view = page();
+  const card = view.cards[0];
+  const selection = card.append(new Element("SPAN", { keySelectionSummary: "" }));
+  const summary = card.append(new Element("SMALL", { schemaRuleSummary: "" }));
+  selection.textContent = "Reference within Company";
+  const removedChip = new Element("BUTTON");
+  view.root.listeners.get("click")({
+    target: removedChip,
+    composedPath: () => [removedChip, card, view.root],
+  });
+  selection.textContent = "Reference";
+  await new Promise(queueMicrotask);
+  assert.equal(summary.textContent, "Reference");
+  assert.equal(card.children[0].value, "unsaved-0");
+});
+
 test("native validation opens the first invalid panel and group per validation turn", async () => {
   const view = page();
   const first = view.cards[0].children[0];

@@ -26,6 +26,7 @@ from tests.support.browser_scenarios import (
     ScalarValueSource,
 )
 from tests.support.identity import resolve_local_actor
+from tests.support.mapping_catalog import mapped_catalog
 
 
 class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
@@ -489,41 +490,10 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
     def test_representative_mapping_responsiveness_baseline_is_reported(
         self,
     ) -> None:
-        workspace_id, dataset, business_key = self._mapping_ready_workspace(
-            scalar_field_count=1000
-        )
-        source_identity, source_value = dataset.columns
-        context = self.app.state.context
         process = psutil.Process()
         rss_before = process.memory_info().rss
-        initial = context.mapping_workspace.save_working_draft(
-            workspace_id,
-            datasets=(
-                DatasetMapping(
-                    dataset_id=dataset.dataset_id,
-                    target_model="res.partner",
-                    mode=MappingTargetMode.UPSERT,
-                    source_identity_column_keys=(source_identity.stable_key,),
-                    target_identity=(
-                        IdentityComponentMapping(
-                            source_column_keys=(source_identity.stable_key,),
-                            target_fields=("ref",),
-                        ),
-                    ),
-                    fields=tuple(
-                        ScalarFieldMapping(
-                            target_field=f"field_{index:04d}",
-                            source_column_key=source_value.stable_key,
-                            value_source=ScalarValueSource.SOURCE,
-                        )
-                        for index in range(1000)
-                    ),
-                ),
-            ),
-            expected_version=None,
-            actor=resolve_local_actor(context),
-        )
-        self.assertEqual(initial.version, 1)
+        workspace_id, dataset, business_key = mapped_catalog(self)
+        source_identity = dataset.columns[0]
 
         def timed_get(url: str):
             started = perf_counter()
@@ -636,7 +606,10 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         self.assertEqual(stale.json()["expected_working_draft_version"], 2)
 
         memory_info = process.memory_info()
-        peak_memory_bytes = getattr(memory_info, "peak_wset", memory_info.rss)
+        # Portable suites share a process. The fresh-process qualification
+        # measures the kernel high-water mark for this workload on macOS.
+        peak = getattr(memory_info, "peak_wset", None)
+        memory_metric = "process_peak_memory_mib" if peak is not None else "process_final_rss_mib"
         baseline = {
             "catalogue_scalar_fields": 1000,
             "cold_page_ms": round(cold_page_ms, 3),
@@ -650,8 +623,8 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
             ],
             "save_ms": round(save_ms, 3),
             "stale_version_ms": round(stale_ms, 3),
-            "process_peak_memory_mib": round(
-                peak_memory_bytes / (1024 * 1024),
+            memory_metric: round(
+                (peak if peak is not None else memory_info.rss) / (1024 * 1024),
                 3,
             ),
             "workflow_rss_growth_mib": round(
@@ -676,7 +649,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
                 "coalesced_search_burst_each_ms",
                 "save_ms",
                 "stale_version_ms",
-                "process_peak_memory_mib",
+                memory_metric,
                 "workflow_rss_growth_mib",
                 "mapping_render_event_loop_bound",
             },
@@ -687,6 +660,6 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         self.assertLess(save_ms, 5_000)
         self.assertLess(stale_ms, 5_000)
         self.assertLess(
-            baseline["process_peak_memory_mib"],
+            baseline[memory_metric],
             1_024,
         )

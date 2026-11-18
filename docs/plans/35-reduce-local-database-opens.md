@@ -210,7 +210,117 @@ did not show a repeatable overall improvement. Repeat checks for the
 missing-field and linked fixtures took longer in all three pairs. Local
 admission was the largest measured POST phase for valid and missing-field
 checks. Reading and saving supporting values took the most time for the
-linked check. These phases are the next candidates for profiling.
+linked check.
+
+The next measurement isolated the linked check on the same 1,000-row
+fixture. Each of the two physical tables held the same two category names.
+Sharing the frozen source metadata within the lookup reduced source-package
+reads from six to four. Applying row rules before deduplicating the input
+columns reduced the tuples passed to reference preparation from 1,000 to
+four. The check still sent both category names in one Odoo record query.
+
+| Linked check | Before | After |
+| --- | ---: | ---: |
+| SQL statements to collect source keys | 85 | 57 |
+| SQL statements to capture supporting values, including collection | 123 | 95 |
+| SQL statements for the first check POST | 428 | 400 |
+| SQL statements for the repeat check POST | 308 | 280 |
+| Median first check and result GET, ms | 569 | 730 |
+| Median repeat check and result GET, ms | 455 | 697 |
+
+These timings compare three alternating pairs of fresh processes on arm64
+macOS with Python 3.12.14, DuckDB 1.5.5 and the fictional Odoo 20 remote
+reader. The candidate took longer in two of the three pairs on both the
+first and repeat check. This change reduced local SQL and repeated input
+processing. The measured server response times did not show a consistent
+speedup. The repeat POST still opened 20 database connections and ran 15
+schema checks.
+
+#### Time spent saving a linked check
+
+Four new alternating pairs on the same two-table fixture compared the code
+before and after the source-key change (builds `849b02a2` and `3237da45`).
+The median time for the repeat POST and its result GET went from 418 to
+421 ms. The earlier 455 to 697 ms increase did not recur. The linked-value
+phase shortened in all four pairs.
+
+A separate instrumented repeat on build `3237da45` measured 342 ms for
+the POST. Admission took 125 ms, collecting source keys took 64 ms and the
+fictional Odoo callbacks took less than 1 ms. Saving the linked choices
+took 55 ms, followed by 90 ms to validate and save the mapping and respond.
+Each of those last two steps spent about 32 ms opening four databases and
+12 ms on three schema checks. Database timings are included in the phase
+times. The supporting save also had about 8 ms of scope overhead.
+
+Impodo now saves the verified choices and checks the mapping in one local
+operation after Odoo returns. The two saves retain their own transactions
+and freshness checks. Four further alternating pairs compared that change
+(`78768bcf`) directly against `3237da45`. These server timings use fresh
+processes, arm64 macOS, Python 3.12.14, DuckDB 1.5.5 and fictional Odoo 20
+remote responses. Timing runs had the SQL and database probes disabled.
+
+| Linked fixture | Separate local operations | Shared local operation |
+| --- | ---: | ---: |
+| Median first POST and result GET, ms | 503 | 460 |
+| Median repeat POST and result GET, ms | 463 | 373 |
+| Median repeat POST alone, ms | 355 | 275 |
+| Median repeat result GET alone, ms | 108 | 98 |
+| Repeat POST physical opens | 20 | 16 |
+| Repeat POST schema checks | 15 | 12 |
+| Repeat POST SQL statements | 280 | 269 |
+
+Every pair finished sooner on both the first and repeat linked checks.
+Each check issued one Odoo record query. The result GET and reopen each
+used 128 SQL statements, four opens, three schema checks and zero Odoo
+calls in both builds. The simple mapping had no linked choices to save.
+Its repeat POST held at 144 statements, 12 opens and nine schema checks,
+and its repeat timings improved in two of the four pairs.
+
+#### Checking source readiness
+
+The mapping form and its result page both verify that the source is ready.
+The file-source check now reads the source mode and frozen selection identity
+without loading the file list or later-stage results. An Odoo source also
+requires a current schema and matching capture plans. A Recipe workspace
+can supply its frozen selection through its verified Data version.
+
+On the linked fixture, the file-source check fell from 18 SQL statements to
+9. The repeat POST fell from 269 to 260 statements and its result GET from
+128 to 119. The POST still used 16 physical opens and 12 schema checks.
+The result GET used four opens and three schema checks. The workspace overview
+continued to read full navigation in 29 statements.
+
+Six alternating process pairs per fixture compared builds `81f767f9` and
+`b78cc474` on arm64 macOS with the fictional Odoo 20 remote reader. On a
+repeat check, the median source check went from 61.8 to 47.6 ms for linked
+values and from 75.3 to 67.3 ms for the simple mapping. The linked repeat
+POST and result GET together went from 782 to 725 ms, but only two of the
+six pairs finished sooner. The simple mapping's first POST and result GET
+went from 840 to 891 ms. The timings establish no consistent improvement
+for the complete request.
+
+#### Reusing the frozen source package during Check matches
+
+While reading the mapping selection, Impodo verifies the complete frozen
+Data version package, including the datasets selected for a Recipe. A new
+check uses that package again when it reads the current workspace settings
+for Odoo access. The command verifies the package's project and Data version
+before reuse. After Odoo responds, publication reads the current inputs again.
+
+On both file-source fixtures, this removed one package reconstruction and
+eight SQL statements per check. The linked first and repeat POSTs went from
+380 to 372 statements and from 260 to 252. For the simple mapping, they
+went from 255 to 247 and from 135 to 127. Physical opens and schema checks
+held steady. Opening or reopening the result still used 119 statements.
+
+Paired macOS runs compared builds `0a0402b4` and `c193d022` with a
+fictional Odoo 20 remote reader. On the two-table, 1,000-row fixture, the
+median time to prepare Odoo access for a repeat check fell from 8.0 to
+5.3 ms. All four pairs spent less time in that step, while only two finished
+the complete POST and result GET sooner. With 128 source columns and eight
+rows per table, the median repeat access step went from 28.1 to 5.7 ms.
+Both wide-table pairs also finished the complete request sooner. The wide
+fixture had only two pairs.
 
 **Remaining qualification.** Measure from the click until the correct control
 is visible and keyboard-usable on matched macOS and Windows fixtures. Record

@@ -167,6 +167,14 @@ The Project overview then opens the workspace under
 `/workspaces/{workspace_id}`. Recipe publication is optional and does not gate
 the six authoring stages.
 
+For Odoo-to-Odoo transfers, Overview reads one fixed-size progress row in the
+workspace engine. The transaction that saves matching, ordering, review or
+preflight also saves its display facts. Navigation checks the frozen source,
+schema, current destination database declaration and approval expiry at read
+time. Opening an older engine builds this row once from its saved evidence.
+Opening Overview afterward does not decode excluded row numbers. Approval and
+execution commands still verify the authoritative transfer evidence.
+
 ## Invalidation and recovery
 
 The creation request ID resumes the same bounded operation after interruption.

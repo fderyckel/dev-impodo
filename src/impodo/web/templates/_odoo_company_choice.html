@@ -5,7 +5,7 @@
         <p><strong>Current choice:</strong> {{ selected_company.name if selected_company else 'Choose a company before loading' }}.</p>
         {% if company_access %}
           <p><strong>Checking user:</strong> {{ company_access.login }}. <strong>User default:</strong> {{ company_access.default_company_name }}.</p>
-          <form method="post" action="{{ company_action }}">
+          <form method="post" action="{{ company_action }}"{% if workspace_state.source_mode.value == 'FILE' %} data-company-choice-form data-saved-company-id="{{ selected_company.company_id if selected_company else '' }}"{% endif %}>
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="revision" value="{{ workspace_state.revision }}">
             <label for="odoo-operation-company-select">Odoo company</label>
@@ -15,12 +15,16 @@
                   <option value="{{ choice.company_id }}" {% if selected_company and selected_company.company_id == choice.company_id or not selected_company and company_access.choices|length == 1 %}selected{% endif %}>{{ choice.name }}</option>
                 {% endfor %}
               </select>
-            <button class="button action"{% if workspace_state.source_mode.value == 'FILE' %} data-next-step="100"{% endif %} type="submit">{% if workspace_state.source_mode.value == 'FILE' %}Use this company and continue{% else %}Use this company{% endif %}</button>
+            <div class="actions">
+              <button class="button action"{% if workspace_state.source_mode.value == 'FILE' %} data-next-step="100"{% endif %} type="submit">{% if workspace_state.source_mode.value == 'FILE' %}Use this company and continue{% else %}Use this company{% endif %}</button>
+            </div>
           </form>
         {% else %}
           <form method="post" action="{{ company_action }}/choices">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button action" type="submit">Choose Odoo company</button>
+            <div class="actions">
+              <button class="button action"{% if workspace_state.source_mode.value == 'FILE' and not selected_company %} data-next-step="100"{% endif %} type="submit">Choose Odoo company</button>
+            </div>
           </form>
         {% endif %}
         {% if workspace_state.source_mode.value == 'FILE' and selected_company and schema %}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from typing import Protocol
 
 from impodo.application.workspace.execution.navigation import ExecutionNavigationState
@@ -13,11 +14,62 @@ from impodo.application.workspace.execution.service import (
     ExecutionService,
 )
 from impodo.application.workspace.source_readiness import (
+    SourceReadinessFacts,
     SourceStageReadiness,
     assess_source_stage_readiness,
 )
 from impodo.domain.shared.access import Actor
-from impodo.domain.workspace.workbench import WorkspaceState
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    TransferEvidenceChecks,
+    WorkspaceState,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class TransferNavigationProgress:
+    """Display facts for one saved transfer. Reads still check source, destination and expiry."""
+
+    workspace_id: str
+    selection_hash: str
+    schema_hash: str
+    match_present: bool
+    order_present: bool
+    review_present: bool
+    match_ready: bool
+    order_ready: bool
+    review_current: bool
+    review_approved: bool
+    preflight_current: bool
+    preflight_ready: bool
+    expires_at: datetime | None
+
+    @classmethod
+    def from_workspace(cls, workspace: WorkspaceState) -> TransferNavigationProgress:
+        """Use the same chain checks as the full transfer commands at publication."""
+
+        match = workspace.destination_match_plan
+        approval = workspace.transfer_review_approval
+        checks = TransferEvidenceChecks(
+            workspace, match.source_selection_hash if match else "",
+            match.source_schema_hash if match else "",
+            approval.approved_at if approval else datetime.now(UTC),
+        )
+        return cls(
+            workspace_id=workspace.workspace_id,
+            selection_hash=checks.source_selection_hash,
+            schema_hash=checks.source_schema_hash,
+            match_present=match is not None,
+            order_present=workspace.transfer_order_plan is not None,
+            review_present=workspace.transfer_review_package is not None,
+            match_ready=checks.destination_match_ready,
+            order_ready=checks.transfer_order_ready,
+            review_current=checks.transfer_review_current,
+            review_approved=checks.transfer_review_approved,
+            preflight_current=checks.transfer_preflight_current,
+            preflight_ready=checks.transfer_preflight_ready,
+            expires_at=approval.export_approval.expires_at if approval else None,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +104,7 @@ class WorkspaceNavigationFacts:
     workflow_issue_review_count: int = 0
     preflight_status: str = ""
     execution_state: ExecutionNavigationState | None = None
+    transfer_progress: TransferNavigationProgress | None = None
     transfer_execution_run_id: str = ""
     transfer_reconciliation_status: str = ""
     active_preparation_job_id: str = ""
@@ -108,6 +161,12 @@ class WorkspaceNavigationSnapshot:
 
 class WorkspaceNavigationRepository(Protocol):
     """Read compact navigation facts without performing workflow decisions."""
+
+    def get_source_readiness_inputs(
+        self, workspace_id: str,
+    ) -> tuple[SourceMode, SourceReadinessFacts]:
+        """Read the source mode and frozen evidence needed to enter downstream stages."""
+        ...
 
     def get(self, workspace_id: str) -> WorkspaceNavigationFacts:
         """Read facts for ``WorkspaceNavigationQueryService.get``.
@@ -187,11 +246,8 @@ class WorkspaceNavigationQueryService:
     def get_source_readiness(self, workspace_id: str) -> SourceStageReadiness:
         """Read the authoritative source gate under one storage snapshot."""
 
-        snapshot = self.repository.get_snapshot(workspace_id)
-        return assess_source_stage_readiness(
-            snapshot.workspace_state,
-            snapshot.facts,
-        )
+        source_mode, facts = self.repository.get_source_readiness_inputs(workspace_id)
+        return assess_source_stage_readiness(source_mode, facts)
 
     def _with_runtime_facts(
         self,

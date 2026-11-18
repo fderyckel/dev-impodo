@@ -75,3 +75,59 @@ test("selecting among many transitions never executes their operations", () => {
   }));
   assert.equal(choose(items), items[99]);
 });
+
+test("recovery owns the highlight while visible and a modal takes precedence", () => {
+  const elements = ["normal", "check", "dialog"].map((name) => ({
+    name, hidden: false, attributes: new Map([["data-next-step", "100"]]),
+    getClientRects() { return this.hidden ? [] : [{}]; },
+    getAttribute(key) { return this.attributes.get(key) ?? null; },
+    hasAttribute(key) { return this.attributes.has(key); },
+    setAttribute(key, value) { this.attributes.set(key, value); },
+    removeAttribute(key) { this.attributes.delete(key); },
+  }));
+  const [normal, check, dialogAction] = elements;
+  const scope = (action) => ({
+    hidden: true,
+    contains: (element) => element === action,
+    getClientRects() { return this.hidden ? [] : [{}]; },
+  });
+  const recovery = scope(check), dialog = scope(dialogAction);
+  const root = {
+    querySelectorAll: (selector) => ({
+      "dialog[open]": [dialog], "[data-next-scope]": [recovery],
+      ".button[data-next-step]": elements,
+      "[data-next-active]": elements.filter((element) => element.hasAttribute("data-next-active")),
+    })[selector],
+    addEventListener() {}, removeEventListener() {},
+  };
+  const host = { getComputedStyle: () => ({ visibility: "visible" }), addEventListener() {} };
+  vm.runInNewContext(source, {
+    window: host, document: { addEventListener() {} },
+    MutationObserver: class { observe() {} },
+  });
+  dialogAction.hidden = true;
+  check.hidden = true;
+  const binding = host.ImpodoButtonRoles.bind(root);
+  const highlighted = () => elements.filter((element) => element.hasAttribute("data-next-active"));
+  assert.deepEqual(highlighted(), [normal]);
+  recovery.hidden = false;
+  check.hidden = false;
+  binding.update();
+  assert.deepEqual(highlighted(), [check]);
+  check.disabled = true;
+  binding.update();
+  assert.deepEqual(highlighted(), []);
+  check.disabled = false;
+  dialog.hidden = false;
+  dialogAction.hidden = false;
+  binding.update();
+  assert.deepEqual(highlighted(), [dialogAction]);
+  dialog.hidden = true;
+  dialogAction.hidden = true;
+  binding.update();
+  assert.deepEqual(highlighted(), [check]);
+  recovery.hidden = true;
+  check.hidden = true;
+  binding.update();
+  assert.deepEqual(highlighted(), [normal]);
+});

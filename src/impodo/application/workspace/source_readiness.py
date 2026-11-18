@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Protocol
 
-from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
+from impodo.domain.workspace.workbench import SourceMode
 
 
 class SourceStageIssue(StrEnum):
@@ -48,7 +48,7 @@ class SourceStageReadiness:
 
 
 def assess_source_stage_readiness(
-    workspace_state: WorkspaceState,
+    source_mode: SourceMode,
     facts: SourceReadinessFacts,
 ) -> SourceStageReadiness:
     """Assess the current source boundary without trusting a mutable flag.
@@ -59,7 +59,7 @@ def assess_source_stage_readiness(
     stages.
     """
 
-    if workspace_state.source_mode is SourceMode.ODOO:
+    if source_mode is SourceMode.ODOO:
         if not facts.schema_present:
             return SourceStageReadiness(
                 ready=False,
@@ -87,7 +87,7 @@ def assess_source_stage_readiness(
             ready=False,
             issue=(
                 SourceStageIssue.SOURCE_NOT_FROZEN
-                if workspace_state.source_mode is SourceMode.ODOO
+                if source_mode is SourceMode.ODOO
                 else SourceStageIssue.FILE_SOURCE_NOT_FROZEN
             ),
         )

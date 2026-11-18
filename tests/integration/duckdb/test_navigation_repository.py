@@ -2,29 +2,43 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 from contextlib import contextmanager
 from datetime import UTC, datetime
-import json
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 from uuid import uuid4
 
 import duckdb
 
+from impodo.adapters.duckdb.database import DuckDbWorkspaceDatabase
 from impodo.adapters.duckdb.navigation_repository import (
     WorkspaceNavigationRepository,
 )
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.adapters.duckdb.schema.workspace_engine import (
     WorkspaceEngineSchemaMixin,
 )
 from impodo.adapters.duckdb.serialization import _workspace_values
+from impodo.application.workspace.source_readiness import (
+    SourceStageIssue,
+    SourceStageReadiness,
+    assess_source_stage_readiness,
+)
 from impodo.domain.matching_order import (
     MatchingIdentityCheckStatus,
     MatchingIdentityResult,
     MatchingOrderCheck,
 )
-from impodo.domain.workspace.workbench import SourceMode, WorkspaceState
-
+from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.workbench import (
+    SourceMode,
+    WorkspaceState,
+    WorkspaceStateNotFoundError,
+)
+from tests.support.database_probe import count_duckdb_statements
 
 HASH = "sha256:" + "2" * 64
 
@@ -292,6 +306,128 @@ class WorkspaceNavigationRepositoryTests(unittest.TestCase):
 
         self.assertIsNone(facts.execution_state)
         self.assertEqual(facts.preflight_status, "")
+
+
+class SourceReadinessRepositoryTests(unittest.TestCase):
+    def setUp(self):
+        database = DuckDbWorkspaceDatabase(self.enterContext(TemporaryDirectory()))
+        self.workspace_id = str(uuid4())
+        directory = database.workspace_directory(self.workspace_id)
+        directory.mkdir()
+        self.db = self.enterContext(database._connect(directory / "workspace-engine.duckdb"))
+        database._initialize_workspace_database(self.db)
+        state = WorkspaceState(
+            workspace_id=self.workspace_id, name="Contacts", source_system="CSV",
+        )
+        values = _workspace_values(state)
+        parameters = ", ".join("?" for _ in values)
+        self.db.execute(f"INSERT INTO workspace_projection_cache VALUES ({parameters})", values)
+
+        self.projections = Mock()
+        self.projections.get_workspace_source_projection.return_value = None
+        self.destination = Mock()
+        self.repository = WorkspaceNavigationRepository(database, self.projections, self.destination)
+
+    def assert_gate(self, mode, issue=None, missing=()):
+        with count_duckdb_statements() as statements, collect_duckdb_request_timings() as timings:
+            source_mode, facts = self.repository.get_source_readiness_inputs(self.workspace_id)
+        self.assertEqual(source_mode, mode)
+        readiness = assess_source_stage_readiness(source_mode, facts)
+        self.assertEqual(readiness, SourceStageReadiness(issue is None, issue, missing))
+        self.assertEqual((timings.connection_count, timings.schema_check_count), (1, 1))
+        self.destination.assert_not_called()
+        sql = " ".join(" ".join(statement.lower().split()) for statement in statements)
+        self.assertNotRegex(
+            sql,
+            r"\b(?:from|join) (?:source_file|source_configuration|mapping_\w+|"
+            r"normalization_\w+|preflight_\w+|transfer_navigation)\b",
+        )
+        if mode is SourceMode.FILE:
+            self.assertNotRegex(sql, r"\b(?:from|join) odoo_(?:schema_catalog|capture_selection_current|model_catalog)\b")
+        else:
+            full = WorkspaceNavigationRepository._read_facts(self.db, self.workspace_id)
+            self.assertEqual(readiness, assess_source_stage_readiness(mode, full))
+
+    def test_missing_engine_and_missing_singleton_reject_the_source_gate(self):
+        with self.assertRaises(WorkspaceStateNotFoundError):
+            self.repository.get_source_readiness_inputs(str(uuid4()))
+        self.db.execute("DELETE FROM workspace_projection_cache")
+        with self.assertRaises(WorkspaceError):
+            self.repository.get_source_readiness_inputs(self.workspace_id)
+
+    def test_file_gate_uses_local_selection_or_verified_recipe_projection(self):
+        self.assert_gate(SourceMode.FILE, SourceStageIssue.FILE_SOURCE_NOT_FROZEN)
+        projection = self.projections.get_workspace_source_projection
+        projection.assert_called_once_with(self.workspace_id)
+
+        self.db.execute("INSERT INTO source_selection VALUES (1, 'not-json')")
+        self.assert_gate(SourceMode.FILE, SourceStageIssue.FILE_SOURCE_NOT_FROZEN)
+        selected = SimpleNamespace(manifest={"physical_selection_hash": HASH})
+        projection.return_value = SimpleNamespace(datasets=(selected, selected))
+        self.assert_gate(SourceMode.FILE)
+
+        self.db.execute("UPDATE source_selection SET selection_json = ?", [json.dumps({"content_hash": HASH})])
+        projection.reset_mock()
+        self.assert_gate(SourceMode.FILE)
+        projection.assert_not_called()
+
+    def test_recipe_rejects_missing_or_conflicting_source_identities(self):
+        missing = SimpleNamespace(manifest={})
+        selected = SimpleNamespace(manifest={"physical_selection_hash": HASH})
+        other = SimpleNamespace(manifest={"physical_selection_hash": "sha256:" + "3" * 64})
+        for datasets in ((), (missing,), (selected, other)):
+            with self.subTest(datasets=datasets), self.assertRaises(WorkspaceError):
+                self.projections.get_workspace_source_projection.return_value = SimpleNamespace(datasets=datasets)
+                self.repository.get_source_readiness_inputs(self.workspace_id)
+
+    def configure_odoo_source(self):
+        self.db.execute("""
+            UPDATE workspace_projection_cache
+               SET source_mode = 'ODOO', destination_odoo_connection_mode = 'REMOTE',
+                   destination_odoo_base_url = 'https://odoo.example.test',
+                   destination_odoo_database = 'target'
+        """)
+        catalog = {
+            "contract_version": "2",
+            "content_hash": HASH,
+            "models": [{"name": "res.partner"}, {"name": "uom.uom"}],
+        }
+        self.db.execute("INSERT INTO odoo_model_catalog VALUES (1, ?)", [json.dumps(catalog)])
+        return catalog
+
+    def test_odoo_needs_current_schema_even_with_model_discovery(self):
+        valid = self.configure_odoo_source()
+        self.assert_gate(SourceMode.ODOO, SourceStageIssue.SCHEMA_MISSING)
+        for catalog in (
+            "not-json",
+            json.dumps({**valid, "contract_version": 3}),
+            json.dumps({**valid, "models": None}),
+            json.dumps({**valid, "content_hash": "invalid"}),
+        ):
+            with self.subTest(catalog=catalog):
+                self.db.execute("INSERT OR REPLACE INTO odoo_schema_catalog VALUES (1, ?)", [catalog])
+                self.assert_gate(SourceMode.ODOO, SourceStageIssue.SCHEMA_MISSING)
+        pending = {**valid, "pending_refresh": {"fields": []}}
+        self.db.execute("UPDATE odoo_schema_catalog SET catalog_json = ?", [json.dumps(pending)])
+        self.assert_gate(SourceMode.ODOO, SourceStageIssue.SCHEMA_ATTENTION)
+
+    def test_odoo_plans_must_match_selected_models_before_freeze(self):
+        catalog = self.configure_odoo_source()
+        self.db.execute("INSERT INTO odoo_schema_catalog VALUES (1, ?)", [json.dumps(catalog)])
+        selected = ("res.partner", "uom.uom")
+        incomplete = SourceStageIssue.CAPTURE_PLANS_INCOMPLETE
+        self.assert_gate(SourceMode.ODOO, incomplete, selected)
+        self.db.execute("INSERT INTO odoo_capture_selection_current VALUES ('uom.uom', 'a', 1)")
+        self.assert_gate(SourceMode.ODOO, incomplete, ("res.partner",))
+        self.db.execute("""
+            INSERT INTO odoo_capture_selection_current VALUES
+              ('res.partner', 'b', 1), ('old.model', 'c', 1)
+        """)
+        self.assert_gate(SourceMode.ODOO, incomplete)
+        self.db.execute("DELETE FROM odoo_capture_selection_current WHERE model = 'old.model'")
+        self.assert_gate(SourceMode.ODOO, SourceStageIssue.SOURCE_NOT_FROZEN)
+        self.db.execute("INSERT INTO source_selection VALUES (1, ?)", [json.dumps({"content_hash": HASH})])
+        self.assert_gate(SourceMode.ODOO)
 
 
 if __name__ == "__main__":

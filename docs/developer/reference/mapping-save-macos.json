@@ -1,0 +1,977 @@
+{
+  "base_commit": "e160fbbba3d4ef2481a07c10ce3c883d6d0cfb77",
+  "source": "Fixed working-tree copy on 2026-11-18. Application build hashes include uncommitted application files.",
+  "transport": "Independent authenticated ASGI HTTP clients on one event loop. Excludes network and browser paint.",
+  "fixture": "1,000 mapped scalar fields, one fictional source row, two browser editor IDs for the same workspace and actor. The catalogue fixture uses Odoo 19 local metadata. The restart fixture uses Odoo 20 local metadata.",
+  "timing": "Elapsed and start offsets in milliseconds. The first catalogue operation waits inside the gate until all four generations enter the coordinator. Queue time includes admission to the gate and thread pool. Event loop sampled at 10 ms during contention. Peak RSS is the kernel process high-water mark.",
+  "comparison": "Uses the documented Windows fixture size and budgets. No paired Windows timings were collected.",
+  "test_source_sha256": {
+    "tests/support/mapping_catalog.py": "7aa6d1eae0014a170aa9841037f32fa03924df726d7921e5e48d0d2a7b94f837",
+    "tests/integration/web/test_mapping_interrupted_save.py": "898fd4fe0df31bcdb6633cc7c7e5840bb6707cc1b1d1961eddf5ac3a9cb41f9e"
+  },
+  "restart": {
+    "repetitions": 3,
+    "original_process_exit_code": 73,
+    "transport": "Authenticated ASGI HTTP in independently spawned OS processes using the same workspace and browser session.",
+    "outcomes": [
+      {
+        "interruption": "before_reservation",
+        "receipt": "not_found",
+        "draft_version": 1
+      },
+      {
+        "interruption": "after_reservation",
+        "receipt": "pending",
+        "draft_version": 1
+      },
+      {
+        "interruption": "after_commit",
+        "receipt": "committed",
+        "draft_version": 2
+      }
+    ]
+  },
+  "outstanding": [
+    "Keyboard and focus in a native browser",
+    "Same-port launcher restart using loopback sockets",
+    "Normal and exceptional launcher diagnostic records in tests that bind a loopback socket"
+  ],
+  "series": [
+    {
+      "purpose": "First three runs on the fixed build",
+      "runner_sha256": "bb3333aeb6033fe9d9e4f241b7ad9e3337c4a564bc0f95bd51ab8309d2a615e7",
+      "samples": [
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.32,
+              "elapsed_ms": 1685.47,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.054,
+                "navigation_read": 23.853,
+                "navigation_present": 1.159,
+                "template_render": 976.405,
+                "workspace_read": 309.1,
+                "view_build": 89.1,
+                "render": 1004.6,
+                "total": 1402.8,
+                "queue_wait": 3.6,
+                "access_context": 89.097
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 1685.86,
+              "elapsed_ms": 749.8,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 4.217,
+                "navigation_read": 25.233,
+                "navigation_present": 1.373,
+                "template_render": 154.831,
+                "workspace_read": 280.0,
+                "view_build": 117.2,
+                "render": 185.8,
+                "total": 583.0,
+                "queue_wait": 0.3,
+                "access_context": 73.946
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 2435.71,
+              "elapsed_ms": 576.19,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 295.6,
+                "view_build": 197.0,
+                "projection": 492.6,
+                "render": 0.6,
+                "total": 493.2,
+                "queue_wait": 0.2,
+                "access_context": 73.949
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 3011.94,
+              "elapsed_ms": 515.13,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 271.3,
+                "view_build": 171.9,
+                "projection": 443.2,
+                "render": 0.5,
+                "total": 443.7,
+                "queue_wait": 0.1,
+                "access_context": 64.956
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 3584.95,
+              "elapsed_ms": 4.65,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 3527.26,
+              "elapsed_ms": 558.05,
+              "status": 204,
+              "server_ms": {
+                "access_context": 55.145
+              }
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 3585.27,
+              "elapsed_ms": 512.8,
+              "status": 204,
+              "server_ms": {
+                "access_context": 60.412
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 3586.06,
+              "elapsed_ms": 1124.53,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 350.9,
+                "view_build": 156.9,
+                "projection": 507.8,
+                "render": 37.2,
+                "total": 545.0,
+                "queue_wait": 435.8,
+                "access_context": 61.0
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 3585.77,
+              "elapsed_ms": 1758.99,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 246.6,
+                "view_build": 415.1,
+                "projection": 661.7,
+                "render": 1.1,
+                "total": 662.8,
+                "queue_wait": 1030.8,
+                "access_context": 61.359
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 3584.2,
+              "elapsed_ms": 1779.1,
+              "status": 200,
+              "server_ms": {
+                "access_context": 66.929
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 5363.68,
+              "elapsed_ms": 714.09,
+              "status": 409,
+              "server_ms": {
+                "access_context": 52.208
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 64.95,
+          "event_loop_sample_count": 102,
+          "peak_rss_bytes": 312737792,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        },
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.24,
+              "elapsed_ms": 772.29,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 2.397,
+                "navigation_read": 17.55,
+                "navigation_present": 0.957,
+                "template_render": 398.415,
+                "workspace_read": 151.9,
+                "view_build": 61.9,
+                "render": 419.4,
+                "total": 633.2,
+                "queue_wait": 0.3,
+                "access_context": 46.461
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 772.58,
+              "elapsed_ms": 427.97,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 2.109,
+                "navigation_read": 15.944,
+                "navigation_present": 0.948,
+                "template_render": 92.915,
+                "workspace_read": 151.6,
+                "view_build": 63.4,
+                "render": 112.0,
+                "total": 327.0,
+                "queue_wait": 0.1,
+                "access_context": 45.011
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 1200.58,
+              "elapsed_ms": 416.07,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 213.1,
+                "view_build": 144.7,
+                "projection": 357.8,
+                "render": 0.5,
+                "total": 358.3,
+                "queue_wait": 0.1,
+                "access_context": 51.173
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 1616.68,
+              "elapsed_ms": 355.57,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 162.5,
+                "view_build": 138.7,
+                "projection": 301.2,
+                "render": 0.5,
+                "total": 301.7,
+                "queue_wait": 0.1,
+                "access_context": 48.075
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 2021.43,
+              "elapsed_ms": 4.06,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 1972.4,
+              "elapsed_ms": 520.43,
+              "status": 204,
+              "server_ms": {
+                "access_context": 47.189
+              }
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 2021.71,
+              "elapsed_ms": 471.28,
+              "status": 204,
+              "server_ms": {
+                "access_context": 57.552
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 2022.47,
+              "elapsed_ms": 1070.03,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 338.4,
+                "view_build": 258.3,
+                "projection": 596.7,
+                "render": 23.4,
+                "total": 620.1,
+                "queue_wait": 387.6,
+                "access_context": 58.08
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 2022.18,
+              "elapsed_ms": 1604.08,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 149.7,
+                "view_build": 382.5,
+                "projection": 532.2,
+                "render": 0.5,
+                "total": 532.8,
+                "queue_wait": 1009.9,
+                "access_context": 58.225
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 2020.92,
+              "elapsed_ms": 1620.44,
+              "status": 200,
+              "server_ms": {
+                "access_context": 62.799
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 3641.71,
+              "elapsed_ms": 685.67,
+              "status": 409,
+              "server_ms": {
+                "access_context": 51.057
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 48.8,
+          "event_loop_sample_count": 97,
+          "peak_rss_bytes": 294486016,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        },
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.24,
+              "elapsed_ms": 1012.5,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 2.918,
+                "navigation_read": 21.128,
+                "navigation_present": 1.219,
+                "template_render": 497.735,
+                "workspace_read": 237.0,
+                "view_build": 80.9,
+                "render": 523.1,
+                "total": 841.0,
+                "queue_wait": 0.3,
+                "access_context": 53.297
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 1012.79,
+              "elapsed_ms": 541.38,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.856,
+                "navigation_read": 22.797,
+                "navigation_present": 1.239,
+                "template_render": 121.259,
+                "workspace_read": 194.6,
+                "view_build": 80.8,
+                "render": 149.3,
+                "total": 424.7,
+                "queue_wait": 0.1,
+                "access_context": 52.922
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 1554.22,
+              "elapsed_ms": 460.38,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 225.7,
+                "view_build": 165.2,
+                "projection": 390.8,
+                "render": 0.6,
+                "total": 391.4,
+                "queue_wait": 0.1,
+                "access_context": 61.146
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 2014.64,
+              "elapsed_ms": 425.36,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 192.8,
+                "view_build": 167.4,
+                "projection": 360.1,
+                "render": 0.5,
+                "total": 360.7,
+                "queue_wait": 0.2,
+                "access_context": 57.098
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 2506.47,
+              "elapsed_ms": 4.51,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 2506.77,
+              "elapsed_ms": 72.65,
+              "status": 204,
+              "server_ms": {
+                "access_context": 67.866
+              }
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 2440.25,
+              "elapsed_ms": 583.2,
+              "status": 204,
+              "server_ms": {
+                "access_context": 63.792
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 2507.57,
+              "elapsed_ms": 1131.17,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 356.1,
+                "view_build": 152.8,
+                "projection": 508.9,
+                "render": 43.8,
+                "total": 552.7,
+                "queue_wait": 444.7,
+                "access_context": 68.958
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 2507.25,
+              "elapsed_ms": 1826.04,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 341.4,
+                "view_build": 392.5,
+                "projection": 733.9,
+                "render": 0.6,
+                "total": 734.6,
+                "queue_wait": 1020.3,
+                "access_context": 67.679
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 2505.9,
+              "elapsed_ms": 1844.21,
+              "status": 200,
+              "server_ms": {
+                "access_context": 74.867
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 4350.48,
+              "elapsed_ms": 946.18,
+              "status": 409,
+              "server_ms": {
+                "access_context": 55.1
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 69.29,
+          "event_loop_sample_count": 112,
+          "peak_rss_bytes": 300449792,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        }
+      ]
+    },
+    {
+      "purpose": "Three fresh repeats after adding the one-second health assertion",
+      "runner_sha256": "5364f0ae341997bc7383f801c204f864871d803c8ae6c99f7c57994267fce924",
+      "samples": [
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.33,
+              "elapsed_ms": 1278.41,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 4.107,
+                "navigation_read": 22.488,
+                "navigation_present": 1.383,
+                "template_render": 776.136,
+                "workspace_read": 200.2,
+                "view_build": 85.4,
+                "render": 804.2,
+                "total": 1089.9,
+                "queue_wait": 0.5,
+                "access_context": 63.723
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 1278.84,
+              "elapsed_ms": 609.41,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.801,
+                "navigation_read": 23.8,
+                "navigation_present": 1.448,
+                "template_render": 125.844,
+                "workspace_read": 219.4,
+                "view_build": 87.2,
+                "render": 155.0,
+                "total": 461.6,
+                "queue_wait": 0.1,
+                "access_context": 71.58
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 1888.3,
+              "elapsed_ms": 518.62,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 266.1,
+                "view_build": 181.5,
+                "projection": 447.6,
+                "render": 0.6,
+                "total": 448.2,
+                "queue_wait": 0.2,
+                "access_context": 62.494
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 2406.96,
+              "elapsed_ms": 464.78,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 209.8,
+                "view_build": 184.7,
+                "projection": 394.6,
+                "render": 0.6,
+                "total": 395.2,
+                "queue_wait": 0.2,
+                "access_context": 61.994
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 2937.17,
+              "elapsed_ms": 5.46,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 2937.57,
+              "elapsed_ms": 74.26,
+              "status": 204,
+              "server_ms": {
+                "access_context": 70.255
+              }
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 2871.93,
+              "elapsed_ms": 605.07,
+              "status": 204,
+              "server_ms": {
+                "access_context": 62.442
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 2938.78,
+              "elapsed_ms": 1274.75,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 394.8,
+                "view_build": 220.8,
+                "projection": 615.5,
+                "render": 28.3,
+                "total": 643.8,
+                "queue_wait": 466.8,
+                "access_context": 68.382
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 2938.14,
+              "elapsed_ms": 1944.13,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 289.8,
+                "view_build": 425.0,
+                "projection": 714.8,
+                "render": 1.7,
+                "total": 716.6,
+                "queue_wait": 1154.0,
+                "access_context": 69.387
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 2936.39,
+              "elapsed_ms": 1967.76,
+              "status": 200,
+              "server_ms": {
+                "access_context": 75.132
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 4904.55,
+              "elapsed_ms": 813.06,
+              "status": 409,
+              "server_ms": {
+                "access_context": 63.745
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 65.47,
+          "event_loop_sample_count": 103,
+          "peak_rss_bytes": 305364992,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        },
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.45,
+              "elapsed_ms": 1656.62,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 5.172,
+                "navigation_read": 33.011,
+                "navigation_present": 2.104,
+                "template_render": 825.667,
+                "workspace_read": 347.7,
+                "view_build": 117.5,
+                "render": 866.1,
+                "total": 1331.4,
+                "queue_wait": 1.4,
+                "access_context": 96.451
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 1657.14,
+              "elapsed_ms": 759.29,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.786,
+                "navigation_read": 26.317,
+                "navigation_present": 1.508,
+                "template_render": 170.887,
+                "workspace_read": 271.3,
+                "view_build": 108.5,
+                "render": 202.6,
+                "total": 582.5,
+                "queue_wait": 0.3,
+                "access_context": 81.385
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 2416.49,
+              "elapsed_ms": 602.84,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 317.2,
+                "view_build": 189.0,
+                "projection": 506.1,
+                "render": 0.5,
+                "total": 506.7,
+                "queue_wait": 0.7,
+                "access_context": 85.315
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 3019.37,
+              "elapsed_ms": 491.78,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 219.4,
+                "view_build": 196.4,
+                "projection": 415.8,
+                "render": 0.7,
+                "total": 416.5,
+                "queue_wait": 0.2,
+                "access_context": 66.926
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 3579.36,
+              "elapsed_ms": 5.22,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 3511.42,
+              "elapsed_ms": 612.43,
+              "status": 204,
+              "server_ms": {
+                "access_context": 65.369
+              }
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 3579.88,
+              "elapsed_ms": 544.08,
+              "status": 204,
+              "server_ms": {
+                "access_context": 69.329
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 3580.81,
+              "elapsed_ms": 1100.82,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 403.0,
+                "view_build": 153.0,
+                "projection": 556.0,
+                "render": 0.8,
+                "total": 556.8,
+                "queue_wait": 471.5,
+                "access_context": 68.969
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 3580.46,
+              "elapsed_ms": 2087.69,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 481.4,
+                "view_build": 502.1,
+                "projection": 983.5,
+                "render": 1.8,
+                "total": 985.3,
+                "queue_wait": 1028.4,
+                "access_context": 70.393
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 3578.67,
+              "elapsed_ms": 2118.63,
+              "status": 200,
+              "server_ms": {
+                "access_context": 75.393
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 5697.71,
+              "elapsed_ms": 884.46,
+              "status": 409,
+              "server_ms": {
+                "access_context": 72.387
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 80.16,
+          "event_loop_sample_count": 112,
+          "peak_rss_bytes": 293666816,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        },
+        {
+          "requests": [
+            {
+              "request": "cold_page",
+              "start_ms": 0.29,
+              "elapsed_ms": 1013.91,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.174,
+                "navigation_read": 22.349,
+                "navigation_present": 1.179,
+                "template_render": 532.539,
+                "workspace_read": 191.2,
+                "view_build": 77.1,
+                "render": 559.4,
+                "total": 827.7,
+                "queue_wait": 0.4,
+                "access_context": 60.457
+              }
+            },
+            {
+              "request": "warm_page",
+              "start_ms": 1014.25,
+              "elapsed_ms": 589.13,
+              "status": 200,
+              "server_ms": {
+                "owner_read": 3.343,
+                "navigation_read": 21.069,
+                "navigation_present": 1.089,
+                "template_render": 140.173,
+                "workspace_read": 205.2,
+                "view_build": 78.6,
+                "render": 165.8,
+                "total": 449.5,
+                "queue_wait": 0.2,
+                "access_context": 66.5
+              }
+            },
+            {
+              "request": "cold_search",
+              "start_ms": 1603.45,
+              "elapsed_ms": 531.51,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 271.9,
+                "view_build": 182.3,
+                "projection": 454.2,
+                "render": 0.6,
+                "total": 454.8,
+                "queue_wait": 0.2,
+                "access_context": 67.407
+              }
+            },
+            {
+              "request": "warm_search",
+              "start_ms": 2135.0,
+              "elapsed_ms": 433.08,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 194.4,
+                "view_build": 167.3,
+                "projection": 361.8,
+                "render": 0.5,
+                "total": 362.4,
+                "queue_wait": 0.2,
+                "access_context": 63.347
+              }
+            },
+            {
+              "request": "health",
+              "start_ms": 2627.89,
+              "elapsed_ms": 5.44,
+              "status": 200,
+              "server_ms": {}
+            },
+            {
+              "request": "editor_1_generation_2",
+              "start_ms": 2628.22,
+              "elapsed_ms": 69.28,
+              "status": 204,
+              "server_ms": {
+                "access_context": 64.546
+              }
+            },
+            {
+              "request": "editor_1_generation_1",
+              "start_ms": 2568.26,
+              "elapsed_ms": 573.69,
+              "status": 204,
+              "server_ms": {
+                "access_context": 57.4
+              }
+            },
+            {
+              "request": "editor_2_generation_1",
+              "start_ms": 2629.13,
+              "elapsed_ms": 1039.56,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 384.2,
+                "view_build": 140.3,
+                "projection": 524.5,
+                "render": 0.9,
+                "total": 525.5,
+                "queue_wait": 444.6,
+                "access_context": 64.993
+              }
+            },
+            {
+              "request": "editor_1_generation_3",
+              "start_ms": 2628.77,
+              "elapsed_ms": 1857.82,
+              "status": 200,
+              "server_ms": {
+                "workspace_read": 381.6,
+                "view_build": 408.5,
+                "projection": 790.1,
+                "render": 26.1,
+                "total": 816.2,
+                "queue_wait": 973.1,
+                "access_context": 63.375
+              }
+            },
+            {
+              "request": "save",
+              "start_ms": 2627.3,
+              "elapsed_ms": 1884.02,
+              "status": 200,
+              "server_ms": {
+                "access_context": 70.763
+              }
+            },
+            {
+              "request": "stale_save",
+              "start_ms": 4511.69,
+              "elapsed_ms": 772.43,
+              "status": 409,
+              "server_ms": {
+                "access_context": 63.621
+              }
+            }
+          ],
+          "max_simultaneous_projections": 1,
+          "event_loop_max_delay_ms": 71.17,
+          "event_loop_sample_count": 104,
+          "peak_rss_bytes": 310099968,
+          "build": "sha256:2677572c38f1dee66d81a46d8b561161fb2ccad39bd991ef5d963feb85af920a",
+          "platform": "macOS-27.2.1-arm64-arm-64bit",
+          "architecture": "arm64",
+          "python": "3.12.14",
+          "duckdb": "1.5.5",
+          "mapped_fields": 1000,
+          "editors": 2
+        }
+      ]
+    }
+  ]
+}

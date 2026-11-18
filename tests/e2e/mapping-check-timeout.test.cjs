@@ -9,17 +9,22 @@ const vm = require("node:vm");
 const mapping = "/workspaces/one/mapping";
 const decision = mapping + "?step=confirm#confirm-matches";
 
-function openEditor(delayAt) {
+function openEditor(delayAt, { missing = false, manual = false } = {}) {
+  const sent = [];
+  const retry = { hidden: true, addEventListener(name, handler) { this[name] = handler; } };
   const listeners = new Map();
   const documentEvents = new Map();
   const requests = [];
   const navigations = [];
   const status = { dataset: {}, classList: { add() {}, remove() {} } };
   const form = {
-    dataset: { mutationReceiptUrl: mapping + "/mutation-receipts/" },
+    dataset: { mutationReceiptUrl: mapping + "/mutation-receipts/", mutationReceiptWaitMs: manual ? "0" : "180000" },
     addEventListener(name, handler) { listeners.set(name, handler); },
     querySelectorAll() { return []; },
-    querySelector(selector) { return selector === "[data-mapping-save-status]" ? status : null; },
+    querySelector(selector) {
+      if (selector === "[data-retry-missing-save]") return retry;
+      return selector === "[data-mapping-save-status]" ? status : null;
+    },
     getAttribute() { return mapping + "/save"; },
     setAttribute() {},
     removeAttribute() {},
@@ -48,17 +53,22 @@ function openEditor(delayAt) {
   const fetch = async (url, options) => {
     requests.push([options.method, url]);
     if (options.method === "POST") {
+      sent.push(options.body);
+      if (sent.length === 2) return { ok: true, text: async () => JSON.stringify({ status: "committed", redirect_url: decision }) };
       const submitted = Object.fromEntries(JSON.parse(options.body).entries);
       assert.equal(submitted.action, "draft");
       assert.equal(submitted.field, "Submitted");
       assert.equal(submitted.operation_id, "original-operation");
+      if (delayAt === "gateway") {
+        return { ok: false, status: 503, text: async () => JSON.stringify({ detail: "Unavailable" }) };
+      }
       const waitForAbort = () => new Promise((resolve, reject) => {
         options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
       });
       if (delayAt === "headers") return waitForAbort();
       return { ok: true, text() { bodyStarted = true; return waitForAbort(); } };
     }
-    const status = requests.length === 2 ? "pending" : "committed";
+    const status = requests.length === 2 ? (missing ? "not_found" : "pending") : "committed";
     return { ok: true, text: async () => JSON.stringify({
       status, operation_id: "original-operation", redirect_url: decision,
     }) };
@@ -72,7 +82,7 @@ function openEditor(delayAt) {
     vm.runInContext(readFileSync(path, "utf8"), sandbox, { filename: name + ".js" });
   }
   return {
-    requests, navigations, field, status, editor: window.impodoMappingEditor,
+    requests, navigations, sent, retry, field, status, editor: window.impodoMappingEditor,
     bodyStarted: () => bodyStarted,
     submit: () => listeners.get("submit")({ preventDefault() {}, submitter: { value: "draft" } }),
     disconnect: () => documentEvents.get("impodo:server-disconnected")(),
@@ -119,3 +129,50 @@ for (const delayAt of ["headers", "body"]) {
     }
   });
 }
+
+test("a missing first receipt can commit during read-back without a second POST", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const page = openEditor("headers", { missing: true });
+  const saving = page.submit();
+  await settle();
+  t.mock.timers.tick(15000);
+  await settle();
+  assert.match(page.status.textContent, /Waiting for Impodo to record/);
+  t.mock.timers.tick(1500);
+  await saving;
+  assert.deepEqual(page.requests.map(([method]) => method), ["POST", "GET", "GET"]);
+  assert.deepEqual(page.navigations, [decision]);
+});
+
+test("an explicit retry after a missing receipt uses the original form and ID", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const page = openEditor("headers", { missing: true, manual: true });
+  const saving = page.submit();
+  await settle();
+  t.mock.timers.tick(15000);
+  await saving;
+  assert.equal(page.retry.hidden, false);
+  assert.equal(page.editor.getState().busy, true);
+  page.edit("Newer unsaved value");
+  await page.submit();
+  assert.equal(page.sent.length, 1);
+  await page.retry.click();
+  assert.equal(page.sent.length, 2);
+  assert.equal(page.sent[0], page.sent[1]);
+  assert.equal(page.editor.getState().dirty, true);
+  assert.equal(page.editor.getState().busy, false);
+  assert.deepEqual(page.navigations, []);
+});
+
+test("a server error without a receipt checks the original operation before offering recovery", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  const page = openEditor("gateway");
+  const saving = page.submit();
+  await settle();
+  assert.deepEqual(page.requests.map(([method]) => method), ["POST", "GET"]);
+  assert.equal(page.retry.hidden, true);
+  t.mock.timers.tick(1500);
+  await saving;
+  assert.deepEqual(page.navigations, [decision]);
+  assert.equal(page.sent.length, 1);
+});

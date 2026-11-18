@@ -10,6 +10,7 @@ from fastapi.responses import RedirectResponse
 from starlette.concurrency import run_in_threadpool
 
 from impodo.adapters.odoo.local_stack import LocalStackProfile
+from impodo.application.data_version.source_packages import DataVersionSourcePackage
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
 from impodo.domain.serialization import content_hash
@@ -117,6 +118,7 @@ def prepare_matching_access(
     *,
     actor: Actor,
     schema: OdooSchemaCatalog | None = None,
+    verified_package: DataVersionSourcePackage | None = None,
     expected_revision: int | None = None,
     force: bool = False,
 ) -> PreparedMatchingAccess:
@@ -126,7 +128,11 @@ def prepare_matching_access(
         Capability.MAPPING_EDIT,
         workspace_id=workspace_id,
     )
-    state = context.queries.get(workspace_id)
+    state = (
+        context.queries.get_with_verified_source(workspace_id, verified_package)
+        if verified_package is not None
+        else context.queries.get(workspace_id)
+    )
     catalog = (
         schema
         if schema is not None

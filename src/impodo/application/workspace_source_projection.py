@@ -68,6 +68,14 @@ class WorkspaceMappingSourceProjection:
     ) -> SourceSelection | None:
         """Return only the immutable datasets selected for this workspace."""
 
+        result = self.get_mapping_source_selection_with_package(workspace_id)
+        return result[0] if result is not None else None
+
+    def get_mapping_source_selection_with_package(
+        self, workspace_id: str,
+    ) -> tuple[SourceSelection, DataVersionSourcePackage] | None:
+        """Return the logical mapping selection and its complete, verified frozen package."""
+
         context = self.repository.get_workspace_source_projection_with_package(
             workspace_id
         )
@@ -88,10 +96,10 @@ class WorkspaceMappingSourceProjection:
             )
         )
         if self.preparation is None:
-            return selection
+            return selection, package
         plan = self.preparation.get_derived_entity_plan(workspace_id)
         if plan is None:
-            return selection
+            return selection, package
         catalogs = tuple(
             SourceFileCatalog.from_json(
                 json.dumps(
@@ -103,11 +111,7 @@ class WorkspaceMappingSourceProjection:
             )
             for item in package.catalogs
         )
-        return mapping_source_selection(
-            selection,
-            plan,
-            catalogs,
-        )
+        return mapping_source_selection(selection, plan, catalogs), package
 
     def get_source_selection(
         self,

@@ -26,7 +26,8 @@
       queued = false;
       if (stopped) return;
       const dialogs = Array.from(root.querySelectorAll("dialog[open]")).filter(visible);
-      const scope = dialogs.at(-1) || null;
+      const recovery = Array.from(root.querySelectorAll("[data-next-scope]")).filter(visible);
+      const scope = dialogs.at(-1) || recovery.at(-1) || null;
       const candidates = Array.from(root.querySelectorAll(".button[data-next-step]"));
       const selected = selectNext(candidates, { scope });
       for (const previous of root.querySelectorAll("[data-next-active]")) {
@@ -55,7 +56,7 @@
     const observer = new MutationObserver(schedule);
     observer.observe(root, {
       subtree: true, childList: true, attributes: true,
-      attributeFilter: ["hidden", "open", "disabled", "aria-disabled", "class", "style", "data-next-step", "data-next-dirty"],
+      attributeFilter: ["hidden", "open", "disabled", "aria-disabled", "class", "style", "data-next-step", "data-next-dirty", "data-next-scope"],
     });
     for (const event of ["toggle", "click"]) root.addEventListener(event, schedule, true);
     for (const event of ["input", "change"]) root.addEventListener(event, editing, true);

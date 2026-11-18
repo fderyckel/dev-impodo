@@ -9,10 +9,14 @@ current, so a changed upstream choice immediately locks stale later work.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 
 from impodo.application.preflight_jobs import PreflightJob
 from impodo.application.workspace.execution.job_models import LoadJob
-from impodo.application.workspace.navigation import WorkspaceNavigationFacts
+from impodo.application.workspace.navigation import (
+    TransferNavigationProgress,
+    WorkspaceNavigationFacts,
+)
 from impodo.application.workspace.odoo_capture_jobs import (
     OdooCaptureJob,
     OdooCaptureJobStatus,
@@ -434,7 +438,7 @@ def _build_authoring_workspace_navigation(
             set(facts.capture_models) == set(facts.schema_models)
         )
         source_readiness = assess_source_stage_readiness(
-            current_workspace_state,
+            current_workspace_state.source_mode,
             facts,
         )
         frozen_source_hash = (
@@ -442,54 +446,19 @@ def _build_authoring_workspace_navigation(
         )
         workspace_id = current_workspace_state.workspace_id
         select_complete = capture_plans_complete and not schema_attention
-        destination_match_ready = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.destination_match_ready(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
+        progress = facts.transfer_progress or TransferNavigationProgress.from_workspace(current_workspace_state)
+        current = bool(
+            frozen_source_hash and schema_present and current_workspace_state.destination_verified
+            and progress.workspace_id == workspace_id and progress.selection_hash == frozen_source_hash
+            and progress.schema_hash == facts.schema_content_hash
         )
-        transfer_order_ready = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.transfer_order_ready(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
-        )
-        transfer_review_current = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.transfer_review_current(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
-        )
-        transfer_review_approved = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.transfer_review_approved(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
-        )
-        transfer_preflight_current = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.transfer_preflight_current(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
-        )
-        transfer_preflight_ready = bool(
-            frozen_source_hash
-            and schema_present
-            and current_workspace_state.transfer_preflight_ready(
-                source_selection_hash=frozen_source_hash,
-                source_schema_hash=facts.schema_content_hash,
-            )
-        )
+        destination_match_ready = current and progress.match_ready
+        transfer_order_ready = current and progress.order_ready
+        transfer_review_current = current and progress.review_current
+        approval_current = current and (progress.expires_at is None or datetime.now(UTC) < progress.expires_at)
+        transfer_review_approved = approval_current and progress.review_approved
+        transfer_preflight_current = approval_current and progress.preflight_current
+        transfer_preflight_ready = approval_current and progress.preflight_ready
         transfer_run_id = facts.transfer_execution_run_id
         transfer_reconciliation_status = facts.transfer_reconciliation_status
         transfer_verified = bool(
@@ -631,7 +600,7 @@ def _build_authoring_workspace_navigation(
                     if destination_match_ready
                     else (
                         "attention"
-                        if current_workspace_state.destination_match_plan is not None
+                        if progress.match_present
                         and current_workspace_state.destination_verified
                         else ("current" if frozen_source_hash else "locked")
                     )
@@ -641,7 +610,7 @@ def _build_authoring_workspace_navigation(
                     if destination_match_ready
                     else (
                         "Review matching"
-                        if current_workspace_state.destination_match_plan is not None
+                        if progress.match_present
                         and current_workspace_state.destination_verified
                         else (
                             "Match destination data"
@@ -674,8 +643,7 @@ def _build_authoring_workspace_navigation(
                                 "/destination-matching",
                                 complete=destination_match_ready,
                                 attention=(
-                                    current_workspace_state.destination_match_plan
-                                    is not None
+                                    progress.match_present
                                     and not destination_match_ready
                                 ),
                             ),
@@ -704,11 +672,11 @@ def _build_authoring_workspace_navigation(
                     else (
                         "attention"
                         if (
-                            current_workspace_state.transfer_order_plan is not None
+                            progress.order_present
                             and not transfer_order_ready
                         )
                         or (
-                            current_workspace_state.transfer_review_package is not None
+                            progress.review_present
                             and not transfer_review_approved
                         )
                         else ("current" if destination_match_ready else "locked")
@@ -722,13 +690,11 @@ def _build_authoring_workspace_navigation(
                         if transfer_review_current
                         else (
                             "Rebuild review"
-                            if current_workspace_state.transfer_review_package
-                            is not None
+                            if progress.review_present
                             and transfer_order_ready
                             else (
                                 "Review transfer order"
-                                if current_workspace_state.transfer_order_plan
-                                is not None
+                                if progress.order_present
                                 and not transfer_order_ready
                                 else (
                                     "Choose transfer policies"
@@ -752,7 +718,7 @@ def _build_authoring_workspace_navigation(
                             "/transfer-order",
                             complete=transfer_order_ready,
                             attention=(
-                                current_workspace_state.transfer_order_plan is not None
+                                progress.order_present
                                 and not transfer_order_ready
                             ),
                         ),
@@ -766,8 +732,7 @@ def _build_authoring_workspace_navigation(
                                 "/transfer-review?step=contents",
                                 complete=transfer_review_current,
                                 attention=(
-                                    current_workspace_state.transfer_review_package
-                                    is not None
+                                    progress.review_present
                                     and not transfer_review_current
                                 ),
                             ),

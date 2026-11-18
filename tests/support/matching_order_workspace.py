@@ -14,31 +14,21 @@ from impodo.domain.odoo.contracts import RecordSnapshot
 from impodo.domain.schema.governance import BusinessKeyDefinition, BusinessKeyStatus
 from impodo.domain.shared.models import OdooReadIdentity
 from impodo.domain.workspace.contracts import SchemaField, SchemaModel
-from impodo.domain.workspace.derived_entities import derived_dataset_links
-from impodo.web.composition.page_reads import run_local_operation_sync
 from tests.support.recipe_lifecycle import metadata_for_schema
 
 
-def ordering_workspace(
-    fixture,
-    *,
-    shape="related",
-    rows=6,
-    categories=3,
-    major=20,
-    mode="REMOTE",
-    partial=False,
-):
-    """Freeze CSVs, save a draft, and expose the reader's actual request plans."""
-    items = "Reference,Category\n" + "".join(
-        f"P{i:06},Group{i % categories:05}\n" for i in range(rows)
+def ordering_workspace(fixture, *, major=20, mode="REMOTE"):
+    """Save a product-to-category match and a parts link that remains unchecked."""
+    wid = fixture.freeze_files(
+        {
+            "products": (
+                b"Reference,Category\n"
+                b"P000000,Group00000\nP000001,Group00001\nP000002,Group00002\n"
+                b"P000003,Group00000\nP000004,Group00001\nP000005,Group00002\n"
+            ),
+            "categories": b"Name,Number\nGroup00000,0\nGroup00001,1\nGroup00002,2\n",
+        }
     )
-    files = {"products": items.encode()}
-    if shape == "related":
-        files["categories"] = (
-            "Name,Number\n" + "".join(f"Group{i:05},{i}\n" for i in range(categories))
-        ).encode()
-    wid = fixture.freeze_files(files)
     ctx = fixture.context
     catalog = fixture.schema(
         wid,
@@ -83,33 +73,24 @@ def ordering_workspace(
             for model, field in (("x.item", "ref"), ("x.group", "name"))
         ),
     )
-    physical = ctx.queries.get_source_selection(wid)
-    product = next(ds for ds in physical.datasets if ds.name == "products")
+    selection = ctx.queries.get_source_selection(wid)
+    datasets = {dataset.name: dataset for dataset in selection.datasets}
+    product = datasets["products"]
+    group = datasets["categories"]
     ref, category = (col.stable_key for col in product.columns)
-    mappings = []
-    links = []
-    if shape != "direct":
-        if shape == "derived":
-            plan, _ = run_local_operation_sync(
-                ctx.derived_entities.save_rule,
-                wid,
-                output_dataset_name="categories",
-                source_dataset_id=product.dataset_id,
-                source_column_key=category,
-                target_model="x.group",
-                target_name_field="name",
-                external_id_namespace="groups",
-                parent_separator=None,
-                blank_policy="block",
-                expected_parent_version=None,
-                actor=fixture.actor,
-            )
-            (link,) = derived_dataset_links(plan)
-            group_id, name = link.derived_dataset_id, link.name_column_key
-        else:
-            group = next(ds for ds in physical.datasets if ds.name == "categories")
-            group_id, name = group.dataset_id, group.columns[0].stable_key
-        links.append(
+    name = group.columns[0].stable_key
+    group_mapping = DatasetMapping(
+        group.dataset_id,
+        "x.group",
+        source_identity_column_keys=(name,),
+        target_identity=(IdentityComponentMapping((name,), ("name",)),),
+    )
+    product_mapping = DatasetMapping(
+        product.dataset_id,
+        "x.item",
+        source_identity_column_keys=(ref,),
+        target_identity=(IdentityComponentMapping((ref,), ("ref",)),),
+        relationships=(
             RelationshipMapping(
                 "category_id",
                 "many2one",
@@ -117,21 +98,10 @@ def ordering_workspace(
                 resolver=RelationshipResolver(
                     origin=ResolverOrigin.TARGET_THEN_DATASET,
                     model="x.group",
-                    dataset_id=group_id,
+                    dataset_id=group.dataset_id,
                     key_mappings=(ReferenceKeyMapping(category, "name"),),
                 ),
-            )
-        )
-        mappings.append(
-            DatasetMapping(
-                group_id,
-                "x.group",
-                source_identity_column_keys=(name,),
-                target_identity=(IdentityComponentMapping((name,), ("name",)),),
-            )
-        )
-    if partial:
-        links.append(
+            ),
             RelationshipMapping(
                 "parts",
                 "one2many",
@@ -140,19 +110,14 @@ def ordering_workspace(
                     origin=ResolverOrigin.DATASET,
                     dataset_id=product.dataset_id,
                 ),
-            )
-        )
-    mappings.append(
-        DatasetMapping(
-            product.dataset_id,
-            "x.item",
-            source_identity_column_keys=(ref,),
-            target_identity=(IdentityComponentMapping((ref,), ("ref",)),),
-            relationships=tuple(links),
-        )
+            ),
+        ),
     )
     ctx.mapping_workspace.save_working_draft(
-        wid, datasets=tuple(mappings), expected_version=None, actor=fixture.actor
+        wid,
+        datasets=(group_mapping, product_mapping),
+        expected_version=None,
+        actor=fixture.actor,
     )
     requests = []
 

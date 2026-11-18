@@ -423,9 +423,10 @@ class JoinedMappingValueTests(unittest.TestCase):
         self.assertEqual(timings.connection_count, 1)
 
     def test_joined_choices_work_when_an_input_is_also_mapped_directly(self):
+        primary = self.physical.datasets[0]
         self.plan = replace(self.plan, dataset_uses=tuple(
             replace(item, use=SourceDatasetUse.MAP_AND_PREPARE)
-            if item.dataset_id == self.physical.datasets[0].dataset_id else item
+            if item.dataset_id == primary.dataset_id else item
             for item in self.plan.dataset_uses
         ))
         self.effective = mapping_source_selection(self.physical, self.plan)
@@ -441,6 +442,15 @@ class JoinedMappingValueTests(unittest.TestCase):
             {"value": "NL", "count": 1},
         ))
         self.assertEqual(timings.connection_count, 1)
+        policy = RowInclusionPolicy()
+        physical = (primary.dataset_id, policy)
+        joined = (self.dataset.dataset_id, policy)
+        values = self.coverage.source_distinct_key_projections(
+            self.workspace_id, {physical: ("name",), joined: (self.key,)},
+            tuple(DatasetMapping(dataset_id, "x.item") for dataset_id, _ in (physical, joined)),
+        )
+        self.assertCountEqual(values[physical], (("Alpha",), ("Beta",), ("Gamma",)))
+        self.assertCountEqual(values[joined], (("BE",), ("FR",), ("NL",)))
 
     def test_independent_join_groups_read_only_the_selected_group(self):
         from impodo.adapters.duckdb import grouped_exact_join_source as module

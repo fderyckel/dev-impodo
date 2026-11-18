@@ -197,11 +197,13 @@ document.addEventListener("DOMContentLoaded", () => {
         .filter(Boolean);
     const displayField = (name) =>
       labels[name] ? `${labels[name]} (${name})` : name;
-    const initialSelection = {
-      keyFields: values(combinedKey?.value),
-      scopeFields: values(combinedScope?.value),
-      description: description?.value || "",
-    };
+    const initialSelection = decision.dataset.keySavedSelection
+      ? JSON.parse(decision.dataset.keySavedSelection)
+      : {
+          keyFields: values(combinedKey?.value),
+          scopeFields: values(combinedScope?.value),
+          description: description?.value || "",
+        };
     const sameValues = (left, right) =>
       left.length === right.length &&
       left.every((value, index) => value === right[index]);
@@ -215,14 +217,17 @@ document.addEventListener("DOMContentLoaded", () => {
         (description?.value || "") !== initialSelection.description;
       decision.classList.toggle("is-confirmed", !changed);
       decision.classList.toggle("has-unconfirmed-changes", changed);
+      if (!changed && draft) draft.hidden = true;
       if (decisionStatus) {
         decisionStatus.classList.toggle("complete", !changed);
         decisionStatus.classList.toggle("attention", changed);
         decisionStatus.textContent = changed ? "Unsaved change" : "Rule confirmed";
       }
       const confirm = keyForm?.querySelector("[data-schema-confirm-matching]");
+      const hasChanges = Boolean(keyForm?.querySelector(".has-unconfirmed-changes"));
+      keyForm?.toggleAttribute("data-next-dirty", hasChanges);
       if (confirm) confirm.setAttribute("data-next-step",
-        keyForm.querySelector(".has-unconfirmed-changes") ? "300" : confirm.dataset.nextSavedPriority);
+        hasChanges ? "300" : confirm.dataset.nextSavedPriority);
     };
     const clearDescriptionForChangedIdentity = () => {
       if (!description || descriptionEdited) {
@@ -355,6 +360,7 @@ document.addEventListener("DOMContentLoaded", () => {
       fieldError?.focus();
     });
     updateKeyFieldConflicts();
+    updateDecisionStatus();
   }
 
   for (const catalog of document.querySelectorAll("[data-field-catalog]")) {

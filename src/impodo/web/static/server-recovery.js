@@ -54,6 +54,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const showSessionEnded = () => {
     if (connectivity === "SESSION_ENDED") return;
     connectivity = "SESSION_ENDED";
+    window.clearTimeout(nextCheck);
     operation = mutationPending ? "OUTCOME_UNKNOWN" : operation;
     setBannerKind("error");
     if (title) title.textContent = "This Impodo session has ended";
@@ -194,6 +195,7 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const checkHealth = async () => {
+    if (connectivity === "SESSION_ENDED") return;
     if (activeRequest) return schedule();
     const checkStartedAt = now();
     const controller = new AbortController();
@@ -209,9 +211,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const payload = response.ok
         ? await response.json().catch(() => null)
         : null;
-      if (!noteResponse(response, { successful: payload?.status === "ok" })) {
-        return;
-      }
+      noteResponse(response, { successful: payload?.status === "ok" });
     } catch (_error) {
       lastNetworkFailureAt = now();
     } finally {

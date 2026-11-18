@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import replace
 
 import duckdb
@@ -18,19 +19,54 @@ from impodo.application.workspace.mapping.health_issues import (
     matching_health_issue_counts,
 )
 from impodo.application.workspace.navigation import (
+    TransferNavigationProgress,
     WorkspaceNavigationFacts,
     WorkspaceNavigationSnapshot,
 )
 from impodo.domain.matching_order import MatchingOrderCheck
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import (
+    SourceMode,
     WorkspaceState,
     WorkspaceStateNotFoundError,
 )
 
 from .database import DuckDbWorkspaceDatabase
 from .repository import DuckDbRepository
-from .serialization import _workspace_from_rows
+from .serialization import decode_workspace_state
+from .transfer_navigation import PROGRESS_COLUMNS
+
+_SOURCE_SELECTION_HASH = """
+    coalesce((SELECT json_extract_string(try_cast(selection_json AS JSON), '$.content_hash')
+                FROM source_selection WHERE singleton_id = 1), '')
+"""
+_SCHEMA_READINESS = """
+    WITH document AS (
+        SELECT try_cast(catalog_json AS JSON) AS doc
+          FROM odoo_schema_catalog WHERE singleton_id = 1
+    ), checked AS (
+        SELECT doc,
+               doc IS NOT NULL
+               AND json_extract_string(doc, '$.contract_version') = '2'
+               AND json_type(doc, '$.models') = 'ARRAY'
+               AND regexp_full_match(coalesce(json_extract_string(doc, '$.content_hash'), ''),
+                                     'sha256:[0-9a-f]{64}') AS valid
+          FROM document
+    )
+    SELECT EXISTS (SELECT 1 FROM checked WHERE valid) AS schema_present,
+           coalesce((SELECT cast(json_extract(doc, '$.models[*].name') AS VARCHAR)
+                       FROM checked), '[]') AS schema_models,
+           EXISTS (SELECT 1 FROM checked
+                    WHERE NOT (valid AND coalesce(cast(json_extract(doc, '$.pending_refresh')
+                                                  AS VARCHAR), 'null') = 'null')) AS schema_attention
+"""
+
+
+def _capture_models(connection: duckdb.DuckDBPyConnection) -> tuple[str, ...]:
+    rows = connection.execute(
+        "SELECT model FROM odoo_capture_selection_current ORDER BY model"
+    ).fetchall()
+    return tuple(str(row[0]) for row in rows)
 
 
 def read_execution_navigation_state(
@@ -114,9 +150,11 @@ class WorkspaceNavigationRepository(DuckDbRepository):
         self,
         database: DuckDbWorkspaceDatabase,
         source_projections: WorkspaceSourceProjectionRepository | None = None,
+        destination_binding: Callable[[WorkspaceState], WorkspaceState] | None = None,
     ) -> None:
         super().__init__(database)
         self._source_projections = source_projections
+        self._destination_binding = destination_binding
 
     def _with_projected_source(
         self, facts: WorkspaceNavigationFacts
@@ -137,6 +175,42 @@ class WorkspaceNavigationRepository(DuckDbRepository):
         if len(hashes) != 1 or not next(iter(hashes)):
             raise WorkspaceError("Projected source selection identity is incomplete")
         return replace(facts, source_selection_hash=next(iter(hashes)))
+
+    def get_source_readiness_inputs(
+        self, workspace_id: str,
+    ) -> tuple[SourceMode, WorkspaceNavigationFacts]:
+        """Read the source gate without opening downstream workflow evidence."""
+
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not path.is_file():
+            raise WorkspaceStateNotFoundError("Workspace engine state not found")
+        try:
+            with self._connect(path) as connection:
+                self._ensure_workspace_database_schema(connection)
+                connection.begin()
+                row = connection.execute(
+                    f"SELECT source_mode, {_SOURCE_SELECTION_HASH} "
+                    "FROM workspace_projection_cache WHERE singleton_id = 1"
+                ).fetchone()
+                if row is None:
+                    raise WorkspaceStateNotFoundError("Workspace engine state not found")
+                mode = SourceMode(str(row[0] or "FILE"))
+                facts = WorkspaceNavigationFacts(workspace_id, source_selection_hash=str(row[1]))
+                if mode is SourceMode.ODOO:
+                    schema = connection.execute(_SCHEMA_READINESS).fetchone()
+                    if schema is None:
+                        raise WorkspaceError("Stored schema navigation evidence is missing")
+                    facts = replace(
+                        facts,
+                        schema_present=bool(schema[0]),
+                        schema_models=tuple(str(name) for name in json.loads(str(schema[1]))),
+                        schema_attention=bool(schema[2]),
+                        capture_models=_capture_models(connection),
+                    )
+                connection.rollback()
+            return mode, self._with_projected_source(facts)
+        except (duckdb.Error, TypeError, ValueError) as error:
+            raise WorkspaceError("Stored source readiness evidence is invalid") from error
 
     def get(self, workspace_id: str) -> WorkspaceNavigationFacts:
         database_path = (
@@ -168,15 +242,17 @@ class WorkspaceNavigationRepository(DuckDbRepository):
             with self._connect(database_path) as connection:
                 self._ensure_workspace_database_schema(connection)
                 connection.begin()
-                workspace_state = self._read_workspace_state(
+                workspace_state, progress = self._read_workspace_state(
                     connection,
                     workspace_id,
                 )
                 facts = self._read_facts(connection, workspace_id)
                 connection.rollback()
-                return WorkspaceNavigationSnapshot(
-                    workspace_state, self._with_projected_source(facts)
-                )
+            if workspace_state.destination_configured and self._destination_binding is not None:
+                workspace_state = self._destination_binding(workspace_state)
+            return WorkspaceNavigationSnapshot(
+                workspace_state, replace(self._with_projected_source(facts), transfer_progress=progress)
+            )
         except (duckdb.Error, TypeError, ValueError) as error:
             raise WorkspaceError(
                 "Stored workflow navigation evidence is invalid"
@@ -186,10 +262,10 @@ class WorkspaceNavigationRepository(DuckDbRepository):
     def _read_workspace_state(
         connection: duckdb.DuckDBPyConnection,
         workspace_id: str,
-    ) -> WorkspaceState:
+    ) -> tuple[WorkspaceState, TransferNavigationProgress | None]:
         row = connection.execute(
-            """
-            SELECT singleton_id, name, source_system, source_mode,
+            f"""
+            SELECT cache.singleton_id, name, source_system, source_mode,
                    data_classification, retention_days, odoo_connection_mode,
                    odoo_base_url, odoo_database, intended_applications,
                    intended_models, status, revision, created_at, updated_at,
@@ -200,12 +276,10 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                    destination_verified_credential_binding_hash,
                    destination_verified_read_principal_hash,
                    destination_verified_odoo_version,
-                   destination_verified_at, destination_match_plan_json,
-                   transfer_order_plan_json, transfer_review_package_json,
-                   transfer_review_approval_json,
-                   transfer_preflight_report_json
-              FROM workspace_projection_cache
-             WHERE singleton_id = 1
+                   destination_verified_at, {", ".join("progress." + field for field in PROGRESS_COLUMNS)}
+              FROM workspace_projection_cache AS cache
+              LEFT JOIN transfer_navigation AS progress ON progress.singleton_id = cache.singleton_id
+             WHERE cache.singleton_id = 1
             """
         ).fetchone()
         if row is None:
@@ -219,11 +293,12 @@ class WorkspaceNavigationRepository(DuckDbRepository):
              ORDER BY received_at, file_id
             """
         ).fetchall()
-        return _workspace_from_rows(
-            dict(zip(columns, row, strict=True)),
-            source_rows,
-            workspace_id=workspace_id,
-        )
+        data = dict(zip(columns, row, strict=True))
+        state = decode_workspace_state(data, source_rows, workspace_id=workspace_id)
+        progress = None
+        if state.source_mode is SourceMode.ODOO and data["workspace_id"] is not None:
+            progress = TransferNavigationProgress(*(data[field] for field in PROGRESS_COLUMNS))
+        return state, progress
 
     @staticmethod
     def _read_facts(
@@ -231,13 +306,9 @@ class WorkspaceNavigationRepository(DuckDbRepository):
         workspace_id: str,
     ) -> WorkspaceNavigationFacts:
         source = connection.execute(
-            """
+            f"""
             SELECT
-                coalesce((SELECT json_extract_string(
-                                    try_cast(selection_json AS JSON),
-                                    '$.content_hash'
-                                )
-                            FROM source_selection WHERE singleton_id = 1), ''),
+                {_SOURCE_SELECTION_HASH},
                 (SELECT count(*) FROM source_configuration),
                 (SELECT count(*) FROM source_configuration
                   WHERE json_array_length(
@@ -260,7 +331,7 @@ class WorkspaceNavigationRepository(DuckDbRepository):
         if source is None:
             raise WorkspaceError("Stored source navigation evidence is missing")
         schema = connection.execute(
-            """
+            f"""
             SELECT EXISTS (
                        SELECT 1 FROM odoo_model_catalog
                         WHERE singleton_id = 1
@@ -273,56 +344,7 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                               try_cast(catalog_json AS JSON), '$.models'
                           ) = 'ARRAY'
                    ),
-                   EXISTS (
-                       SELECT 1 FROM odoo_schema_catalog
-                        WHERE singleton_id = 1
-                          AND try_cast(catalog_json AS JSON) IS NOT NULL
-                          AND json_extract_string(
-                              try_cast(catalog_json AS JSON),
-                              '$.contract_version'
-                          ) = '2'
-                          AND json_type(
-                              try_cast(catalog_json AS JSON), '$.models'
-                          ) = 'ARRAY'
-                          AND regexp_full_match(
-                              coalesce(json_extract_string(
-                                  try_cast(catalog_json AS JSON),
-                                  '$.content_hash'
-                              ), ''),
-                              'sha256:[0-9a-f]{64}'
-                          )
-                   ),
-                   coalesce((
-                       SELECT cast(json_extract(
-                           try_cast(catalog_json AS JSON), '$.models[*].name'
-                       ) AS VARCHAR)
-                         FROM odoo_schema_catalog WHERE singleton_id = 1
-                   ), '[]'),
-                   EXISTS (
-                       SELECT 1 FROM odoo_schema_catalog
-                        WHERE singleton_id = 1
-                          AND NOT (
-                              try_cast(catalog_json AS JSON) IS NOT NULL
-                              AND json_extract_string(
-                                  try_cast(catalog_json AS JSON),
-                                  '$.contract_version'
-                              ) = '2'
-                              AND json_type(
-                                  try_cast(catalog_json AS JSON), '$.models'
-                              ) = 'ARRAY'
-                              AND regexp_full_match(
-                                  coalesce(json_extract_string(
-                                      try_cast(catalog_json AS JSON),
-                                      '$.content_hash'
-                                  ), ''),
-                                  'sha256:[0-9a-f]{64}'
-                              )
-                              AND coalesce(cast(json_extract(
-                                      try_cast(catalog_json AS JSON),
-                                      '$.pending_refresh'
-                                  ) AS VARCHAR), 'null') = 'null'
-                          )
-                   ),
+                   readiness.schema_present, readiness.schema_models, readiness.schema_attention,
                    coalesce((
                        SELECT json_extract_string(
                            try_cast(catalog_json AS JSON), '$.content_hash'
@@ -345,16 +367,12 @@ class WorkspaceNavigationRepository(DuckDbRepository):
                               '$.content_hash'
                           )
                    )
+              FROM ({_SCHEMA_READINESS}) AS readiness
             """
         ).fetchone()
         if schema is None:
             raise WorkspaceError("Stored schema navigation evidence is missing")
-        capture_models = tuple(
-            str(row[0])
-            for row in connection.execute(
-                "SELECT model FROM odoo_capture_selection_current ORDER BY model"
-            ).fetchall()
-        )
+        capture_models = _capture_models(connection)
         mapping_row = connection.execute(
             """
             SELECT EXISTS (

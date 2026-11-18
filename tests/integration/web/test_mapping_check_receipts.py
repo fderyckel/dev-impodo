@@ -17,6 +17,7 @@ from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
 )
 from impodo.web.composition.local_identity import LocalRequestIdentityResolver
+from impodo.web.routers import mapping as mapping_routes
 from tests.integration.web.test_mapping_command_performance import MappingCommandFixture
 from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
@@ -53,7 +54,9 @@ class MappingCheckReceiptTests(MappingCommandFixture):
         self.assertEqual(timing.lock_retry_count, 0)
 
         different = self.changed_entries(checked_entries, on_existing_0="update")
-        reused = self.post_command(workspace_id, different)
+        with patch.object(mapping_routes, "prepare_matching_access") as prepare:
+            reused = self.post_command(workspace_id, different)
+        prepare.assert_not_called()
         self.assertEqual(reused.status_code, 422, reused.text)
         self.assertIn("already used for another request", reused.json()["detail"])
         other_actor = replace(
@@ -78,10 +81,10 @@ class MappingCheckReceiptTests(MappingCommandFixture):
             expected_read_credential_binding_hash=schema.read_credential_binding_hash,
         )
         self.assertEqual(schema.content_hash, rebound.content_hash)
-        for response in (
-            self.client.get(receipt_url),
-            self.post_command(workspace_id, checked_entries),
-        ):
+        with patch.object(mapping_routes, "prepare_matching_access") as prepare:
+            replayed = self.post_command(workspace_id, checked_entries)
+        prepare.assert_not_called()
+        for response in (self.client.get(receipt_url), replayed):
             self.assertEqual(response.status_code, 200, response.text)
             self.assertEqual(response.json()["status"], "committed")
             self.assertEqual(response.json()["follow_up_status"], "superseded")

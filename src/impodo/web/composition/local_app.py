@@ -758,7 +758,9 @@ def create_local_app(
                 mapping_sources=workspace_mapping_sources,
             ),
             workspace_owners=foundation_repository,
-            navigation=WorkspaceNavigationRepository(database, foundation_repository),
+            navigation=WorkspaceNavigationRepository(
+                database, foundation_repository, workspace_state_repository.with_destination_binding,
+            ),
             workspace_catalogs=workspace_state_repository,
             source_catalogs=source_repository,
             derived_sources=source_repository,

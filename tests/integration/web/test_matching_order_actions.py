@@ -21,7 +21,7 @@ class MatchingOrderActionsTests(HierarchyWorkflowFixture):
                     self.check_order_actions(major, mode)
 
     def check_order_actions(self, major, mode):
-        wid, reads = ordering_workspace(self, major=major, mode=mode, partial=True)
+        wid, reads = ordering_workspace(self, major=major, mode=mode)
         ctx = self.context
         url = f"/workspaces/{wid}/mapping"
         query = "?step=tables&task=links&mapping_dataset=1&order_panel=1"

@@ -1647,7 +1647,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     "operation_id": operation_id,
                     "status": "not_found",
                     "failure_code": "MAPPING_OPERATION_NOT_FOUND",
-                    "message": "This operation did not reach Impodo. Nothing was saved.",
+                    "message": "Impodo has no receipt for this operation yet.",
                 }
             return _recovered_mapping_outcome(context, request, receipt, actor=actor)
 
@@ -1930,12 +1930,13 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
             def begin_mapping_command():
                 nonlocal operation_id, mutation_started
-                selection = context.queries.get_mapping_source_selection(workspace_id)
-                if selection is None:
+                source = context.queries.get_mapping_source_selection_with_package(workspace_id)
+                if source is None:
                     raise HTTPException(
                         status_code=422,
                         detail="Source selection missing",
                     )
+                selection, package = source
                 schema = context.queries.get_odoo_schema_catalog(workspace_id)
                 governance = context.queries.get_schema_governance(workspace_id)
                 if schema is None:
@@ -1974,7 +1975,9 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                 )
                 mutation_started = True
                 access_check = (
-                    prepare_matching_access(context, workspace_id, actor=actor, schema=schema)
+                    prepare_matching_access(
+                        context, workspace_id, actor=actor, schema=schema, verified_package=package,
+                    )
                     if action == "draft" and not receipt.replayed else None
                 )
                 return (
@@ -2481,9 +2484,11 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                     status_code=303,
                 )
             elif action == "draft":
-                def publish_check():
+                def publish_check(save_supporting_values: Callable[[], object] | None):
                     nonlocal row_review_check_started, completed_receipt, mapping_return_url
                     try:
+                        if save_supporting_values is not None:
+                            save_supporting_values()
                         checks_rows = any(
                             item.row_inclusion.mode is RowInclusionMode.MATCHING_ROWS for item in datasets
                         )
@@ -2548,7 +2553,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
                                     "Odoo fields or access changed and need review in Odoo data. "
                                     "Your matching edits are kept on this page; save progress before reviewing the changes."
                                 )
-                        await run_in_threadpool(
+                        save_supporting_values = await run_in_threadpool(
                             _capture_mapping_supporting_values,
                             context,
                             workspace_id,
@@ -2559,7 +2564,7 @@ def build_mapping_router(context: WebContext) -> APIRouter:
 
                     except (MappingVersionConflict, HTTPException, ConnectorError, SecretStoreError, ValueError, MigrationRunPlanningError, WorkspaceError) as error:
                         return await run_local_operation(recover_mapping_command, error)
-                    return await run_local_operation(publish_check)
+                    return await run_local_operation(publish_check, save_supporting_values)
 
                 return _MappingRemoteStep(check_after_remote)
             else:

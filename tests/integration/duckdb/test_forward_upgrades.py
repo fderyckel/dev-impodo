@@ -172,8 +172,8 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema,
                 SCHEMA_GENERATION,
                 SCHEMA_VERSION,
-                # Version 9 adds only the current mapping validation pointer.
-                "abf25ce311d044d7690ce6bb2670ee2fca6f18c795b6c52dd03d0a4bd785fa89",
+                # Version 10 adds the bounded transfer navigation projection.
+                "8ca65bec37a9555ef8f44d06d8619f69d973a14774558697b821d97fd5f90aec",
             ),
         )
         for initialize, ensure, generation, version, fingerprint in stores:
@@ -231,6 +231,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
             path = Path(directory) / "workspace.duckdb"
             with duckdb.connect(path) as connection:
                 schema._initialize_workspace_database(connection)
+                connection.execute("DROP TABLE transfer_navigation")
                 connection.execute("DROP TABLE mapping_validation_current")
                 connection.execute("UPDATE schema_version SET version = 8")
                 self.assertEqual(
@@ -276,7 +277,7 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                     )
                     self.assertEqual(
                         connection.execute("SELECT * FROM schema_migration").fetchall(),
-                        [(8, 9, "current-mapping-validation-v9")],
+                        [(8, 9, "current-mapping-validation-v9"), (9, 10, "transfer-navigation-v10")],
                     )
 
     def test_failed_upgrade_rolls_back_ddl_version_and_ledger(self) -> None:

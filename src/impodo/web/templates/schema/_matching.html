@@ -54,6 +54,7 @@
           data-key-decision
           data-schema-key-card
           data-key-confirmed="{{ 'true' if existing else 'false' }}"
+          {% if existing %}data-key-saved-selection='{{ {"keyFields": existing.key_fields, "scopeFields": existing.scope_fields, "description": existing.description or ""}|tojson }}'{% endif %}
           data-field-labels='{{ view.field_labels|tojson }}'
           {% if view.key_error or loop.first %}open{% endif %}
         >

@@ -93,7 +93,8 @@
       cards.find((card) => card.open) || cards[0];
     for (const card of cards) card.open = card === initialCard;
     const updateRuleSummary = (event) => {
-      const card = event.target.closest?.("[data-schema-key-card]");
+      const card = event.target.closest?.("[data-schema-key-card]") ||
+        event.composedPath?.().find((element) => element.matches?.("[data-schema-key-card]"));
       if (!card) return;
       window.queueMicrotask(() => {
         const selection = card.querySelector("[data-key-selection-summary]");
@@ -103,6 +104,7 @@
     };
     root.addEventListener("input", updateRuleSummary);
     root.addEventListener("change", updateRuleSummary);
+    root.addEventListener("click", updateRuleSummary);
 
     document.addEventListener("click", (event) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;

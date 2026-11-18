@@ -22,7 +22,7 @@ from .schema.data_version_store import (
     DATA_VERSION_STORE_VERSION,
 )
 from .schema.odoo_saved_source_company import read_saved_source_company
-from .serialization import _workspace_from_rows
+from .serialization import decode_workspace_state
 
 
 class WorkspaceStateReader(DuckDbRepository):
@@ -63,7 +63,7 @@ class WorkspaceStateReader(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall()
-            state = _workspace_from_rows(
+            state = decode_workspace_state(
                 dict(zip(columns, row, strict=True)),
                 source_rows,
                 workspace_id=self._workspace.workspace_id,

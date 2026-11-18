@@ -786,10 +786,12 @@ def build_execution_router(
         """Render Check changes from bounded persisted facts only."""
 
         actor = request_identity(request, context.identity_resolver).actor
+        navigation_started = perf_counter()
         navigation_snapshot = context.navigation.get_for_workspace(
             workspace_id,
             actor=actor,
         )
+        navigation_read_ms = (perf_counter() - navigation_started) * 1000
         preview = context.execution.current_review(workspace_id, actor=actor)
         if preview is None:
             if navigation_snapshot.facts.execution_state is not None:
@@ -820,6 +822,7 @@ def build_execution_router(
             completion_warning=None,
             completion_warning_code=None,
             _workspace_navigation_facts=navigation_snapshot.facts,
+            _navigation_read_ms=navigation_read_ms,
         )
 
     def load_destination(request: Request, workspace_id: str) -> str:

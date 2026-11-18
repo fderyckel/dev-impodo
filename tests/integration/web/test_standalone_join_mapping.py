@@ -182,6 +182,7 @@ class StandaloneJoinMappingTests(ProjectSetupBrowserTestCase):
                         ),
                         patch(
                             "impodo.web.routers.mapping._capture_mapping_supporting_values",
+                            return_value=None,
                         ),
                         collect_duckdb_request_timings() as check_timings,
                     ):
@@ -236,6 +237,7 @@ class StandaloneJoinMappingTests(ProjectSetupBrowserTestCase):
             ),
             patch(
                 "impodo.web.routers.mapping._capture_mapping_supporting_values",
+                return_value=None,
             ),
             patch.object(
                 context.categorical_coverage.logical_values.sources,
@@ -259,6 +261,7 @@ class StandaloneJoinMappingTests(ProjectSetupBrowserTestCase):
             ),
             patch(
                 "impodo.web.routers.mapping._capture_mapping_supporting_values",
+                return_value=None,
             ),
         ):
             retried = self._save(workspace_id, entries)

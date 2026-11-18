@@ -176,6 +176,38 @@ exercise recovery while the form contains newer edits. The
 exercise the 15-second deadline with a delayed response and an interrupted
 response body. Recovery reads the operation receipt in both cases.
 
+Formula corrections use the red **Go to issue** action in a full-width footer
+row. The existing formula validator controls issue visibility and check
+availability. The presentation-only
+[`mapping-check-actions.js`](../../../src/impodo/web/static/mapping-check-actions.js)
+keeps **Review confirmation** in its supporting role after an edit or while
+formula checking is pending. A fresh, current checked page restores its next
+action. Existing modules continue to own validation, saving, focus, navigation,
+and confirmation. The
+[check-action browser tests](../../../tests/e2e/test_mapping_check_actions.py)
+cover saved and edited states, formula correction, pending and interrupted
+quick checks, draft reload, and the full match check for both Odoo majors and
+access modes. Set `IMPODO_CHECK_ACTION_SCREENSHOTS` to a temporary trial
+directory and run that module with Playwright to capture
+`11x-stage3-formula-recovery.png` and the desktop and narrow Check and resolve
+views in `check-formula-1440.png` and `check-formula-390.png`.
+
+The shared [button-role coordinator](../../../src/impodo/web/static/button-roles.js)
+limits the next-action highlight to a visible `data-next-scope` recovery group.
+**Check save outcome** and **Reload saved version** own that highlight while
+their groups are visible; **Copy my edits** remains a supporting action.
+An open dialog takes precedence. While the outcome check is disabled and
+running, the group has no red action. Hiding recovery restores the current
+matching action. These attributes and the right alignment change presentation;
+the save, receipt, copy, reload, and continuation handlers retain their behaviour.
+The [recovery action browser tests](../../../tests/e2e/test_mapping_recovery_actions.py)
+exercise interrupted responses, failed receipt reads, newer edits, conflicts,
+copying, reload, and continuation for both Odoo majors and access modes.
+Set `IMPODO_MAPPING_RECOVERY_SCREENSHOTS` to a temporary trial directory and run
+that module with Playwright to capture `mapping-recovery-1440.png` and
+`mapping-recovery-390.png`. The desktop capture supplies
+`11y-stage3-save-outcome.png`.
+
 The authenticated browser walkthrough is
 [`tests/e2e/test_mapping_journey.py`](../../../tests/e2e/test_mapping_journey.py).
 Its
@@ -241,6 +273,19 @@ Odoo-to-Odoo destination matching presents the same selector after connection
 verification, using the destination credential and independent company binding.
 Changing that choice retires destination verification and requires another
 connection check before matching.
+
+Company controls use the shared action colours and right alignment.
+[`mapping-company-actions.js`](../../../src/impodo/web/static/mapping-company-actions.js)
+compares the selected company with the saved company supplied by the form.
+Editing highlights **Use this company and continue**; restoring the saved
+selection highlights **Continue to matching tables**. Optional company-specific
+checks retain their supporting role. Forms keep their existing inputs, routes,
+validation, and redirects. The
+[company browser tests](../../../tests/e2e/test_odoo_company.py) cover both Odoo
+majors and access modes, retries, unavailable choices, reversion, reload, and
+preserved source and mapping evidence. Set `IMPODO_COMPANY_ACTION_SCREENSHOTS`
+to a temporary trial directory to capture `11q-stage3-choose-company.png` at
+1440 by 1024.
 
 The company card renders before a choice exists. Its
 `data-company-choice-required` attribute exposes that presentation state to
@@ -1228,11 +1273,24 @@ rejection records `REJECTED`. An interrupted process can leave a `PENDING`
 receipt, so the browser must read the outcome before offering another action.
 Impodo rejects an operation ID reused with different command inputs.
 
-The `/mapping/save` route keeps source admission before asynchronous form
-decoding. Once the form is parsed, one `run_local_operation` callback reserves
+The `/mapping/save` route checks source readiness before decoding the form.
+For a file source, it reads the source mode and frozen selection identity.
+For an Odoo source, it also checks the schema and the current capture plans.
+If the workspace uses a Recipe's projected datasets, the check verifies their
+shared selection identity when the workspace has no local selection.
+The result page uses the same check. Reading full navigation remains a
+separate operation for pages that display progress across stages.
+
+Once the form is parsed, one `run_local_operation` callback reserves
 or replays the receipt, prepares datasets, applies the local command and reads
 its receipt or rejection. Each repository transaction still commits or rolls
-back independently. **Check matches** and default refreshes close those owners
+back independently. **Check matches** verifies the frozen Data version
+package when it resolves the mapping selection. For a new check, access
+preparation reuses that package after verifying its project and Data version
+ownership. It reads the current workspace, target, company and reader.
+A replay returns the saved outcome before access preparation.
+
+**Check matches** and default refreshes close their local database connections
 before checking Odoo access or capturing supporting values. A new local
 publication callback rechecks edit authority before applying the result.
 For **Check matches**, `MappingWorkspaceService.check_definition` reads the
@@ -1243,6 +1301,17 @@ against the access used for the check. A changed company or credential can
 invalidate the check even when the captured schema is unchanged. The same
 fresh mapping inputs feed validation. Optimistic draft and revision checks
 still reject concurrent edits.
+
+When several physical tables supply linked values, the check reads the
+mapping selection, physical selection and snapshot manifests once for those
+tables. It verifies each Parquet file, applies the saved row rules and
+keeps distinct combinations of the columns needed to prepare each lookup.
+Joined tables still use their reviewed projection. Each new check reads the
+current Odoo values again. After Odoo returns, the same local operation
+saves the verified linked choices and validates the mapping. Each save
+commits independently. A later mapping conflict preserves the saved choices
+and follows the usual receipt recovery path. The [linked check regression](../../../tests/integration/web/test_mapping_linked_check.py)
+removes a target value between checks and verifies the second result.
 
 The [command performance tests](../../../tests/integration/web/test_mapping_command_performance.py)
 bound complete save, replay, stale-save, check and confirmation requests for
@@ -1261,9 +1330,13 @@ row review as complete or force the next attempt into a stale-version conflict.
 `GET /workspaces/{workspace_id}/mapping/mutation-receipts/{operation_id}` is
 the authenticated read-back boundary. `mapping-editor.js` gives mutations a
 15-second browser timeout and receipt reads a separate bounded timeout. Every
-path clears `aria-busy` in `finally`. A committed receipt becomes **Saved**, a
-missing receipt becomes **Not saved**, and a surviving pending receipt remains
-**Save outcome unknown** with an explicit read-back control. A recovered
+path clears `aria-busy` in `finally`. A committed receipt becomes **Saved**.
+A lookup can arrive while the original POST is still waiting to reserve its
+receipt. The editor polls an absent or pending receipt for up to three minutes.
+If the outcome is still unknown, **Check save outcome** reads the receipt
+again. Only an absent receipt at the deadline offers **Retry original action**.
+That explicit retry uses the original operation ID, form and versions. Newer
+edits stay in the browser. A recovered
 **Check matches** receipt opens its original decision only while the checked
 revision and its evidence are current. If the result has been superseded,
 the operator can copy unsaved edits and reload **Check and resolve**.
@@ -2178,57 +2251,6 @@ and effect add no database access, remote requests, or changes to evidence.
 covers confirmation, one-time display, receipt replay, workspace isolation,
 and the unchanged database budgets for the affected requests.
 
-### Matching-order measurements
-
-The [authenticated browser test](../../../tests/e2e/test_matching_order.py)
-exercises keyboard and drag reordering, reopening an in-progress check, and
-applying a partial result while keeping the active table and task. To refresh
-the 1440 × 1024 captures for the user guide, set
-`IMPODO_ORDER_SCREENSHOT_DIRECTORY` to a trial directory and run
-`python -m pytest -q -s tests/e2e/test_matching_order.py` with Playwright
-and Chromium available. For installed Microsoft Edge, set
-`IMPODO_BROWSER_CHANNEL=msedge`.
-
-The [benchmark](../../../scripts/benchmark_matching_order.py) measures the
-recommendation service on reversed dependency chains and the authenticated
-check from submission through protected publication. Every sample uses a fresh
-Python process. Source intake and fixture setup finish before timing starts.
-The fictional Odoo 20 remote reader returns metadata and an empty target record
-set. Record requests below are planned read pages, so the measurements
-exclude network latency. The process samples its resident memory every 10 ms.
-
-The [raw before-and-after samples](../reference/match-order-measurements.json)
-identify each build, platform and dependency version. Three samples per case
-ran on arm64 macOS with Python 3.12.14 and DuckDB 1.5.5. The candidate's
-median recommendation times for 1, 10, 100 and 1,000 tables were 0.06, 0.30,
-0.95 and 8.95 ms respectively.
-
-| Source and checked size | DuckDB opens, admission + worker, before → after | SQL statements, before → after | Planned record pages | Median check time, before → after |
-| --- | --- | --- | ---: | --- |
-| Direct, 50,000 identifiers | 10 + 30 → 6 + 14 | 237 → 202 | 100 | 0.83 → 0.59 s |
-| Related, 50,001 rows with 50,000 distinct relationship keys | 10 + 30 → 6 + 14 | 293 → 258 | 301 | 2.02 → 1.59 s |
-| Derived, 50,000 rows sharing 5,000 generated keys | 11 + 30 → 7 + 14 | 324 → 289 | 120 | 1.16 → 0.91 s |
-
-Each finished check called the snapshot reader once. The direct case required
-one metadata request and each related case required two. Worker schema checks
-fell from 17 to 10 in every case. All samples recorded zero lock retries.
-The database counts repeated in every sample. The elapsed times in the table
-come from a second series that paired the two builds for each case, alternating
-which ran first. Each build ran three times per case, using the benchmark's
-`--sample direct`, `--sample related` and `--sample derived` options from its
-own checkout. The initial series ran alongside other checks and gave mixed
-elapsed times. Both series are retained in the raw file. Windows and real Odoo
-transport require separate measurements.
-
-To repeat the seven cases, run the benchmark from the repository root.
-
-```sh
-mkdir -p "${TMPDIR:-/tmp}/impodo-trials"
-trial_dir=$(mktemp -d "${TMPDIR:-/tmp}/impodo-trials/trial.XXXXXXXX")
-.tools/uv/uv run --frozen --extra test --group quality python \
-  scripts/benchmark_matching_order.py --runs 3 --output "$trial_dir/measurements.json"
-```
-
 ## Invalidation and recovery
 
 Source or schema changes invalidate the current mapping boundary. Editing a
@@ -2459,6 +2481,14 @@ warm cached search, 10 seconds for a coalesced four-generation search burst,
 memory. It also verifies that the mapping renderer has no running event loop,
 records the detailed server timing phases, and prints the measured baseline.
 
+The [two-editor macOS samples](../reference/mapping-save-macos.json) record
+overlapping catalogue reads, a save and authenticated health requests on one
+event loop. Run `python -m tests.performance.mapping_save_concurrency` in a
+fresh process for each sample. The [process-interruption tests](../../../tests/integration/web/test_mapping_interrupted_save.py)
+read the original receipt in a replacement process using the same session.
+The [keyboard test](../../../tests/e2e/test_mapping_save_keyboard.py) exercises
+the recovery alert, focus order and explicit retry with an isolated editor.
+
 ## Odoo compatibility and performance
 
 Use Odoo technical field names and stable selection codes internally while
@@ -2561,7 +2591,7 @@ operational source data.
 - [`tests/integration/duckdb/test_matching_order_repository.py`](../../../tests/integration/duckdb/test_matching_order_repository.py)
 - [Ordering commands on both Odoo majors and access modes](../../../tests/integration/web/test_matching_order_actions.py)
 - [Pointer and polling behaviour](../../../tests/e2e/mapping-order.test.cjs)
-- [Authenticated keyboard, pointer and screenshot fixture](../../../tests/e2e/test_matching_order.py)
+- [Keyboard and drag reordering, check recovery and applying the result](../../../tests/e2e/test_matching_order.py)
 - [`tests/integration/duckdb/test_forward_upgrades.py`](../../../tests/integration/duckdb/test_forward_upgrades.py)
 - [`tests/integration/duckdb/test_row_inclusion_review_repository.py`](../../../tests/integration/duckdb/test_row_inclusion_review_repository.py)
 - [`tests/domain/mapping/test_row_inclusion.py`](../../../tests/domain/mapping/test_row_inclusion.py)
@@ -2609,7 +2639,6 @@ Run the focused Mapping package with:
 ## Related documentation
 
 - [User guide: Match data](../../user/workflow/03-match-data.md)
-- [Raw matching-order measurements](../reference/match-order-measurements.json)
 - [Workflow evidence lifecycle](../contracts/evidence-lifecycle.md)
 - [Canonical staging contract](../contracts/canonical-staging.md)
 - [Optional Recipe publication contract](../contracts/recipe-lifecycle.md)

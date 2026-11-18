@@ -32,7 +32,8 @@ from impodo.domain.workspace.workbench import (
 )
 
 from .repository import DuckDbRepository
-from .serialization import _workspace_from_rows, _workspace_values
+from .serialization import _workspace_values, decode_workspace_state
+from .transfer_navigation import save_transfer_navigation
 
 
 class WorkspaceStateRepository(DuckDbRepository):
@@ -147,7 +148,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall()
-        return _workspace_from_rows(
+        return decode_workspace_state(
             dict(zip(columns, row, strict=True)),
             source_rows,
             workspace_id=workspace_id,
@@ -775,7 +776,7 @@ class WorkspaceStateRepository(DuckDbRepository):
                  ORDER BY received_at, file_id
                 """
             ).fetchall() if include_source_files else []
-        return _workspace_from_rows(
+        return decode_workspace_state(
             dict(zip(columns, row, strict=True)),
             source_rows,
             workspace_id=workspace_id,
@@ -791,6 +792,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             f"({', '.join('?' for _ in range(32))})",
             _workspace_values(workspace),
         )
+        save_transfer_navigation(connection, workspace)
 
     def _update_workspace(
         self,
@@ -835,6 +837,7 @@ class WorkspaceStateRepository(DuckDbRepository):
             """,
             _workspace_values(workspace)[1:],
         )
+        save_transfer_navigation(connection, workspace)
 
     def _write_registration_manifest(self, workspace: WorkspaceState) -> Path:
         payload = {

@@ -47,6 +47,8 @@ from impodo.web.diagnostics import (
     LocalDiagnosticRecorder,
 )
 
+from tests.support.workflow_database_probe import instrument_stores, observe_store_work
+
 _LAUNCH_TOKEN = "preflight-scale-launch-token"
 _SESSION_SECRET = "preflight-scale-session-secret"
 _ACTIVE_PROBE_TIMEOUT_SECONDS = 30
@@ -211,7 +213,21 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
     def compare_with_metrics(*args, **kwargs):
         wall_started = perf_counter()
         cpu_started = process_time()
+        local = kwargs["local_operation"]
+        reader = kwargs["reader"]
+        store_phases = {}
+
+        def measured(name, callback, *args):
+            with observe_store_work() as stores:
+                try:
+                    return callback(*args)
+                finally:
+                    store_phases[name] = {"opens": dict(stores.opens), "schemas": dict(stores.schemas)}
+
+        kwargs["local_operation"] = lambda fn: measured(fn.__name__, local, fn)
+        kwargs["reader"] = lambda requirements: measured("reader", reader, requirements)
         with (
+            instrument_stores(),
             collect_duckdb_request_timings() as database_timings,
             collect_preflight_publication_timings() as publication_timings,
         ):
@@ -220,6 +236,7 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
             finally:
                 comparison_metrics.update(
                     {
+                        "store_phases": store_phases,
                         "cpu_seconds": process_time() - cpu_started,
                         "database_connection_count": (
                             database_timings.connection_count
@@ -423,22 +440,13 @@ def run(root: Path, workspace_id: str, row_count: int) -> dict[str, object]:
     route_baselines: dict[str, dict[str, object]] = {}
     for name, probe in request_probes.items():
         request_id = probe.pop("request_id")
-        diagnostic = diagnostics_by_request.get(request_id, {})
+        diagnostic = diagnostics_by_request[request_id]
         route_baselines[name] = {
             **probe,
-            "diagnostic_duration_ms": diagnostic.get("duration_ms", 0.0),
-            "database_connection_count": diagnostic.get(
-                "database_connection_count",
-                0,
-            ),
-            "database_lock_retry_count": diagnostic.get(
-                "database_lock_retry_count",
-                0,
-            ),
-            "database_schema_check_count": diagnostic.get(
-                "database_schema_check_count",
-                0,
-            ),
+            "diagnostic_duration_ms": diagnostic["duration_ms"],
+            "database_connection_count": diagnostic["database_connection_count"],
+            "database_lock_retry_count": diagnostic["database_lock_retry_count"],
+            "database_schema_check_count": diagnostic["database_schema_check_count"],
             "server_timings_ms": diagnostic.get("server_timings_ms", {}),
         }
 

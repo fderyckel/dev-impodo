@@ -7,10 +7,13 @@ from threading import get_ident
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
+from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     transfer_destination_identity_hash,
 )
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.routers import (
     destination_matching,
     transfer_destination,
@@ -24,6 +27,7 @@ from impodo.web.target_credentials import (
 )
 from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
 from tests.support.identity import resolve_local_actor
+from tests.support.workflow_database_probe import instrument_stores, observe_store_work
 
 
 class TransferPageReadTests(ProjectSetupBrowserTestCase):
@@ -41,6 +45,14 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
             odoo_connection_mode=OdooConnectionMode.REMOTE,
             odoo_base_url="https://destination.example.test",
             odoo_database="destination",
+        )
+        identity = context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            context, configured, OdooDatabaseBindingRole.DESTINATION,
+            actor=resolve_local_actor(context), scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
+            base_url=configured.destination_odoo_base_url,
+            database=configured.destination_odoo_database,
         )
         credential = store_target_credential(
             self.secrets,
@@ -157,6 +169,18 @@ class TransferPageReadTests(ProjectSetupBrowserTestCase):
             return call
 
         return wrap
+
+    def test_overview_advances_from_saved_order_without_decoding_matching_rows(self) -> None:
+        workspace_id = self._ordered_transfer_workspace()
+        with (
+            instrument_stores(), observe_store_work() as stores,
+            patch.object(DestinationMatchPlan, "from_json", side_effect=AssertionError("full matching read")),
+        ):
+            response = self.client.get(f"/workspaces/{workspace_id}/overview", follow_redirects=False)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertIn(f"/workspaces/{workspace_id}/transfer-review", response.text)
+        self.assertEqual(stores.opens["registry.duckdb"], 1)
+        self.assertEqual(stores.opens["workspace-engine.duckdb"], 1)
 
     def test_destination_matching_reads_share_database_owners(self) -> None:
         workspace_id = self._verified_destination_workspace()

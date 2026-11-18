@@ -22,6 +22,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from functools import cached_property
 from typing import Literal, Protocol
 from uuid import UUID, uuid4
 
@@ -302,23 +303,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether destination-matching evidence matches every upstream binding."""
-
-        plan = self.destination_match_plan
-        return bool(
-            self.destination_verified
-            and plan is not None
-            and plan.workspace_id == self.workspace_id
-            and plan.source_selection_hash == source_selection_hash
-            and plan.source_schema_hash == source_schema_hash
-            and plan.destination_target_hash
-            == transfer_destination_identity_hash(self)
-            and plan.destination_credential_binding_hash
-            == self.destination_verified_credential_binding_hash
-            and plan.destination_read_principal_hash
-            == self.destination_verified_read_principal_hash
-            and self.destination_verified_at is not None
-            and plan.recorded_at >= self.destination_verified_at
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).destination_match_current
 
     def destination_match_ready(
         self,
@@ -327,21 +314,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether current destination-matching evidence has no blockers."""
-
-        return bool(
-            self.destination_match_current(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and self.destination_match_plan is not None
-            and self.destination_match_plan.ready
-            and self.destination_match_plan.create_field_defaults_complete
-            and all(
-                not item.write_blocking_reasons
-                for item in self.destination_match_plan.model_matches
-                if item.destination_create_key_count
-            )
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).destination_match_ready
 
     def transfer_order_current(
         self,
@@ -350,24 +325,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether transfer order is bound to the current matching decision."""
-
-        plan = self.transfer_order_plan
-        match_plan = self.destination_match_plan
-        return bool(
-            self.destination_match_ready(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and plan is not None
-            and match_plan is not None
-            and plan.workspace_id == self.workspace_id
-            and plan.destination_match_plan_hash == match_plan.content_hash
-            and plan.source_selection_hash == source_selection_hash
-            and plan.source_schema_hash == source_schema_hash
-            and plan.destination_target_hash
-            == transfer_destination_identity_hash(self)
-            and plan.recorded_at >= match_plan.recorded_at
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_order_current
 
     def transfer_order_ready(
         self,
@@ -376,15 +336,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether current transfer-order evidence has no dependency blockers."""
-
-        return bool(
-            self.transfer_order_current(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and self.transfer_order_plan is not None
-            and self.transfer_order_plan.ready
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_order_ready
 
     def transfer_review_current(
         self,
@@ -393,27 +347,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether transfer review is bound to the current matching and order."""
-
-        package = self.transfer_review_package
-        match_plan = self.destination_match_plan
-        order_plan = self.transfer_order_plan
-        return bool(
-            self.transfer_order_ready(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and package is not None
-            and match_plan is not None
-            and order_plan is not None
-            and package.workspace_id == self.workspace_id
-            and package.source_selection_hash == source_selection_hash
-            and package.source_schema_hash == source_schema_hash
-            and package.destination_match_plan_hash == match_plan.content_hash
-            and package.transfer_order_plan_hash == order_plan.content_hash
-            and package.destination_target_hash
-            == transfer_destination_identity_hash(self)
-            and package.export_plan.frozen_at >= order_plan.recorded_at
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_review_current
 
     def transfer_review_approved(
         self,
@@ -422,18 +358,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether a current transfer package has exact export-plan approval."""
-
-        package = self.transfer_review_package
-        approval = self.transfer_review_approval
-        return bool(
-            self.transfer_review_current(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and package is not None
-            and approval is not None
-            and approval.authorizes(package, at=_now())
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_review_approved
 
     def transfer_preflight_current(
         self,
@@ -442,34 +369,9 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether preflight evidence checks the exact current approval."""
-
-        report = self.transfer_preflight_report
-        package = self.transfer_review_package
-        approval = self.transfer_review_approval
-        match_plan = self.destination_match_plan
-        return bool(
-            self.transfer_review_approved(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
-            )
-            and report is not None
-            and package is not None
-            and approval is not None
-            and match_plan is not None
-            and report.workspace_id == self.workspace_id
-            and report.review_package_hash == package.content_hash
-            and report.review_approval_hash == approval.content_hash
-            and report.approved_match_plan_hash == match_plan.content_hash
-            and report.source_selection_hash == source_selection_hash
-            and report.source_schema_hash == source_schema_hash
-            and report.destination_target_hash
-            == transfer_destination_identity_hash(self)
-            and report.destination_credential_binding_hash
-            == self.destination_verified_credential_binding_hash
-            and report.destination_read_principal_hash
-            == self.destination_verified_read_principal_hash
-            and report.recorded_at >= approval.approved_at
-        )
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_preflight_current
 
     def transfer_preflight_ready(
         self,
@@ -478,14 +380,157 @@ class WorkspaceState:
         source_schema_hash: str,
     ) -> bool:
         """Whether current preflight evidence found no destination drift."""
+        return self.destination_verified and TransferEvidenceChecks(
+            self, source_selection_hash, source_schema_hash, _now(),
+        ).transfer_preflight_ready
 
+
+@dataclass(frozen=True)
+class TransferEvidenceChecks:
+    """Check the saved transfer chain. Callers separately verify the live destination."""
+
+    workspace: WorkspaceState
+    source_selection_hash: str
+    source_schema_hash: str
+    at: datetime
+
+    @cached_property
+    def destination_match_current(self) -> bool:
+        """Whether destination-matching evidence matches every upstream binding."""
+        workspace = self.workspace
+        plan = workspace.destination_match_plan
         return bool(
-            self.transfer_preflight_current(
-                source_selection_hash=source_selection_hash,
-                source_schema_hash=source_schema_hash,
+            plan is not None
+            and plan.workspace_id == workspace.workspace_id
+            and plan.source_selection_hash == self.source_selection_hash
+            and plan.source_schema_hash == self.source_schema_hash
+            and plan.destination_target_hash
+            == transfer_destination_identity_hash(workspace)
+            and plan.destination_credential_binding_hash
+            == workspace.destination_verified_credential_binding_hash
+            and plan.destination_read_principal_hash
+            == workspace.destination_verified_read_principal_hash
+            and workspace.destination_verified_at is not None
+            and plan.recorded_at >= workspace.destination_verified_at
+        )
+
+    @cached_property
+    def destination_match_ready(self) -> bool:
+        """Whether current destination-matching evidence has no blockers."""
+        workspace = self.workspace
+        return bool(
+            self.destination_match_current
+            and workspace.destination_match_plan is not None
+            and workspace.destination_match_plan.ready
+            and workspace.destination_match_plan.create_field_defaults_complete
+            and all(
+                not item.write_blocking_reasons
+                for item in workspace.destination_match_plan.model_matches
+                if item.destination_create_key_count
             )
-            and self.transfer_preflight_report is not None
-            and self.transfer_preflight_report.ready
+        )
+
+    @cached_property
+    def transfer_order_current(self) -> bool:
+        """Whether transfer order is bound to the current matching decision."""
+        workspace = self.workspace
+        plan = workspace.transfer_order_plan
+        match_plan = workspace.destination_match_plan
+        return bool(
+            self.destination_match_ready
+            and plan is not None
+            and match_plan is not None
+            and plan.workspace_id == workspace.workspace_id
+            and plan.destination_match_plan_hash == match_plan.content_hash
+            and plan.source_selection_hash == self.source_selection_hash
+            and plan.source_schema_hash == self.source_schema_hash
+            and plan.destination_target_hash
+            == transfer_destination_identity_hash(workspace)
+            and plan.recorded_at >= match_plan.recorded_at
+        )
+
+    @cached_property
+    def transfer_order_ready(self) -> bool:
+        """Whether current transfer-order evidence has no dependency blockers."""
+        workspace = self.workspace
+        return bool(
+            self.transfer_order_current
+            and workspace.transfer_order_plan is not None
+            and workspace.transfer_order_plan.ready
+        )
+
+    @cached_property
+    def transfer_review_current(self) -> bool:
+        """Whether transfer review is bound to the current matching and order."""
+        workspace = self.workspace
+        package = workspace.transfer_review_package
+        match_plan = workspace.destination_match_plan
+        order_plan = workspace.transfer_order_plan
+        return bool(
+            self.transfer_order_ready
+            and package is not None
+            and match_plan is not None
+            and order_plan is not None
+            and package.workspace_id == workspace.workspace_id
+            and package.source_selection_hash == self.source_selection_hash
+            and package.source_schema_hash == self.source_schema_hash
+            and package.destination_match_plan_hash == match_plan.content_hash
+            and package.transfer_order_plan_hash == order_plan.content_hash
+            and package.destination_target_hash
+            == transfer_destination_identity_hash(workspace)
+            and package.export_plan.frozen_at >= order_plan.recorded_at
+        )
+
+    @cached_property
+    def transfer_review_approved(self) -> bool:
+        """Whether a current transfer package has exact export-plan approval."""
+        workspace = self.workspace
+        package = workspace.transfer_review_package
+        approval = workspace.transfer_review_approval
+        return bool(
+            self.transfer_review_current
+            and package is not None
+            and approval is not None
+            and approval.authorizes(package, at=self.at)
+        )
+
+    @cached_property
+    def transfer_preflight_current(self) -> bool:
+        """Whether preflight evidence checks the exact current approval."""
+        workspace = self.workspace
+        report = workspace.transfer_preflight_report
+        package = workspace.transfer_review_package
+        approval = workspace.transfer_review_approval
+        match_plan = workspace.destination_match_plan
+        return bool(
+            self.transfer_review_approved
+            and report is not None
+            and package is not None
+            and approval is not None
+            and match_plan is not None
+            and report.workspace_id == workspace.workspace_id
+            and report.review_package_hash == package.content_hash
+            and report.review_approval_hash == approval.content_hash
+            and report.approved_match_plan_hash == match_plan.content_hash
+            and report.source_selection_hash == self.source_selection_hash
+            and report.source_schema_hash == self.source_schema_hash
+            and report.destination_target_hash
+            == transfer_destination_identity_hash(workspace)
+            and report.destination_credential_binding_hash
+            == workspace.destination_verified_credential_binding_hash
+            and report.destination_read_principal_hash
+            == workspace.destination_verified_read_principal_hash
+            and report.recorded_at >= approval.approved_at
+        )
+
+    @cached_property
+    def transfer_preflight_ready(self) -> bool:
+        """Whether current preflight evidence found no destination drift."""
+        workspace = self.workspace
+        return bool(
+            self.transfer_preflight_current
+            and workspace.transfer_preflight_report is not None
+            and workspace.transfer_preflight_report.ready
         )
 
 

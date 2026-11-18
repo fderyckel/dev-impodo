@@ -13,6 +13,7 @@ from impodo.application.destination_matching_service import DestinationMatchKeyC
 from impodo.domain.odoo.contracts import ConnectorTransportError
 from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
+from impodo.domain.workspace.destination_matching import DestinationMatchPlan
 from impodo.domain.workspace.workbench import (
     OdooConnectionMode,
     transfer_destination_identity_hash,
@@ -199,6 +200,12 @@ class DestinationMatchingRecoveryTests(unittest.TestCase):
             plan.model_matches[0].row_inclusion.conditions[0].comparison_value, "Alice"
         )
         self.assertEqual(plan.model_matches[0].rule_excluded_source_row_numbers, (2,))
+
+        with patch.object(DestinationMatchPlan, "from_json", side_effect=AssertionError("full matching read on Overview")):
+            overview = fixture.client.get(f"/workspaces/{workspace_id}/overview", follow_redirects=False)
+        self.assertEqual(overview.status_code, 200, overview.text)
+        self.assertFalse(plan.ready)
+        self.assertIn("Destination matching required", overview.text)
 
         # A later failed edit keeps the exact saved plan and revision, while
         # rendering only the new, unchecked choices on the failed response.

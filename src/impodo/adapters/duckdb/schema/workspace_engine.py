@@ -15,6 +15,11 @@ from ..execution_operator_errors import (
     OPERATOR_ERROR_COLUMNS,
     create_operator_error_schema,
 )
+from ..transfer_navigation import (
+    PROGRESS_COLUMNS,
+    create_transfer_navigation,
+    upgrade_transfer_navigation,
+)
 from .advanced_coverage import create_advanced_coverage_schema
 from .business_intent import BUSINESS_INTENT_COLUMNS, create_business_intent_schema
 from .business_intent_assessment import (
@@ -348,7 +353,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "odoo_company_binding",
         "transformation_impact_row", "transformation_impact_run",
         "transformation_rule_acknowledgement", "transformation_rule_impact",
-        "workspace_fence", "workspace_projection_cache",
+        "workspace_fence", "workspace_projection_cache", "transfer_navigation",
     }
 )
 
@@ -1074,6 +1079,7 @@ class WorkspaceEngineSchemaMixin:
         create_odoo_company_bindings(connection)
         create_saved_source_company_schema(connection)
         create_schema_migration_ledger(connection)
+        create_transfer_navigation(connection)
         create_preflight_schema(connection)
         create_advanced_coverage_schema(connection)
         create_preparation_session_schema(connection)
@@ -1155,6 +1161,7 @@ class WorkspaceEngineSchemaMixin:
         for table, expected in (
             ("schema_migration", _SCHEMA_MIGRATION_COLUMNS),
             ("workspace_projection_cache", _WORKSPACE_PROJECTION_COLUMNS),
+            ("transfer_navigation", ("singleton_id", *PROGRESS_COLUMNS)),
             ("execution_load_control", ("run_id", "control_json")),
             ("execution_load_control_event", ("run_id", "ordinal", "control_json")),
             ("execution_rejected_transport", ("run_id", "transport_batch", "rejection_json")),
@@ -1316,5 +1323,6 @@ WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     5: ForwardSchemaUpgrade("transformation-field-counts-v6", _upgrade_transformation_field_counts),
     6: ForwardSchemaUpgrade("saved-odoo-source-company-v7", create_saved_source_company_schema),
     7: ForwardSchemaUpgrade("private-operator-errors-v8", create_operator_error_schema),
+    9: ForwardSchemaUpgrade("transfer-navigation-v10", upgrade_transfer_navigation),
     8: ForwardSchemaUpgrade("current-mapping-validation-v9", _upgrade_current_mapping_validation),
 }

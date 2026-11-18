@@ -197,6 +197,12 @@ and opens Match data.
 
 ![One red footer action confirms the suggested matching rules and continues to Match data.](../../images/user/08d-odoo-matching-next-action.png)
 
+After confirmation, **Continue to match data** is red. Editing a saved rule
+highlights **Confirm matching rules and continue**. Restoring every edited
+rule to its saved values highlights **Continue to match data** again.
+
+![Three restored matching rules show Rule confirmed, with Continue to match data as the single red action.](../../images/user/08g-odoo-matching-restored.png)
+
 For a child record, **Within** can identify the owning parent. For example,
 Impodo proposes:
 

@@ -2,25 +2,29 @@
 
 ## Status and remaining scope
 
-**Status:** Ranked ninth in the cross-plan implementation order as of
-2026-10-28. Bounded shared navigation, operation-aware browser recovery, and
-process diagnostics are implemented. Representative platform p95
-qualification and measurement-driven follow-up remain open.
+The [roadmap](00-remaining-work.md) ranks this work fifth. The 25,000-row
+macOS fixture passed the Overview and polling budgets. A matching Windows
+run and a permitted loopback run of the launcher and restart tests remain
+open. The [platform testing reference](../developer/reference/platform-support-and-testing.md)
+describes the fixture, reproduction command and manual workflow input.
 
 The [setup developer workflow](../developer/workflow/00-project-setup.md) owns
 navigation reads, and [Match data diagnostics](../developer/workflow/03-match-data.md#operational-diagnostics-and-responsiveness)
 owns the browser recovery and local diagnostic behavior. Completed design and
 implementation records remain in Git history.
 
-The current navigation query uses compact evidence and keeps full snapshot
-validation at load authorization and execution. Qualification must preserve
-that boundary and the separate operation and connectivity states.
+Transfer Overview now reads a fixed-size summary. The populated upgrade
+regression covers zero and 25,000 exclusions for Odoo 19 and 20 in local and
+remote modes. Comparison tests check schema validation separately during
+preparation, collection of inputs for the Odoo read, and publication. Browser
+tests cover a minute of progress, connection loss, recovery of uncertain
+writes and the end of polling when a session expires.
 
 ## Remaining measurement work
 
-Use a deterministic mature workspace with at least 25,000 prepared records and
-a large immutable execution snapshot. Run it in fresh processes on Windows
-and macOS while probing authenticated health and active-job status.
+Run the same fixture on Windows using the measured macOS application build,
+source bytes, mapping and pinned runtime. If the application build has
+changed, run both platforms on the new build. Retain both reports.
 
 Measure cold and warm Overview, Match data, Final review, and Check changes.
 Retain p95 latency, CPU time, working-set growth, registry and workspace-engine
@@ -61,8 +65,8 @@ release evidence. Do not report an unmeasured target as an achieved guarantee.
   owns the implemented local boundaries. The
   [shared-server plan](07-linux-server-postgresql-duckdb-implementation.md)
   owns the future PostgreSQL job and worker migration.
-- Repeat the [macOS save qualification](10-resilient-match-data-saving.md),
-  including concurrent catalogue readers from separate editor identities.
+- The [Match data save qualification](10-resilient-match-data-saving.md)
+  owns concurrent editor saves and the live restart exercise.
 
 ## Regression and completion gates
 

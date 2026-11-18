@@ -408,6 +408,7 @@
 
 .mapping-save-recovery {
   display: flex;
+  justify-content: flex-end;
   gap: .65rem;
   flex-wrap: wrap;
 }
@@ -434,7 +435,10 @@
 
 .mapping-authoring-issues {
   display: flex;
+  flex: 1 0 100%;
   align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: .65rem;
   color: var(--impodo-red-dark);
   font-size: .88rem;

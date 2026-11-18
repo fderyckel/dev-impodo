@@ -15,6 +15,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+from impodo.adapters.duckdb.constants import SCHEMA_GENERATION
+from impodo.adapters.duckdb.schema.data_version_store import DATA_VERSION_STORE_GENERATION
+from impodo.adapters.duckdb.schema.migration_workspace_store import MIGRATION_WORKSPACE_GENERATION
 from impodo.adapters.protected_evidence.credential_vault import MemorySecretStore
 from impodo.web.app import create_local_app
 from impodo.domain.workspace.business_intent import BusinessIntent, BusinessModelIntent, ExpectedCount
@@ -155,7 +158,7 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 context=context,
             )
             fixture_builder = preparation_scale.PreparationWorkflowScaleTests
-            workspace_id, _source_hash, _source_bytes = (
+            workspace_id, source_hash, source_bytes = (
                 fixture_builder._prepare_project_and_evidence(
                     fixture,
                     row_count=PREFLIGHT_SCALE_ROWS,
@@ -280,8 +283,23 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 # plus a small fixture margin; repeated repository calls must
                 # not restore the former per-call connection pattern.
                 self.assertLessEqual(metrics["database_connection_count"], 17)
-                self.assertGreater(metrics["database_schema_check_count"], 0)
-                self.assertLessEqual(metrics["database_schema_check_count"], 4)
+                # Preparation and publication check the Data version as well as
+                # both workspace stores. Each phase must validate its own stores.
+                workspace_checks = {SCHEMA_GENERATION: 1, MIGRATION_WORKSPACE_GENERATION: 1}
+                input_checks = {**workspace_checks, DATA_VERSION_STORE_GENERATION: 1}
+                expected_checks = {
+                    "prepare": input_checks,
+                    "reader": workspace_checks,
+                    "publish": input_checks,
+                }
+                self.assertEqual(
+                    {name: phase["schemas"] for name, phase in metrics["store_phases"].items()},
+                    expected_checks,
+                )
+                self.assertEqual(
+                    metrics["database_schema_check_count"],
+                    sum(sum(checks.values()) for checks in expected_checks.values()),
+                )
                 self.assertEqual(metrics["database_lock_retry_count"], 0)
                 self.assertTrue(metrics["status_completed"])
                 phases = metrics["phases"]
@@ -347,28 +365,48 @@ class DurablePreflightScaleTests(unittest.TestCase):
                 )
                 self.assertLessEqual(
                     routes["compare_start"]["database_connection_count"],
-                    10,
+                    9,
                 )
                 self.assertLessEqual(
                     routes["compare_start"]["database_schema_check_count"],
-                    2,
+                    4,
                 )
                 self.assertLessEqual(
                     routes["summary_action_rich"]["database_connection_count"],
-                    8,
+                    4,
                 )
                 self.assertLessEqual(
                     routes["summary_action_rich"]["database_schema_check_count"],
-                    2,
+                    3,
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_connection_count"],
-                    7,
+                    4,
                 )
                 self.assertLessEqual(
                     routes["load_review"]["database_schema_check_count"],
-                    2,
+                    3,
                 )
+
+            output = os.environ.get("IMPODO_WORKFLOW_LIVENESS_OUTPUT")
+            if output:
+                from tests.performance.workflow_liveness import qualify
+
+                metrics = raw_runs[-1]
+                mapping = context.preparation.mappings.get_mapping_revision(workspace_id)
+                assert mapping is not None
+                fixture_identity = {
+                    "mapping_hash": mapping.definition.content_hash,
+                    "source_hash": source_hash, "source_bytes": source_bytes,
+                    "columns": 3, "mapped_fields": 3, "unchanged": metrics["unchanged"],
+                    "execution_snapshot_hash": metrics["execution_snapshot_hash"],
+                    "execution_snapshot_bytes": metrics["execution_snapshot_bytes"],
+                    "manifest_bytes": metrics["manifest_bytes"],
+                    "comparison_phases": metrics["store_phases"],
+                }
+                qualify(run_root, workspace_id, PREFLIGHT_SCALE_ROWS, fixture_identity, Path(output),
+                        runs=int(os.environ.get("IMPODO_WORKFLOW_LIVENESS_RUNS", "20")))
+
 
             self.assertEqual(
                 len({metrics["result_hash"] for metrics in raw_runs}),
