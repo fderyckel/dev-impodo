@@ -21,7 +21,6 @@ from impodo.domain.mapping.contracts import (
     ValueMapping,
 )
 from impodo.domain.mapping.reference_preparation import (
-    ReferencePart,
     ReferencePreparation,
 )
 from impodo.domain.preflight.comparison_fields import (
@@ -35,7 +34,6 @@ from impodo.domain.preflight.fields_set_aside import (
 )
 from impodo.domain.preflight.original_values import (
     OriginalSourceInput,
-    OriginalSourceTarget,
     OriginalSourceValue,
     OriginalValueState,
 )
@@ -45,6 +43,15 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
+)
+from tests.support.original_coordinates import (
+    source_coordinate as _coord,
+)
+from tests.support.original_coordinates import (
+    source_coordinates as _cells,
+)
+from tests.support.original_coordinates import (
+    source_target as _target,
 )
 
 _HASH = "sha256:" + "a" * 64
@@ -184,7 +191,9 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
         return plan_workbook_original_values(**options)
 
     def assert_proven(self, finding: FieldSetAside, keys: tuple[str, ...]) -> None:
-        self.assertEqual(tuple(item.source_key for item in finding.source_inputs), keys)
+        self.assertEqual(
+            tuple(item.coordinate.source_key for item in finding.source_inputs), keys
+        )
         self.assertTrue(
             all(
                 item.value.state is OriginalValueState.UNAVAILABLE
@@ -195,12 +204,12 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
     def test_saved_scoped_preparation_finding_proves_both_ordered_inputs(self) -> None:
         fields, requests = self.plan(_fields(_finding()))
         self.assert_proven(fields.findings[0], (_KEY, _SCOPE))
-        self.assertEqual(requests[0].cells, ((19, _KEY), (19, _SCOPE)))
+        self.assertEqual(requests[0].cells, _cells(((19, _KEY), (19, _SCOPE))))
         self.assertEqual(
             requests[0].targets,
             (
-                OriginalSourceTarget(19, _KEY, "parent_id", (_KEY, _SCOPE)),
-                OriginalSourceTarget(19, _SCOPE, "parent_id", (_KEY, _SCOPE)),
+                _target(19, _KEY, "parent_id", (_KEY, _SCOPE)),
+                _target(19, _SCOPE, "parent_id", (_KEY, _SCOPE)),
             ),
         )
         self.assertEqual(self.sources.calls, ["selection", "snapshots"])
@@ -232,7 +241,10 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
                 self.assertTrue(planned.findings[0].comparison_issue)
                 self.assert_proven(planned.findings[0], (_KEY, _SCOPE))
                 self.assertEqual(
-                    {target.input_keys for target in requests[0].targets},
+                    {
+                        tuple(cell.source_key for cell in target.input_coordinates)
+                        for target in requests[0].targets
+                    },
                     {(_KEY, _SCOPE)},
                 )
 
@@ -261,7 +273,8 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
         self.assertEqual(len(requests[0].cells), 3)
         self.assertTrue(
             all(
-                target.input_keys == relationship.source_column_keys
+                tuple(cell.source_key for cell in target.input_coordinates)
+                == relationship.source_column_keys
                 for target in requests[0].targets
             )
         )
@@ -281,7 +294,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
             _finding(),
             source_inputs=tuple(
                 OriginalSourceInput(
-                    key,
+                    _coord(19, key),
                     OriginalSourceValue.from_cell(
                         EncodedSourceCell.from_python("Private value")
                     ),
@@ -368,9 +381,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
         )
         self.assertEqual(fields.findings[0].source_inputs, ())
         self.assert_proven(fields.findings[1], (_KEY,))
-        self.assertEqual(
-            requests[0].targets, (OriginalSourceTarget(19, _KEY, "name", (_KEY,)),)
-        )
+        self.assertEqual(requests[0].targets, (_target(19, _KEY, "name", (_KEY,)),))
         self.assertEqual(self.sources.calls, ["selection", "snapshots"])
 
     def test_shared_key_does_not_mix_target_scopes_or_duplicate_physical_reads(
@@ -398,17 +409,17 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
         self.assertEqual(len(requests[0].targets), 4)
         self.assertEqual(
             {
-                target.input_keys
+                tuple(cell.source_key for cell in target.input_coordinates)
                 for target in requests[0].targets
-                if target.target_field == "parent_id"
+                if target.occurrence.target_field == "parent_id"
             },
             {(_KEY, _SCOPE)},
         )
         self.assertEqual(
             {
-                target.input_keys
+                tuple(cell.source_key for cell in target.input_coordinates)
                 for target in requests[0].targets
-                if target.target_field == second.target_field
+                if target.occurrence.target_field == second.target_field
             },
             {(_KEY, _THIRD)},
         )
@@ -454,7 +465,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
                     resolver,
                     key_mappings=(
                         ReferenceKeyMapping(
-                            _KEY, "ref", ReferencePreparation(formula="upper(value)")
+                            _KEY, "ref", ReferencePreparation(formula="value +")
                         ),
                     ),
                 ),
@@ -467,9 +478,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
                         ReferenceKeyMapping(
                             _SCOPE,
                             "company_id",
-                            ReferencePreparation(
-                                parts=(ReferencePart(source_column_key=_SCOPE),)
-                            ),
+                            ReferencePreparation(formula="concat(value, column_7)"),
                         ),
                     ),
                 ),
@@ -514,9 +523,12 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
             _fields(_finding(keys=(_KEY,))),
             mappings=(replace(self.mapping, relationships=(relationship,)),),
         )
-        self.assertEqual(fields.findings[0].source_inputs, ())
-        self.assertEqual(requests, ())
-        self.assertEqual(self.sources.calls, [])
+        self.assert_proven(fields.findings[0], (_KEY,))
+        self.assertEqual(requests[0].cells, _cells(((19, _KEY),)))
+        self.assertEqual(
+            requests[0].targets, (_target(19, _KEY, "parent_id", (_KEY,)),)
+        )
+        self.assertEqual(self.sources.calls, ["selection", "snapshots"])
 
     def test_derived_effective_sources_do_not_authorize_scoped_physical_cells(
         self,
@@ -539,7 +551,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
             _finding(),
             source_inputs=tuple(
                 OriginalSourceInput(
-                    key,
+                    _coord(19, key),
                     OriginalSourceValue.from_cell(
                         EncodedSourceCell.from_python("Private value")
                     ),
@@ -560,7 +572,7 @@ class ScopedOriginalValuePlanTests(unittest.TestCase):
             _finding(),
             source_inputs=tuple(
                 OriginalSourceInput(
-                    key,
+                    _coord(19, key),
                     OriginalSourceValue.from_cell(
                         EncodedSourceCell.from_python("Previous value")
                     ),

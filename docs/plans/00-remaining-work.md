@@ -74,10 +74,6 @@ does not override this list.
     browser recovery, and collect reproducible supported-platform evidence.
     Keep the separate 100,000-row mixed and related expansion deferred until
     real migration demand justifies it.
-8. **Close [Match data ordering qualification](12-smart-match-data-ordering.md).**
-    The implemented ordering is useful, but the remaining work is primarily
-    documentation, visual acceptance, and measurement. Do not redesign the
-    algorithm without evidence of a data-manager problem.
 
 Each plan retains its safety gates. This order does not authorize an external
 write, live customer-data exercise, deferred Production operation, or remote

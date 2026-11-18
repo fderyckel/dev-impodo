@@ -70,100 +70,177 @@ class OriginalSourceValue:
         return self.cell.text if self.cell is not None else None
 
 
+@dataclass(frozen=True, slots=True, order=True)
+class OriginalSourceCoordinate:
+    """Identify one exact accepted physical file cell, independently of its use."""
+
+    dataset_id: str
+    dataset: str
+    source_row: int
+    source_key: str
+
+    def __post_init__(self) -> None:
+        if any(
+            not isinstance(value, str) or not value.strip()
+            for value in (self.dataset_id, self.dataset, self.source_key)
+        ):
+            raise ValueError(
+                "Original source coordinates require physical dataset and column identities"
+            )
+        if type(self.source_row) is not int or self.source_row < 1:
+            raise ValueError(
+                "Original source coordinates require a positive physical row"
+            )
+
+
 @dataclass(frozen=True, slots=True)
 class OriginalSourceInput:
     """One proven physical input and its independently available original value."""
 
-    source_key: str
+    coordinate: OriginalSourceCoordinate
     value: OriginalSourceValue
 
     def __post_init__(self) -> None:
-        if not isinstance(self.source_key, str) or not self.source_key.strip():
-            raise ValueError("Original source input requires a source key")
+        if not isinstance(self.coordinate, OriginalSourceCoordinate):
+            raise TypeError(
+                "Original source input requires a typed physical coordinate"
+            )
         if not isinstance(self.value, OriginalSourceValue):
             raise TypeError("Original source input requires typed value evidence")
 
 
 @dataclass(frozen=True, slots=True, order=True)
-class OriginalSourceTarget:
-    """Authorize one cell for one target and its complete ordered input cohort."""
+class OriginalSourceOccurrence:
+    """Bind an original cohort to one saved logical field occurrence and trace."""
 
+    dataset: str
     source_row: int
-    source_key: str
     target_field: str
-    input_keys: tuple[str, ...]
+    source_keys: tuple[str, ...]
+    source_trace_id: str = ""
 
     def __post_init__(self) -> None:
-        if not isinstance(self.input_keys, tuple):
-            raise TypeError("Original source target input keys must be immutable")
-        if type(self.source_row) is not int or self.source_row < 1:
-            raise ValueError("Original source target requires a positive physical row")
-        if not isinstance(self.target_field, str) or not self.target_field.strip():
-            raise ValueError("Original source target requires a target field")
-        if (
-            not self.input_keys
-            or len(set(self.input_keys)) != len(self.input_keys)
-            or any(
-                not isinstance(key, str) or not key.strip() for key in self.input_keys
-            )
-            or self.source_key not in self.input_keys
+        if any(
+            not isinstance(value, str) or not value.strip()
+            for value in (self.dataset, self.target_field)
         ):
             raise ValueError(
-                "Original source target requires its complete ordered input keys"
+                "Original source occurrence requires logical dataset and target field"
             )
+        if type(self.source_row) is not int or self.source_row < 1:
+            raise ValueError(
+                "Original source occurrence requires a positive logical row"
+            )
+        if not isinstance(self.source_keys, tuple) or any(
+            not isinstance(key, str) or not key.strip() for key in self.source_keys
+        ):
+            raise TypeError(
+                "Original source occurrence requires immutable saved source keys"
+            )
+        if not isinstance(self.source_trace_id, str):
+            raise TypeError(
+                "Original source occurrence requires a saved trace identifier"
+            )
+
+
+@dataclass(frozen=True, slots=True, order=True)
+class OriginalSourceTarget:
+    """Authorize one physical cell for an occurrence's complete ordered cohort."""
+
+    occurrence: OriginalSourceOccurrence
+    coordinate: OriginalSourceCoordinate
+    input_coordinates: tuple[OriginalSourceCoordinate, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.occurrence, OriginalSourceOccurrence):
+            raise TypeError(
+                "Original source target requires a typed logical occurrence"
+            )
+        if not isinstance(self.coordinate, OriginalSourceCoordinate):
+            raise TypeError(
+                "Original source target requires a typed physical coordinate"
+            )
+        if not isinstance(self.input_coordinates, tuple):
+            raise TypeError(
+                "Original source target requires immutable input coordinates"
+            )
+        if not self.input_coordinates:
+            raise ValueError(
+                "Original source target requires its complete ordered physical cohort"
+            )
+        # The request validates each shared cohort once. Scanning all components
+        # here for every aggregate-row target would make construction quadratic.
+
+    def __hash__(self) -> int:
+        # Cohorts can span many aggregate rows; hashing each full cohort for
+        # every authorized component would otherwise be quadratic.
+        return hash((self.occurrence, self.coordinate))
 
 
 @dataclass(frozen=True, slots=True)
 class OriginalSourceRequest:
-    """A bounded set of physical file inputs for complete proven field outcomes."""
+    """A bounded physical snapshot projection with cross-snapshot authorizations.
+
+    Each request validates its own snapshot. The complete ordered cohort may
+    span snapshots; the artifact adapter validates global target completeness
+    before it reads any values.
+    """
 
     snapshot: SourceSnapshot
-    dataset: str
-    cells: tuple[tuple[int, str], ...]
+    cells: tuple[OriginalSourceCoordinate, ...]
     targets: tuple[OriginalSourceTarget, ...]
 
     def __post_init__(self) -> None:
         if not isinstance(self.cells, tuple) or not isinstance(self.targets, tuple):
             raise TypeError(
-                "Original source requests must use immutable coordinates and targets"
+                "Original source requests must use immutable cells and targets"
             )
         if self.snapshot.source.origin is not SourceOriginKind.FILE:
             raise ValueError("Workbook originals require a file source snapshot")
-        if self.dataset != self.snapshot.dataset_name:
-            raise ValueError("Original source dataset does not match its snapshot")
-        keys = {column.stable_key for column in self.snapshot.schema.columns}
-        if not self.cells or len(set(self.cells)) != len(self.cells):
-            raise ValueError("Original source requests require distinct source cells")
-        if any(
-            type(row) is not int or row < 1 or key not in keys
-            for row, key in self.cells
-        ):
-            raise ValueError("Original source coordinates are not in the snapshot")
+        if any(not isinstance(cell, OriginalSourceCoordinate) for cell in self.cells):
+            raise TypeError("Original source requests require typed physical cells")
         if any(not isinstance(target, OriginalSourceTarget) for target in self.targets):
             raise TypeError(
                 "Original source requests require typed target authorization"
             )
+        cohorts: dict[int, frozenset[OriginalSourceCoordinate]] = {}
+        for target in self.targets:
+            cohort_id = id(target.input_coordinates)
+            if cohort_id not in cohorts:
+                if any(
+                    not isinstance(item, OriginalSourceCoordinate)
+                    for item in target.input_coordinates
+                ):
+                    raise TypeError(
+                        "Original source target requires typed input coordinates"
+                    )
+                components = frozenset(target.input_coordinates)
+                if len(components) != len(target.input_coordinates):
+                    raise ValueError(
+                        "Original source targets require distinct input coordinates"
+                    )
+                cohorts[cohort_id] = components
+            if target.coordinate not in cohorts[cohort_id]:
+                raise ValueError(
+                    "Original source target must belong to its complete cohort"
+                )
+        keys = {column.stable_key for column in self.snapshot.schema.columns}
+        if not self.cells or len(set(self.cells)) != len(self.cells):
+            raise ValueError("Original source requests require distinct physical cells")
+        if any(
+            cell.dataset_id != self.snapshot.dataset_id
+            or cell.dataset != self.snapshot.dataset_name
+            or cell.source_key not in keys
+            for cell in self.cells
+        ):
+            raise ValueError(
+                "Original source coordinates do not match the physical snapshot"
+            )
         if (
             not self.targets
             or len(set(self.targets)) != len(self.targets)
-            or {(target.source_row, target.source_key) for target in self.targets}
-            != set(self.cells)
-            or any(
-                key not in keys for target in self.targets for key in target.input_keys
-            )
+            or {target.coordinate for target in self.targets} != set(self.cells)
         ):
             raise ValueError(
-                "Original source requests require proven physical target inputs"
-            )
-        authorized = set(self.targets)
-        if any(
-            OriginalSourceTarget(
-                target.source_row, key, target.target_field, target.input_keys
-            )
-            not in authorized
-            for target in self.targets
-            for key in target.input_keys
-        ):
-            raise ValueError(
-                "Original source requests must authorize every input of each target"
+                "Original source requests require exact physical target inputs"
             )

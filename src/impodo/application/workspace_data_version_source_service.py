@@ -22,6 +22,10 @@ from impodo.application.data_version.source_packages import (
     WorkspaceSourceProjectionService,
     source_column_contract_hash,
 )
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.domain.project.foundation import MigrationFoundationError
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.contracts import SourceConfiguration, SourceSelection
@@ -59,6 +63,8 @@ class WorkspaceDataVersionSourceService:
         packages: DataVersionSourcePackageService,
         projections: WorkspaceSourceProjectionService,
         source_workspace: FileSelectionFreezer,
+        *,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.workspace_states = workspace_states
         self.workspace_sources = workspace_sources
@@ -67,6 +73,7 @@ class WorkspaceDataVersionSourceService:
         self.packages = packages
         self.projections = projections
         self.source_workspace = source_workspace
+        self._run_local = local_operation or direct_local_operation
         self._file_selection_lock = RLock()
 
     def finalize_file_selection(
@@ -84,11 +91,13 @@ class WorkspaceDataVersionSourceService:
         """
 
         with self._file_selection_lock:
-            workspace = self.migration_workspaces.get(workspace_id, actor=actor)
-            package = self.packages.repository.get_source_package(
-                workspace.data_version_id
-            )
-            if package is not None and package.state is SourcePackageState.FROZEN:
+            def existing_projection() -> WorkspaceSourceProjection | None:
+                workspace = self.migration_workspaces.get(workspace_id, actor=actor)
+                package = self.packages.repository.get_source_package(
+                    workspace.data_version_id
+                )
+                if package is None or package.state is not SourcePackageState.FROZEN:
+                    return None
                 selection = self.workspace_sources.get_source_selection(workspace_id)
                 if selection is None:
                     raise MigrationFoundationError(
@@ -100,11 +109,12 @@ class WorkspaceDataVersionSourceService:
                         "DataVersion to change its selected datasets"
                     )
                 return self._materialize_projection(
-                    workspace_id,
-                    selection,
-                    package,
-                    actor=actor,
+                    workspace_id, selection, package, actor=actor,
                 )
+
+            projected = self._run_local(existing_projection)
+            if projected is not None:
+                return projected
 
             selection = self.source_workspace.freeze_selection(
                 workspace_id,
@@ -125,6 +135,19 @@ class WorkspaceDataVersionSourceService:
         actor: Actor,
     ) -> WorkspaceSourceProjection:
         """Freeze canonical package evidence without copying source artifacts."""
+
+        return self._run_local(
+            lambda: self._accept_file_selection(workspace_id, selection, actor=actor)
+        )
+
+    def _accept_file_selection(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        *,
+        actor: Actor,
+    ) -> WorkspaceSourceProjection:
+        """Publish canonical metadata in one local phase after artifact work."""
 
         workspace = self.migration_workspaces.get(workspace_id, actor=actor)
         data_version = self.data_versions.get(workspace.data_version_id, actor=actor)

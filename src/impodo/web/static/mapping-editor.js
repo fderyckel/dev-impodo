@@ -239,9 +239,6 @@ document.addEventListener("DOMContentLoaded", () => {
     const saveStatus = mappingForm.querySelector(
       "[data-mapping-save-status]"
     );
-    const nextRecommendedTable = mappingForm.querySelector(
-      "[data-next-recommended-table]"
-    );
     const confirmMapping = mappingForm.querySelector("[data-confirm-mapping]");
     let dirty = false;
     let submitting = false;
@@ -305,6 +302,7 @@ document.addEventListener("DOMContentLoaded", () => {
         return window.impodoMappingJourney?.committed?.(operation, payload);
       },
       hasNewerEdits: (operation) => operation.editGeneration !== editGeneration,
+      currentEntries: (action) => sparseMappingEntries(action),
       setDirty: (value) => {
         dirty = value;
       },
@@ -312,13 +310,11 @@ document.addEventListener("DOMContentLoaded", () => {
     getState = () => ({ dirty, busy: submitting || saveRecovery.hasUnresolvedOperation() });
     cancelPendingContinuation = () => window.impodoMappingJourney?.cancelContinuation?.(activeOperation);
 
-    const stopSubmitting = (failureMessage, statusMessage) => {
+    const reportInterruptedSubmit = (failureMessage, statusMessage) => {
       if (!submitting) {
         return;
       }
-      submitting = false;
       window.impodoMappingJourney?.cancelContinuation?.(activeOperation);
-      mappingForm.removeAttribute("aria-busy");
       saveRecovery.showFailure(failureMessage);
       if (saveStatus) {
         saveStatus.textContent = statusMessage;
@@ -327,13 +323,13 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     document.addEventListener("impodo:server-disconnected", () => {
-      stopSubmitting(
+      reportInterruptedSubmit(
         "Impodo stopped responding before it confirmed this action. Keep this tab open. When Impodo responds again, check the save outcome before retrying.",
         "Save outcome unknown. Wait for Impodo, then check before retrying."
       );
     });
     document.addEventListener("impodo:session-ended", () => {
-      stopSubmitting(
+      reportInterruptedSubmit(
         "This Impodo session ended before it confirmed this action. Keep this tab open and copy any unsaved changes to the most recently opened Impodo tab.",
         "Session ended. This save was not confirmed."
       );
@@ -387,9 +383,6 @@ document.addEventListener("DOMContentLoaded", () => {
         saveStatus.textContent = "Unsaved changes.";
         saveStatus.classList.add("unsaved");
       }
-      if (nextRecommendedTable) {
-        nextRecommendedTable.hidden = true;
-      }
       if (confirmMapping) {
         confirmMapping.disabled = true;
         confirmMapping.title = "Check the latest changes before confirming.";
@@ -415,9 +408,9 @@ document.addEventListener("DOMContentLoaded", () => {
         : "Save progress before checking these choices. Your edits are still on this page.");
     });
 
-    const sparseMappingEntries = (submitter) => {
+    const sparseMappingEntries = (action) => {
       const data = new FormData(mappingForm);
-      data.set("action", submitter?.value || "");
+      data.set("action", action);
       for (const row of mappingForm.querySelectorAll(
         "[data-scalar-mapping-row]"
       )) {
@@ -517,7 +510,7 @@ document.addEventListener("DOMContentLoaded", () => {
         action,
         choosesOdooDefault,
         changesDisposition: changesFieldDisposition,
-        entries: sparseMappingEntries(event.submitter),
+        entries: sparseMappingEntries(action),
         journeyContinuation: window.impodoMappingJourney?.continuationFor?.(event.submitter),
       });
       activeOperation = operation;
@@ -552,7 +545,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!mappingSaveUrl) {
           throw new Error("The mapping save URL is missing.");
         }
-        const response = await saveRecovery.fetchSave(
+        const { ok, payload } = await saveRecovery.fetchSave(
           mappingSaveUrl,
           {
             method: "POST",
@@ -564,8 +557,7 @@ document.addEventListener("DOMContentLoaded", () => {
             body: JSON.stringify({ entries: operation.entries }),
           }
         );
-        const payload = await saveRecovery.responseJson(response);
-        if (!response.ok) {
+        if (!ok) {
           if (payload.status) {
             saveRecovery.applyMutationOutcome(payload, operation);
           } else {

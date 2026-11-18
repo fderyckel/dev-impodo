@@ -44,12 +44,15 @@ matches remain separate actions.
    not apply. Select a table card to revisit a table and **Change table
    order** when you need a different working sequence.
 3. **Check and resolve.** Select **Check matches** after completing the table
-   choices. Correct the listed decisions using their field links, then return
-   to the checks. **Go to issue** reveals a formula even when another task is
-   visible. Detailed counts and required-field coverage remain under
-   **Review required values and check details**.
-4. **Confirm matches.** Review included and excluded rows. When a rule excludes
-   rows, select **Confirm N rows to use** for the checked selection. Review any
+   choices. If a field or link needs attention, Impodo opens the list at the
+   first correction. Use its link, make the correction and check again.
+   **Go to issue** reveals a formula even when another task is visible.
+   Detailed counts remain under **Review required values and check details**.
+4. **Confirm matches.** Impodo opens this step when your matches are ready.
+   If exclusions need your confirmation or a row could not be checked, Impodo takes you
+   directly to **Checked source rows**. Select **Review rows** to inspect the
+   result. When you accept the exclusions, select **Confirm N rows to use**.
+   Correct any rows that could not be checked and run the check again. Review any
    required warnings, then select **Confirm field matches** to continue to
    Prepare data. Optional Excel review, rule effects, and business checks are
    available here. Opening this step does not confirm or approve anything.
@@ -528,6 +531,8 @@ edits first. Open **Change table order** to see
 **Recommended matching order**, the reasons for that order, and the reordering
 controls.
 
+![Categories come first because the products table uses them for its Category field.](../../images/user/stage3-order-recommendation.png)
+
 Grey cards show **To do** or **In progress**. A green tick and **Ready to check**
 mean the table's required identity, field, and linked-value choices are saved.
 Red **Needs attention** points to an issue found in those choices. An outline
@@ -543,10 +548,10 @@ Impodo does not yet know a dependency and keeps the stable source-table order.
 
 After saving the current matching choices, select **Check identities and
 update suggestion** when you want Impodo to refine that advice against the current
-Odoo data. This is an explicit, read-only check. Impodo reads only the exact
-governed relationship keys required by the saved draft and shows aggregate
-counts. Protected values are available only through the authorized review
-actions; numeric Odoo record IDs are absent from those pages.
+Odoo data. Impodo checks the record identifiers and linked values from your
+saved choices and shows how many it could match. You can leave and reopen the
+table while the check runs. Your selected table and task stay in place. If you
+make edits while waiting, finish those edits before reloading the result.
 
 **Current** means the result still matches the saved source selection, Odoo
 schema, business-key governance, target, read access, and working draft.
@@ -558,20 +563,21 @@ unchecked relationships keep the supporting table first. If Odoo reports a
 schema change, return to **Odoo data** before relying on a new suggestion.
 
 The check does not rearrange a saved custom sequence. Select **Apply
-recommendation** to replace that sequence deliberately. If a check fails or
-Impodo restarts, the previous result and custom sequence remain unchanged; fix
-the read connection if needed and start the check again.
+recommendation** to use the suggestion you reviewed. If a retry fails, the
+panel shows the reason alongside the last completed result. Follow the
+message and run the check again.
 
-After **Save progress**, select **Next recommended table** when another table
-still needs its minimum identity choices.
+![The partial result shows one checked and one unchecked relationship. Apply recommendation is available below the counts while products is still first.](../../images/user/stage3-order-partial-coverage.png)
 
-To use your own working sequence, select **Reorder tables**. Drag a table, or
-use **Move up** and **Move down** when you prefer buttons or a keyboard. Select
-**Save table order** to keep the sequence in this workspace. **Custom order**
+To use your own working sequence, select **Reorder tables**. Drag a table and
+select **Save table order**. With a keyboard, use **Move up** or **Move down**.
+Each button saves that move immediately. **Custom order**
 then identifies your saved choice. If it places a table before one that it
 refers to, Impodo shows an amber explanation but still allows the choice.
 Select **Use Impodo order** to remove the custom sequence and restore the
 current recommendation.
+
+![The custom order puts products first. The warning explains why Impodo recommends matching categories first.](../../images/user/stage3-order-custom-order-warning.png)
 
 If the source-table set changes, Impodo keeps the relative order of tables
 that still exist, removes absent tables, and adds new tables after them. The
@@ -1388,7 +1394,10 @@ instead of repeating the save.
 
 The bottom message distinguishes these outcomes:
 
-- **Saved** means Impodo found the committed draft or checked version.
+- **Saved** means Impodo found the committed draft or checked version. For a
+  current match check it opens the same correction, row review or confirmation
+  you would have seen after the original click. If you edited the form while
+  waiting, those edits stay on screen for you to save.
 - **Not saved** means the operation did not reach Impodo or was rejected. Your
   values remain on the page, so correct the displayed problem and try again.
 - **Conflict** means another tab saved a newer version. Impodo does not apply
@@ -1396,6 +1405,10 @@ The bottom message distinguishes these outcomes:
   reapply only the choices that are still needed.
 - **Save outcome unknown** means Impodo cannot yet prove either outcome. Keep
   the tab open, do not repeat the action, and select **Check save outcome**.
+
+If the earlier check finished but the matching choices have since changed,
+select **Copy my edits** if needed, then **Reload saved version** to review
+the current matches.
 
 If Impodo saved the field matches but could not finish checking **Rows to
 use**, it keeps the saved version and shows the row-check problem. Correct that

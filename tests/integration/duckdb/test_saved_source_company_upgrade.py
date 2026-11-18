@@ -25,6 +25,7 @@ class SavedSourceCompanyUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE mapping_validation_current")
             connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("UPDATE schema_version SET version = 6")
@@ -69,7 +70,7 @@ class SavedSourceCompanyUpgradeTests(unittest.TestCase):
             )
             self.assertEqual(
                 connection.execute("SELECT * FROM schema_migration").fetchall(),
-                [(6, 7, "saved-odoo-source-company-v7"), (7, 8, "private-operator-errors-v8")],
+                [(6, 7, "saved-odoo-source-company-v7"), (7, 8, "private-operator-errors-v8"), (8, 9, "current-mapping-validation-v9")],
             )
             self.assertIsNone(read_saved_source_company(connection))
 

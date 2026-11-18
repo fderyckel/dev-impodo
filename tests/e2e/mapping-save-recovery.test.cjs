@@ -10,7 +10,7 @@ const source = readFileSync(
   "utf8"
 );
 
-function editor(outcomes, waitMs = 1000, inlineReview = true) {
+function editor(outcomes, waitMs = 1000, inlineReview = true, options = {}) {
   const elements = new Map();
   const element = (selector) => {
     if (!elements.has(selector)) {
@@ -20,7 +20,7 @@ function editor(outcomes, waitMs = 1000, inlineReview = true) {
         parentElement: { hidden: true },
         classList: { add() {}, remove() {} },
         focus() {},
-        addEventListener() {},
+        addEventListener(event, fn) { this[event] = fn; },
       });
     }
     return elements.get(selector);
@@ -31,12 +31,16 @@ function editor(outcomes, waitMs = 1000, inlineReview = true) {
   const navigations = [];
   const events = [];
   const accepted = [];
-  const window = { setTimeout, clearTimeout };
+  const copies = [];
+  const requests = [];
+  const window = { setTimeout, clearTimeout, location: { href: "https://impodo.test/mapping" } };
   vm.runInNewContext(source, {
     window, AbortController,
     document: { dispatchEvent: (event) => { events.push(event); return !inlineReview; } },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
-    fetch: async () => {
+    navigator: { clipboard: { writeText: async (value) => { copies.push(JSON.parse(value)); } } },
+    fetch: async (url, request) => {
+      requests.push([request.method, url]);
       const outcome = outcomes[Math.min(calls++, outcomes.length - 1)];
       if (outcome instanceof Error) throw outcome;
       return { ok: true, text: async () => JSON.stringify(outcome) };
@@ -56,9 +60,11 @@ function editor(outcomes, waitMs = 1000, inlineReview = true) {
     navigateToMappingResult: (url) => navigations.push(url),
     setDirty: (value) => { dirty = value; },
     onCommitted: (operation) => accepted.push(operation),
+    hasNewerEdits: () => Boolean(options.newerEdits),
+    currentEntries: options.currentEntries,
   });
   return {
-    recovery, element, navigations, events, accepted,
+    recovery, element, navigations, events, accepted, copies, requests,
     get calls() { return calls; },
     get dirty() { return dirty; },
     get versions() { return versions; },
@@ -86,6 +92,58 @@ test("a transient receipt failure keeps waiting and applies the saved versions",
   assert.deepEqual(page.navigations, [committed.redirect_url]);
   assert.equal(page.element("[data-mapping-save-outcome]").hidden, true);
   assert.deepEqual(page.accepted, [operation]);
+});
+
+test("a lost check response and a direct response open the same saved decision once", async () => {
+  for (const url of [
+    "/mapping?step=confirm#confirm-matches",
+    "/mapping?step=check#next-step-blockers",
+    "/mapping?step=confirm#rows-to-use-review",
+  ]) {
+    const result = { ...committed, redirect_url: url };
+    const direct = editor([]);
+    direct.recovery.applyMutationOutcome(result, operation);
+    const recovered = editor([{ status: "pending" }, result]);
+    const pending = recovered.recovery.resolveMutationOutcome(operation);
+    await new Promise(setImmediate);
+    assert.equal(recovered.element("status").textContent, "Still checking matches...");
+    await pending;
+    assert.deepEqual(direct.navigations, [url]);
+    assert.deepEqual(recovered.navigations, [url]);
+    assert.deepEqual(recovered.requests, Array(2).fill(["GET", "/mapping/mutation-receipts/check-1"]));
+  }
+});
+
+test("a check that finishes during a new edit leaves the edited form open", async () => {
+  const page = editor([committed], 1000, true, { newerEdits: true });
+  await page.recovery.resolveMutationOutcome(operation);
+  assert.equal(page.dirty, true);
+  assert.deepEqual(page.navigations, []);
+  assert.match(page.element("status").textContent, /newer edits/);
+});
+
+test("a superseded check preserves edits and copies the current form before explicit reload", async () => {
+  const reload = "/mapping?step=check";
+  const result = { ...committed, follow_up_status: "superseded",
+    message: "The saved check has changed.", recovery: { reload_url: reload } };
+  let currentValue = "Submitted";
+  const page = editor([result], 1000, true, {
+    newerEdits: true,
+    currentEntries: (action) => [["action", action], ["field", currentValue], ["csrf_token", "restricted"]],
+  });
+  const submitted = page.recovery.createOperation({ action: "draft", entries: [["field", currentValue]] });
+  result.operation_id = submitted.operationId;
+  currentValue = "Newer edit";
+  assert.equal(await page.recovery.resolveMutationOutcome(submitted), "conflict");
+  assert.deepEqual(page.navigations, []);
+  assert.equal(page.versions, undefined);
+  assert.equal(page.dirty, true);
+  assert.equal(page.recovery.hasUnresolvedOperation(), true);
+  assert.equal(page.element("[data-mapping-conflict-recovery]").hidden, false);
+  await page.element("[data-copy-mapping-edits]").click();
+  assert.deepEqual(page.copies[0].entries, [["action", "draft"], ["field", "Newer edit"]]);
+  page.element("[data-reload-saved-mapping]").click();
+  assert.deepEqual(page.navigations, [reload]);
 });
 
 test("an outage reaches the deadline, retains edits, and prevents another write", async () => {

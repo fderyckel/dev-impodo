@@ -28,8 +28,11 @@ class FieldSetAside:
 
     Comparison issues require relationship-specific proof before an original
     value may be requested; preparation findings can also use scalar providers.
-    Nonempty source inputs describe one complete proven physical input group.
-    Empty inputs retain an unproven field finding rather than invented cells.
+    Source keys retain saved lineage, including unused preparation anchors.
+    Nonempty source inputs identify the complete contributing physical cells,
+    including other source datasets and rows. Empty inputs with known coverage
+    identify a recorded outcome without a source cell; otherwise geometry is
+    unproven. The saved trace disambiguates repeated logical row numbers.
     """
 
     reason: FieldSetAsideReason
@@ -40,18 +43,29 @@ class FieldSetAside:
     detail: str
     source_inputs: tuple[OriginalSourceInput, ...] = ()
     comparison_issue: bool = False
+    source_trace_id: str = ""
+    source_inputs_known: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_inputs, tuple):
             raise TypeError("Original source inputs must be immutable")
-        if any(not isinstance(item, OriginalSourceInput) for item in self.source_inputs):
-            raise TypeError("Original source inputs require typed input evidence")
-        if self.source_inputs and (
-            self.source_row is None
-            or tuple(item.source_key for item in self.source_inputs) != self.source_keys
-            or len(set(self.source_keys)) != len(self.source_keys)
+        if any(
+            not isinstance(item, OriginalSourceInput) for item in self.source_inputs
         ):
-            raise ValueError("Original inputs must describe the complete ordered source cohort")
+            raise TypeError("Original source inputs require typed input evidence")
+        if not isinstance(self.source_trace_id, str):
+            raise TypeError("Original source findings require a saved trace identifier")
+        if type(self.source_inputs_known) is not bool:
+            raise TypeError("Original source input coverage must be a boolean")
+        if self.source_inputs and not self.source_inputs_known:
+            object.__setattr__(self, "source_inputs_known", True)
+        coordinates = tuple(item.coordinate for item in self.source_inputs)
+        if coordinates and (
+            self.source_row is None or len(set(coordinates)) != len(coordinates)
+        ):
+            raise ValueError(
+                "Original inputs require distinct physical coordinates and a logical row"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,8 +90,21 @@ _PREPARATION_REASONS = {
     "SOURCE_TYPE_INVALID": FieldSetAsideReason.INVALID,
     "SOURCE_IDENTITY_INVALID": FieldSetAsideReason.INVALID,
     "SOURCE_FORMULA_INVALID": FieldSetAsideReason.INVALID,
+    "REFERENCE_PREPARATION_INVALID": FieldSetAsideReason.INVALID,
     "SOURCE_SELECTION_RULE_SOURCE_INVALID": FieldSetAsideReason.INVALID,
     "SOURCE_RULE_OUTPUT_TOO_LONG": FieldSetAsideReason.INVALID,
+    "SOURCE_CONCATENATION_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_SELECTION_RULE_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_DECIMAL_ROUNDING_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_PATTERN_INPUT_TOO_LONG": FieldSetAsideReason.INVALID,
+    "SOURCE_PATTERN_MISMATCH": FieldSetAsideReason.INVALID,
+    "SOURCE_REPLACEMENT_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_TEXT_LENGTH_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_TEXT_SEGMENT_INVALID": FieldSetAsideReason.INVALID,
+    "SOURCE_VALUE_RULE_INVALID": FieldSetAsideReason.INVALID,
+    "REFERENCE_POLICY_MISSING": FieldSetAsideReason.INVALID,
+    "REFERENCE_INPUT_MISSING": FieldSetAsideReason.INVALID,
+    "REFERENCE_OUTPUT_MISSING": FieldSetAsideReason.INVALID,
     "SOURCE_FIELD_MISSING": FieldSetAsideReason.MISSING,
     "SOURCE_REQUIRED_VALUE_MISSING": FieldSetAsideReason.MISSING,
     "SOURCE_CONCATENATION_PART_BLANK": FieldSetAsideReason.MISSING,
@@ -149,7 +176,11 @@ def field_set_aside_evidence(
     for dataset, keys in sorted((column_exclusions or {}).items()):
         findings.extend(
             FieldSetAside(
-                FieldSetAsideReason.EXCLUDED, dataset, None, (key,), "",
+                FieldSetAsideReason.EXCLUDED,
+                dataset,
+                None,
+                (key,),
+                "",
                 "The saved mapping deliberately leaves this source column unmapped.",
             )
             for key in sorted(set(keys))
@@ -170,7 +201,13 @@ def field_set_aside_evidence(
                     keys = (issue.field,)
                 findings.append(
                     FieldSetAside(
-                        reason, row.dataset, row.source_row, keys, target, issue.message
+                        reason,
+                        row.dataset,
+                        row.source_row,
+                        keys,
+                        target,
+                        issue.message,
+                        source_trace_id=row.row_id,
                     )
                 )
 
@@ -180,15 +217,22 @@ def field_set_aside_evidence(
         source_keys=source_keys,
         null_omissions=null_omissions,
         upsert_datasets=frozenset(
-            dataset.name for dataset in plan.datasets if dataset.target.mode in {"upsert", "update"}
+            dataset.name
+            for dataset in plan.datasets
+            if dataset.target.mode in {"upsert", "update"}
         ),
         target_models={dataset.name: dataset.target.model for dataset in plan.datasets},
         coverage_gaps=(
-            *(("Choices to leave source columns unmapped are not recorded.",)
-              if column_exclusions is None else (
-                  ("Only explicitly saved column exclusions are covered; "
-                   "earlier unsaved choices cannot be recovered."),
-              )),
-            "Original source values for prepared or derived references and unsupported combinations remain unavailable.",
+            *(
+                ("Choices to leave source columns unmapped are not recorded.",)
+                if column_exclusions is None
+                else (
+                    (
+                        "Only explicitly saved column exclusions are covered; "
+                        "earlier unsaved choices cannot be recovered."
+                    ),
+                )
+            ),
+            "Original source values remain unavailable where saved field dependencies or physical source coordinates cannot be verified.",
         ),
     )

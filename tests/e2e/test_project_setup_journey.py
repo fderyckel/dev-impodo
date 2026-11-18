@@ -279,7 +279,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Saved source tables", saved_datasets.text)
         self.assertIn('id="tables-ready"', saved_datasets.text)
         self.assertIn("Tables ready for the next step", saved_datasets.text)
-        self.assertIn("Choose Odoo data", saved_datasets.text)
+        self.assertIn("Continue to Odoo data", saved_datasets.text)
         self.assertNotIn('name="dataset_name_0"', saved_datasets.text)
         self.assertNotIn("Save tables for this data version", saved_datasets.text)
 
@@ -1003,7 +1003,7 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertEqual(
             saved_progress.headers["location"],
             (
-                f"/workspaces/{workspace_id}/mapping?{mapping_filter_query}&progress_saved=1"
+                f"/workspaces/{workspace_id}/mapping?{mapping_filter_query}"
                 f"#mapping-dataset-{customer_index}"
             ),
         )
@@ -1166,7 +1166,8 @@ class ProjectSetupJourneyTests(ProjectSetupBrowserTestCase):
         self.assertIn("Continue to Prepare data", confirmed_mapping_page.text)
         self.assertRegex(
             confirmed_mapping_page.text,
-            rf'class="button action" href="/workspaces/{workspace_id}/prepare"',
+            r'<a\b(?=[^>]*class="button action")'
+            rf'(?=[^>]*href="/workspaces/{workspace_id}/prepare")[^>]*>',
         )
         revision = (
             self.app.state.context.mapping_workspace.mappings.get_mapping_revision(workspace_id)

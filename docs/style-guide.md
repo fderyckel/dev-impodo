@@ -142,17 +142,19 @@ instead of replacing it:
    and exceptions that this audience needs. Move the remaining technical
    inventory to the paired developer page or structured reference material.
 4. **Challenge the result.** Check whether a data manager can say what they are
-   working with, what they decide, what Impodo stores or reuses, what remains
-   unchanged, and why the distinction matters. Check separately that a
-   developer can still find the exact contract, symbol, and test when those
+   working with, what they decide, what Impodo stores or reuses, and why the
+   distinction matters. Include boundaries when they affect that decision.
+   Check separately that a developer can still find the exact contract, symbol,
+   and test when those
    details belong on the page.
 5. **Verify the documentation system.** Review paired pages and affected links,
    screenshots, contracts, workflow registrations, and focused tests. Run the
    repository documentation checks before completing the edit.
 
-The meaning-first pass must not weaken a security, governance, evidence, Odoo
-19, performance, or implemented-versus-planned boundary. It changes the order
-and clarity of the explanation, not the underlying contract.
+The meaning-first pass must preserve security, governance, evidence, Odoo 19
+and Odoo 20 support, performance, and implemented-versus-planned boundaries.
+It changes the order and clarity of the explanation while preserving the
+underlying contract.
 
 ## User documentation voice
 
@@ -161,7 +163,10 @@ and clarity of the explanation, not the underlying contract.
 - Explain the goal before the controls.
 - Present the normal path first and optional detail afterward.
 - Give one obvious next action at the end of a section.
-- Explain what an action changes and what remains unchanged.
+- Explain the action's result and the next decision. Include a boundary when
+  it prevents a specific likely mistake.
+- Keep UI messages concise and positive. Place supporting explanations in
+  nearby help or the appropriate reference; describe optional actions neutrally.
 - Use small fictional examples that can be reviewed by eye.
 - Define technical terms only when the reader needs them to make a decision.
 - Do not expose class names, repository names, hashes, or transport details in
@@ -173,22 +178,25 @@ states.
 
 ## Button purpose
 
-Impodo reserves one filled red button per visible page or step for completing
-that step and advancing the workflow. The main next action belongs in the
-footer on the right. A page can have no red action while the operator works
-through its choices.
+Each actionable page or step has one filled red button for the current next
+task. A required check, confirmation, or recovery can be that next task. Keep
+the main action in the footer on the right and transfer its highlight as the
+workflow state changes. A running job without an available continuation, a
+completed workflow, or an evidence-only view can have no red next-step action.
+Preserve unavailable controls and their existing prerequisites.
 
-Use blue outlined buttons for local work, including Save progress, Check
-values, Preview, View, Download, and optional actions. Use grey outlined
-buttons for Back, Cancel, and Close. Help uses quiet grey text or a question
-mark. Permanent deletion uses an explicit label, a neutral deletion icon, and
-a confirmation dialog.
+Use blue outlined buttons for supporting work, including Save progress,
+optional checks, previews, views, and downloads. Use grey outlined buttons for
+Back, Cancel, Close, and pagination in both directions. Help uses quiet grey
+text or a question mark. Permanent deletion uses an explicit label, a neutral
+deletion icon, and a confirmation dialog.
 
-Use labels that describe the verified result. Save progress stays on the
-current screen; Save and continue saves the choices and advances. Keep one
-main advancing action and remove duplicate submissions inside cards. The
-shared button roles also apply after tab changes, edits, errors, and dialog
-opening or closing.
+Choose the role from the verified result and current task. Save progress
+stays on the current screen; Save and continue saves the choices and advances.
+A required save can be the next task when it completes the current
+responsibility. Keep one main advancing action and remove duplicate
+submissions inside cards. Verify both the presence of a meaningful primary
+and the absence of duplicates after tab changes, edits, errors, and dialogs.
 
 ## Developer documentation voice
 
@@ -209,9 +217,8 @@ opening or closing.
 ## Current and planned behavior
 
 Current workflow pages describe only implemented behavior. Future behavior
-belongs in `docs/plans/` and may be linked from a **Current limitations**
-section. Do not use roadmap language to make a missing capability sound
-available.
+and links to its plans belong only in `docs/plans/`. Keep current user and
+developer documentation focused on verified implementation.
 
 ## Screenshots and examples
 
@@ -221,8 +228,9 @@ available.
 - Keep counts small enough to review visually.
 - Every user page must reference a current PNG under `docs/images/user/`.
 - When a route, label, or decision changes, recapture the affected state from
-  the authenticated current UI at 1440x1024 with isolated fictional data. Do
-  not keep an old image merely because its link still works.
+  the authorized, authenticated current UI at 1440x1024 with isolated fictional
+  data. Follow the shared session and approval rules before starting a browser
+  or restarting Impodo. Report unavailable capture and stale evidence explicitly.
 
 ## Required maintenance
 

@@ -40,6 +40,14 @@ class MappingMutationState(StrEnum):
 
 
 @dataclass(frozen=True, slots=True)
+class MappingCheckBinding:
+    """Identify the operation and Odoo read access behind a current validation."""
+
+    operation_id: str
+    access_hash: str
+
+
+@dataclass(frozen=True, slots=True)
 class MappingMutationReceipt:
     """Durable evidence for one browser-authored mapping command."""
 

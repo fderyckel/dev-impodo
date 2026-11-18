@@ -15,6 +15,7 @@ from impodo.adapters.artifacts.reporting import (
 )
 from impodo.domain.preflight.fields_set_aside import FieldSetAside, FieldSetAsideReason
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
     OriginalSourceInput,
     OriginalSourceValue,
 )
@@ -24,6 +25,10 @@ from tests.integration.artifacts.test_fields_set_aside_coverage import (
     _evidence,
     _fields,
 )
+
+
+def _coordinate(row, key):
+    return OriginalSourceCoordinate("dataset:partners", "partners", row, key)
 
 
 class OriginalValueDisplayTests(unittest.TestCase):
@@ -39,7 +44,7 @@ class OriginalValueDisplayTests(unittest.TestCase):
                 "The source value was rejected.",
                 (
                     OriginalSourceInput(
-                        "value",
+                        _coordinate(row, "value"),
                         OriginalSourceValue.from_cell(
                             EncodedSourceCell.from_python(value)
                         ),
@@ -99,7 +104,7 @@ class OriginalValueDisplayTests(unittest.TestCase):
             "Invalid source.",
             (
                 OriginalSourceInput(
-                    "name",
+                    _coordinate(2, "name"),
                     OriginalSourceValue.from_cell(
                         EncodedSourceCell.from_python("secret-value")
                     ),
@@ -137,7 +142,7 @@ class OriginalValueDisplayTests(unittest.TestCase):
                 "Invalid source.",
                 (
                     OriginalSourceInput(
-                        "name",
+                        _coordinate(2, "name"),
                         OriginalSourceValue.from_cell(
                             EncodedSourceCell.from_python(value)
                         ),
@@ -161,7 +166,7 @@ class OriginalValueDisplayTests(unittest.TestCase):
     def test_expanded_inputs_respect_the_excel_row_limit_before_publication(self):
         inputs = tuple(
             OriginalSourceInput(
-                key, OriginalSourceValue.from_cell(EncodedSourceCell.from_python(value))
+                _coordinate(2, key), OriginalSourceValue.from_cell(EncodedSourceCell.from_python(value))
             )
             for key, value in (("code", "001"), ("company", "002"))
         )

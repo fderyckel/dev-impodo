@@ -231,6 +231,25 @@ class CanonicalIssue:
         )
 
 
+def restore_field_input_keys(payload: object) -> dict[str, tuple[str, ...]]:
+    """Validate optional saved scalar readsets without inventing missing evidence."""
+
+    if not isinstance(payload, Mapping):
+        raise TypeError("Canonical scalar input provenance must be a mapping")
+    inputs: dict[str, tuple[str, ...]] = {}
+    for target, keys in payload.items():
+        if not isinstance(target, str) or not target.strip():
+            raise ValueError("Canonical scalar input target is invalid")
+        if not isinstance(keys, (list, tuple)):
+            raise TypeError("Canonical scalar input keys must be a sequence")
+        if any(not isinstance(key, str) or not key.strip() for key in keys) or len(
+            set(keys)
+        ) != len(keys):
+            raise ValueError("Canonical scalar input keys are invalid")
+        inputs[target] = tuple(keys)
+    return dict(sorted(inputs.items()))
+
+
 @dataclass(frozen=True, slots=True)
 class CanonicalLineage:
     """Evidence linking one canonical row and its values to frozen inputs."""
@@ -246,6 +265,7 @@ class CanonicalLineage:
     physical_source_rows: tuple[int, ...]
     field_sources: Mapping[str, tuple[str, ...]]
     physical_sources: Mapping[str, tuple[int, ...]] = field(default_factory=dict)
+    field_input_keys: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.physical_dataset_id:
@@ -283,6 +303,9 @@ class CanonicalLineage:
                 raise ValueError("Canonical physical source lineage is invalid")
             normalized[dataset_id] = ordered
         object.__setattr__(self, "physical_sources", normalized)
+        object.__setattr__(
+            self, "field_input_keys", restore_field_input_keys(self.field_input_keys)
+        )
 
     def to_portable_dict(self) -> dict[str, Any]:
         """Serialize row- and field-level links back to frozen source input."""
@@ -302,6 +325,10 @@ class CanonicalLineage:
                 for field, sources in sorted(self.field_sources.items())
             },
         }
+        if self.field_input_keys:
+            payload["field_input_keys"] = {
+                target: list(keys) for target, keys in sorted(self.field_input_keys.items())
+            }
         if len(self.physical_sources) > 1:
             payload["physical_sources"] = {
                 dataset_id: list(source_rows)
@@ -339,6 +366,7 @@ class CanonicalLineage:
                     payload.get("physical_sources", {})
                 ).items()
             },
+            field_input_keys=payload.get("field_input_keys", {}),
         )
 
 
@@ -857,6 +885,7 @@ class CanonicalStagingRun:
         dataset_evidence: Mapping[
             str, tuple[str, StagingDatasetRole, int]
         ],
+        field_input_keys: Mapping[tuple[str, int], Mapping[str, tuple[str, ...]]] | None = None,
         control_totals: tuple[CanonicalControlTotal, ...] = (),
         additional_rows: Iterable[CanonicalRow] = (),
     ) -> CanonicalStagingRun:
@@ -886,6 +915,7 @@ class CanonicalStagingRun:
                 schema_hash=schema_hash,
                 derived_plan_hash=derived_plan_hash,
                 field_sources=field_sources.get(record.dataset, {}),
+                field_input_keys=(field_input_keys or {}).get((record.dataset, record.source_row), {}),
                 physical_dataset_id=lineage_parts[
                     (record.dataset, record.source_row)
                 ][0],
@@ -983,6 +1013,7 @@ def _canonical_row(
     physical_dataset_id: str,
     physical_source_rows: tuple[int, ...],
     physical_sources: Mapping[str, tuple[int, ...]] | None = None,
+    field_input_keys: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CanonicalRow:
     disposition = (
         StagingDisposition.BLOCKED
@@ -1005,6 +1036,7 @@ def _canonical_row(
         physical_source_rows=physical_source_rows,
         field_sources=dict(sorted(field_sources.items())),
         physical_sources=physical_sources or {},
+        field_input_keys=field_input_keys or {},
     )
     row_id = "sha256:" + sha256(
         canonical_json_bytes(
@@ -1044,6 +1076,7 @@ def canonical_row_from_prepared(
     physical_dataset_id: str,
     physical_source_rows: tuple[int, ...],
     physical_sources: Mapping[str, tuple[int, ...]] | None = None,
+    field_input_keys: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CanonicalRow:
     """Build one canonical row for either materialized or streamed staging."""
 
@@ -1059,6 +1092,7 @@ def canonical_row_from_prepared(
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=physical_source_rows,
         physical_sources=physical_sources,
+        field_input_keys=field_input_keys,
     )
 
 

@@ -52,6 +52,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
         operation_id: str | None = None,
         working_draft_version: int | None = None,
         mapping_revision_version: int | None = None,
+        require_check_binding: bool = False,
     ) -> RowInclusionReviewSnapshot:
         """Publish one complete check and its operation receipt atomically."""
 
@@ -65,6 +66,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
                 operation_id=operation_id,
                 working_draft_version=working_draft_version,
                 mapping_revision_version=mapping_revision_version,
+                require_check_binding=require_check_binding,
             )
 
     def _replace_current_review_locked(
@@ -77,6 +79,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
         operation_id: str | None,
         working_draft_version: int | None,
         mapping_revision_version: int | None,
+        require_check_binding: bool,
     ) -> RowInclusionReviewSnapshot:
         """Publish once, then recover an identical cross-process race."""
 
@@ -93,16 +96,28 @@ class RowInclusionReviewRepository(DuckDbRepository):
         )
         with self._connect(database_path) as connection:
             self._ensure_workspace_database_schema(connection)
-            existing = connection.execute(
-                """
-                SELECT snapshot_hash
-                  FROM mapping_row_inclusion_review
-                 WHERE snapshot_hash = ?
-                """,
-                [snapshot.snapshot_hash],
-            ).fetchone()
             connection.begin()
             try:
+                if require_check_binding:
+                    current = connection.execute(
+                        """
+                        SELECT 1 FROM mapping_current AS current
+                          JOIN mapping_validation_current AS checked USING (mapping_id, version)
+                          JOIN mapping_revision AS revision USING (mapping_id, version)
+                          JOIN mapping_working_draft AS draft ON draft.mapping_id = current.mapping_id
+                         WHERE current.version = ? AND checked.operation_id = ?
+                           AND revision.content_hash = ? AND draft.content_hash = revision.content_hash
+                           AND draft.version = ?
+                        """,
+                        [mapping_revision_version, operation_id, report.identity.mapping_content_hash,
+                         working_draft_version],
+                    ).fetchone()
+                    if current is None:
+                        raise WorkspaceError("Matching choices changed during the rows-to-use check. Review the current matches.")
+                existing = connection.execute(
+                    "SELECT 1 FROM mapping_row_inclusion_review WHERE snapshot_hash = ?",
+                    [snapshot.snapshot_hash],
+                ).fetchone()
                 if existing is None:
                     connection.execute(
                         """
@@ -176,6 +191,7 @@ class RowInclusionReviewRepository(DuckDbRepository):
                 operation_id=operation_id,
                 working_draft_version=working_draft_version,
                 mapping_revision_version=mapping_revision_version,
+                require_check_binding=require_check_binding,
             )
         return self.get_current_review(workspace_id, report.identity) or snapshot
 

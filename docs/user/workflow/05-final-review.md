@@ -316,6 +316,29 @@ rows, two identified source cells and one saved finding. A cell used by several
 findings is counted once. If the complete input group cannot be verified,
 Impodo keeps one field finding and labels its original value **Unavailable**.
 
+When a linked reference uses a formula or combined parts to find an existing
+Odoo record, the workbook can show each contributing file cell. For example,
+combining site `WIL` and bin `0007` with a fixed separator produces two workbook
+rows for that finding. Fixed text and unused columns add no source cells. The
+saved rule must identify every contributing input.
+
+For calculations, combined values, conditional rules and lookups, the workbook
+shows the file cells that preparation actually used. A failed calculation on
+`0007` can still show `0007`. An unused branch or an unused column adds no
+source cells. A fixed value with no file input shows **No source cell**.
+
+For combined or derived tables, each verified input names its original table,
+row and column. **Prepared dataset** and **Prepared row** identify the resulting
+record when its location differs. A grouped total can therefore list several
+original rows while retaining one field finding. Recreating the workbook uses
+the saved comparison and source evidence without recalculating the table.
+
+If you matched one source choice to an Odoo record with a company or other
+scope, that choice remains one source cell. For example, a source choice
+`RETAIL` matched to reference `DOM` in `Company A` appears once with original
+value `RETAIL`. The saved choice supplies the matching values, and the workbook
+keeps the accepted source text.
+
 For direct file columns, the workbook preserves the accepted value, including
 leading zeros and spaces. A list of linked values retains the complete original
 cell, including separators. It uses saved source evidence, so recreating the
@@ -327,14 +350,12 @@ review the finding in Impodo.
 A captured blank remains blank; its cell note distinguishes a blank cell from
 empty text. **Unavailable** means exact source evidence was not established.
 **Withheld** means the value is excluded because the workspace contains restricted
-data. A link that uses a formula, builds a combined reference, or depends on
-generated columns can still show **Unavailable**. If any input cannot be traced
-to an accepted file column, the whole group stays unverified. Captured blank
-cells remain verified coordinates even when their values need correction. For a direct linked field, saved
-comparison errors can also show the original input when no related record
-matched, several records matched, or capitalization needs review. For example,
-a missing category code `000745` keeps its leading zeros. Other comparison
-findings can still show **Unavailable**.
+data. If any contributing input cannot be traced to an accepted file column,
+the whole group stays unverified. This can happen with incomplete historical
+evidence or an ambiguous generated row. Captured blanks remain verified cells.
+Saved comparison findings also identify missing required values and confirmed
+rules that preserve the existing Odoo value or leave a field blank. A missing
+linked code such as `000745` keeps its leading zeros.
 **Deferred issues** explains why whole records were set aside.
 
 Read the coverage note on this tab and in **Review overview**. It names gaps

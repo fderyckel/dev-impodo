@@ -97,6 +97,80 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         )
         self.assertEqual(self.errors, [])
 
+    def test_saved_table_actions_and_help(self):
+        fixture = SourceJourneyFixture(methodName="runTest")
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        workspace_id = fixture.freeze_files(
+            {
+                "products": b"Reference,Name\nP1,Hammer\nP2,Drill\n",
+                "categories": b"Code,Name\nT,Tools\n",
+            }
+        )
+        self.workspace_id = workspace_id
+        saved_selection = fixture.context.queries.get_source_selection(workspace_id)
+        self._start_browser(fixture)
+        url = f"{self.base}/workspaces/{workspace_id}/datasets"
+        self.page.goto(url, wait_until="networkidle")
+        primary = self.page.get_by_role(
+            "link", name="Continue to Odoo data", exact=True
+        )
+        organize = self.page.get_by_role(
+            "link", name="Organize source tables", exact=True
+        )
+        help_control = self.page.get_by_label(
+            "Help with organizing source tables", exact=True
+        )
+        help_panel = self.page.locator(".inline-user-help")
+        for width in (1440, 390):
+            self.page.set_viewport_size(
+                {"width": width, "height": 1024 if width == 1440 else 844}
+            )
+            expect(self.page.locator("[data-next-active]")).to_have_count(1)
+            expect(primary).to_have_attribute("data-next-active", "")
+            expect(primary).to_have_attribute(
+                "href", f"/workspaces/{workspace_id}/schema"
+            )
+            self.assertEqual(
+                primary.evaluate("el => getComputedStyle(el).backgroundColor"),
+                "rgb(201, 60, 53)",
+            )
+            self.assertEqual(
+                organize.evaluate("el => getComputedStyle(el).backgroundColor"),
+                "rgb(255, 255, 255)",
+            )
+            self.assertIsNone(organize.get_attribute("data-next-step"))
+            self.assertIsNone(help_panel.get_attribute("open"))
+            primary.scroll_into_view_if_needed()
+            expect(primary).to_be_in_viewport()
+            if width == 1440:
+                self._capture("05-frozen-tables.png", force=True)
+            help_control.focus()
+            help_control.press("Enter")
+            expect(help_panel).to_have_attribute("open", "")
+            explanation = help_panel.locator("p")
+            expect(explanation).to_be_visible()
+            bounds = explanation.bounding_box()
+            self.assertGreaterEqual(bounds["x"], 0)
+            self.assertLessEqual(bounds["x"] + bounds["width"], width + 1)
+            help_control.press("Enter")
+            self.assertLessEqual(
+                self.page.evaluate("document.documentElement.scrollWidth - innerWidth"),
+                1,
+            )
+        self.page.set_viewport_size({"width": 1440, "height": 1024})
+        self.page.reload(wait_until="networkidle")
+        expect(help_panel).not_to_have_attribute("open", "")
+        organize.click()
+        self.page.wait_for_url(f"**/workspaces/{workspace_id}/derived-entities")
+        self.assertEqual(
+            fixture.context.queries.get_source_selection(workspace_id), saved_selection
+        )
+        self.page.goto(url, wait_until="networkidle")
+        primary.click()
+        self.page.wait_for_url(re.compile(r"/(?:schema|target)(?:[?#]|$)"))
+        self.assertEqual(self.errors, [])
+
     def exercise(self, major, mode):
         fixture = SourceJourneyFixture(methodName="runTest")
         fixture.setUp()
@@ -120,6 +194,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             self._lookup_with_failed_save()
             self._split_and_continue()
             self._reopen_and_narrow_layout()
+            self._remove_saved_change()
         except Exception:
             self._capture("stage1-failure.png", force=True)
             raise
@@ -178,7 +253,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             ).to_be_visible()
         self._capture("05-frozen-tables.png")
         self.page.get_by_role(
-            "link", name="Separate combined information", exact=True
+            "link", name="Organize source tables", exact=True
         ).click()
         expect(self.root).to_be_visible()
         pairwise = self.page.get_by_role(
@@ -205,9 +280,16 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         self.assertEqual(
             self.page.locator("[data-source-operation]:visible").count(), 1
         )
+        self._assert_footer_primary()
         return panel
 
+    def _assert_footer_primary(self):
+        expect(self.page.locator(".button[data-next-active]")).to_have_count(1)
+        expect(self.next).to_have_attribute("data-next-active", "")
+        expect(self.next).to_have_css("background-color", "rgb(201, 60, 53)")
+
     def _review(self, panel):
+        self._assert_footer_primary()
         self.next.click()
         expect(panel.locator("[data-source-review]")).to_be_visible()
         expect(self.state).to_have_text("Ready to use")
@@ -217,6 +299,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             title.evaluate("element => getComputedStyle(element).outlineStyle"), "none"
         )
         expect(self.next).to_be_in_viewport()
+        self._assert_footer_primary()
         bounds = self.next.bounding_box()
         self.assertGreaterEqual(bounds["x"], 0)
         self.assertLessEqual(
@@ -260,6 +343,10 @@ class SourceJourneyBrowserTests(unittest.TestCase):
             f"{self.details.dataset_id}|{key}"
         )
         expect(self.state).to_have_text("Unsaved changes")
+        self._assert_footer_primary()
+        expect(
+            panel.get_by_role("button", name="Review complete combination", exact=True)
+        ).to_have_css("background-color", "rgb(255, 255, 255)")
         self.page.get_by_role("button", name="Build a hierarchy", exact=True).click()
         expect(self.root).to_have_attribute(
             "data-source-active", "combine-source-tables"
@@ -405,6 +492,7 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         expect(self.state).to_have_text("Saved")
         expect(self.page.locator("[data-source-saved]")).to_have_count(4)
         expect(self.next).to_have_text("Continue to Odoo data")
+        self._assert_footer_primary()
         expect(self.next).to_be_in_viewport()
         self._capture("06l-stage1-saved-changes.png")
         self.assertEqual(self._plan().version, 4)
@@ -441,6 +529,91 @@ class SourceJourneyBrowserTests(unittest.TestCase):
         )
         self.assertEqual(len(set(tops)), 1)
         self.assertEqual(self.errors, [])
+
+    def _remove_saved_change(self):
+        dialog = self.page.locator("[data-source-remove-dialog]")
+        requests = []
+        self.page.on(
+            "request",
+            lambda request: (
+                requests.append(request.url)
+                if request.method == "POST" and request.url.endswith("/delete")
+                else None
+            ),
+        )
+        forms = self.page.locator("[data-source-remove-form]")
+        expect(forms).to_have_count(4)
+        for index in range(4):
+            if index == 0:
+                self.page.set_viewport_size({"width": 1440, "height": 1024})
+            else:
+                self.page.set_viewport_size({"width": 390, "height": 844})
+            form = forms.nth(index)
+            form.evaluate(
+                "form => { form.closest('[data-source-saved]').open = true; }"
+            )
+            button = form.get_by_role("button")
+            expect(button).to_have_class(re.compile(r"\bdestructive\b"))
+            name = form.get_attribute("data-source-remove-name")
+            label = form.get_attribute("data-source-remove-label")
+            button.click()
+            expect(dialog).to_be_visible()
+            expect(dialog.get_by_role("heading")).to_have_text(f"{label}?")
+            expect(dialog.locator("[data-source-remove-name]")).to_have_text(name)
+            expect(
+                dialog.get_by_role("button", name="Cancel", exact=True)
+            ).to_be_focused()
+            expect(self.page.locator(".button[data-next-active]")).to_have_count(0)
+            self.assertLessEqual(
+                dialog.evaluate("element => element.scrollWidth - element.clientWidth"),
+                1,
+            )
+            self.assertEqual(requests, [])
+            if index == 0:
+                self._capture("06n-stage1-remove-change.png")
+            if index % 2:
+                dialog.get_by_role("button", name="Cancel", exact=True).click()
+            else:
+                self.page.keyboard.press("Escape")
+            expect(dialog).to_be_hidden()
+            expect(button).to_be_focused()
+            self._assert_footer_primary()
+        self.assertEqual(self._plan().version, 4)
+
+        # Pending edits must still block removal through the existing journey guard.
+        panel = self._choose("Create a related table", "lookup-extraction")
+        panel.get_by_role("textbox", name=re.compile("^Name shown in Impodo")).fill(
+            "pending_groups"
+        )
+        form = forms.first
+        form.get_by_role("button").click()
+        expect(dialog).to_be_hidden()
+        expect(self.page.locator("[data-source-notice]")).to_be_visible()
+        expect(
+            panel.get_by_role("textbox", name=re.compile("^Name shown in Impodo"))
+        ).to_have_value("pending_groups")
+        self.assertEqual(requests, [])
+        self.page.locator("[data-source-discard]").click()
+        expect(self.state).to_have_text("Saved")
+
+        self.page.set_viewport_size({"width": 1440, "height": 1024})
+        form.evaluate("form => { form.closest('[data-source-saved]').open = true; }")
+        card = form.locator("xpath=ancestor::details[@data-source-saved]")
+        removed_id = card.get_attribute("id")
+        form.get_by_role("button").click()
+        expect(dialog).to_be_visible()
+        expect(
+            dialog.get_by_role("button", name="Remove combination", exact=True)
+        ).to_have_css("background-color", "rgb(255, 255, 255)")
+        dialog.get_by_role("button", name="Remove combination", exact=True).click()
+        expect(self.page.locator(f"#{removed_id}")).to_have_count(0)
+        expect(self.page.locator("[data-source-saved]")).to_have_count(3)
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(self._plan().version, 5)
+        self.page.reload(wait_until="networkidle")
+        expect(self.page.locator("[data-source-saved]")).to_have_count(3)
+        self.assertEqual(self._plan().version, 5)
+        self._assert_footer_primary()
 
     def _capture(self, name, *, force=False):
         output = os.environ.get("IMPODO_SOURCE_SCREENSHOTS")

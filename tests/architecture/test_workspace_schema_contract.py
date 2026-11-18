@@ -22,7 +22,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
                 ).fetchone(),
                 (SCHEMA_GENERATION, SCHEMA_VERSION),
             )
-            self.assertEqual(SCHEMA_VERSION, 8)
+            self.assertEqual(SCHEMA_VERSION, 9)
             self.assertIn("execution_load_control", {item[0] for item in connection.execute("SHOW TABLES").fetchall()})
             tables = {
                 item[0] for item in connection.execute("SHOW TABLES").fetchall()
@@ -37,6 +37,7 @@ class WorkspaceSchemaContractTests(unittest.TestCase):
             self.assertIn("schema_migration", tables)
             self.assertIn("odoo_saved_source_company", tables)
             self.assertIn("mapping_mutation_receipt", tables)
+            self.assertIn("mapping_validation_current", tables)
             self.assertIn("matching_order_preference", tables)
             self.assertIn("matching_order_check", tables)
             self.assertIn("matching_order_check_attempt", tables)

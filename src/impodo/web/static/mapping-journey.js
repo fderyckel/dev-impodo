@@ -258,6 +258,9 @@
     const resultUrl = (value, operation) => {
       const url = new URL(value || window.location.href, window.location.href);
       if (url.origin !== window.location.origin || url.pathname !== window.location.pathname) return url.href;
+      if (operation.action === "draft" && steps.includes(url.searchParams.get("step")) && url.hash) {
+        return url.href;
+      }
       const resultStep = operation.action === "confirm_rows" ? "confirm" :
         steps.includes(url.searchParams.get("step")) ? url.searchParams.get("step") : "check";
       url.searchParams.set("step", resultStep);
@@ -347,9 +350,17 @@
       const action = event.target?.getAttribute?.("action");
       if (!action) return;
       const url = new URL(action, window.location.href);
-      const suffix = url.pathname.slice(window.location.pathname.length);
-      if (!url.pathname.startsWith(`${window.location.pathname}/`) ||
+      const base = new URL(form?.getAttribute("action") || window.location.href, window.location.href);
+      const mappingPath = base.pathname.replace(/\/save$/, "");
+      const suffix = url.pathname.slice(mappingPath.length);
+      if (url.origin !== base.origin || !url.pathname.startsWith(`${mappingPath}/`) ||
           !/^\/(company(?:\/choices|\/refresh)?|order(?:\/check)?|quality|review-workbook|expectations)$/.test(suffix)) return;
+      if (suffix === "/order" || suffix === "/order/check") {
+        url.searchParams.set("step", step);
+        url.searchParams.set("task", task);
+        url.searchParams.set("mapping_dataset", root.dataset.activeDatasetIndex || "0");
+        event.target.setAttribute("action", url.pathname + url.search);
+      }
       const state = window.impodoMappingEditor?.getState?.();
       if (!state?.dirty && !state?.busy) return;
       event.preventDefault();

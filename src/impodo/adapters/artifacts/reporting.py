@@ -37,18 +37,21 @@ from openpyxl.worksheet.hyperlink import Hyperlink
 from impodo.adapters.artifacts.review_relationship_values import (
     ReviewRelationshipValues,
 )
-from impodo.domain.preflight.comparison_fields import comparison_relationship_findings
 from impodo.domain.preflight.deferred_scope import (
     DeferredIssue,
     DeferredScopePreview,
 )
 from impodo.domain.preflight.fields_set_aside import (
     FieldSetAside,
+    FieldSetAsideEvidence,
     FieldSetAsideReason,
-    preparation_field_reason,
 )
 from impodo.domain.preflight.mapping_summary import ReviewWorkbookFieldRule
-from impodo.domain.preflight.original_values import OriginalValueState
+from impodo.domain.preflight.omission_findings import comparison_omission_findings
+from impodo.domain.preflight.original_values import (
+    OriginalSourceInput,
+    OriginalValueState,
+)
 from impodo.domain.preflight.reports import (
     ReviewWorkbookActionPriority,
     ReviewWorkbookCellEffect,
@@ -543,78 +546,53 @@ def _comparison_field_findings(
     records: Mapping[str, PreparedRecord],
     evidence: ReviewWorkbookEvidence | None,
 ) -> Iterable[FieldSetAside]:
-    """Project saved comparison issues and proven uses of an omission rule."""
+    """Use one omission projection when export has no bound captured coverage."""
 
-    fields = evidence.fields_set_aside if evidence is not None else None
-    if evidence is None or evidence.comparison_fields is None:
-        try:
-            yield from comparison_relationship_findings(
-                decisions, fields, records=records if evidence is not None else None
-            )
-        except ValueError as error:
-            raise ReportGenerationError(
-                "The saved relationship field evidence is invalid. Compare with Odoo again."
-            ) from error
-    comparison_reasons = {
-        "REQUIRED_ON_CREATE_MISSING": FieldSetAsideReason.MISSING,
-    }
-    for decision in decisions:
-        dataset = str(decision["dataset"])
-        source_row = int(decision["source_row"])
-        classification = _decision_classification(decision)
-        record = records.get(str(decision.get("source_trace_id", "")))
-        for issue in decision.get("issues", ()):
-            if classification is not Classification.BLOCKED or not issue.get("field"):
-                continue
-            code = str(issue.get("code") or "")
-            reason = comparison_reasons.get(code)
-            target = str(issue["field"])
-            if fields is None and reason is None:
-                source_reason = preparation_field_reason(code)
-                if source_reason is not None:
-                    yield FieldSetAside(
-                        source_reason, dataset, source_row, (target,), "",
-                        str(issue["message"]),
-                    )
-                continue
-            if reason is None:
-                continue
-            yield FieldSetAside(
-                reason, dataset, source_row,
-                fields.source_keys.get((dataset, target), ()) if fields else (),
-                target, str(issue["message"]),
-            )
-
-        if fields is None or record is None or classification not in {
-            Classification.CREATE, Classification.UPDATE, Classification.UNCHANGED,
-        }:
-            continue
-        if classification is Classification.UNCHANGED and (
-            dataset not in fields.upsert_datasets
-            or decision.get("target_match_count") != 1
-            or any(
-                item.get("code") == "REFERENCE_TARGET_PRECEDENCE_REUSE"
-                for item in decision.get("issues", ())
-            )
-        ):
-            continue
-        for target in fields.null_omissions.get(dataset, ()):
-            if _prepared_field_is_null(record, target):
-                yield FieldSetAside(
-                    FieldSetAsideReason.RULE, dataset, source_row,
-                    fields.source_keys.get((dataset, target), ()), target,
-                    "The saved blank-value rule omits this field from the load.",
-                )
+    if evidence is not None and evidence.comparison_fields is not None:
+        return ()
+    try:
+        return comparison_omission_findings(
+            decisions,
+            evidence.fields_set_aside if evidence is not None else None,
+            records=records if evidence is not None else None,
+            cell_effects=evidence.cell_effects if evidence is not None else (),
+        )
+    except ValueError as error:
+        raise ReportGenerationError(
+            "The saved field evidence is invalid. Compare with Odoo again."
+        ) from error
 
 
-def _prepared_field_is_null(record: PreparedRecord, field: str) -> bool:
-    """Distinguish an explicitly prepared null from an absent field."""
+def _field_source_display(
+    finding: FieldSetAside,
+    source_input: OriginalSourceInput | None,
+    fields: FieldSetAsideEvidence | None,
+    evidence: ReviewWorkbookEvidence | None,
+) -> tuple[str, int | None, str]:
+    """Display physical coordinates while retaining logical target ownership."""
 
-    return (
-        (field in record.scalar_values and record.scalar_values[field] is None)
-        or (field in record.references and record.references[field] is None)
+    if source_input is None and finding.source_inputs_known and not (
+        fields is not None and fields.source_values_restricted
+    ):
+        return "", None, ""
+    if source_input is None:
+        dataset = finding.dataset
+        display_dataset = _dataset_label(dataset, evidence)
+        row = finding.source_row
+        keys = finding.source_keys
+    else:
+        coordinate = source_input.coordinate
+        dataset = coordinate.dataset
+        display_dataset = (
+            evidence.dataset_labels.get(dataset, dataset) if evidence else dataset
+        )
+        row = coordinate.source_row
+        keys = (coordinate.source_key,)
+    source = " + ".join(
+        fields.source_labels.get((dataset, key), key) if fields else key
+        for key in keys
     )
-
+    return display_dataset, row, source
 
 
 def _workbook_original_text(text: str) -> str:
@@ -654,26 +632,6 @@ def _write_fields_set_aside(
     findings = set(fields.findings if fields and not protected_source else ())
     if not protected_source:
         findings.update(_comparison_field_findings(decisions, records, evidence))
-    if not protected_source and fields is not None and evidence is not None:
-        rule_coordinates = {
-            (item.dataset, item.source_row, item.target_field)
-            for item in findings
-            if item.reason is FieldSetAsideReason.RULE
-        }
-        for effect in evidence.cell_effects:
-            record = records[effect.source_trace_id]
-            coordinate = (effect.dataset, effect.source_row, effect.target_field)
-            if (
-                coordinate not in rule_coordinates
-                and _prepared_field_is_null(record, effect.target_field)
-                and effect.after.strip() in {"", "—"}
-                and effect.before.strip() not in {"", "—"}
-            ):
-                findings.add(FieldSetAside(
-                    FieldSetAsideReason.RULE, effect.dataset, effect.source_row,
-                    fields.source_keys.get((effect.dataset, effect.target_field), ()),
-                    effect.target_field, effect.explanation,
-                ))
 
     reason_order = {reason: index for index, reason in enumerate(FieldSetAsideReason)}
     ordered = sorted(
@@ -681,7 +639,8 @@ def _write_fields_set_aside(
         key=lambda item: (
             reason_order[item.reason], item.dataset,
             item.source_row or 0, item.source_keys, item.target_field, item.detail,
-            tuple((entry.source_key, entry.value.state, entry.value.text or "")
+            item.source_trace_id,
+            tuple((entry.coordinate, entry.value.state, entry.value.text or "")
                   for entry in item.source_inputs),
         ),
     )
@@ -690,11 +649,14 @@ def _write_fields_set_aside(
         for item in ordered
         for source_input in (() if restricted else item.source_inputs) or (None,)
     )
-    cells = {
-        (item.dataset, item.source_row, entry.source_key)
+    cells = {entry.coordinate for _item, entry in expanded if entry is not None}
+    show_prepared_origin = not restricted and any(
+        (entry is not None and (
+            entry.coordinate.dataset != item.dataset
+            or entry.coordinate.source_row != item.source_row
+        )) or (entry is None and item.source_inputs_known)
         for item, entry in expanded
-        if item.source_row is not None and entry is not None
-    }
+    )
     columns = {
         (item.dataset, key)
         for item in ordered if item.source_row is None
@@ -707,31 +669,36 @@ def _write_fields_set_aside(
     for item, source_input in expanded:
         model = fields.target_models.get(item.dataset, "") if fields else ""
         target = _target_field_label(model, item.target_field, evidence) if item.target_field else ""
-        keys = (source_input.source_key,) if source_input is not None else item.source_keys
-        source = " + ".join(
-            fields.source_labels.get((item.dataset, key), key) if fields else key
-            for key in keys
+        source_dataset, source_row, source = _field_source_display(
+            item, source_input, fields, evidence
         )
         original = source_input.value if source_input is not None else None
+        known_empty = source_input is None and item.source_inputs_known and not restricted
         display_original = ""
         if item.source_row is not None:
-            if source_input is None:
+            if source_input is None and not known_empty:
                 unidentified.add(item)
             if restricted or (original is not None and original.state is OriginalValueState.WITHHELD):
                 withheld.add(item)
                 display_original = "Withheld"
+            elif known_empty:
+                display_original = "No source cell"
             elif original is None or original.state is OriginalValueState.UNAVAILABLE:
                 unavailable.add(item)
                 display_original = "Unavailable"
             else:
                 display_original = _workbook_original_text(original.text or "")
         rows.append((
-            item.reason.value, _dataset_label(item.dataset, evidence),
-            item.source_row, source, display_original, target,
+            item.reason.value, source_dataset,
+            source_row, source, display_original, target,
             "Whole column" if item.source_row is None else (
-                "Source cell" if source_input is not None else "Field finding"
+                "Source cell" if source_input is not None else (
+                    "No source cell" if known_empty else "Field finding"
+                )
             ),
             item.detail, _FIELD_REASON_STYLES[item.reason][1],
+            *((_dataset_label(item.dataset, evidence), item.source_row)
+              if show_prepared_origin else ()),
         ))
 
     if protected_source:
@@ -765,7 +732,8 @@ def _write_fields_set_aside(
     _write_data_sheet(
         sheet,
         ("Reason", "Dataset", "Source row", "Source field", "Original value",
-         "Odoo field", "Scope", "What happened", "What to do"),
+         "Odoo field", "Scope", "What happened", "What to do",
+         *(("Prepared dataset", "Prepared row") if show_prepared_origin else ())),
         rows or [(empty_label, "", None, "", "", "", "", coverage, "")],
         _COLORS["charcoal"], header_row=6,
     )
@@ -786,8 +754,11 @@ def _write_fields_set_aside(
         cell.alignment = Alignment(vertical="center")
         _style_status_cell(cell, style)
     sheet.sheet_properties.tabColor = _COLORS["brand"]
-    for column, width in zip("ABCDEFGHI", (29, 20, 14, 23, 23, 20, 18, 42, 39), strict=True):
-        sheet.column_dimensions[column].width = width
+    widths: tuple[int, ...] = (29, 20, 14, 23, 23, 20, 18, 42, 39)
+    if show_prepared_origin:
+        widths = (*widths, 20, 14)
+    for index, width in enumerate(widths, start=1):
+        sheet.column_dimensions[get_column_letter(index)].width = width
     for row_index, ((item, source_input), row) in enumerate(zip(expanded, rows, strict=True), start=7):
         _style_status_cell(sheet.cell(row_index, 1), _FIELD_REASON_STYLES[item.reason][0])
         cell = sheet.cell(row_index, 5)

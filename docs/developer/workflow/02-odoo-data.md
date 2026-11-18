@@ -127,6 +127,32 @@ dialogs scope the selection; an edited advancing form receives priority over
 a later page transition. This presentation module submits no form and adds
 no Odoo call or database read.
 
+In **Choose records**, required access setup takes priority over loading or
+confirming Odoo details. A required retry or pending-detail confirmation takes
+priority over editing record types. An edited selection highlights **Save
+record types**; a saved selection highlights **Continue to related values**.
+`schema.js` compares the selected record types with their initial values so
+reverting a change restores the continuation. Search and display filters keep
+the saved state. Optional list and field refreshes remain supporting actions.
+The [record-choice browser tests](../../../tests/e2e/test_record_choice_buttons.py)
+cover discovery, save, edit, revert, reload, failed reads, changed-detail
+confirmation, and local setup for both supported majors. Set
+`IMPODO_RECORD_BUTTON_SCREENSHOTS` to a temporary trial directory to reproduce
+`08e-odoo-record-choices.png` at 1440 by 1024.
+
+**Related values** highlights **Save choices** for required work, edits, or a
+rejected save. A current saved review highlights **Continue to matching rules**.
+`schema.js` compares the action selections and incoming-table values with their
+initial values, so reverting an edit restores the continuation. An untouched
+optional review can continue directly. **Check existing Odoo values** keeps its
+supporting role. Native form submissions, conflict checks, and saved-position
+restoration retain their existing owners. The
+[Related values browser tests](../../../tests/e2e/test_related_value_buttons.py)
+cover both supported majors and access modes, including optional first entry,
+reverted edits, stale-save recovery, persisted choices, and continuation. Set
+`IMPODO_RELATED_BUTTON_SCREENSHOTS` to a temporary trial directory to capture
+`08f-odoo-related-values.png` at 1440 by 1024.
+
 Matching-rule cards retain their controls while the footer owns the complete
 confirmation. The duplicate card submission has been removed. A confirmed
 page highlights **Continue to match data**; editing a saved rule highlights

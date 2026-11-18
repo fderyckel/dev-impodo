@@ -46,6 +46,9 @@
             <div>
               <strong>Odoo identity and relationship check</strong>
               <p data-matching-order-check-message>{{ order_check.message }}</p>
+              {% if order_check.failure_message %}
+                <p class="notice error" role="alert">{{ order_check.failure_message }}</p>
+              {% endif %}
               {% if order_check.checked_relationship_count or order_check.unchecked_relationship_count %}
                 <small class="muted">
                   {{ order_check.checked_relationship_count }} checked
@@ -62,7 +65,7 @@
                 <progress max="100" value="{{ order_check.progress_percent }}" data-matching-order-check-progress>{{ order_check.progress_percent }}%</progress>
               </div>
             {% else %}
-              <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check">
+              <form method="post" action="/workspaces/{{ workspace_id }}/mapping/order/check?{{ matching_order.form_query }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <button class="button action compact" type="submit" {% if not order_check.can_start %}disabled{% endif %}>
                   Check identities and update suggestion
@@ -77,9 +80,8 @@
 
           <form
             method="post"
-            action="/workspaces/{{ workspace_id }}/mapping/order"
+            action="/workspaces/{{ workspace_id }}/mapping/order?{{ matching_order.form_query }}"
             data-matching-order-form
-            data-custom-order="{{ 'true' if matching_order.custom_order else 'false' }}"
           >
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <input type="hidden" name="expected_order_version" value="{{ matching_order.preference_version or '' }}">
@@ -90,6 +92,7 @@
             id="matching-order-toggle"
             type="checkbox"
             data-matching-order-toggle
+            {% if request is defined and request.query_params.get("order_move") == "1" %}checked{% endif %}
           >
           <div class="mapping-order-toolbar">
             <label
@@ -103,6 +106,7 @@
               </button>
             {% endif %}
             {% if order_check and order_check.can_apply %}
+              <input type="hidden" name="expected_check_id" value="{{ order_check.check_id }}">
               <button class="button action compact" type="submit" name="action" value="apply_recommendation">
                 Apply recommendation
               </button>
@@ -154,7 +158,7 @@
                     <a class="button action compact" href="{{ item.edit_url }}" data-mapping-table-link>Edit table</a>
                   {% endif %}
                 </div>
-                <div class="mapping-order-row-controls" data-matching-order-row-controls>
+                <div class="mapping-order-row-controls">
                   <span class="mapping-order-drag-handle" title="Drag to another position" aria-hidden="true">&#8597;</span>
                   <button
                     class="button action compact"
@@ -176,7 +180,7 @@
           </ol>
           <p class="visually-hidden" data-matching-order-announcement aria-live="polite"></p>
 
-          <div class="mapping-order-save-controls" data-matching-order-save-controls>
+          <div class="mapping-order-save-controls">
             <button class="button action" type="submit" name="action" value="save">Save table order</button>
             <label class="button navigation" for="matching-order-toggle">Cancel reordering</label>
           </div>

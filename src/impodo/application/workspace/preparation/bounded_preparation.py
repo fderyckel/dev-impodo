@@ -87,6 +87,7 @@ from impodo.domain.staging.preparation_session import (
     PreparationSessionBindings,
     PreparedCanonicalProjection,
     StoredCanonicalStagingRun,
+    native_scalar_input_keys,
 )
 from impodo.domain.staging.scale import (
     BOUNDED_DIRECT_BROWSER_EVALUATION_ROW_LIMIT,
@@ -418,6 +419,7 @@ def prepare_bounded_direct_session(
                     )
                 row_count = 0
                 pending_rows: list[CanonicalPreparedSessionRow] = []
+                native_inputs = native_scalar_input_keys(columnar.program)
                 try:
                     validate_snapshot_for_dataset(
                         physical_selection,
@@ -446,6 +448,7 @@ def prepare_bounded_direct_session(
                             {},
                         ),
                         program=columnar.program,
+                        field_input_keys=native_inputs,
                     )
                     with artifacts.materialize_prepared_snapshot(
                         workspace_state.workspace_id,
@@ -568,6 +571,7 @@ def prepare_bounded_direct_session(
                                             {},
                                         ),
                                         physical_dataset_id=(physical.dataset_id),
+                                        field_input_keys=native_inputs,
                                         encode_payload=bool(
                                             columnar.program.identity_resolvers
                                         ),
@@ -737,6 +741,7 @@ def prepare_bounded_direct_session(
                                     {},
                                 ),
                                 physical_dataset_id=physical.dataset_id,
+                                field_input_keys=projected.field_input_keys,
                             )
                         )
                     sessions.append_direct_rows(
@@ -823,6 +828,7 @@ def _canonical_session_row(
     schema_hash: str,
     field_sources: Mapping[str, tuple[str, ...]],
     physical_dataset_id: str,
+    field_input_keys: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CanonicalPreparedSessionRow:
     """Adapt either row backend through the one canonical publication path."""
 
@@ -839,6 +845,7 @@ def _canonical_session_row(
         physical_dataset_id=physical_dataset_id,
         physical_source_rows=(source_row,),
         physical_sources=physical_sources,
+        field_input_keys=field_input_keys,
     )
     return CanonicalPreparedSessionRow(
         row_id=canonical.row_id,

@@ -1,5 +1,6 @@
 """Reject changed authoring inputs while preserving concurrent Match data work."""
 
+from dataclasses import replace
 from unittest.mock import patch
 from uuid import uuid4
 
@@ -9,14 +10,61 @@ from impodo.domain.mapping.contracts import (
     MappingTargetMode,
     TargetFieldHandling,
 )
+from impodo.domain.odoo.company import OdooCompanySelection
 from impodo.domain.odoo.contracts import ConnectorTransportError
+from impodo.domain.shared.models import target_identity_hash
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.routers import mapping as mapping_routes
+from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.integration.web.test_mapping_command_performance import MappingCommandFixture
 from tests.support.identity import resolve_local_actor
 
 
 class MappingCommandRecoveryTests(MappingCommandFixture):
+    def test_live_reader_change_rejects_inflight_check_and_supersedes_saved_result(self):
+        for major, mode in ((19, "LOCAL"), (20, "REMOTE")):
+            with self.subTest(major=major, mode=mode):
+                workspace_id, entries = self.command_fixture(major, mode)
+                context = self.app.state.context
+                actor = resolve_local_actor(context)
+                first_entries = self.changed_entries(entries, action="draft")
+                first = self.post_command(workspace_id, first_entries)
+                self.assertEqual(first.status_code, 200, first.text)
+                saved = first.json()
+                second = self.changed_entries(
+                    first_entries, operation_id=str(uuid4()),
+                    expected_parent_version=str(saved["expected_parent_version"]),
+                    expected_working_draft_version=str(saved["expected_working_draft_version"]),
+                )
+                schema = context.queries.get_odoo_schema_catalog(workspace_id)
+                state = context.queries.get(workspace_id)
+
+                def change_reader(*_args, **_kwargs):
+                    if mode == "REMOTE":
+                        store_target_credential(
+                            self.secrets, state, TargetCredentialRole.READ, "changed-test-key",
+                            persistent=False,
+                        )
+                    else:
+                        target = target_identity_hash(
+                            connection_mode=mode, base_url=state.odoo_base_url, database=state.odoo_database,
+                        )
+                        context.workspace_states.select_odoo_company(
+                            workspace_id, actor=actor, expected_revision=state.revision,
+                            selection=OdooCompanySelection(target, 7, "Another company"),
+                        )
+
+                with patch.object(mapping_routes, "_capture_mapping_supporting_values", side_effect=change_reader):
+                    rejected = self.post_command(workspace_id, second)
+                self.assertEqual(rejected.status_code, 422, rejected.text)
+                self.assertIn("checking access changed", rejected.json()["detail"])
+                self.assertEqual(rejected.json()["status"], "rejected")
+                self.assertEqual(context.queries.get_odoo_schema_catalog(workspace_id), schema)
+                path = f"/workspaces/{workspace_id}/mapping"
+                receipt = self.client.get(f"{path}/mutation-receipts/{saved['operation_id']}").json()
+                self.assertEqual(receipt["follow_up_status"], "superseded")
+                self.assertIsNone(context.queries.get_mapping_submission(workspace_id, saved["expected_parent_version"]))
+
     def test_committed_default_decision_survives_a_later_check_conflict(self):
         workspace_id, dataset, business_key = self._mapping_ready_workspace(
             scalar_field_count=1,
@@ -168,6 +216,43 @@ class MappingCommandRecoveryTests(MappingCommandFixture):
             workspace_id,
             dict(checked_entries)["operation_id"],
             actor=actor,
+        )
+        self.assertEqual(receipt.state.value, "REJECTED")
+
+    def test_credential_rebind_during_capture_requires_a_new_check(self):
+        workspace_id, entries = self.command_fixture(20, "REMOTE")
+        context = self.app.state.context
+        actor = resolve_local_actor(context)
+        checked_entries = self.changed_entries(
+            entries, action="draft", operation_id=str(uuid4())
+        )
+        schema = context.queries.get_odoo_schema_catalog(workspace_id)
+        rebound = replace(schema, read_credential_binding_hash="sha256:" + "e" * 64)
+        self.assertNotEqual(rebound.read_credential_binding_hash, schema.read_credential_binding_hash)
+        original_draft = context.queries.get_mapping_working_draft(workspace_id)
+
+        def change_credential(*_args, **_kwargs):
+            run_local_operation_sync(
+                context.schema_workspace.schemas.rebind_odoo_schema_access,
+                workspace_id,
+                rebound,
+                actor=actor,
+                expected_content_hash=schema.content_hash,
+                expected_read_credential_binding_hash=schema.read_credential_binding_hash,
+            )
+            return ()
+
+        with patch.object(
+            mapping_routes, "_capture_mapping_supporting_values", side_effect=change_credential
+        ):
+            response = self.post_command(workspace_id, checked_entries)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("matching rules changed while checking", response.json()["detail"])
+        self.assertEqual(context.queries.get_odoo_schema_catalog(workspace_id), rebound)
+        self.assertIsNone(context.queries.get_mapping_revision(workspace_id))
+        self.assertEqual(context.queries.get_mapping_working_draft(workspace_id), original_draft)
+        receipt = context.mapping_workspace.get_mutation_receipt(
+            workspace_id, dict(checked_entries)["operation_id"], actor=actor
         )
         self.assertEqual(receipt.state.value, "REJECTED")
 

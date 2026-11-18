@@ -210,6 +210,7 @@ stages:
       - tests/integration/duckdb/test_atomic_odoo_capture_publication.py
       - tests/application/data_version/test_source_worker.py
       - tests/integration/web/test_file_intake_performance.py
+      - tests/integration/web/test_file_selection_performance.py
       - tests/domain/data_version/test_source_snapshot.py
       - tests/integration/odoo/test_source_capture.py
       - tests/integration/odoo/test_editable_scalar_transfer.py
@@ -494,6 +495,8 @@ stages:
     tests:
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_schema_journey.py
+      - tests/e2e/test_record_choice_buttons.py
+      - tests/e2e/test_related_value_buttons.py
       - tests/integration/web/test_stage2_scope_selection.py
       - tests/e2e/schema-journey.test.cjs
       - tests/e2e/schema-scope-fields.test.cjs
@@ -600,6 +603,7 @@ stages:
       - src/impodo/application/workspace/mapping/service.py::MappingWorkspaceService.submit_current
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.prepare_live_check
+      - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.reserve_live_check
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.start_live_check
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.identity_choice_review_page
       - src/impodo/application/workspace/mapping/order_service.py::MatchingOrderService.relationship_choice_review_page
@@ -717,6 +721,11 @@ stages:
       - tests/integration/web/test_mapping_journey_mutations.py
       - tests/integration/web/test_mapping_command_performance.py
       - tests/integration/web/test_mapping_command_recovery.py
+      - tests/integration/web/test_mapping_check_receipts.py
+      - tests/integration/web/test_mapping_row_checks.py
+      - tests/e2e/mapping-save-recovery.test.cjs
+      - tests/e2e/mapping-check-timeout.test.cjs
+      - tests/e2e/mapping-journey.test.cjs
       - tests/e2e/test_mapping_journey.py
       - tests/integration/web/test_stage235_performance.py
       - tests/integration/web/test_mapping_forms.py
@@ -834,6 +843,9 @@ stages:
       - tests/integration/columnar/test_optional_linked_scope.py
       - tests/integration/columnar/test_optional_reference_generality.py
       - tests/integration/duckdb/test_matching_order_repository.py
+      - tests/integration/web/test_matching_order_actions.py
+      - tests/e2e/test_matching_order.py
+      - tests/e2e/mapping-order.test.cjs
       - tests/integration/duckdb/test_forward_upgrades.py
       - tests/integration/duckdb/test_row_inclusion_review_repository.py
       - tests/domain/mapping/test_row_inclusion.py
@@ -842,7 +854,7 @@ stages:
       - docs/developer/contracts/recipe-lifecycle.md
       - docs/developer/contracts/canonical-staging.md
     references:
-      - docs/plans/12-smart-match-data-ordering.md
+      - docs/developer/reference/match-order-measurements.json
 
   - id: prepare
     order: 4
@@ -1042,7 +1054,13 @@ stages:
       - src/impodo/domain/preflight/deferred_scope.py::preview_deferred_scope
       - src/impodo/domain/preflight/deferred_execution.py::reduce_execution_snapshot
       - src/impodo/domain/preflight/comparison_fields.py::comparison_relationship_findings
+      - src/impodo/domain/preflight/omission_findings.py::comparison_omission_findings
+      - src/impodo/domain/preflight/physical_lineage.py::PhysicalColumnIndex
+      - src/impodo/domain/preflight/original_values.py::OriginalSourceCoordinate
       - src/impodo/domain/preflight/original_values.py::OriginalSourceValue
+      - src/impodo/domain/preflight/relationship_inputs.py::relationship_original_inputs
+      - src/impodo/domain/preflight/scalar_inputs.py::scalar_formula_aliases
+      - src/impodo/domain/preflight/scalar_inputs.py::scalar_original_inputs
       - src/impodo/application/workspace/review/original_values.py::plan_workbook_original_values
       - src/impodo/adapters/artifacts/review_original_values.py::populate_workbook_original_values
       - src/impodo/adapters/artifacts/reporting.py::write_review_workbook
@@ -1084,9 +1102,35 @@ stages:
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
       - tests/domain/preflight/test_comparison_fields.py
+      - tests/domain/preflight/test_omission_findings.py
+      - tests/domain/preflight/test_physical_lineage.py
+      - tests/domain/preparation/test_scalar_input_lineage.py
+      - tests/domain/preparation/test_field_input_keys.py
+      - tests/domain/mapping/test_scalar_source_reads.py
+      - tests/domain/recipe/test_formula_read_observer.py
+      - tests/application/workspace/review/test_rule_omission_capture.py
+      - tests/application/workspace/review/test_physical_original_values.py
+      - tests/integration/artifacts/test_physical_original_values.py
+      - tests/integration/artifacts/test_structural_original_values.py
+      - tests/integration/columnar/test_scalar_input_lineage.py
       - tests/application/workspace/review/test_comparison_workbook.py
       - tests/integration/artifacts/test_comparison_field_coverage.py
       - tests/integration/web/test_comparison_original_workbook.py
+      - tests/integration/web/test_recipe_field_omission_recreation.py
+      - tests/domain/preflight/test_scalar_original_inputs.py
+      - tests/application/workspace/review/test_scalar_original_values.py
+      - tests/integration/artifacts/test_scalar_original_values.py
+      - tests/integration/web/test_scalar_original_workbook.py
+      - tests/domain/recipe/test_scalar_original_inputs.py
+      - tests/domain/preflight/test_translated_original_inputs.py
+      - tests/application/workspace/review/test_translated_original_values.py
+      - tests/integration/artifacts/test_translated_original_values.py
+      - tests/integration/web/test_translated_original_workbook.py
+      - tests/domain/recipe/test_translated_original_inputs.py
+      - tests/domain/preflight/test_relationship_original_inputs.py
+      - tests/application/workspace/review/test_prepared_original_values.py
+      - tests/integration/artifacts/test_prepared_original_values.py
+      - tests/integration/web/test_prepared_original_workbook.py
       - tests/domain/preflight/test_scoped_original_contracts.py
       - tests/application/workspace/review/test_scoped_original_values.py
       - tests/integration/artifacts/test_scoped_original_values.py

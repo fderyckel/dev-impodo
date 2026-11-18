@@ -19,6 +19,7 @@ class IdentityGroupUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE mapping_validation_current")
             connection.execute("DROP TABLE execution_operator_error")
             connection.execute("DROP TABLE odoo_saved_source_company")
             connection.execute("DROP TABLE execution_load_control")

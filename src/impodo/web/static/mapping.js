@@ -149,20 +149,6 @@ document.addEventListener("DOMContentLoaded", () => {
   };
 
   const restore = () => {
-    if (window.location.hash === "#next-step-blockers") {
-      try {
-        window.sessionStorage.removeItem(storageKey);
-      } catch {
-        // The blocker anchor remains usable without browser storage.
-      }
-      const blockers = document.querySelector("#next-step-blockers");
-      window.impodoMappingJourney?.reveal?.(blockers);
-      window.requestAnimationFrame(() => {
-        blockers?.scrollIntoView({ block: "start", behavior: "auto" });
-        blockers?.focus({ preventScroll: true });
-      });
-      return;
-    }
     let stored = null;
     try {
       stored = JSON.parse(window.sessionStorage.getItem(storageKey) || "null");
@@ -171,12 +157,24 @@ document.addEventListener("DOMContentLoaded", () => {
       stored = null;
     }
     const revealDestination = (target, focusTarget = target) => {
-      window.impodoMappingJourney?.reveal?.(target);
+      window.impodoMappingJourney?.reveal?.(focusTarget);
       window.requestAnimationFrame(() => {
         window.requestAnimationFrame(() => {
           if (target.id === "odoo-operation-company") {
             window.scrollTo({ top: 0, behavior: "auto" });
-          } else target.scrollIntoView({ block: "start", behavior: "auto" });
+          } else {
+            target.scrollIntoView({ block: "start", behavior: "auto" });
+            if (focusTarget !== target) {
+              const footer = target.closest("form")?.querySelector(".mapping-actions");
+              const bounds = focusTarget.getBoundingClientRect();
+              const bottom = footer && !footer.contains(focusTarget)
+                ? Math.min(window.innerHeight, footer.getBoundingClientRect().top)
+                : window.innerHeight;
+              if (bounds.top < 0 || bounds.bottom > bottom) {
+                focusTarget.scrollIntoView({ block: "center", behavior: "auto" });
+              }
+            }
+          }
           focusTarget.focus({ preventScroll: true });
         });
       });
@@ -188,7 +186,18 @@ document.addEventListener("DOMContentLoaded", () => {
       // An invalid fragment must not prevent ordinary editor restoration.
     }
     if (hashTarget) {
-      revealDestination(hashTarget);
+      let control = null;
+      if (hashTarget.id === "next-step-blockers") {
+        control = hashTarget.querySelector(".mapping-issue a[href], .mapping-issue button:not(:disabled)");
+      } else if (hashTarget.id === "rows-to-use-review") {
+        control = hashTarget.querySelector("[data-confirm-row-inclusion]:enabled") ||
+          hashTarget.querySelector(".actions a[href]");
+      } else if (hashTarget.id === "confirm-matches") {
+        const form = hashTarget.closest("form");
+        control = form.querySelector('input[name="warning_acknowledgement"]:enabled:not(:checked)') ||
+          form.querySelector('.mapping-journey-action-group[data-mapping-step-panel="confirm"] [data-next-step]:not(:disabled)');
+      }
+      revealDestination(hashTarget, control || hashTarget);
       return;
     }
     const missingCompany = document.querySelector('[data-company-choice-required="true"]');

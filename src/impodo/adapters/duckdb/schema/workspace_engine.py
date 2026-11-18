@@ -122,6 +122,16 @@ _MAPPING_MUTATION_RECEIPT_COLUMNS = (
     "actor_issuer",
     "actor_subject",
 )
+_CREATE_MAPPING_VALIDATION_CURRENT = """
+    CREATE TABLE mapping_validation_current (
+        mapping_id VARCHAR NOT NULL,
+        version INTEGER NOT NULL,
+        validation_hash VARCHAR NOT NULL,
+        operation_id VARCHAR,
+        access_hash VARCHAR,
+        PRIMARY KEY (mapping_id, version)
+    )
+"""
 _MATCHING_ORDER_PREFERENCE_COLUMNS = (
     "singleton_id",
     "version",
@@ -294,6 +304,7 @@ _WORKSPACE_ENGINE_TABLES = frozenset(
         "execution_current", "execution_row", "execution_run", "execution_load_control",
         "execution_rejected_transport", "execution_load_control_event", "execution_operator_error", "mapping_current",
         "mapping_mutation_receipt", "mapping_revision", "mapping_submission", "mapping_validation",
+        "mapping_validation_current",
         "matching_order_preference", "matching_order_check",
         "matching_order_check_active", "matching_order_check_attempt",
         "matching_order_check_current", "matching_order_protected_snapshot",
@@ -672,6 +683,7 @@ class WorkspaceEngineSchemaMixin:
                 validation_json VARCHAR NOT NULL,
                 PRIMARY KEY (mapping_id, version, validation_hash)
             );
+            {_CREATE_MAPPING_VALIDATION_CURRENT};
 
             CREATE TABLE mapping_submission (
                 submission_id VARCHAR PRIMARY KEY,
@@ -1151,6 +1163,10 @@ class WorkspaceEngineSchemaMixin:
             ("odoo_saved_source_company", SAVED_SOURCE_COMPANY_COLUMNS),
             ("audit_event", _AUDIT_EVENT_COLUMNS),
             (
+                "mapping_validation_current",
+                ("mapping_id", "version", "validation_hash", "operation_id", "access_hash"),
+            ),
+            (
                 "mapping_mutation_receipt",
                 _MAPPING_MUTATION_RECEIPT_COLUMNS,
             ),
@@ -1279,6 +1295,19 @@ def _upgrade_transformation_field_counts(connection: duckdb.DuckDBPyConnection) 
     connection.execute("ALTER TABLE transformation_impact_run ADD COLUMN IF NOT EXISTS field_counts_json VARCHAR")
 
 
+def _upgrade_current_mapping_validation(connection: duckdb.DuckDBPyConnection) -> None:
+    """Preserve the previously selected validation for every mapping version."""
+    connection.execute(_CREATE_MAPPING_VALIDATION_CURRENT)
+    connection.execute(
+        """
+        INSERT INTO mapping_validation_current (mapping_id, version, validation_hash)
+        SELECT DISTINCT ON (mapping_id, version) mapping_id, version, validation_hash
+          FROM mapping_validation
+         ORDER BY mapping_id, version, created_at DESC, validation_hash
+        """
+    )
+
+
 WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     1: ForwardSchemaUpgrade("matching-identity-group-members-v2", _upgrade_identity_group_review),
     2: ForwardSchemaUpgrade("matching-relationship-choices-v3", create_relationship_choice_schema),
@@ -1287,4 +1316,5 @@ WORKSPACE_ENGINE_UPGRADES: dict[int, ForwardSchemaUpgrade] = {
     5: ForwardSchemaUpgrade("transformation-field-counts-v6", _upgrade_transformation_field_counts),
     6: ForwardSchemaUpgrade("saved-odoo-source-company-v7", create_saved_source_company_schema),
     7: ForwardSchemaUpgrade("private-operator-errors-v8", create_operator_error_schema),
+    8: ForwardSchemaUpgrade("current-mapping-validation-v9", _upgrade_current_mapping_validation),
 }

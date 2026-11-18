@@ -33,9 +33,9 @@ first complete the eligible-field capture described in
 5. After every file is confirmed, give each table a **Name shown in Impodo**
    and select **Save tables for this data version**.
 6. Review the names, row counts, and column counts in **Saved source tables**.
-   Optionally open **Separate combined information** when one table contains
-   several business realities or several tables contain partial views of the
-   same reality.
+   Optionally select **Organize source tables** to combine tables, create a
+   related table, or build a hierarchy. The question mark beside it opens a
+   short explanation.
 
 Impodo keeps one source change open at a time. Set it up, review the result,
 then select **Use this table** to save it. **Saved changes** shows the accepted
@@ -48,6 +48,12 @@ see the **Saved changes** summary. If your current selections need checking,
 the action becomes **Review result** first. From the summary, select
 **Continue to Odoo data** to open Stage 2. You do not need to save completed
 changes again.
+
+To remove a saved change, expand its summary and select **Remove combination**,
+**Remove split**, or **Remove rule**. Confirm the named change in the dialog,
+or select **Cancel**.
+
+![A saved combination has a short removal confirmation with Cancel and Remove combination controls.](../../images/user/06n-stage1-remove-change.png)
 
 Choose **Combine tables** when one primary frozen
 table and up to nine added tables describe the same business record. Name the
@@ -397,8 +403,8 @@ Earlier data-version evidence remains protected history.
 
 ## Next stage
 
-For a file source, select **Continue to Odoo data** after reviewing your saved
-source changes, or **Choose Odoo data** from **Saved source tables**, to open
+For a file source, select **Continue to Odoo data** from **Saved source tables**
+or after reviewing your saved source changes to open
 [Odoo data](02-odoo-data.md). For an Odoo
 source, continue to **Connect destination Odoo** after the complete capture is
 frozen. You then match destination records, validate relationship order,

@@ -508,6 +508,7 @@ def create_local_app(
         database, database, projected_sources=workspace_physical_sources,
     )
     authoring_services = build_authoring_service_graph(
+        local_operation=run_local_operation_sync,
         exact_join_groups=DuckDbExactJoinGroupEvaluator(database),
         grouped_exact_joins=DuckDbGroupedExactJoinSource(database),
         logical_source_values=JoinedMappingSourceValues(

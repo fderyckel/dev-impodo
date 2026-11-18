@@ -29,6 +29,10 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
                 repository = context.workspace_states.repository
                 database = repository.workspace_directory(workspace_id) / "workspace-engine.duckdb"
                 with repository._connect(database) as connection:
+                    connection.execute("DROP TABLE mapping_validation_current")
+                    connection.execute("DROP TABLE execution_operator_error")
+                    connection.execute("DROP TABLE odoo_saved_source_company")
+                    connection.execute("ALTER TABLE transformation_impact_run DROP COLUMN field_counts_json")
                     connection.execute("DROP TABLE execution_load_control_event")
                     connection.execute("UPDATE schema_version SET version = 4")
                 calls = len(self.readiness_calls)

@@ -676,11 +676,21 @@ def _lineage_json(projection: PreparedCanonicalProjection) -> str:
             for field, sources in sorted(projection.field_sources.items())
         )
     )
+    input_keys = ""
+    if projection.field_input_keys:
+        keys_json = _object_json(
+            tuple(
+                (target, _string_array_json(keys))
+                for target, keys in sorted(projection.field_input_keys.items())
+            )
+        )
+        input_keys = f"'field_input_keys', {keys_json},"
     source_row = _identifier(SOURCE_ROW_COLUMN)
     return f"""
         json_object(
             'dataset', {_literal(projection.dataset)},
             'derived_plan_hash', NULL,
+            {input_keys}
             'field_sources', {field_sources},
             'mapping_hash', {_literal(projection.program.mapping_content_hash)},
             'physical_dataset_id', {_literal(projection.physical_dataset_id)},

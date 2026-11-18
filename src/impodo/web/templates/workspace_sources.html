@@ -77,7 +77,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <div class="actions">
         <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary">Back to review</a>
-        <button class="button action" type="submit" data-submitting-label="Checking files...">
+        <button class="button action"{% if not catalogs %} data-next-step="100"{% endif %} type="submit" data-submitting-label="Checking files...">
           {% if catalogs %}Check files again{% else %}Check source files{% endif %}
         </button>
       </div>
@@ -360,6 +360,8 @@
             name="action"
             value="confirm"
             data-source-confirmation-action
+            data-source-next-priority="{{ 200 + loop.revindex }}"
+            {% if not selection and not configuration %}data-next-step="{{ 200 + loop.revindex }}"{% endif %}
             {% if not source_state.has_usable_table %}disabled{% endif %}
           >{% if configuration %}Update confirmation{% else %}Confirm this file{% endif %}</button>
           <button class="button navigation" type="button" data-source-discard-changes hidden>Discard changes</button>
@@ -369,9 +371,9 @@
               {% if not configurations.get(remaining.file_id) and next_file.catalog is none %}{% set next_file.catalog = remaining %}{% endif %}
             {% endfor %}
             {% if next_file.catalog %}
-              <a class="button action" data-next-step="100" href="#source-{{ next_file.catalog.file_id }}" data-source-confirmation-next>Confirm next file</a>
+              <a class="button action" href="#source-{{ next_file.catalog.file_id }}" data-source-confirmation-next>Confirm next file</a>
             {% else %}
-              <a class="button action" data-next-step="100" href="#table-choices" data-source-confirmation-next>Name and save tables</a>
+              <a class="button action" href="#table-choices" data-source-confirmation-next>Name and save tables</a>
             {% endif %}
           {% endif %}
         </div>

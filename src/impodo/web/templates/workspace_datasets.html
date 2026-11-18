@@ -4,6 +4,7 @@
   <script src="{{ url_for('static', path='/source-workflow.js') }}" defer></script>
 {% endblock %}
 {% block content %}
+  {% from "_user_help.html" import inline_help with context %}
   <div class="page-heading">
     <div>
       <p class="eyebrow">{% if workspace_navigation.journey == 'RECIPE_RUN_SETUP' %}Fresh data · Confirm source tables{% else %}Stage 1 of 6 · Source data{% endif %}</p>
@@ -75,17 +76,18 @@
         </table>
       </div>
       <section class="optional-workflow" aria-labelledby="combined-information-title">
-        <p class="eyebrow">Optional</p>
-        <h3 id="combined-information-title">Organize source tables</h3>
-        <p>Combine tables, create a related table, or build a hierarchy.</p>
-        <a class="button action" href="/workspaces/{{ workspace_id }}/derived-entities">Separate combined information</a>
+        <span class="muted">Optional</span>
+        <div class="field-label-with-help">
+          <a class="button action" id="combined-information-title" href="/workspaces/{{ workspace_id }}/derived-entities">Organize source tables</a>
+          {{ inline_help("Help with organizing source tables", "Combine tables, create a related table, or build a hierarchy.") }}
+        </div>
       </section>
       <details class="technical-evidence">
         <summary>Support details</summary>
         <code>{{ selection.content_hash }}</code>
       </details>
       <div class="actions">
-        <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/schema">Choose Odoo data</a>
+        <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/schema">Continue to Odoo data</a>
       </div>
     </section>
   {% endif %}

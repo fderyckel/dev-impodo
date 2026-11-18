@@ -147,9 +147,17 @@ class OdooCompanyBrowserTests(unittest.TestCase):
             with page.expect_navigation(wait_until="networkidle"):
                 page.locator("button[data-check-mapping]").click()
             expect(page.locator("body")).not_to_contain_text("The checking key setup no longer matches")
-            page.get_by_role("link", name="Review confirmation", exact=True).click()
-            expect(page.get_by_role("button", name="Confirm field matches", exact=True)).to_be_enabled()
+            confirm = page.get_by_role("button", name="Confirm field matches", exact=True)
+            expect(page.locator("[data-mapping-journey]")).to_have_attribute("data-step", "confirm")
+            expect(confirm).to_be_enabled()
+            expect(confirm).to_be_in_viewport()
+            warnings = page.locator('input[name="warning_acknowledgement"]')
+            next_control = warnings.first if warnings.count() else confirm
+            expect(next_control).to_be_focused()
+            self.assertEqual(page.locator('input[name="warning_acknowledgement"]:checked').count(), 0)
             page.reload(wait_until="networkidle")
+            expect(next_control).to_be_focused()
+            expect(next_control).to_be_in_viewport()
             page.locator('.sidebar-subnav-link[href*="step=company"]').click()
             expect(panel).to_be_visible()
             expect(panel).to_contain_text("Northwind Factory")
@@ -157,8 +165,8 @@ class OdooCompanyBrowserTests(unittest.TestCase):
             page.locator('.sidebar-subnav-link[href*="step=check"]').click()
             with page.expect_navigation(wait_until="networkidle"):
                 page.locator("button[data-check-mapping]").click()
-            page.get_by_role("link", name="Review confirmation", exact=True).click()
-            expect(page.get_by_role("button", name="Confirm field matches", exact=True)).to_be_enabled()
+            expect(page.locator("[data-mapping-journey]")).to_have_attribute("data-step", "confirm")
+            expect(confirm).to_be_enabled()
             self.assertEqual(len(fixture.model_catalog_calls), catalogue_calls)
         context = fixture.app.state.context
         self.assertEqual(context.queries.get_source_selection(workspace_id), source)

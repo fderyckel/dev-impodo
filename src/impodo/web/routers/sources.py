@@ -1974,7 +1974,7 @@ def build_sources_router(context: WebContext) -> APIRouter:
         """
 
         form = await request.form()
-        choices = _dataset_choices(context, workspace_id)
+        choices = await run_page_read(_dataset_choices, context, workspace_id)
         allowed = {"csrf_token"} | {
             f"dataset_name_{index}" for index, _choice in enumerate(choices)
         }
@@ -1994,14 +1994,17 @@ def build_sources_router(context: WebContext) -> APIRouter:
                 actor=actor,
             )
         except (MigrationFoundationError, WorkspaceError) as error:
-            return _render(
-                request,
-                "workspace_datasets.html",
-                workspace_state=context.queries.get(workspace_id),
-                choices=choices,
-                selection=context.queries.get_source_selection(workspace_id),
-                error=str(error),
-                status_code=422,
+            message = str(error)
+            return await run_page_read(
+                lambda: _render(
+                    request,
+                    "workspace_datasets.html",
+                    workspace_state=context.queries.get(workspace_id),
+                    choices=choices,
+                    selection=context.queries.get_source_selection(workspace_id),
+                    error=message,
+                    status_code=422,
+                )
             )
         _flash(
             request,

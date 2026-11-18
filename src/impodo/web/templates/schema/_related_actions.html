@@ -3,13 +3,13 @@
   <a class="button navigation" href="/workspaces/{{ workspace_id }}/schema?step=records">Back to records</a>
   <div class="schema-related-action-buttons">
     {% if supporting_review and supporting_review.rows %}
-      <button class="button action" type="submit" data-supporting-save>Save choices</button>
+      <button class="button action" data-next-step="{{ 300 if supporting_review.save_error or supporting_review.error else 100 }}" type="submit" data-supporting-save>Save choices</button>
       {% if supporting_review.current and supporting_review.has_reuse and not supporting_review.save_error %}
         <button class="button action" type="submit" form="schema-supporting-check">Check existing Odoo values</button>
       {% endif %}
     {% endif %}
     {% if related_can_continue %}
-      <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/schema?step=matching" data-schema-related-continue>Continue to matching rules</a>
+      <a class="button action" data-next-step="200" href="/workspaces/{{ workspace_id }}/schema?step=matching" data-schema-related-continue>Continue to matching rules</a>
     {% endif %}
   </div>
 </div>

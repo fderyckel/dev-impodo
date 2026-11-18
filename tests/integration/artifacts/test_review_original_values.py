@@ -24,7 +24,9 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
 )
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
     OriginalSourceInput,
+    OriginalSourceOccurrence,
     OriginalSourceRequest,
     OriginalSourceTarget,
     OriginalSourceValue,
@@ -79,6 +81,9 @@ def _frame(rows: tuple[tuple[int, object, object], ...]) -> pl.DataFrame:
 def _publish(
     artifacts: LocalArtifactStore,
     frame: pl.DataFrame,
+    *,
+    dataset_id: str = "dataset:" + "1" * 24,
+    dataset: str = "partners",
 ) -> tuple[SourceSnapshot, Path]:
     with artifacts.prepare_source_snapshot(_OWNER) as directory:
         candidate = directory / "source.parquet"
@@ -86,8 +91,8 @@ def _publish(
         digest = "sha256:" + sha256(candidate.read_bytes()).hexdigest()
         snapshot = SourceSnapshot.create(
             data_version_id=_OWNER,
-            dataset_id="dataset:" + "1" * 24,
-            dataset_name="partners",
+            dataset_id=dataset_id,
+            dataset_name=dataset,
             source=FileSourceBinding(
                 file_id="file-1",
                 table_key="csv",
@@ -113,6 +118,24 @@ def _publish(
         return snapshot, path
 
 
+def _coordinate(row, key):
+    return OriginalSourceCoordinate("dataset:" + "1" * 24, "partners", row, key)
+
+
+def _target(row, key, target_field, input_keys):
+    return OriginalSourceTarget(
+        OriginalSourceOccurrence("partners", row, target_field, input_keys),
+        _coordinate(row, key),
+        tuple(_coordinate(row, item) for item in input_keys),
+    )
+
+
+def _request(snapshot, cells, targets):
+    return OriginalSourceRequest(
+        snapshot, tuple(_coordinate(row, key) for row, key in cells), targets
+    )
+
+
 def _finding(
     row: int | None,
     keys: tuple[str, ...] = (_CODE,),
@@ -129,7 +152,7 @@ def _finding(
         "The saved preparation could not use this value.",
         source_inputs=(
             tuple(
-                OriginalSourceInput(key, OriginalSourceValue.unavailable())
+                OriginalSourceInput(_coordinate(row, key), OriginalSourceValue.unavailable())
                 for key in keys
             )
             if proven and row is not None
@@ -168,12 +191,11 @@ def _evidence(
         target_field_required={},
         fields_set_aside=fields,
         original_source_requests=(
-            OriginalSourceRequest(
+            _request(
                 snapshot,
-                "partners",
                 cells,
                 tuple(
-                    OriginalSourceTarget(row, key, "ref", (key,)) for row, key in cells
+                    _target(row, key, "ref", (key,)) for row, key in cells
                 ),
             ),
         ),
@@ -243,13 +265,12 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             evidence,
             original_source_requests=(
                 *evidence.original_source_requests,
-                OriginalSourceRequest(
+                _request(
                     snapshot,
-                    "partners",
                     ((2, _OTHER), (3, _CODE)),
                     (
-                        OriginalSourceTarget(2, _OTHER, "ref", (_OTHER,)),
-                        OriginalSourceTarget(3, _CODE, "ref", (_CODE,)),
+                        _target(2, _OTHER, "ref", (_OTHER,)),
+                        _target(3, _CODE, "ref", (_CODE,)),
                     ),
                 ),
             ),
@@ -316,14 +337,14 @@ class ReviewOriginalValuesTests(unittest.TestCase):
         )
         cells = ((2, _CODE), (2, _OTHER), (3, _CODE), (3, _OTHER))
         targets = tuple(
-            OriginalSourceTarget(row, key, "contact_id", cohort)
+            _target(row, key, "contact_id", cohort)
             for row in (2, 3)
             for key in cohort
-        ) + (OriginalSourceTarget(2, _CODE, "code_ref", (_CODE,)),)
+        ) + (_target(2, _CODE, "code_ref", (_CODE,)),)
         evidence = replace(
             _evidence(snapshot, cells, findings=findings),
             original_source_requests=(
-                OriginalSourceRequest(snapshot, "partners", cells, targets),
+                _request(snapshot, cells, targets),
             ),
         )
         with patch.object(
@@ -342,7 +363,7 @@ class ReviewOriginalValuesTests(unittest.TestCase):
         result = hydrated.fields_set_aside.findings
         self.assertEqual(len(result), len(findings))
         self.assertEqual(
-            tuple(item.source_key for item in result[0].source_inputs), cohort
+            tuple(item.coordinate.source_key for item in result[0].source_inputs), cohort
         )
         self.assertEqual(
             tuple(
@@ -375,13 +396,13 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             with self.subTest(authorized=authorized):
                 cells = tuple((2, key) for key in authorized)
                 targets = tuple(
-                    OriginalSourceTarget(2, key, "ref", authorized)
+                    _target(2, key, "ref", authorized)
                     for key in authorized
                 )
                 evidence = replace(
                     _evidence(snapshot, cells, findings=findings),
                     original_source_requests=(
-                        OriginalSourceRequest(snapshot, "partners", cells, targets),
+                        _request(snapshot, cells, targets),
                     ),
                 )
                 hydrated = populate_workbook_original_values(evidence, self.artifacts)
@@ -467,7 +488,7 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             _finding(2, (_CODE, _OTHER)),
             source_inputs=tuple(
                 OriginalSourceInput(
-                    key,
+                    _coordinate(2, key),
                     OriginalSourceValue.from_cell(EncodedSourceCell.from_python(value)),
                 )
                 for key, value in (
@@ -574,11 +595,10 @@ class ReviewOriginalValuesTests(unittest.TestCase):
             evidence,
             original_source_requests=(
                 *evidence.original_source_requests,
-                OriginalSourceRequest(
+                _request(
                     second,
-                    "partners",
                     ((2, _CODE),),
-                    (OriginalSourceTarget(2, _CODE, "ref", (_CODE,)),),
+                    (_target(2, _CODE, "ref", (_CODE,)),),
                 ),
             ),
         )

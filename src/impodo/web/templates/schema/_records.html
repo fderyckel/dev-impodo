@@ -90,7 +90,7 @@
       {% if not model_catalog %}
         <form method="post" action="/workspaces/{{ workspace_id }}/schema/models/refresh">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <button class="button action" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
+          <button class="button action" data-next-step="100" type="submit" {% if not local_reader_ready %}disabled{% endif %}>
             Show available Odoo data
           </button>
         </form>
@@ -111,7 +111,7 @@
           Impodo needs to know which Odoo installation on this computer to use.
           <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            <button class="button action" type="submit">Find local Odoo</button>
+            <button class="button action" {% if schema_load_failed or not schema or schema.origin.value == 'LOCAL_MANUAL' %}data-next-step="2500"{% endif %} type="submit">Find local Odoo</button>
           </form>
         </div>
       {% endif %}
@@ -152,7 +152,7 @@
             Find local Odoo only if you need to refresh the list.
             <form method="post" action="/workspaces/{{ workspace_id }}/schema/local-config">
               <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-              <button class="button action" type="submit">Find local Odoo to refresh</button>
+              <button class="button action" {% if schema_load_failed or not schema or schema.origin.value == 'LOCAL_MANUAL' %}data-next-step="2500"{% endif %} type="submit">Find local Odoo to refresh</button>
             </form>
           </div>
         {% endif %}

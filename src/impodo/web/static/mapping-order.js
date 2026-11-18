@@ -22,7 +22,15 @@ document.addEventListener("DOMContentLoaded", () => {
           progress.textContent = `${state.progress_percent}%`;
         }
         if (state.terminal) {
-          window.location.reload();
+          const destination = new URL(window.location.href);
+          destination.searchParams.set("order_check", state.check_id);
+          window.history.replaceState(window.history.state, "", destination);
+          const editor = window.impodoMappingEditor?.getState?.();
+          if (editor?.dirty || editor?.busy || document.querySelector("[data-matching-order-toggle]:checked")) {
+            if (message) message.textContent = "Check finished. Finish your edits, then reload to view the result.";
+          } else {
+            window.location.reload();
+          }
           return;
         }
       } catch (_error) {
@@ -150,5 +158,6 @@ document.addEventListener("DOMContentLoaded", () => {
     draggedRow = null;
   });
 
-  setEditing(false);
+  originalOrder = rows().map((row) => row.dataset.matchingOrderRow);
+  setEditing(toggle.checked);
 });

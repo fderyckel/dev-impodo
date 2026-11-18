@@ -13,10 +13,10 @@
       <div class="actions">
         <span class="status registered">Complete</span>
         <a class="button action" href="/workspaces/{{ workspace_id }}/derived-entities?edit_join={{ rule.rule_id }}#{{ 'combine-source-tables' if rule.group_id else 'combine-two-tables' }}">Edit columns and choices</a>
-        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete" data-source-remove-form data-source-remove-name="{{ view.output.name }}" data-source-remove-label="Remove combination">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-          <button class="button action" type="submit">Remove combination</button>
+          <button class="button destructive" data-button-delete type="submit"><span class="button-delete-icon" aria-hidden="true">🗑︎</span> Remove combination</button>
         </form>
       </div>
     </div>
@@ -56,10 +56,10 @@
         <h2>{{ rule.parent_dataset_name }} + {{ rule.child_dataset_name }}</h2>
         <p>Generated from <strong>{{ preview.source_dataset_name if preview else rule.source_dataset_id }}</strong>.</p>
       </div>
-      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+      <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete" data-source-remove-form data-source-remove-name="{{ rule.parent_dataset_name }} and {{ rule.child_dataset_name }}" data-source-remove-label="Remove split">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-        <button class="button action" type="submit">Remove split</button>
+        <button class="button destructive" data-button-delete type="submit"><span class="button-delete-icon" aria-hidden="true">🗑︎</span> Remove split</button>
       </form>
     </div>
 
@@ -100,10 +100,10 @@
           <h2>{{ rule.output_dataset_name }}</h2>
           <p>This table is available in Match data. No Odoo records have been created.</p>
         </div>
-        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete">
+        <form method="post" action="/workspaces/{{ workspace_id }}/derived-entities/{{ rule.rule_id }}/delete" data-source-remove-form data-source-remove-name="{{ rule.output_dataset_name }}" data-source-remove-label="Remove rule">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="expected_parent_version" value="{{ plan.version }}">
-          <button class="button action" type="submit">Remove rule</button>
+          <button class="button destructive" data-button-delete type="submit"><span class="button-delete-icon" aria-hidden="true">🗑︎</span> Remove rule</button>
         </form>
       </div>
       {% if view.preview_error %}

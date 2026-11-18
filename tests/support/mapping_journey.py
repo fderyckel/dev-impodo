@@ -49,12 +49,15 @@ class MappingJourneyFixture(HierarchyWorkflowFixture):
             data = {**data, "display_name": "Workshop products"}
         return super()._post(path, data)
 
-    def configure(self, major, mode):
+    def configure(self, major, mode, *, files=None, category_is_supporting=False):
         """Return a Stage 2 workspace with no company or saved matching draft."""
-        workspace_id = self.freeze_files({
-            "products": b"Reference,Product title,Category,Amount,Use\nP001,Workshop drill,Tools,12.50,yes\nP002,Spare drill,Tools,9.25,no\n",
-            "spare_parts": b"Reference,Product title,Category,Amount,Use\nS001,Spare kit,Tools,25.00,yes\nS002,Extra kit,Tools,5.00,no\n",
-        })
+        if files is None:
+            files = {
+                "products": b"Reference,Product title,Category,Amount,Use\nP001,Workshop drill,Tools,12.50,yes\nP002,Spare drill,Tools,9.25,no\n",
+                "spare_parts": b"Reference,Product title,Category,Amount,Use\nS001,Spare kit,Tools,25.00,yes\nS002,Extra kit,Tools,5.00,no\n",
+            }
+        workspace_id = self.freeze_files(files)
+        primary_models = ("x.item",) if category_is_supporting else ("x.item", "x.category")
         state = self.context.queries.get(workspace_id)
         state = self.context.workspace_states.update_target(
             workspace_id,
@@ -64,7 +67,7 @@ class MappingJourneyFixture(HierarchyWorkflowFixture):
             odoo_base_url="http://127.0.0.1:8069" if mode is OdooConnectionMode.LOCAL else "https://fictional.example.test",
             odoo_database=f"fictional_odoo{major}",
             intended_applications=(),
-            intended_models=("x.item", "x.category"),
+            intended_models=primary_models,
         )
         target_hash = target_identity_hash(
             connection_mode=mode.value,
@@ -93,8 +96,13 @@ class MappingJourneyFixture(HierarchyWorkflowFixture):
             OdooCompanySelection(target_hash, 1, "Example Group"),
             OdooCompanySelection(target_hash, 105, "Example Factory"),
         ))
+        def primary_metadata(*_args):
+            if category_is_supporting:
+                return replace(self.metadata, models={"x.item": self.metadata.models["x.item"]})
+            return self.metadata
         if mode is OdooConnectionMode.LOCAL:
             self._local_profile(state)
+            self.local_odoo_reader.get_model_metadata.side_effect = primary_metadata
             binding = local_read_credential_binding_hash(state)
             identity = None
             self.context.readiness_reader = None
@@ -106,26 +114,28 @@ class MappingJourneyFixture(HierarchyWorkflowFixture):
                 self.secrets, owner, TargetCredentialRole.READ,
                 "fictional-read-key", persistent=False,
             ).binding_hash
-            identity = self.read_identity(state, "fictional-read-key", tuple(self.metadata.models))
+            identity = self.read_identity(state, "fictional-read-key", primary_models)
             self.context.readiness_reader = self.snapshots
             self.probe_patches.enter_context(patch(
                 "impodo.web.routers.odoo_company.read_company_access",
                 return_value=self.access,
             ))
         self.context.schema_read_session_factory = None
-        self.context.schema_reader = lambda *_args: self.metadata
+        self.context.schema_reader = primary_metadata
         self.context.read_identity_probe = self.read_identity
         schema = self.context.schema_workspace.capture(
-            workspace_id, self.metadata, read_credential_binding_hash=binding,
+            workspace_id, primary_metadata(), read_credential_binding_hash=binding,
             read_identity=identity, actor=self.actor,
         )
+        available_keys = (
+            BusinessKeyDefinition("item:reference", "x.item", ("ref",),
+                description="Reference", status=BusinessKeyStatus.CONFIRMED),
+            BusinessKeyDefinition("category:name", "x.category", ("name",),
+                description="Name", status=BusinessKeyStatus.CONFIRMED),
+        )
         self.context.schema_workspace.govern(
-            workspace_id, actor=self.actor, business_keys=(
-                BusinessKeyDefinition("item:reference", "x.item", ("ref",),
-                    description="Reference", status=BusinessKeyStatus.CONFIRMED),
-                BusinessKeyDefinition("category:name", "x.category", ("name",),
-                    description="Name", status=BusinessKeyStatus.CONFIRMED),
-            ),
+            workspace_id, actor=self.actor,
+            business_keys=tuple(key for key in available_keys if key.model in primary_models),
         )
         self.workspace_id = workspace_id
         self.selection = self.context.queries.get_mapping_source_selection(workspace_id)

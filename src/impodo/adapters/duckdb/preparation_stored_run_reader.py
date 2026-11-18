@@ -685,6 +685,7 @@ class PreparationStoredRunReader:
                             schema_hash=projection.program.schema_hash,
                             field_sources=projection.field_sources,
                             physical_dataset_id=(projection.physical_dataset_id),
+                            field_input_keys=projection.field_input_keys,
                         )
                         try:
                             row = CanonicalRow.from_dict(json.loads(projected.row_json))

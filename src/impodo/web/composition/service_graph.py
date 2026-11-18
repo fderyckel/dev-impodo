@@ -657,6 +657,7 @@ def build_authoring_service_graph(
     logical_source_values: LogicalSourceValues | None = None,
     exact_join_groups: ExactJoinGroupEvaluator | None = None,
     grouped_exact_joins: GroupedExactJoinSourcePort | None = None,
+    local_operation: LocalOperation | None = None,
 ) -> AuthoringServiceGraph:
     """Wire source, Recipe, and Match data without choosing storage adapters."""
 
@@ -685,6 +686,7 @@ def build_authoring_service_graph(
         artifacts,
         schemas=schemas,
         capture_filters=capture_filters,
+        local_operation=local_operation,
     )
     source_projections = WorkspaceSourceProjectionService(
         foundation_repository,
@@ -698,6 +700,7 @@ def build_authoring_service_graph(
         foundation.source_packages,
         source_projections,
         source_workspace,
+        local_operation=local_operation,
     )
     categorical_coverage = CategoricalCoverageService(
         sources, artifacts, logical_source_values

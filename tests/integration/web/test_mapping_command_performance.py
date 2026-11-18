@@ -192,10 +192,11 @@ class MappingCommandFixture(ProjectSetupBrowserTestCase):
             operation_id=str(uuid4()),
         )
         with self.remote_boundary_probes() as remote_steps:
-            # Captured source, schema/access and governance are checked again
-            # after the remote boundary, even when that adds authoritative SQL.
+            # The same fresh inputs serve publication and validation. The check
+            # also re-reads the selected run target and reader after Odoo returns.
+            # The old path used 176 statements without that selection check.
             checked = self.bounded_command(
-                workspace_id, checked_entries, opens=12, checks=9, sql_limit=178
+                workspace_id, checked_entries, opens=12, checks=9, sql_limit=158
             )
         self.assertEqual(checked.status_code, 200, checked.text)
         self.assertEqual(checked.json()["status"], "committed")

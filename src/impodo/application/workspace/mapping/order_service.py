@@ -11,6 +11,10 @@ from threading import RLock, Thread
 from typing import Protocol
 from uuid import uuid4
 
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
 from impodo.application.workspace.mapping.identity_group_review import (
     identity_duplicate_choices,
 )
@@ -245,15 +249,6 @@ class MatchingOrderSourceKeys(Protocol):
         self, workspace_id: str, datasets: tuple[DatasetMapping, ...],
     ) -> dict[str, IncludedParentRows]:
         """Read the source parent scope for an explicitly linked row rule."""
-        ...
-
-    def source_key_tuples(
-        self,
-        workspace_id: str,
-        dataset_id: str,
-        source_column_keys: tuple[str, ...],
-    ) -> tuple[tuple[str | None, ...], ...]:
-        """Read exact source keys for direct live identity checks."""
         ...
 
     def source_identity_key_tuples(
@@ -949,12 +944,11 @@ class MatchingOrderService:
             actor=actor,
         )
 
-    def start_live_check(
+    def reserve_live_check(
         self,
         prepared: MatchingOrderPreparedCheck,
-        reader: MatchingOrderSnapshotReader,
     ) -> MatchingOrderCheckAttempt:
-        """Reserve one durable attempt and start its bounded read worker."""
+        """Reserve one durable attempt inside the local admission operation."""
 
         preferences, _authorization = self._preference_dependencies()
         now = datetime.now(UTC)
@@ -974,16 +968,31 @@ class MatchingOrderService:
                 attempt,
                 actor=prepared.actor,
             )
-            if not created:
-                return stored
-            self._running_check_ids.add(prepared.check_id)
+            if created:
+                self._running_check_ids.add(prepared.check_id)
+            return stored
+
+    def start_live_check(
+        self,
+        prepared: MatchingOrderPreparedCheck,
+        reader: MatchingOrderSnapshotReader,
+        local_operation: LocalOperation = direct_local_operation,
+    ) -> None:
+        """Dispatch a reserved check after the admission database owners close."""
+
+        try:
             Thread(
                 target=self._run_live_check,
-                args=(prepared, reader),
+                args=(prepared, reader, local_operation),
                 name="impodo-matching-order-check",
                 daemon=True,
             ).start()
-        return attempt
+        except RuntimeError as error:
+            with self._check_lock:
+                self._running_check_ids.discard(prepared.check_id)
+            # Reuse the interrupted-attempt recovery that preserves the last result.
+            local_operation(lambda: self.active_check_attempt(prepared.workspace_id, actor=prepared.actor))
+            raise WorkspaceError("Could not start the Odoo check. Try again.") from error
 
     def current_check(
         self,
@@ -1163,6 +1172,7 @@ class MatchingOrderService:
         self,
         prepared: MatchingOrderPreparedCheck,
         reader: MatchingOrderSnapshotReader,
+        local_operation: LocalOperation = direct_local_operation,
     ) -> None:
         preferences, _authorization = self._preference_dependencies()
         attempt = MatchingOrderCheckAttempt(
@@ -1179,7 +1189,7 @@ class MatchingOrderService:
             updated_at=datetime.now(UTC),
         )
         try:
-            preferences.update_check_attempt(prepared.workspace_id, attempt)
+            local_operation(lambda: preferences.update_check_attempt(prepared.workspace_id, attempt))
             metadata, records = bind_snapshot_hashes(*reader(prepared.requirements))
             _validate_matching_snapshot_projection(
                 prepared.requirements,
@@ -1193,7 +1203,7 @@ class MatchingOrderService:
                 progress_percent=70,
                 updated_at=datetime.now(UTC),
             )
-            preferences.update_check_attempt(prepared.workspace_id, attempt)
+            local_operation(lambda: preferences.update_check_attempt(prepared.workspace_id, attempt))
             schema_changed = _matching_schema_changed(prepared.schema, metadata)
             relationship_choices: list[RelationshipChoice] = []
             checked_relationship_health = (
@@ -1370,15 +1380,14 @@ class MatchingOrderService:
                 progress_percent=90,
                 updated_at=datetime.now(UTC),
             )
-            preferences.update_check_attempt(prepared.workspace_id, attempt)
-            published_status = preferences.publish_check(
-                prepared.workspace_id,
-                check,
-                protected_snapshot_json=protected_snapshot,
-                actor=prepared.actor,
-            )
-            if published_status is MatchingOrderCheckStatus.STALE:
-                return
+            def publish():
+                preferences.update_check_attempt(prepared.workspace_id, attempt)
+                return preferences.publish_check(
+                    prepared.workspace_id, check,
+                    protected_snapshot_json=protected_snapshot, actor=prepared.actor,
+                )
+
+            local_operation(publish)
         except Exception as error:  # noqa: BLE001 - background-check boundary
             finished = datetime.now(UTC)
             failed = replace(
@@ -1392,11 +1401,9 @@ class MatchingOrderService:
                 failure_message=_safe_matching_order_failure(error),
             )
             try:
-                preferences.fail_check(
-                    prepared.workspace_id,
-                    failed,
-                    actor=prepared.actor,
-                )
+                local_operation(lambda: preferences.fail_check(
+                    prepared.workspace_id, failed, actor=prepared.actor,
+                ))
             except Exception:
                 logging.getLogger(__name__).exception(
                     "Could not persist a failed matching-order check"
@@ -2329,7 +2336,7 @@ class MatchingOrderService:
         """Reconcile a saved preference with the current selected datasets."""
 
         recommended = tuple(recommended_dataset_ids)
-        if preference is None:
+        if preference is None or not preference.custom:
             return recommended
         known = set(recommended)
         retained = tuple(
@@ -2365,49 +2372,6 @@ class MatchingOrderService:
             raise WorkspaceError("This table cannot move further in that direction")
         ordered[current], ordered[target] = ordered[target], ordered[current]
         return tuple(ordered)
-
-    def next_incomplete_dataset_id(
-        self,
-        selection: SourceSelection,
-        recommendation: MatchingOrderRecommendation,
-        definition: MappingDefinition | None,
-        *,
-        current_dataset_id: str,
-        work_order: Iterable[str] | None = None,
-    ) -> str | None:
-        """Return the next recommended table lacking minimum saved choices."""
-
-        source_by_id = {item.dataset_id: item for item in selection.datasets}
-        mapping_by_id = {
-            item.dataset_id: item
-            for item in (definition.datasets if definition is not None else ())
-        }
-        incomplete = {
-            dataset_id
-            for dataset_id in recommendation.ordered_dataset_ids
-            if not self.ready_for_check(
-                source_by_id[dataset_id],
-                mapping_by_id.get(dataset_id),
-            )
-        }
-        if not incomplete:
-            return None
-        ordered = tuple(work_order or recommendation.ordered_dataset_ids)
-        if set(ordered) != set(recommendation.ordered_dataset_ids):
-            raise WorkspaceError("Matching work order does not match its datasets")
-        try:
-            current_index = ordered.index(current_dataset_id)
-        except ValueError:
-            current_index = -1
-        candidates = (*ordered[current_index + 1 :], *ordered[: current_index + 1])
-        return next(
-            (
-                dataset_id
-                for dataset_id in candidates
-                if dataset_id in incomplete and dataset_id != current_dataset_id
-            ),
-            None,
-        )
 
     def _preference_dependencies(
         self,

@@ -166,12 +166,32 @@ allowing this independently verified schema binding and target-specific value
 decisions to change.
 
 A mapping mutation receipt is separate operational recovery evidence. Its UUID
-binds one actor and exact submitted command meaning. The committed receipt is
-written in the same workspace-engine transaction as the authoritative mapping
-draft, revision, validation, or submission change and records the resulting
-versions and content identity. A rejected or pending receipt never validates,
-submits, or otherwise authorizes mapping evidence. Pending means the outcome is
-still unknown and forbids automatic mutation replay.
+binds one actor and exact submitted command meaning. A committed receipt
+records the resulting versions and content identity. A draft save or final
+submission commits its receipt in the transaction that writes the change.
+**Check matches** commits its receipt with the validation when there is no
+row review. When the check includes a row review, publishing that review
+commits the receipt.
+A pending receipt leaves the outcome unknown and forbids automatic mutation
+replay. A rejected receipt authorizes no further action.
+
+One mapping revision can have several immutable validation results. For
+example, a linked value that was missing in Odoo can exist on a later check.
+Publishing a validation selects its hash for that revision in the same
+transaction. Review and submission read the selected result, including when
+a later check produces findings identical to an earlier check.
+
+For an ordinary **Check matches** command, the selection also records the
+operation ID and a hash of the Odoo target, credential, principal,
+permissions and company context used for the check. An authorized receipt
+lookup can reopen the decision when those bindings, the draft and revision,
+the source and schema, and any checked row selection still agree. If the
+mapping has been submitted or a newer check has replaced the result, the
+receipt directs the operator to review the current matches. The
+[workspace storage upgrade](../reference/storage-and-release-versioning.md)
+preserves the selected validation for existing revisions. Earlier checks can
+be reviewed in the usual way but have no recorded operation binding for
+automatic navigation.
 
 The exact current mapping contract is version 26. It binds an explicit
 closed-domain policy for every scalar selection and relationship. Application
@@ -363,8 +383,10 @@ source-selection hash so the browser can reconcile its table IDs, but it is
 excluded from `MappingWorkingDraft`, `MappingDefinition`, Recipe revisions,
 prepared evidence, preflight evidence, compiled plans, and execution
 snapshots. Saving or resetting this preference changes only its singleton row
-and audit history. It never invalidates or qualifies semantic evidence, and
-the execution planner never consumes its custom order.
+and audit history. Reset advances the version and stores an empty permutation
+to follow the current recommendation. A tab opened before a reset therefore
+cannot overwrite a later choice. The preference never invalidates or qualifies
+semantic evidence, and the execution planner never consumes its custom order.
 
 The optional Stage 3 matching-order check is target-bound advisory evidence,
 separate from both the preference and portable mapping evidence. Its public
@@ -373,8 +395,10 @@ the exact source selection, governed schema, target, read credential,
 principal, permission context, and saved working-draft version and hash. Exact
 source keys, returned target values, and numeric Odoo IDs remain in a protected
 workspace snapshot. A stale or failed attempt cannot replace the current
-published check, and the check never qualifies preparation, preflight, or
-execution. Final review performs its own current target comparison.
+published check. Applying a displayed suggestion requires its check ID, its
+current input bindings and the expected preference version. The check never
+qualifies preparation, preflight, or execution. Final review performs its own
+current target comparison.
 
 That explicit check may also publish normalized protected duplicate-group
 membership. A group binds the complete key and scope, dataset, cause, source

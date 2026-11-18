@@ -7,6 +7,7 @@ import unittest
 from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import duckdb
 
@@ -171,8 +172,8 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                 schema._ensure_workspace_database_schema,
                 SCHEMA_GENERATION,
                 SCHEMA_VERSION,
-                # Version 8 adds only the private execution error companion.
-                "0a7e0b7a1d98f4de37314b81a8c9269244854c9e9e9699ad4fc3eebbacd2544d",
+                # Version 9 adds only the current mapping validation pointer.
+                "abf25ce311d044d7690ce6bb2670ee2fca6f18c795b6c52dd03d0a4bd785fa89",
             ),
         )
         for initialize, ensure, generation, version, fingerprint in stores:
@@ -223,6 +224,60 @@ class ForwardUpgradeCompatibilityTests(unittest.TestCase):
                             ).fetchall(),
                             [],
                         )
+
+    def test_version_eight_preserves_selected_validation_without_binding_old_receipts(self):
+        schema = WorkspaceEngineSchemaMixin()
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "workspace.duckdb"
+            with duckdb.connect(path) as connection:
+                schema._initialize_workspace_database(connection)
+                connection.execute("DROP TABLE mapping_validation_current")
+                connection.execute("UPDATE schema_version SET version = 8")
+                self.assertEqual(
+                    _schema_fingerprint(connection),
+                    "0a7e0b7a1d98f4de37314b81a8c9269244854c9e9e9699ad4fc3eebbacd2544d",
+                )
+                connection.execute("""
+                    INSERT INTO mapping_validation VALUES
+                        ('first', 1, 'v', 'old', '2026-11-01', 'older payload'),
+                        ('first', 1, 'v', 'b', '2026-11-02', 'tied later hash'),
+                        ('first', 1, 'v', 'a', '2026-11-02', 'selected by older build'),
+                        ('first', 2, 'v', 'c', '2026-11-03', 'second revision'),
+                        ('second', 1, 'v', 'd', '2026-11-04', 'other mapping')
+                """)
+                connection.execute("""
+                    INSERT INTO mapping_mutation_receipt VALUES (
+                        'prior', 'CHECK_MATCHES', 'request', 'COMMITTED', NULL, NULL, 1, 1,
+                        'mapping hash', '', '', '2026-11-01', '2026-11-02', 'issuer', 'actor'
+                    )
+                """)
+                history = connection.execute(
+                    "SELECT * FROM mapping_validation ORDER BY mapping_id, version, validation_hash"
+                ).fetchall()
+            for _ in range(2):
+                with duckdb.connect(path) as connection:
+                    schema._ensure_workspace_database_schema(connection)
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT * FROM mapping_validation_current ORDER BY mapping_id, version"
+                        ).fetchall(),
+                        [("first", 1, "a", None, None), ("first", 2, "c", None, None),
+                         ("second", 1, "d", None, None)],
+                    )
+                    self.assertEqual(
+                        connection.execute(
+                            "SELECT * FROM mapping_validation ORDER BY mapping_id, version, validation_hash"
+                        ).fetchall(),
+                        history,
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT state, content_identity FROM mapping_mutation_receipt").fetchall(),
+                        [("COMMITTED", "mapping hash")],
+                    )
+                    self.assertEqual(
+                        connection.execute("SELECT * FROM schema_migration").fetchall(),
+                        [(8, 9, "current-mapping-validation-v9")],
+                    )
 
     def test_failed_upgrade_rolls_back_ddl_version_and_ledger(self) -> None:
         connection = duckdb.connect(":memory:")

@@ -16,7 +16,7 @@ The application continues its existing release numbering.
 | --- | --- | --- |
 | Application release | [`pyproject.toml`](../../../pyproject.toml), currently `26.11.1` | Use `YY.MM.W` for the maintainer-selected weekly slot and create the matching `v<version>` Git tag when releasing. Synchronize the package entry in `uv.lock` with uv after changing the release version. |
 | Release bundle | [`scripts/internal_release.py`](../../../scripts/internal_release.py) | Keep the application version, Git revision, artifact hashes, and validation evidence together in the immutable manifest. |
-| Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Baseline version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`; version 2 adds protected duplicate-group index columns and current version 3 adds the protected relationship-choice index. |
+| Workspace engine | [`domain/shared/schema.py`](../../../src/impodo/domain/shared/schema.py) | Baseline version 1 in generation `impodo-workspace-engine-2026-10-31-workspace-owned`. Version 9 records which validation each mapping revision currently uses. |
 | Project registry | [`schema/migration_registry.py`](../../../src/impodo/adapters/duckdb/schema/migration_registry.py) | Baseline version 1 in generation `impodo-migration-registry-2026-10-31-project-root`; version 2 adds saved Odoo data, and current version 3 ensures that restore profiles are available. |
 | Data version store | [`schema/data_version_store.py`](../../../src/impodo/adapters/duckdb/schema/data_version_store.py) | Start at version 1 in generation `impodo-data-version-store-2026-10-31-project-owned`. |
 | Workspace reference store | [`schema/migration_workspace_store.py`](../../../src/impodo/adapters/duckdb/schema/migration_workspace_store.py) | Start at version 1 in generation `impodo-migration-workspace-2026-10-31-reference-only`. |
@@ -27,6 +27,13 @@ The baseline DuckDB upgrade registries started empty, and new databases have emp
 `schema_migration` ledgers. Unsupported generations, future versions, malformed
 schemas, and missing upgrade paths are rejected without changing stored data.
 The application no longer resets or archives abandoned development layouts.
+
+The workspace upgrade to version 9 preserves the validation each mapping
+revision would have displayed before the upgrade. Earlier receipts did not
+record the exact validation and access used for a check. Those receipts keep
+their saved outcome, and the operator can run **Check matches** to record a
+fresh binding. The [workspace upgrade tests](../../../tests/integration/duckdb/test_forward_upgrades.py)
+cover tied validation timestamps and reopening an upgraded workspace.
 
 Early version 2 registries contain saved Odoo data without the restore-profile
 table. Later version 2 registries already contain that table and may have saved

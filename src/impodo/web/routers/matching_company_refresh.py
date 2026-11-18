@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 from impodo.adapters.odoo.local_stack import LocalStackProfile
 from impodo.application.shared.secrets import SecretStoreError
 from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability
 from impodo.domain.workspace.contracts import OdooModelCatalog, OdooSchemaCatalog
 from impodo.domain.workspace.errors import WorkspaceError
@@ -44,8 +45,70 @@ class PreparedMatchingAccess:
     profile: LocalStackProfile | None
     needs_refresh: bool
     force: bool
+    migration_run_id: str
     model_catalog: OdooModelCatalog | None = None
     supporting_review: SupportingReview | None = None
+
+    def verify_reader_selection(self, context: WebContext, actor: Actor) -> str:
+        """Reject a changed company or reader before publishing a checked mapping."""
+
+        state = self.workspace
+        changed = "The Odoo company or checking access changed. Check matches again."
+        if state.source_mode is SourceMode.FILE:
+            # The run owns the live file-import target. Reopening the whole
+            # workspace here would also reread its project and source files.
+            target = context.migration_run_target_setup.get(self.migration_run_id, actor=actor)
+            if target is None or (
+                state.odoo_connection_mode is None
+                or target.connection_mode.value != state.odoo_connection_mode.value
+                or target.base_url != state.odoo_base_url
+                or target.database != state.odoo_database
+                or target.company_binding_hash != (state.odoo_company.binding_hash if state.odoo_company else "")
+            ):
+                raise WorkspaceError(changed)
+            profile, credential = _selected_reader(context, state, actor)
+            current = _reader_selection_hash(state, profile, credential)
+        else:
+            current = current_matching_reader_hash(context, state.workspace_id, actor=actor)
+        if current != _reader_selection_hash(state, self.profile, self.credential):
+            raise WorkspaceError(changed)
+        return current
+
+
+def _selected_reader(
+    context: WebContext, state: WorkspaceState, actor: Actor,
+) -> tuple[LocalStackProfile | None, TargetCredential | None]:
+    if state.source_mode is not SourceMode.FILE:
+        return None, None
+    profile = _selected_local_profile(context, state)
+    owner = context.target_credential_workspace(
+        state.workspace_id, workspace_state=state, actor=actor,
+    )
+    return profile, get_target_credential(context.secret_store, owner, TargetCredentialRole.READ)
+
+
+def _reader_selection_hash(
+    state: WorkspaceState,
+    profile: LocalStackProfile | None,
+    credential: TargetCredential | None,
+) -> str:
+    return content_hash((
+        state.source_mode.value,
+        state.odoo_connection_mode,
+        state.odoo_base_url,
+        state.odoo_database,
+        state.odoo_company.context_hash if state.odoo_company else "",
+        credential.binding_hash if credential else "",
+        (profile.db_host, profile.db_port, profile.db_user) if profile and not credential else None,
+    ))
+
+
+def current_matching_reader_hash(context: WebContext, workspace_id: str, *, actor: Actor) -> str:
+    """Read the selected company and reader in an authorized local check operation."""
+
+    state = context.queries.get(workspace_id)
+    profile, credential = _selected_reader(context, state, actor)
+    return _reader_selection_hash(state, profile, credential)
 
 
 def prepare_matching_access(
@@ -58,7 +121,7 @@ def prepare_matching_access(
     force: bool = False,
 ) -> PreparedMatchingAccess:
     """Read once within the caller's bounded local operation; never contact Odoo."""
-    context.workspace_states.authorization.require(
+    access = context.workspace_access.require(
         actor,
         Capability.MAPPING_EDIT,
         workspace_id=workspace_id,
@@ -88,21 +151,15 @@ def prepare_matching_access(
         or catalog.pending_refresh is not None
         and not force
     ):
-        return PreparedMatchingAccess(state, catalog, None, None, False, force)
-    profile = _selected_local_profile(context, state)
-    owner = context.target_credential_workspace(
-        workspace_id, workspace_state=state, actor=actor
-    )
-    credential = get_target_credential(
-        context.secret_store, owner, TargetCredentialRole.READ
-    )
+        return PreparedMatchingAccess(state, catalog, None, None, False, force, access.migration_run_id)
+    profile, credential = _selected_reader(context, state, actor)
     if profile is None and credential is None:
         if force:
             raise SecretStoreError(
                 "Enter the checking key before checking company-specific values"
             )
         # Keep the existing missing-key/recovery handling at the reader boundary.
-        return PreparedMatchingAccess(state, catalog, None, None, False, force)
+        return PreparedMatchingAccess(state, catalog, None, None, False, force, access.migration_run_id)
     stale = (
         credential is not None
         and credential.binding_hash != catalog.read_credential_binding_hash
@@ -116,6 +173,7 @@ def prepare_matching_access(
         profile,
         force or stale,
         force,
+        access.migration_run_id,
         context.queries.get_odoo_model_catalog(workspace_id)
         if force or stale
         else None,

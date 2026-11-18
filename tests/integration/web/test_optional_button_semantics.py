@@ -39,18 +39,14 @@ class OptionalButtonSemanticsTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('<section class="optional-workflow"', template)
-        self.assertIn('<p class="eyebrow">Optional</p>', template)
-        self.assertRegex(
-            template,
-            r"<h3[^>]*>Organize source tables</h3>",
-        )
+        self.assertIn('<span class="muted">Optional</span>', template)
         self.assertNotIn(
             "<summary>Does one table combine different kinds of information?</summary>",
             template,
         )
         self.assertRegex(
             template,
-            r'class="button action"[^>]*>Separate combined information<',
+            r'class="button action"[^>]*>Organize source tables<',
         )
 
     def test_optional_rule_review_and_exports_use_secondary_buttons(self) -> None:

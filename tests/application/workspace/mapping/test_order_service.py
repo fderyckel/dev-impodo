@@ -191,7 +191,6 @@ class MatchingOrderServiceTests(unittest.TestCase):
             recommendation.facts[0].confidence,
             MatchingOrderConfidence.CONFIRMED,
         )
-        self.assertFalse(recommendation.preliminary)
 
     def test_source_preparation_links_are_confirmed_without_saved_mapping(self) -> None:
         child = _source("dataset:lines", "plw_routeopr")
@@ -275,7 +274,7 @@ class MatchingOrderServiceTests(unittest.TestCase):
             recommendation.ordered_dataset_ids,
             (article.dataset_id, bom.dataset_id),
         )
-        self.assertTrue(recommendation.preliminary)
+        self.assertIs(recommendation.facts[0].confidence, MatchingOrderConfidence.PRELIMINARY)
         self.assertIs(
             recommendation.facts[0].source,
             MatchingOrderSource.ODOO_SCHEMA,
@@ -318,32 +317,6 @@ class MatchingOrderServiceTests(unittest.TestCase):
             item.dataset_id for item in selection.datasets
         ))
         self.assertEqual(recommendation.facts, ())
-
-    def test_next_table_skips_datasets_with_minimum_saved_choices(self) -> None:
-        first = _source("dataset:first", "first")
-        second = _source("dataset:second", "second")
-        third = _source("dataset:third", "third")
-        selection = SimpleNamespace(datasets=(first, second, third))
-        definition = SimpleNamespace(
-            datasets=(
-                _mapping(first.dataset_id, "x.first"),
-                _mapping(second.dataset_id, "x.second"),
-            )
-        )
-        recommendation = self.service.recommend(
-            selection,
-            SimpleNamespace(models=()),
-            definition,
-        )
-
-        next_dataset = self.service.next_incomplete_dataset_id(
-            selection,
-            recommendation,
-            definition,
-            current_dataset_id=first.dataset_id,
-        )
-
-        self.assertEqual(next_dataset, third.dataset_id)
 
     def test_custom_order_is_versioned_and_kept_out_of_mapping_contracts(self) -> None:
         first = _source("dataset:first", "first")
@@ -464,27 +437,6 @@ class MatchingOrderServiceTests(unittest.TestCase):
                 "dataset:article",
                 direction="up",
             )
-
-    def test_next_table_follows_saved_custom_work_order(self) -> None:
-        first = _source("dataset:first", "first")
-        second = _source("dataset:second", "second")
-        third = _source("dataset:third", "third")
-        selection = SimpleNamespace(datasets=(first, second, third))
-        recommendation = self.service.recommend(
-            selection,
-            SimpleNamespace(models=()),
-            None,
-        )
-
-        next_dataset = self.service.next_incomplete_dataset_id(
-            selection,
-            recommendation,
-            None,
-            current_dataset_id=first.dataset_id,
-            work_order=(first.dataset_id, third.dataset_id, second.dataset_id),
-        )
-
-        self.assertEqual(next_dataset, third.dataset_id)
 
 
 if __name__ == "__main__":

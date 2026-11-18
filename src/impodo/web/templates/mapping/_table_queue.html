@@ -16,7 +16,7 @@
     </nav>
   {% endif %}
   {% if matching_order %}
-    <details class="mapping-journey-order-details">
+    <details class="mapping-journey-order-details"{% if request.query_params.get("order_panel") == "1" %} open{% endif %}>
       <summary>Change table order</summary>
       {% include "mapping/_matching_order.html" %}
     </details>

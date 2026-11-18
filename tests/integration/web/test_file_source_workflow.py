@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from html.parser import HTMLParser
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
@@ -19,6 +20,21 @@ from tests.support.browser_scenarios import (
     uuid4,
 )
 from tests.support.identity import resolve_local_actor
+
+
+class _SourceActionParser(HTMLParser):
+    def __init__(self, markup):
+        super().__init__()
+        self.next_actions = []
+        self.inline_help = []
+        self.feed(markup)
+
+    def handle_starttag(self, tag, attrs):
+        attributes = dict(attrs)
+        if tag in {"button", "a"} and "data-next-step" in attributes:
+            self.next_actions.append(attributes)
+        if tag == "details" and "inline-user-help" in attributes.get("class", "").split():
+            self.inline_help.append(attributes)
 
 
 class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
@@ -233,6 +249,10 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("customers.csv", inspection_page.text)
         self.assertIn("Check files again", inspection_page.text)
         self.assertNotIn("Your files have not been checked yet", inspection_page.text)
+        initial_actions = _SourceActionParser(inspection_page.text).next_actions
+        self.assertEqual(len(initial_actions), 1)
+        self.assertIn("data-source-confirmation-action", initial_actions[0])
+        self.assertEqual(initial_actions[0]["value"], "confirm")
         catalog = context.queries.get_source_catalogs(workspace_id)[0]
         confirmed = self.client.post(
             f"/workspaces/{workspace_id}/sources/{catalog.file_id}/configure",
@@ -255,6 +275,9 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("Start with a lowercase letter", source_page.text)
         self.assertIn("Give each table a different name", source_page.text)
         self.assertIn("data-dataset-name", source_page.text)
+        confirmed_actions = _SourceActionParser(source_page.text).next_actions
+        self.assertEqual(len(confirmed_actions), 1)
+        self.assertIn("data-source-save-tables", confirmed_actions[0])
         self.assertIn(
             f'action="/workspaces/{workspace_id}/datasets/freeze"',
             source_page.text,
@@ -285,6 +308,9 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "Use only lowercase letters, numbers, and underscores",
             invalid_name.text,
         )
+        retry_actions = _SourceActionParser(invalid_name.text).next_actions
+        self.assertEqual(len(retry_actions), 1)
+        self.assertIn("data-source-save-tables", retry_actions[0])
 
         frozen = self.client.post(
             f"/workspaces/{workspace_id}/datasets/freeze",
@@ -299,6 +325,16 @@ class FileSourceWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         saved_page = self.client.get(frozen.headers["location"])
         self.assertIn("Saved source tables", saved_page.text)
         self.assertIn("Tables ready for the next step", saved_page.text)
+        saved_actions = _SourceActionParser(saved_page.text)
+        self.assertEqual(len(saved_actions.next_actions), 1)
+        self.assertEqual(
+            saved_actions.next_actions[0]["href"],
+            f"/workspaces/{workspace_id}/schema",
+        )
+        self.assertIn("Continue to Odoo data", saved_page.text)
+        self.assertIn("Organize source tables", saved_page.text)
+        self.assertEqual(len(saved_actions.inline_help), 1)
+        self.assertNotIn("open", saved_actions.inline_help[0])
         self.assertNotIn('name="dataset_name_0"', saved_page.text)
 
         saved_selection = context.queries.get_source_selection(workspace_id)

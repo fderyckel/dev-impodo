@@ -923,6 +923,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 checked_draft,
                 actor,
                 operation_id=None,
+                check_binding=None,
                 schema_refresh=None,
             ):
                 del (
@@ -944,6 +945,7 @@ class RecipeApplicationServiceTests(unittest.TestCase):
                 *,
                 actor,
                 operation_id=None,
+                check_binding=None,
                 schema_refresh=None,
             ):
                 del workspace_id, version, actor, operation_id

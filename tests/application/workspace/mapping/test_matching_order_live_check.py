@@ -65,10 +65,6 @@ class _Keys:
         self.rows = rows
         self.calls = []
 
-    def source_key_tuples(self, workspace_id, dataset_id, source_column_keys):
-        self.calls.append(("relationship", workspace_id, dataset_id, source_column_keys))
-        return self.rows[(dataset_id, source_column_keys)]
-
     def source_identity_key_tuples(
         self,
         workspace_id,

@@ -333,7 +333,12 @@ document.addEventListener("DOMContentLoaded", () => {
   const pageConfirmationStatus = document.querySelector("[data-source-page-status]");
   const savedPageStatus = pageConfirmationStatus?.innerHTML || "";
   const pageWasComplete = pageConfirmationStatus?.classList.contains("complete");
+  const saveTablesAction = document.querySelector("[data-source-save-tables]");
   const syncPageConfirmation = () => {
+    if (saveTablesAction) {
+      if (changedSourceForms.size) saveTablesAction.removeAttribute("data-next-step");
+      else saveTablesAction.setAttribute("data-next-step", "100");
+    }
     if (!pageConfirmationStatus) return;
     pageConfirmationStatus.classList.toggle("complete", Boolean(pageWasComplete && !changedSourceForms.size));
     pageConfirmationStatus.classList.toggle("attention", Boolean(changedSourceForms.size || !pageWasComplete));
@@ -366,6 +371,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const dirty = fingerprint() !== savedFingerprint;
       if (dirty) changedSourceForms.set(form, card);
       else changedSourceForms.delete(form);
+      form.toggleAttribute("data-next-dirty", dirty);
       card.classList.toggle("is-confirmed", wasConfirmed && !dirty);
       card.classList.toggle("has-unconfirmed-changes", dirty);
       statuses.forEach((status, index) => {
@@ -375,6 +381,9 @@ document.addEventListener("DOMContentLoaded", () => {
       });
       if (confirmationAction) {
         confirmationAction.textContent = dirty ? "Confirm changes" : savedAction;
+        if (dirty || !wasConfirmed) {
+          confirmationAction.setAttribute("data-next-step", confirmationAction.dataset.sourceNextPriority || "200");
+        } else confirmationAction.removeAttribute("data-next-step");
       }
       if (discard) discard.hidden = !dirty;
       if (next) next.hidden = dirty;

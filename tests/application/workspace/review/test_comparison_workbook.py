@@ -23,7 +23,11 @@ from impodo.domain.mapping.contracts import (
     ResolverOrigin,
 )
 from impodo.domain.preflight.fields_set_aside import FieldSetAsideEvidence
-from impodo.domain.preflight.original_values import OriginalSourceTarget
+from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
+    OriginalSourceOccurrence,
+    OriginalSourceTarget,
+)
 from impodo.domain.shared.access import CapabilityAuthorizationPolicy
 from impodo.domain.shared.models import PreparedRecord, canonical_json_bytes
 from impodo.domain.workspace.workbench import DataClassification, SourceMode
@@ -86,6 +90,8 @@ class ComparisonWorkbookEvidenceTests(unittest.TestCase):
             workbook_selection=self.selection,
             workbook_physical_selection_hash=_HASH,
             workbook_mappings=(mapping,),
+            workbook_lineage=None,
+            workbook_derived_plan=None,
             prepared=SimpleNamespace(records=(self.record,)),
             normalization=SimpleNamespace(run_id="normalization", content_hash=_HASH),
             captured_schema=None,
@@ -164,9 +170,17 @@ class ComparisonWorkbookEvidenceTests(unittest.TestCase):
         self.assertEqual(evidence.comparison_fields.result_hash, _RESULT)
         self.assertEqual(len(evidence.fields_set_aside.findings), 1)
         self.assertTrue(evidence.fields_set_aside.findings[0].comparison_issue)
+        request = evidence.original_source_requests[0]
+        finding = evidence.fields_set_aside.findings[0]
+        coordinate = OriginalSourceCoordinate(
+            request.snapshot.dataset_id, request.snapshot.dataset_name, 2, sources._KEY
+        )
+        occurrence = OriginalSourceOccurrence(
+            finding.dataset, finding.source_row, finding.target_field,
+            finding.source_keys, finding.source_trace_id,
+        )
         self.assertEqual(
-            evidence.original_source_requests[0].targets,
-            (OriginalSourceTarget(2, sources._KEY, "contact_id", (sources._KEY,)),),
+            request.targets, (OriginalSourceTarget(occurrence, coordinate, (coordinate,)),),
         )
         self.assertEqual(
             self.sources.calls, [("selection", _WORKSPACE), ("snapshots", _WORKSPACE)]

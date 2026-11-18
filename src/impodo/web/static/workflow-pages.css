@@ -1534,22 +1534,13 @@ label.model-choice input {
 }
 
 .optional-workflow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .65rem;
   margin-top: 1.5rem;
   border-top: 1px solid var(--line);
-  padding: 1.25rem 0 .85rem;
-}
-
-.optional-workflow .eyebrow {
-  margin-bottom: .45rem;
-}
-
-.optional-workflow h3 {
-  margin-bottom: .5rem;
-}
-
-.optional-workflow p {
-  max-width: 680px;
-  margin: 0 0 1rem;
+  padding: .85rem 0;
 }
 
 .advanced-matching-options label {

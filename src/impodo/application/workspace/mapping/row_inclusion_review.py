@@ -46,6 +46,7 @@ class RowInclusionReviewRepository(Protocol):
         operation_id: str | None = None,
         working_draft_version: int | None = None,
         mapping_revision_version: int | None = None,
+        require_check_binding: bool = False,
     ) -> RowInclusionReviewSnapshot:
         """Atomically replace review evidence published by ``check_current``."""
         ...
@@ -112,6 +113,7 @@ class RowInclusionReviewService:
         *,
         actor: Actor,
         operation_id: str | None = None,
+        require_check_binding: bool = False,
     ) -> RowInclusionReviewSnapshot:
         """Evaluate and atomically publish every governed row and receipt."""
 
@@ -121,6 +123,9 @@ class RowInclusionReviewService:
             workspace_id=workspace_id,
         )
         context = self.checked_mapping.context(workspace_id)
+        working = self.checked_mapping.mappings.get_mapping_working_draft(
+            workspace_id
+        )
         catalogs = self.checked_mapping.sources.get_source_catalogs(workspace_id)
         snapshots = self.checked_mapping.sources.get_current_source_snapshots(
             workspace_id
@@ -163,9 +168,6 @@ class RowInclusionReviewService:
             report = staged.row_inclusion_review
         if report is None:
             raise WorkspaceError("The checked mapping does not limit rows")
-        working = self.checked_mapping.mappings.get_mapping_working_draft(
-            workspace_id
-        )
         return self.reviews.replace_current_review(
             workspace_id,
             report,
@@ -173,6 +175,7 @@ class RowInclusionReviewService:
             operation_id=operation_id,
             working_draft_version=(working.version if working else None),
             mapping_revision_version=context.revision.version,
+            require_check_binding=require_check_binding,
         )
 
     def preview_definition(
@@ -238,6 +241,14 @@ class RowInclusionReviewService:
         if report is None:
             raise WorkspaceError("The draft has no Rows to use rule to preview")
         return report
+
+    def confirmed(
+        self, workspace_id: str, snapshot: RowInclusionReviewSnapshot, *, actor: Actor
+    ) -> bool:
+        """Check whether an exact included-row decision already has approval."""
+
+        self.authorization.require(actor, Capability.PROTECTED_EVIDENCE_READ, workspace_id=workspace_id)
+        return self.reviews.get_confirmation(workspace_id, snapshot.snapshot_hash) is not None
 
     def current(
         self,

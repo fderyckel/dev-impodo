@@ -8,6 +8,9 @@ from dataclasses import (
     dataclass,
     replace,
 )
+from dataclasses import (
+    field as dataclass_field,
+)
 from functools import partial
 from types import MappingProxyType
 
@@ -182,6 +185,7 @@ class _ScalarFieldPlan:
     source_label: str
     rules: str
     arithmetic_formula: CompiledArithmeticFormula | None = None
+    record_input_keys: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +208,7 @@ class _DatasetEvaluationPlan:
     dataset_name: str
     row_inclusion: RowInclusionPolicy
     ordinal_columns: tuple[tuple[int, str], ...]
+    source_column_keys_by_ordinal: Mapping[int, str]
     identities: tuple[_IdentityImpactPlan, ...]
     relationship_fields: tuple[_RelationshipFieldPlan, ...]
     relationship_values: tuple[_RelationshipValuePlan, ...]
@@ -232,6 +237,7 @@ class ProjectedBrowserRow:
     source_values: Mapping[str, object]
     values: dict[str, object]
     parent_key: tuple[str, ...] | None = None
+    field_input_keys: dict[str, tuple[str, ...]] = dataclass_field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -413,6 +419,7 @@ class CompiledBrowserRowTransformer:
             source_row=projected.number,
             impact_collector=impact_collector,
             reference_indexes=self.reference_indexes,
+            field_input_keys=projected.field_input_keys,
         )
         return (
             SourceRow(number=projected.number, values=projected.values),
@@ -603,6 +610,7 @@ def evaluate_browser_mapping(
         tuple[str, int],
         tuple[str, tuple[int, ...]] | Mapping[str, tuple[int, ...]],
     ] = {}
+    field_input_keys_by_row: dict[tuple[str, int], Mapping[str, tuple[str, ...]]] = {}
     dataset_evidence: dict[str, tuple[str, StagingDatasetRole, int]] = {}
     for dataset_spec in compiled_plan.datasets:
         effective = effective_by_name[dataset_spec.name]
@@ -679,6 +687,7 @@ def evaluate_browser_mapping(
                 (*lookup_by_dataset_id.values(), *((binding.rule, binding.link) for binding in consumer_bindings)),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
+                field_input_keys_sink=partial(_record_field_inputs, field_input_keys_by_row, effective.name),
             )
             source_lineage.update(
                 {
@@ -696,6 +705,7 @@ def evaluate_browser_mapping(
                 lookup[1],
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
+                field_input_keys_sink=partial(_record_field_inputs, field_input_keys_by_row, effective.name),
             )
             source_lineage.update(
                 {
@@ -718,6 +728,7 @@ def evaluate_browser_mapping(
                 included_parent=included_parents.get(mapping.dataset_id),
                 impact_collector=impact_collector,
                 reference_indexes=reference_indexes,
+                field_input_keys_sink=partial(_record_field_inputs, field_input_keys_by_row, effective.name),
             )
             source_lineage.update(
                 {
@@ -851,6 +862,7 @@ def evaluate_browser_mapping(
         plan=compiled_plan,
         prepared=prepared,
         field_sources=_canonical_field_sources(definition, effective_selection),
+        field_input_keys=field_input_keys_by_row,
         source_lineage=source_lineage,
         dataset_evidence=dataset_evidence,
         control_totals=_evaluate_control_totals(
@@ -1167,6 +1179,14 @@ def _compile_dataset_evaluation_plan(
             ),
             rules=transformation_rule_summary(field),
             arithmetic_formula=_compile_scalar_arithmetic(field, effective),
+            record_input_keys=(
+                bool(field.transform.formula.strip())
+                or field.reference_lookup is not None
+                or field.value_source in {
+                    ScalarValueSource.CONCATENATE,
+                    ScalarValueSource.CONDITIONAL_RULES,
+                }
+            ),
         )
         for index, field in enumerate(mapping.fields)
         if field.value_source is not ScalarValueSource.ODOO_DEFAULT
@@ -1183,6 +1203,9 @@ def _compile_dataset_evaluation_plan(
         relationship_values=relationship_values,
         scalar_fields=scalar_fields,
         reference_inputs=_compile_reference_inputs(mapping),
+        source_column_keys_by_ordinal=MappingProxyType(
+            {column.ordinal: column.stable_key for column in effective.columns}
+        ),
     )
 
 
@@ -1308,6 +1331,16 @@ def compile_browser_row_transformer(
     )
 
 
+def _record_field_inputs(
+    rows: dict[tuple[str, int], Mapping[str, tuple[str, ...]]],
+    dataset: str,
+    source_row: int,
+    inputs: Mapping[str, tuple[str, ...]],
+) -> None:
+    if inputs:
+        rows[(dataset, source_row)] = dict(inputs)
+
+
 def _stage_table(
     effective: SourceDataset,
     physical: SourceDataset,
@@ -1324,6 +1357,7 @@ def _stage_table(
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ]
     | None = None,
+    field_input_keys_sink: Callable[[int, Mapping[str, tuple[str, ...]]], None] | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
@@ -1402,6 +1436,8 @@ def _stage_table(
             projected,
             impact_collector=impact_collector,
         )
+        if field_input_keys_sink is not None:
+            field_input_keys_sink(row.number, projected.field_input_keys)
         issues.extend(row_issues)
         staged_rows.append(staged_row)
         source_rows_by_output[row.number] = [row.number]
@@ -1436,6 +1472,7 @@ def _stage_derived_table(
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ]
     | None = None,
+    field_input_keys_sink: Callable[[int, Mapping[str, tuple[str, ...]]], None] | None = None,
 ) -> tuple[
     SourceTable,
     tuple[Issue, ...],
@@ -1587,6 +1624,7 @@ def _stage_derived_table(
             source_row=generated_row,
             impact_collector=impact_collector,
         )
+        scalar_inputs: dict[str, tuple[str, ...]] = {}
         _apply_scalar_mappings(
             values,
             evaluation_plan,
@@ -1594,7 +1632,10 @@ def _stage_derived_table(
             source_row=generated_row,
             impact_collector=impact_collector,
             reference_indexes=reference_indexes or {},
+            field_input_keys=scalar_inputs,
         )
+        if field_input_keys_sink is not None:
+            field_input_keys_sink(generated_row, scalar_inputs)
         evidence_row = entry.source_row
         if len(entry.aliases) > 1:
             issues.append(
@@ -1783,6 +1824,7 @@ def _apply_scalar_mappings(
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ]
     | None = None,
+    field_input_keys: dict[str, tuple[str, ...]] | None = None,
 ) -> None:
     source_values_by_ordinal = {
         ordinal: source_values.get(stable_key)
@@ -1790,6 +1832,10 @@ def _apply_scalar_mappings(
     }
     for field_plan in plan.scalar_fields:
         field = field_plan.field
+        read_keys: set[str] | None = (
+            set() if field_input_keys is not None and field_plan.record_input_keys else None
+        )
+        source_read_observer = read_keys.add if read_keys is not None else None
         raw = (
             tuple(
                 source_values.get(key) for key in field.concatenation.source_column_keys
@@ -1812,6 +1858,7 @@ def _apply_scalar_mappings(
                     field,
                     source_values,
                     reference_indexes or {},
+                    source_read_observer=source_read_observer,
                 )
             rules = transformation_rule_impact_definitions(plan.dataset_id, field)
             rules_by_step = {
@@ -1842,6 +1889,8 @@ def _apply_scalar_mappings(
                 scalar_input,
                 source_values_by_ordinal=source_values_by_ordinal,
                 source_values_by_key=source_values,
+                source_column_keys_by_ordinal=plan.source_column_keys_by_ordinal,
+                source_read_observer=source_read_observer,
                 arithmetic_formula=field_plan.arithmetic_formula,
                 text_step_observer=(
                     (
@@ -1925,6 +1974,13 @@ def _apply_scalar_mappings(
                     outcome="invalid",
                     message=str(error),
                 )
+        finally:
+            if read_keys is not None and field_input_keys is not None:
+                ordered = tuple(key for _, key in plan.ordinal_columns if key in read_keys)
+                field_input_keys[field.target_field] = (
+                    *ordered,
+                    *sorted(read_keys.difference(ordered)),
+                )
 
 
 def _compile_reference_indexes(
@@ -1964,6 +2020,7 @@ def _reference_lookup_value(
         tuple[str, str],
         tuple[ReferenceDataSet, Mapping[str, ReferenceEntry]],
     ],
+    *, source_read_observer: Callable[[str], None] | None = None,
 ) -> object:
     lookup = field.reference_lookup
     if lookup is None:
@@ -1983,7 +2040,12 @@ def _reference_lookup_value(
             "REFERENCE_OUTPUT_MISSING",
             "The approved reference list no longer provides this output.",
         )
-    key = tuple(values.get(item) for item in lookup.key_source_column_keys)
+    key_parts: list[object] = []
+    for source_key in lookup.key_source_column_keys:
+        if source_read_observer is not None:
+            source_read_observer(source_key)
+        key_parts.append(values.get(source_key))
+    key = tuple(key_parts)
     if any(
         item is None or (isinstance(item, str) and not item.strip()) for item in key
     ):

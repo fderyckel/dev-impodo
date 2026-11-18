@@ -8,6 +8,7 @@
   <script src="{{ url_for('static', path='/hierarchy-editor.js') }}" defer></script>
   <script src="{{ url_for('static', path='/derived-entities.js') }}" defer></script>
   <script src="{{ url_for('static', path='/derived-journey.js') }}" defer></script>
+  <script src="{{ url_for('static', path='/source-rule-removal.js') }}" defer></script>
 {% endblock %}
 {% block content %}
   {% from "_user_help.html" import decision_help with context %}
@@ -25,7 +26,7 @@
     <section class="form-card empty-state">
       <h2>Choose your source tables first</h2>
       <p>Save the source tables before separating combined information.</p>
-      <a class="button action" href="/workspaces/{{ workspace_id }}/sources#table-choices">Save table choices</a>
+      <a class="button action" data-next-step="100" href="/workspaces/{{ workspace_id }}/sources#table-choices">Save table choices</a>
     </section>
   {% else %}
     <section class="form-card source-operation-choices" id="source-operation-choices" data-source-choices>
@@ -82,4 +83,5 @@
     </div>
   {% endif %}
   </div>
+  {% include "derived_entities/_remove_dialog.html" %}
 {% endblock %}

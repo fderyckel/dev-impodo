@@ -9,6 +9,7 @@
     setDirty,
     onCommitted,
     hasNewerEdits,
+    currentEntries,
   }) => {
     const saveOutcome = mappingForm.querySelector(
       "[data-mapping-save-outcome]"
@@ -34,9 +35,6 @@
     const checkMappingOutcome = mappingForm.querySelector(
       "[data-check-mapping-outcome]"
     );
-    const nextRecommendedTable = mappingForm.querySelector(
-      "[data-next-recommended-table]"
-    );
     const mutationTimeoutMs = Number.parseInt(
       mappingForm.dataset.mutationTimeoutMs || "15000",
       10
@@ -58,7 +56,8 @@
       : 1500;
     let unresolvedOperation = null;
     let staleConflict = false;
-    let lastSubmittedEntries = [];
+    let lastSubmittedAction = "";
+    let conflictReloadUrl = "";
 
     const clear = () => {
       if (saveOutcome) {
@@ -122,7 +121,9 @@
       const controller = new AbortController();
       const timer = window.setTimeout(() => controller.abort(), timeoutMs);
       try {
-        return await fetch(url, { ...options, signal: controller.signal });
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        const payload = await responseJson(response);
+        return { ok: response.ok, payload };
       } finally {
         window.clearTimeout(timer);
       }
@@ -169,15 +170,15 @@
       if (!baseUrl) {
         throw new Error("The save-outcome URL is missing.");
       }
-      const response = await fetchWithTimeout(
+      const { ok, payload } = await fetchWithTimeout(
         `${baseUrl}${encodeURIComponent(currentOperationId)}`,
         { method: "GET", headers: { Accept: "application/json" } },
         receiptTimeoutMs
       );
-      if (!response.ok) {
+      if (!ok) {
         throw new Error("Impodo could not read the save outcome.");
       }
-      return responseJson(response);
+      return payload;
     };
 
     const applyMutationOutcome = (payload, operation) => {
@@ -185,7 +186,8 @@
       const currentOperationId = String(
         payload.operation_id || operation.operationId || ""
       );
-      if (status === "committed") {
+      const superseded = status === "committed" && payload.follow_up_status === "superseded";
+      if (status === "committed" && !superseded) {
         unresolvedOperation = null;
         staleConflict = false;
         const newerEdits = hasNewerEdits?.(operation) === true;
@@ -213,13 +215,6 @@
           if (newerEdits) saveStatus.classList.add("unsaved");
           else saveStatus.classList.remove("unsaved");
         }
-        if (operation.action === "save_progress" && nextRecommendedTable) {
-          const nextUrl = String(payload.next_recommended_url || "");
-          nextRecommendedTable.hidden = newerEdits || !nextUrl;
-          if (nextUrl) {
-            nextRecommendedTable.href = nextUrl;
-          }
-        }
         const navigationHandled = onCommitted?.(operation, payload);
         if (operation.action !== "save_progress" && !newerEdits && navigationHandled !== true) {
           navigateToMappingResult(payload.redirect_url, operation);
@@ -243,22 +238,21 @@
         }
         return "not_found";
       }
-      if (
-        status === "rejected" &&
-        payload.failure_code === "MAPPING_VERSION_CONFLICT"
-      ) {
+      if (superseded || (status === "rejected" && payload.failure_code === "MAPPING_VERSION_CONFLICT")) {
         unresolvedOperation = null;
         staleConflict = true;
+        conflictReloadUrl = superseded ? payload.recovery?.reload_url || "" : "";
         const message =
-          payload.detail ||
+          payload.detail || payload.message ||
           "A newer saved version exists. Your edits are still on this page. Copy them before reloading the saved version.";
         showFailure(message, {
           operationId: currentOperationId,
           conflict: true,
         });
         if (saveStatus) {
-          saveStatus.textContent =
-            "Conflict: newer Match data is saved. Your edits were not applied.";
+          saveStatus.textContent = superseded
+            ? "The earlier check finished. Review the current matches."
+            : "Conflict: newer Match data is saved. Your edits were not applied.";
           saveStatus.classList.add("unsaved");
         }
         return "conflict";
@@ -356,8 +350,9 @@
           }
           unresolvedOperation = operation;
           if (saveStatus) {
-            saveStatus.textContent =
-              "Still waiting for the save outcome. Reconnecting...";
+            saveStatus.textContent = operation.action === "draft"
+              ? "Reconnecting to get the check result..."
+              : "Still waiting for the save outcome. Reconnecting...";
             saveStatus.classList.remove("unsaved");
           }
           await wait(Math.min(receiptPollMs, remainingMs));
@@ -376,8 +371,9 @@
           return applyMutationOutcome(payload, operation);
         }
         if (saveStatus) {
-          saveStatus.textContent =
-            "The operation is still running. Waiting for its saved outcome...";
+          saveStatus.textContent = operation.action === "draft"
+            ? "Still checking matches..."
+            : "The operation is still running. Waiting for its saved outcome...";
           saveStatus.classList.remove("unsaved");
         }
         await wait(Math.min(receiptPollMs, remainingMs));
@@ -414,7 +410,7 @@
     }) => {
       const currentOperationId = createOperationId();
       const submittedEntries = [...entries, ["operation_id", currentOperationId]];
-      lastSubmittedEntries = submittedEntries;
+      lastSubmittedAction = action;
       return {
         operationId: currentOperationId,
         action,
@@ -440,7 +436,7 @@
     });
 
     copyMappingEdits?.addEventListener("click", async () => {
-      const safeEntries = lastSubmittedEntries.filter(
+      const safeEntries = currentEntries(lastSubmittedAction).filter(
         ([name]) => !["csrf_token", "operation_id"].includes(name)
       );
       const copy = JSON.stringify(
@@ -473,7 +469,8 @@
 
     reloadSavedMapping?.addEventListener("click", () => {
       window.impodoMappingPosition?.remember();
-      window.location.reload();
+      if (conflictReloadUrl) navigateToMappingResult(conflictReloadUrl);
+      else window.location.reload();
     });
 
     return {
@@ -490,7 +487,6 @@
           Number.isFinite(mutationTimeoutMs) ? mutationTimeoutMs : 15000
         ),
       resolveMutationOutcome,
-      responseJson,
       showFailure,
     };
   };

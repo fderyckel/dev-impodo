@@ -179,21 +179,7 @@ class MatchingOrderRepository(DuckDbRepository):
                     raise WorkspaceError(
                         "Matching-order preference version is not consecutive"
                     )
-                connection.execute(
-                    """
-                    INSERT OR REPLACE INTO matching_order_preference
-                    VALUES (1, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    [
-                        preference.version,
-                        preference.source_selection_hash,
-                        preference.updated_at.isoformat(),
-                        preference.actor_issuer,
-                        preference.actor_subject,
-                        preference.actor_display_name,
-                        preference.to_json(),
-                    ],
-                )
+                self._write_preference(connection, preference)
                 self._insert_workspace_audit(
                     connection,
                     revision=self._workspace_revision(connection),
@@ -209,6 +195,25 @@ class MatchingOrderRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    @staticmethod
+    def _write_preference(connection, preference: MatchingOrderPreference) -> None:
+        """Persist the sequence and its version together in the caller's transaction."""
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO matching_order_preference
+            VALUES (1, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                preference.version,
+                preference.source_selection_hash,
+                preference.updated_at.isoformat(),
+                preference.actor_issuer,
+                preference.actor_subject,
+                preference.actor_display_name,
+                preference.to_json(),
+            ],
+        )
+
     def reset_preference(
         self,
         workspace_id: str,
@@ -216,7 +221,7 @@ class MatchingOrderRepository(DuckDbRepository):
         expected_version: int | None,
         actor: Actor,
     ) -> None:
-        """Delete the current preference at its exact optimistic version."""
+        """Restore automatic ordering while advancing the workspace version."""
 
         self._assert_workspace_mutable(workspace_id)
         database_path = (
@@ -229,7 +234,7 @@ class MatchingOrderRepository(DuckDbRepository):
             connection.begin()
             try:
                 current = connection.execute(
-                    "SELECT version FROM matching_order_preference "
+                    "SELECT version, source_selection_hash FROM matching_order_preference "
                     "WHERE singleton_id = 1"
                 ).fetchone()
                 actual_version = int(current[0]) if current is not None else None
@@ -241,8 +246,18 @@ class MatchingOrderRepository(DuckDbRepository):
                 if current is None:
                     connection.rollback()
                     return
-                connection.execute(
-                    "DELETE FROM matching_order_preference WHERE singleton_id = 1"
+                self._write_preference(
+                    connection,
+                    MatchingOrderPreference(
+                        workspace_id=workspace_id,
+                        version=int(current[0]) + 1,
+                        source_selection_hash=str(current[1]),
+                        ordered_dataset_ids=(),
+                        updated_at=datetime.now(UTC),
+                        actor_issuer=actor.identity.issuer,
+                        actor_subject=actor.identity.subject_id,
+                        actor_display_name=actor.identity.display_name,
+                    ),
                 )
                 self._insert_workspace_audit(
                     connection,

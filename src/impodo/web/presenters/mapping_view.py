@@ -26,7 +26,6 @@ from impodo.application.shared.artifacts import ArtifactStoreError
 from impodo.application.workspace.mapping.incoming_dependencies import (
     repair_unambiguous_incoming_dependencies,
 )
-from impodo.application.workspace.mapping.order_service import MatchingOrderService
 from impodo.domain.mapping.source_conditions import parse_source_text_list
 from impodo.domain.odoo.compatibility import recognize_odoo_version
 from impodo.domain.preparation.quality import (
@@ -310,7 +309,7 @@ def _render_mapping(
             matching_order_preference,
             (item.dataset_id for item in selection.datasets),
         )
-        if selection is not None and matching_order_preference is not None
+        if selection is not None and matching_order_preference and matching_order_preference.custom
         else None
     )
     matching_order = (
@@ -537,7 +536,6 @@ def _render_mapping(
         request,
         workspace_id,
         selection,
-        active_definition,
         matching_order,
         matching_order_preference,
         display_order,
@@ -547,7 +545,6 @@ def _render_mapping(
             validation=validation, formula_issues=formula_authoring_issues,
             recommendation=matching_order,
         ) if selection is not None and schema is not None else {},
-        context.matching_order,
         matching_order_check,
         matching_order_check_current,
         matching_order_attempt,
@@ -1131,13 +1128,11 @@ def _matching_order_view(
     request: Request,
     workspace_id: str,
     selection,
-    active_definition,
     recommendation: MatchingOrderRecommendation | None,
     preference: MatchingOrderPreference | None,
     display_order: tuple[str, ...],
     dataset_views,
     table_progress,
-    matching_order_service: MatchingOrderService,
     live_check,
     live_check_current: bool,
     check_attempt,
@@ -1195,28 +1190,6 @@ def _matching_order_view(
         (view for view in dataset_views if view["active"]),
         None,
     )
-    next_url = None
-    if active_view is not None:
-        next_dataset_id = matching_order_service.next_incomplete_dataset_id(
-            selection,
-            recommendation,
-            active_definition,
-            current_dataset_id=_mapping_view_dataset_id(active_view),
-            work_order=display_order,
-        )
-        next_view = (
-            view_by_id.get(next_dataset_id)
-            if next_dataset_id is not None
-            else None
-        )
-        if next_view is not None:
-            next_url = _mapping_return_url(
-                request,
-                workspace_id,
-                mapping_dataset=next_view["index"],
-                scalar_page=1,
-                relation_page=1,
-            )
     confirmed_count = sum(
         fact.confidence is MatchingOrderConfidence.CONFIRMED
         for fact in recommendation.facts
@@ -1230,6 +1203,7 @@ def _matching_order_view(
     )
     preference_adjusted = bool(
         preference is not None
+        and preference.custom
         and (
             preference.source_selection_hash != selection.content_hash
             or preference.ordered_dataset_ids != display_order
@@ -1269,14 +1243,7 @@ def _matching_order_view(
     else:
         result_status_label = "Preliminary"
         result_status_class = "review" if preliminary_count else ""
-        check_message = (
-            check_attempt.failure_message
-            if check_failed and check_attempt is not None
-            else (
-                "This suggestion uses saved local evidence until you "
-                "explicitly check identities and relationships in Odoo."
-            )
-        )
+        check_message = "This suggestion uses the saved matching choices."
     counts = live_check.counts if live_check is not None else {}
     return {
         "rows": tuple(items),
@@ -1285,24 +1252,22 @@ def _matching_order_view(
         "preliminary_count": preliminary_count,
         "status_label": result_status_label,
         "status_class": result_status_class,
-        "custom_order": preference is not None,
+        "custom_order": preference is not None and preference.custom,
         "preference_version": (
             preference.version if preference is not None else None
         ),
         "preference_adjusted": preference_adjusted,
+        "form_query": _mapping_return_url(request, workspace_id, order_panel=1).partition("?")[2],
         "custom_warnings": custom_warnings,
         "active_dataset_id": (
             _mapping_view_dataset_id(active_view)
             if active_view is not None
             else ""
         ),
-        "next_recommended_url": next_url,
-        "show_next_recommended": bool(
-            next_url and request.query_params.get("progress_saved") == "1"
-        ),
         "check": {
+            "check_id": live_check.check_id if live_check is not None else "",
             "running": check_running,
-            "failed": check_failed,
+            "failure_message": check_attempt.failure_message if check_failed and check_attempt else "",
             "message": check_message,
             "progress_percent": (
                 check_attempt.progress_percent
@@ -1321,7 +1286,6 @@ def _matching_order_view(
                 and not schema_changed
                 and not check_running
             ),
-            "partial": bool(live_check is not None and live_check.partial),
             "checked_relationship_count": (
                 (
                     sum(
@@ -1343,7 +1307,6 @@ def _matching_order_view(
             "incoming_count": counts.get("incoming", 0),
             "missing_count": counts.get("missing", 0),
             "ambiguous_count": counts.get("ambiguous", 0),
-            "schema_changed": schema_changed,
         },
     }
 
@@ -1354,7 +1317,7 @@ def _matching_order_custom_warnings(
     recommendation: MatchingOrderRecommendation,
     view_by_id: dict[str, dict[str, object]],
 ) -> tuple[str, ...]:
-    if preference is None:
+    if preference is None or not preference.custom:
         return ()
     position = {
         dataset_id: index for index, dataset_id in enumerate(display_order)

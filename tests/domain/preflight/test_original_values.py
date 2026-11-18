@@ -2,6 +2,10 @@
 
 import unittest
 
+from impodo.domain.preflight.fields_set_aside import (
+    FieldSetAsideReason,
+    preparation_field_reason,
+)
 from impodo.domain.preflight.original_values import (
     OriginalSourceValue,
     OriginalValueState,
@@ -45,3 +49,24 @@ class OriginalValueTests(unittest.TestCase):
         ):
             with self.subTest(state=state, cell=cell), self.assertRaises(ValueError):
                 OriginalSourceValue(state, cell)
+
+    def test_saved_scalar_failures_have_an_explicit_field_omission_reason(self):
+        for code in (
+            "SOURCE_CONCATENATION_INVALID",
+            "SOURCE_SELECTION_RULE_INVALID",
+            "SOURCE_DECIMAL_ROUNDING_INVALID",
+            "SOURCE_PATTERN_INPUT_TOO_LONG",
+            "SOURCE_PATTERN_MISMATCH",
+            "SOURCE_REPLACEMENT_INVALID",
+            "SOURCE_TEXT_LENGTH_INVALID",
+            "SOURCE_TEXT_SEGMENT_INVALID",
+            "SOURCE_VALUE_RULE_INVALID",
+            "REFERENCE_POLICY_MISSING",
+            "REFERENCE_INPUT_MISSING",
+            "REFERENCE_OUTPUT_MISSING",
+        ):
+            with self.subTest(code=code):
+                self.assertIs(
+                    preparation_field_reason(code), FieldSetAsideReason.INVALID
+                )
+        self.assertIsNone(preparation_field_reason("UNRELATED_RECORD_DIAGNOSTIC"))

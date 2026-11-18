@@ -42,7 +42,6 @@ from impodo.domain.preflight.fields_set_aside import (
 )
 from impodo.domain.preflight.original_values import (
     OriginalSourceInput,
-    OriginalSourceTarget,
     OriginalSourceValue,
     OriginalValueState,
 )
@@ -53,6 +52,15 @@ from impodo.domain.workspace.contracts import (
     SourceDataset,
     SourceDatasetColumn,
     SourceSelection,
+)
+from tests.support.original_coordinates import (
+    source_coordinate as _coord,
+)
+from tests.support.original_coordinates import (
+    source_coordinates as _cells,
+)
+from tests.support.original_coordinates import (
+    source_target as _target,
 )
 
 _NOW = datetime(2026, 11, 17, tzinfo=UTC)
@@ -160,15 +168,20 @@ def _mapping(selection: SourceSelection, *fields: ScalarFieldMapping) -> Dataset
     )
 
 
-def _target(row: int, key: str, target: str) -> OriginalSourceTarget:
-    return OriginalSourceTarget(row, key, target, (key,))
-
-
 def _proven(finding: FieldSetAside) -> FieldSetAside:
     return replace(
         finding,
         source_inputs=tuple(
-            OriginalSourceInput(key, OriginalSourceValue.unavailable())
+            OriginalSourceInput(
+                _coord(
+                    finding.source_row or 1,
+                    key,
+                    dataset_id="dataset:"
+                    + ("2" if finding.dataset == "Suppliers" else "1") * 24,
+                    dataset=finding.dataset,
+                ),
+                OriginalSourceValue.unavailable(),
+            )
             for key in finding.source_keys
         ),
     )
@@ -217,7 +230,10 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             EncodedSourceCell.from_python("Private customer")
         )
         fields = _fields(
-            replace(_finding(), source_inputs=(OriginalSourceInput(_KEY, original),)),
+            replace(
+                _finding(),
+                source_inputs=(OriginalSourceInput(_coord(1, _KEY), original),),
+            ),
             _finding(row=None),
         )
         evidence, requests = self.plan(fields, restricted=True, selection=None)
@@ -258,8 +274,8 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         )
         self.assertEqual(len(requests), 1)
         self.assertEqual(requests[0].snapshot, self.snapshot)
-        self.assertEqual(requests[0].dataset, "Customers")
-        self.assertEqual(requests[0].cells, ((1, _KEY), (3, _KEY)))
+        self.assertEqual(requests[0].snapshot.dataset_name, "Customers")
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY), (3, _KEY))))
         self.assertEqual(
             requests[0].targets,
             (
@@ -295,12 +311,12 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         _, requests = self.plan(
             _fields(_finding()), mappings=(_mapping(self.selection, field),)
         )
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
 
     def test_composed_or_unproven_findings_do_not_read_snapshots(self) -> None:
         fields = (
             ScalarFieldMapping(
-                "name", _KEY, transform=ScalarTransformPolicy(formula="upper(value)")
+                "name", _KEY, transform=ScalarTransformPolicy(formula="upper(column_2)")
             ),
             ScalarFieldMapping(
                 "name", value_source=ScalarValueSource.CONSTANT, literal_value="Unknown"
@@ -431,7 +447,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         evidence, requests = self.plan(fields, selection=selection, mappings=mappings)
         assert evidence is not None
         self.assertEqual(len(requests), 1)
-        self.assertEqual(requests[0].dataset, "Customers")
+        self.assertEqual(requests[0].snapshot.dataset_name, "Customers")
         self.assertEqual(
             evidence.findings, tuple(_proven(finding) for finding in fields.findings)
         )
@@ -513,21 +529,23 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             self.selection,
             ScalarFieldMapping("name", _KEY),
             ScalarFieldMapping(
-                "formula", _KEY, transform=ScalarTransformPolicy(formula="upper(value)")
+                "formula",
+                _KEY,
+                transform=ScalarTransformPolicy(formula="upper(column_2)"),
             ),
         )
         evidence, requests = self.plan(
             _fields(_finding(), _finding(target="formula")),
             mappings=(mapping,),
         )
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
         self.assertEqual(requests[0].targets, (_target(1, _KEY, "name"),))
         self.assertEqual(evidence.findings[1].source_inputs, ())
 
     def test_physical_source_row_can_exceed_accepted_row_count(self) -> None:
         _, requests = self.plan(_fields(_finding(row=19)))
         self.assertEqual(requests[0].snapshot.row_count, 3)
-        self.assertEqual(requests[0].cells, ((19, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((19, _KEY),)))
         self.assertEqual(requests[0].targets, (_target(19, _KEY, "name"),))
 
     def test_invalid_source_row_is_rejected_without_reading_source_evidence(
@@ -566,7 +584,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
                         _fields(_finding(row=19, target="parent_id")),
                         mappings=(mapping,),
                     )
-                    self.assertEqual(requests[0].cells, ((19, _KEY),))
+                    self.assertEqual(requests[0].cells, _cells(((19, _KEY),)))
                     self.assertEqual(
                         requests[0].targets, (_target(19, _KEY, "parent_id"),)
                     )
@@ -582,7 +600,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             *(_finding(target="parent_id" if i % 2 else "name") for i in range(100))
         )
         _, requests = self.plan(fields, mappings=(mapping,))
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
         self.assertEqual(
             requests[0].targets,
             (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),
@@ -644,16 +662,9 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             ),
         )
         preparations = (
-            ReferencePreparation(formula="upper(value)"),
-            ReferencePreparation(
-                formula="concat(value, column_2)", bindings=(("column_2", _OTHER_KEY),)
-            ),
-            ReferencePreparation(
-                parts=(
-                    ReferencePart(source_column_key=_KEY),
-                    ReferencePart(literal=" suffix"),
-                )
-            ),
+            ReferencePreparation(formula="value +"),
+            ReferencePreparation(formula="concat(value, column_2)"),
+            ReferencePreparation(parts=(ReferencePart(literal="fixed"),)),
         )
         references += tuple(
             replace(
@@ -774,7 +785,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
         )
         _, requests = self.plan(fields, selection=effective, mappings=(mapping,))
         self.assertEqual(requests[0].snapshot.schema, source_snapshot_schema(dataset))
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
         self.assertEqual(
             requests[0].targets,
             (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),
@@ -869,7 +880,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             replace(_finding(target="parent_id"), comparison_issue=True),
         )
         _, requests = self.plan(fields, mappings=(mapping,))
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
         self.assertEqual(requests[0].targets, (_target(1, _KEY, "parent_id"),))
         self.assertEqual(
             self.sources.calls,
@@ -884,7 +895,7 @@ class WorkbookOriginalValuePlanTests(unittest.TestCase):
             _finding(), replace(_finding(target="parent_id"), comparison_issue=True)
         )
         _, requests = self.plan(fields, mappings=(mapping,))
-        self.assertEqual(requests[0].cells, ((1, _KEY),))
+        self.assertEqual(requests[0].cells, _cells(((1, _KEY),)))
         self.assertEqual(
             requests[0].targets,
             (_target(1, _KEY, "name"), _target(1, _KEY, "parent_id")),

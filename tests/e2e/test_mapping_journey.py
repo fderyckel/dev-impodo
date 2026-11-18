@@ -321,6 +321,9 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         blockers = self.page.locator("#next-step-blockers")
         expect(blockers).to_be_visible()
         expect(blockers).to_be_in_viewport()
+        first_fix = blockers.locator("details.mapping-issue[open] a[href], details.mapping-issue[open] button:enabled").first
+        expect(first_fix).to_be_focused()
+        expect(first_fix).to_be_in_viewport()
         issue = blockers.locator("details.mapping-issue").filter(has_text=f"{dataset.name} · Name")
         self.assertEqual(issue.count(), 1, blockers.inner_text())
         self._open_details(issue)
@@ -340,9 +343,11 @@ class MappingJourneyBrowserTests(unittest.TestCase):
         with self.page.expect_navigation(wait_until="networkidle"):
             self.page.locator("[data-check-mapping]").click()
         expect(self.root).to_have_attribute("data-step", "confirm")
-        expect(self.page.locator("#rows-to-use-review").get_by_role(
+        confirm_rows = self.page.locator("#rows-to-use-review").get_by_role(
             "button", name="Confirm 1 row to use", exact=True,
-        )).to_be_visible()
+        )
+        expect(confirm_rows).to_be_focused()
+        expect(confirm_rows).to_be_in_viewport()
         revision = self.fixture.context.queries.get_mapping_revision(self.workspace_id)
         self.assertIsNone(self.fixture.context.queries.get_mapping_submission(self.workspace_id, revision.version))
 

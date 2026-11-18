@@ -16,8 +16,8 @@ See ``docs/architecture/python-code-map.md``,
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import replace
+from collections.abc import Callable, Iterable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import uuid4
@@ -42,6 +42,7 @@ from impodo.domain.mapping.create_field_policy import (
     supports_create_default_capture,
 )
 from impodo.domain.mapping.mutations import (
+    MappingCheckBinding,
     MappingMutationAction,
     MappingMutationReceipt,
     MappingVersionConflict,
@@ -56,6 +57,7 @@ from impodo.domain.mapping.validation.validator import MappingSemanticValidator
 from impodo.domain.matching_order import MatchingOrderCheck
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.schema.governance import SchemaGovernance
+from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.workspace.contracts import (
     MappingWorkingDraft,
@@ -79,6 +81,27 @@ from .supporting_values import (
     MappingSupportingLookupReader,
     load_current_mapping_supporting_references,
 )
+
+
+@dataclass(frozen=True)
+class MappingCheckInputs:
+    """Source, Odoo access and matching rules that one check used."""
+
+    selection: SourceSelection
+    schema: OdooSchemaCatalog
+    governance: SchemaGovernance | None
+
+    def access_hash(self, reader_selection_hash: str) -> str:
+        """Bind the verified target, reader, permissions and company used for checking."""
+
+        return content_hash((
+            self.schema.connection_target_hash,
+            self.schema.read_credential_binding_hash,
+            self.schema.read_principal_hash,
+            self.schema.read_permission_hash,
+            self.schema.read_context_hash,
+            reader_selection_hash,
+        ))
 
 
 class MappingSourceRepository(Protocol):
@@ -116,6 +139,17 @@ class MappingSchemaRepository(Protocol):
 
 class MappingWorkspaceRepository(Protocol):
     """Persist recoverable drafts and immutable mapping evidence."""
+
+    def current_receipt_validation(
+        self,
+        receipt: MappingMutationReceipt,
+        *,
+        source_selection_hash: str,
+        schema_hash: str,
+        access_hash: str,
+    ) -> tuple[MappingValidationStatus, str] | None:
+        """Read the status and mapping hash when a check still identifies its result."""
+        ...
 
     def get_mapping_working_draft(
         self,
@@ -224,6 +258,7 @@ class MappingWorkspaceRepository(Protocol):
         checked_draft: MappingWorkingDraft,
         actor: Actor,
         operation_id: str | None = None,
+        check_binding: MappingCheckBinding | None = None,
         schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Promote one expected draft state to a checked revision."""
@@ -237,6 +272,7 @@ class MappingWorkspaceRepository(Protocol):
         *,
         actor: Actor,
         operation_id: str | None = None,
+        check_binding: MappingCheckBinding | None = None,
         schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Append deterministic revalidation for one exact stored revision."""
@@ -900,6 +936,39 @@ class MappingWorkspaceService:
             for model_name, field_names in sorted(grouped.items())
         )
 
+    def current_check_inputs(
+        self,
+        workspace_id: str,
+        *,
+        actor: Actor,
+        expected: MappingCheckInputs | None = None,
+    ) -> MappingCheckInputs:
+        """Read authorized check inputs and reject changes across an Odoo call."""
+
+        self.authorization.require(actor, Capability.MAPPING_EDIT, workspace_id=workspace_id)
+        selection = self.sources.get_mapping_source_selection(workspace_id)
+        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
+        governance = self.schemas.get_schema_governance(workspace_id)
+        if expected is not None and (
+            selection is None
+            or selection.content_hash != expected.selection.content_hash
+            or schema is None
+            or schema.content_hash != expected.schema.content_hash
+            or schema.read_credential_binding_hash != expected.schema.read_credential_binding_hash
+            or schema.read_principal_hash != expected.schema.read_principal_hash
+            or schema.read_permission_hash != expected.schema.read_permission_hash
+            or schema.read_context_hash != expected.schema.read_context_hash
+            or schema.pending_refresh != expected.schema.pending_refresh
+            or governance != expected.governance
+        ):
+            raise WorkspaceError(
+                "Source choices or Odoo matching rules changed while checking. "
+                "Reload Match data and check again."
+            )
+        if selection is None or schema is None:
+            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        return MappingCheckInputs(selection, schema, governance)
+
     def check_definition(
         self,
         workspace_id: str,
@@ -910,19 +979,15 @@ class MappingWorkspaceService:
         actor: Actor,
         operation_id: str | None = None,
         schema_refresh: SelectionSchemaRefresh | None = None,
+        expected_inputs: MappingCheckInputs | None = None,
+        verify_reader_selection: Callable[[], str] | None = None,
+        complete_after_row_review: bool = False,
     ) -> tuple[MappingRevision, MappingValidationResult]:
         """Check one editor state and persist only new semantic content."""
 
-        self.authorization.require(
-            actor,
-            Capability.MAPPING_EDIT,
-            workspace_id=workspace_id,
-        )
-        selection = self.sources.get_mapping_source_selection(workspace_id)
-        schema = self.schemas.get_odoo_schema_catalog(workspace_id)
-        governance = self.schemas.get_schema_governance(workspace_id)
-        if selection is None or schema is None:
-            raise WorkspaceError("Freeze datasets and capture Odoo schema first")
+        inputs = self.current_check_inputs(workspace_id, actor=actor, expected=expected_inputs)
+        reader_selection_hash = verify_reader_selection() if verify_reader_selection else ""
+        selection, schema, governance = inputs.selection, inputs.schema, inputs.governance
         if schema_refresh:
             if schema != schema_refresh.previous_schema or governance != schema_refresh.previous_governance:
                 raise WorkspaceError("The Odoo choices changed. Refresh them again.")
@@ -982,6 +1047,14 @@ class MappingWorkspaceService:
             schema,
             governance,
         )
+        check_binding = None
+        if operation_id is not None:
+            published = MappingCheckInputs(selection, schema, governance)
+            check_binding = MappingCheckBinding(operation_id, published.access_hash(reader_selection_hash))
+        commit_operation_id = (
+            None if complete_after_row_review and validation.status is not MappingValidationStatus.INVALID
+            else operation_id
+        )
         if (
             current is not None
             and current.definition.content_hash == definition.content_hash
@@ -1004,7 +1077,8 @@ class MappingWorkspaceService:
                 current.version,
                 validation,
                 actor=actor,
-                operation_id=operation_id,
+                operation_id=commit_operation_id,
+                check_binding=check_binding,
                 schema_refresh=schema_refresh,
             )
             return current, validation
@@ -1036,7 +1110,8 @@ class MappingWorkspaceService:
             expected_working_draft_version=expected_working_draft_version,
             checked_draft=checked_draft,
             actor=actor,
-            operation_id=operation_id,
+            operation_id=commit_operation_id,
+            check_binding=check_binding,
             schema_refresh=schema_refresh,
         )
         return revision, validation

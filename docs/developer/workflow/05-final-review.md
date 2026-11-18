@@ -611,76 +611,79 @@ source-cell coordinates. One logical finding can produce several workbook rows
 while remaining one saved finding. Physical input cells are counted once across
 target outcomes; whole-column choices need no original value.
 
-The original-value planner accepts saved direct scalar preparation findings and
-unscoped `many2one` or `many2many` findings that use one file column. It also
-accepts scoped `many2one` links when distinct direct key and scope components
-match the authored source columns in exactly the same order. This scoped path
-requires a target-catalog or target-then-dataset resolver, no value translations,
-no prepared component and no dataset projection. The finding must identify the
-complete ordered source group and target field. This proof also applies to the
-three saved blocked-reference comparison outcomes: missing, ambiguous and
-case-sensitive matches that require review. It binds requests to the
-frozen physical selection and immutable file snapshot. The artifact reader
-projects requested rows and value-kind column pairs in batches of at most 1,000
-rows. It materializes each snapshot once and does not reopen uploaded files or
-query Odoo. These reads stay inside the existing synchronous package operation.
-When preparation appends generated columns to a file dataset, the planner still
-requires unchanged dataset identity, source binding, row count and the complete
-physical column prefix. It keeps each field's inputs as a group: every input
-must be physical or the complete group remains unproven. Independent fields may
-still recover their inputs. If no complete physical group remains, it returns
-before reading snapshot manifests. Geometry is recorded before manifest lookup,
-so a missing historical snapshot can show known cells with unavailable values.
+Preparation captures scalar input reads at the authoritative evaluation point.
+`CanonicalLineage.field_input_keys` records the ordered distinct keys actually
+used for each scalar field. It covers formulas, executed conditional branches,
+inline choices, fallback probes, combinations, Selection rules and reference
+lookup keys. An absent entry means no executed-input proof; an empty tuple
+means a proven value with no source dependency. Native and Python preparation
+publish and reconstruct the same optional evidence. Historical rows without
+that evidence retain the conservative direct or single-anchor formula proof;
+the exporter never evaluates a rule to fill a gap.
+
+The [`relationship_original_inputs`](../../../src/impodo/domain/preflight/relationship_inputs.py)
+projection validates saved key and scope metadata without resolving a reference.
+It separates canonical anchors from contributing formula or combined-part
+inputs. Complete direct composite keys and supported scoped reviewed choices
+retain their exact source group. Invalid metadata rejects the complete group;
+fixed parts and unused anchors add no source cells.
+
+[`PhysicalColumnIndex`](../../../src/impodo/domain/preflight/physical_lineage.py)
+indexes the verified effective selection, physical selection and saved derived
+plan once. Saved per-row physical lineage identifies contributors through
+joins, unions, grouping, related splits, extracted lookups and traceable
+hierarchy consumers. Exact columns and rows must be proved together. Reused
+ambiguous join roles, missing contributors and untraceable generated ancestors
+remain unavailable. No composition, formula or lookup is rerun during export.
+
+A finding retains its logical dataset, row and saved trace. Each
+`OriginalSourceInput` instead carries an `OriginalSourceCoordinate` with the
+physical dataset identity, display name, row and stable source key. These
+coordinates need not be a subset of the logical anchors. The planner requires
+the exact saved trace and field lineage, verifies the physical source binding,
+and then binds the complete ordered physical cohort to its immutable snapshots.
+Missing any snapshot leaves that whole finding unavailable; independent
+complete findings may still recover. A proven empty cohort shows **No source
+cell** and contributes zero to the source-cell count.
+
+`OriginalSourceTarget` authorizes one physical coordinate for one exact logical
+occurrence and its complete cohort. The artifact reader validates all
+cross-snapshot authorizations before reading values. Partial or reordered
+cohorts cannot inherit another finding's authorization. Cohort validation and
+hydration are indexed once, keeping grouped exports linear in their input
+cells. Snapshot metadata uses at most two bulk repository reads. Each requested
+snapshot is materialized once, projecting requested rows and kind/value column
+pairs in batches of at most 1,000 rows inside the package operation. There are
+no per-cell queries, upload reads or Odoo requests.
 
 [`OriginalSourceValue`](../../../src/impodo/domain/preflight/original_values.py)
-distinguishes captured values, captured blanks, withheld values, and unavailable
-evidence. Every `FieldSetAside` uses one `source_inputs` tuple of keyed
-`OriginalSourceInput` values; single inputs use the same representation.
-`OriginalSourceTarget` binds each component to its target and complete ordered
-input group. A partial or reordered group cannot inherit authorization from
-another finding that shares a physical cell. There is no singular-value export
-representation. Replanning clears previous input evidence before proving it
-again, and restricted exports clear the entire input group before local reads. The [planner](../../../src/impodo/application/workspace/review/original_values.py)
-proves the source binding before the
-[artifact reader](../../../src/impodo/adapters/artifacts/review_original_values.py)
-loads requested cells. It preserves strict-reader text, including
-leading zeros and whitespace, rather than Excel display formatting. Blank
-cells and empty text have distinct kinds and workbook comments. The writer
-forces literal Excel text and rejects originals that exceed Excel's text limit
-or contain unsupported XML characters before writing the report. Requests also
-name the target and complete input group, so another provider sharing a source
-cell cannot inherit its authorization. Restricted workspaces
-return before source reads;
-Odoo sources still produce no portable value evidence. Normalization feedback
-is never substituted for an original value on this tab. Derived, composed or
-prepared references, scoped value translations and other comparison findings
-retain unavailable coverage in this bounded implementation. A multi-value relationship
-shows the full accepted source cell rather than reconstructing it from parsed
-reference tokens. The same coverage note appears on the tab and its
-Overview link. A definitive zero-omission message requires
-explicitly complete evidence. Manifest-only exports identify unavailable
-preparation evidence; protected Odoo exports identify withheld details.
+distinguishes captured values, captured blanks, withheld values and unavailable
+evidence. The writer expands physical inputs into rows, counts each physical
+cell once across findings, and retains one logical finding count. When physical
+and logical locations differ, appended **Prepared dataset** and **Prepared row**
+columns preserve the resulting record's location. The first nine sheet columns
+remain stable. Captured strings, whitespace and leading zeros remain literal
+Excel text. Blank cells and empty strings have distinct notes. Unsupported
+Excel text fails explicitly rather than being shortened.
 
-When the complete report counts include one of the three reference error codes,
-`PreflightService.review_workbook_evidence` conditionally reads the verified
-manifest before its existing single original-request planning pass. It checks
-the frozen input and each selected decision against prepared trace, dataset and
-source row evidence. Restricted workspaces skip this capture. A fieldless
-identity case issue does not become a relationship finding.
+[`comparison_omission_findings`](../../../src/impodo/domain/preflight/omission_findings.py)
+projects the three saved blocked-reference outcomes, required-on-create
+findings, applied null policies and saved normalization effects that turn a
+value blank. It runs before original planning. The service reads the manifest
+conditionally when the saved issue counts or rules require it, verifies its
+bytes, result, frozen input and normalization bindings, and checks each selected
+decision against its exact prepared occurrence. An empty cell alone proves no
+omission. `FieldSetAside.comparison_issue` requires relationship proof for the
+three reference outcomes; a scalar cannot authorize their originals.
 
-[`comparison_relationship_findings`](../../../src/impodo/domain/preflight/comparison_fields.py)
-owns the three-code projection for both service capture and standalone workbook
-fallback. `FieldSetAside.comparison_issue` requires a relationship provider for
-original-value authorization; a scalar provider cannot supply it. The writer
-verifies `ComparisonFieldCoverage` against both the manifest byte hash and the
-result hash, then suppresses regeneration of those covered findings. Full saved
-decisions remain included even when whole rows were set aside. Null rules and
-required-on-create findings keep their existing projection and coverage.
-
-This adds one conditional manifest artifact read. Source selection and snapshot
-metadata remain bulk reads in one planning pass, and each requested snapshot
-is materialized once. There is no per-field repository read or fresh Odoo query.
-A recreated workbook must use evidence from the same saved comparison.
+The writer verifies `ComparisonFieldCoverage` against manifest bytes and the
+result hash and consumes those findings once. Standalone exports use the same
+omission projection. Full saved decisions remain represented when whole records
+were set aside. Replanning clears hydrated inputs; restricted exports clear
+input geometry and return before source reads. Odoo sources provide no portable
+value projection. Unavailable history and unprovable lineage remain explicit in
+the same coverage note on this tab and Overview. Only complete evidence permits
+a definitive zero-omission claim.
 
 Traceability uses the accepted logical dataset and source row. The current
 browser-compiled plan uses a synthetic contained source filename, so the
@@ -778,6 +781,10 @@ invariants are defined by the [reviewed deferred record groups contract](../cont
 | Role | Code |
 | --- | --- |
 | Comparison orchestration | [`PreflightService`](../../../src/impodo/application/preflight_service.py) |
+| Workbook field findings from the saved comparison | [comparison_fields.py](../../../src/impodo/domain/preflight/comparison_fields.py) |
+| Scalar rule inputs for workbook originals | [scalar_inputs.py](../../../src/impodo/domain/preflight/scalar_inputs.py) |
+| Matching saved findings to physical source cells | [original_values.py](../../../src/impodo/application/workspace/review/original_values.py) |
+| Reading verified source cells for workbook export | [review_original_values.py](../../../src/impodo/adapters/artifacts/review_original_values.py) |
 | Persisted complete-run quality causes | [`QualityRepository`](../../../src/impodo/adapters/duckdb/quality_repository.py) |
 | Prepared-quality issue presentation | [`_quality_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) and [`WorkflowIssueProjection`](../../../src/impodo/application/workspace/issues.py) |
 | Final-review issue counts and presentation | [`readiness_issue_counts`](../../../src/impodo/domain/preflight/reports.py), [`PreflightRepository.get_readiness_rows`](../../../src/impodo/adapters/duckdb/preflight_repository.py), and [`_readiness_workflow_issue_summary`](../../../src/impodo/web/presenters/summary.py) |
@@ -798,6 +805,10 @@ invariants are defined by the [reviewed deferred record groups contract](../cont
 | Deferred-group closure and precision | [`preview_deferred_scope`](../../../src/impodo/domain/preflight/deferred_scope.py) |
 | Reduced execution snapshot | [`reduce_execution_snapshot`](../../../src/impodo/domain/preflight/deferred_execution.py) |
 | Deferred review and acceptance | [`PreflightService.deferred_scope_review`](../../../src/impodo/application/preflight_service.py) and [`PreflightService.accept_deferred_scope`](../../../src/impodo/application/preflight_service.py) |
+| Original input planning | [`original_values.py`](../../../src/impodo/application/workspace/review/original_values.py) |
+| Verified source snapshot recovery | [`review_original_values.py`](../../../src/impodo/adapters/artifacts/review_original_values.py) |
+| Comparison omission bindings | [`comparison_fields.py`](../../../src/impodo/domain/preflight/comparison_fields.py) |
+| Historical scalar input proof | [`scalar_inputs.py`](../../../src/impodo/domain/preflight/scalar_inputs.py) |
 | Workbook projection | [`reporting.py`](../../../src/impodo/adapters/artifacts/reporting.py) |
 | Browser routes | [`preflight.py`](../../../src/impodo/web/routers/preflight.py) |
 | Affected-group review page | [`workspace_deferred_scope.html`](../../../src/impodo/web/templates/workspace_deferred_scope.html) |
@@ -968,7 +979,33 @@ contact Odoo while writing them.
 - [Comparison field projection and exact coverage bindings](../../../tests/domain/preflight/test_comparison_fields.py)
 - [Verify comparison evidence before original requests](../../../tests/application/workspace/review/test_comparison_workbook.py)
 - [Comparison originals, duplicate prevention and changed-manifest rejection](../../../tests/integration/artifacts/test_comparison_field_coverage.py)
+- [Closed Recipe omission workbook recreation](../../../tests/integration/web/test_recipe_field_omission_recreation.py)
 - [Reopened generic comparison and Recipe workbook exports](../../../tests/integration/web/test_comparison_original_workbook.py)
+- [Executed formula input observers](../../../tests/domain/recipe/test_formula_read_observer.py)
+- [Provider source-read evidence](../../../tests/domain/mapping/test_scalar_source_reads.py)
+- [Saved scalar input lineage](../../../tests/domain/preparation/test_scalar_input_lineage.py)
+- [Immutable optional field input proof](../../../tests/domain/preparation/test_field_input_keys.py)
+- [Native projection and persisted-row parity](../../../tests/integration/columnar/test_scalar_input_lineage.py)
+- [Physical column and row origins](../../../tests/domain/preflight/test_physical_lineage.py)
+- [Complete cross-snapshot planner cohorts](../../../tests/application/workspace/review/test_physical_original_values.py)
+- [Cross-snapshot originals and linear cohort work](../../../tests/integration/artifacts/test_physical_original_values.py)
+- [Real joined and grouped workbook exports](../../../tests/integration/artifacts/test_structural_original_values.py)
+- [Saved omission rules](../../../tests/domain/preflight/test_omission_findings.py)
+- [Omission capture before original planning](../../../tests/application/workspace/review/test_rule_omission_capture.py)
+- [Scalar formula input and alias proof](../../../tests/domain/preflight/test_scalar_original_inputs.py)
+- [Scalar formula request and bulk-read bounds](../../../tests/application/workspace/review/test_scalar_original_values.py)
+- [Scalar formula originals and captured fallback blanks](../../../tests/integration/artifacts/test_scalar_original_values.py)
+- [Reopened scalar export and complete DuckDB budgets](../../../tests/integration/web/test_scalar_original_workbook.py)
+- [Fresh Recipe binding for scalar formula originals](../../../tests/domain/recipe/test_scalar_original_inputs.py)
+- [Scoped translation input proof and invalid metadata](../../../tests/domain/preflight/test_translated_original_inputs.py)
+- [Scoped translation requests and private no-read paths](../../../tests/application/workspace/review/test_translated_original_values.py)
+- [Translated choice originals, counts and recreation](../../../tests/integration/artifacts/test_translated_original_values.py)
+- [Reopened translated comparison for both Odoo majors and access modes](../../../tests/integration/web/test_translated_original_workbook.py)
+- [Fresh Recipe binding for scoped choice inputs](../../../tests/domain/recipe/test_translated_original_inputs.py)
+- [Validated relationship dependency metadata](../../../tests/domain/preflight/test_relationship_original_inputs.py)
+- [Prepared reference dependency proofs](../../../tests/application/workspace/review/test_prepared_original_values.py)
+- [Prepared reference originals from saved inputs](../../../tests/integration/artifacts/test_prepared_original_values.py)
+- [Reopened prepared comparison workbook for both Odoo majors and access modes](../../../tests/integration/web/test_prepared_original_workbook.py)
 - [Complete immutable source-input contracts](../../../tests/domain/preflight/test_scoped_original_contracts.py)
 - [Scoped input proofs and complete physical groups](../../../tests/application/workspace/review/test_scoped_original_values.py)
 - [Separate key and scope values, counts and withholding](../../../tests/integration/artifacts/test_scoped_original_values.py)

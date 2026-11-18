@@ -163,9 +163,8 @@ def _require_current_inputs(connection, binding: BusinessIntentBinding) -> None:
         )
     validation = connection.execute(
         """
-        SELECT validation_hash FROM mapping_validation
+        SELECT validation_hash FROM mapping_validation_current
          WHERE mapping_id = ? AND version = ?
-         ORDER BY created_at DESC, validation_hash LIMIT 1
     """,
         [mapping[0], mapping[1]],
     ).fetchone()

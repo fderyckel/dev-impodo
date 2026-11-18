@@ -40,37 +40,51 @@ coverage. Exporting does not reclassify records, approve findings, or alter
 comparison or load prerequisites. Odoo-source values and numeric Odoo record
 identifiers remain outside this portable workbook.
 
-The Final review workbook may recover exact originals for direct scalar file
-preparation omissions, unscoped relationships from one column, and supported
-many2one matches whose key and scope use distinct direct file columns. A
-relationship must have no prepared key or dataset projection. Scoped value
-translations remain outside this recovery. A list of linked values retains its
-full source cell. Recovery reads the immutable accepted source snapshot. Each request
-must match the comparison-bound mapping, physical selection, dataset and source
-key. The adapter verifies artifact bytes and kind-tagged cells. Captured blanks,
-withheld values and unavailable evidence remain distinct. Restricted workspaces
-must not read or export originals through this channel. Prepared-value display
-feedback does not establish an original source value. This export-only evidence
-does not change canonical data, comparison hashes or load decisions.
+The Final review workbook recovers originals only from verified immutable file
+snapshots. Findings retain their logical dataset, row, target and saved trace;
+original inputs carry physical dataset identities, rows and source keys. One
+finding may therefore refer to cells from several files or grouped source rows.
+Physical cells are counted once across target outcomes, while logical findings
+and whole-column exclusions keep separate counts.
 
-Saved blocked relationship findings for `REFERENCE_NOT_FOUND`,
-`REFERENCE_AMBIGUOUS` and `REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED` may use this
-same recovery when the relationship proves its complete physical input group.
-Before requesting originals, the service verifies manifest bytes, result and
-frozen-input bindings, then proves each selected decision's prepared trace,
-dataset and source row. The writer checks the same comparison binding and
-uses the captured findings once. A scalar provider cannot authorize an original
-for a comparison relationship finding. Restricted and Odoo sources retain their
-existing withholding behavior.
+Preparation records actual scalar reads in optional
+`CanonicalLineage.field_input_keys`. An absent field entry means unrecorded
+input evidence; an empty tuple proves that no source cell was consumed. Native
+and Python preparation preserve the same evidence. Formula branches,
+combinations, inline choices, fallback probes, conditional Selection rules and
+lookup keys use those saved reads. Historical rows can use conservative static
+proofs for direct providers or single-anchor formulas. Export never reruns a
+calculation, choice or source composition to reconstruct an earlier decision.
 
-One field finding retains one immutable ordered `source_inputs` tuple for all
-its proven physical cells. Each source request binds a component to its target
-and complete ordered input group. Every component must be physical and directly
-authored; mixed generated groups remain unproven. The writer expands proven
-inputs into separate rows, counts underlying cells once and counts the field
-finding once. Empty inputs remain one explicit field finding. Restricted
-exports clear input geometry before source reads. These workbook projections
-do not change canonical storage or comparison hashes.
+Relationship proof validates the complete authored key/scope group and its
+saved canonical anchors before deriving contributing columns. A scalar cannot
+authorize originals for saved blocked-reference comparison findings. Physical
+provenance comes from the verified saved derived plan and exact per-row
+contributors. Unprovable generated rows, ambiguous joins and incomplete
+contributors remain unavailable rather than receiving guessed coordinates.
+
+Each original request binds a physical cell to one exact logical occurrence and
+its complete ordered cross-snapshot cohort. Authorization is validated globally
+before artifact reads. Missing any snapshot leaves the entire cohort
+unavailable; independent complete findings may recover. Cohorts are indexed
+once so grouped exports remain linear in their input-cell count. Metadata uses
+at most two bulk source reads; snapshots are materialized once and streamed in
+bounded batches. There are no live Odoo calls, upload reads or per-cell queries.
+
+Saved preparation omissions, the three blocked-reference comparison outcomes,
+required-on-create findings, applied null policies and confirmed blanking
+effects feed one projection before original planning. Comparison capture binds
+exact manifest bytes, result, frozen input and applicable normalization hashes.
+The writer checks the same coverage and does not project those findings twice.
+A blank prepared cell or absent mapping alone cannot establish an omission.
+
+Captured blanks, unavailable evidence, proven no-source outcomes and withheld
+values remain distinct. Restricted exports clear original geometry and return
+before source reads. Odoo-source business values remain outside the portable
+workbook. Snapshot text is literal Excel text; display feedback is never used
+as an original. Historical gaps appear on both Overview and Fields set aside.
+Only complete evidence permits a definitive zero. These workbook projections
+leave comparison bindings and load decisions unchanged.
 
 The correction worklist retains records set aside by data-check findings, but
 counts explicit **Rows to use** exclusions separately. Informational notes do

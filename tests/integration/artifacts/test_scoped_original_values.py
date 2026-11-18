@@ -27,7 +27,6 @@ from impodo.domain.preflight.comparison_fields import (
 )
 from impodo.domain.preflight.fields_set_aside import FieldSetAside, FieldSetAsideReason
 from impodo.domain.preflight.original_values import (
-    OriginalSourceInput,
     OriginalSourceValue,
     OriginalValueState,
 )
@@ -73,6 +72,7 @@ def _plan(fixture, *, selection=None, mapping=None, fields=None, restricted=Fals
         sources=fixture.sources,
         workspace_id="workspace-1",
         restricted=restricted,
+        workbook_lineage={row.row_id: row.lineage for row in fixture.rows},
     )
     return ReviewWorkbookEvidence(
         frozen_input_hash=fixtures._HASH,
@@ -212,7 +212,7 @@ class ScopedOriginalInputExportTests(unittest.TestCase):
                 materialize.assert_called_once()
                 inputs = evidence.fields_set_aside.findings[0].source_inputs
                 self.assertEqual(
-                    tuple(item.source_key for item in inputs),
+                    tuple(item.coordinate.source_key for item in inputs),
                     (fixtures._KEY, fixtures._SCOPE),
                 )
                 self.assertEqual(
@@ -434,6 +434,23 @@ class ScopedOriginalInputExportTests(unittest.TestCase):
                 ("partners", _SYNTHETIC_SCOPE): "Generated scope",
             },
         )
+        fixture = replace(
+            fixture,
+            rows=tuple(
+                replace(
+                    row,
+                    lineage=replace(
+                        row.lineage,
+                        source_selection_hash=selection.content_hash,
+                        field_sources={
+                            **row.lineage.field_sources,
+                            relation.target_field: (fixtures._KEY, _SYNTHETIC_SCOPE),
+                        },
+                    ),
+                )
+                for row in fixture.rows
+            ),
+        )
         evidence = populate_workbook_original_values(
             _plan(fixture, selection=selection, mapping=mapping, fields=fields),
             fixture.artifacts,
@@ -441,7 +458,7 @@ class ScopedOriginalInputExportTests(unittest.TestCase):
         scoped, direct = evidence.fields_set_aside.findings
         self.assertEqual(scoped.source_inputs, ())
         self.assertEqual(
-            tuple(item.source_key for item in direct.source_inputs), (fixtures._KEY,)
+            tuple(item.coordinate.source_key for item in direct.source_inputs), (fixtures._KEY,)
         )
         self.assertEqual(direct.source_inputs[0].value.state, OriginalValueState.BLANK)
         path = fixtures._workbook(self.root / "output", evidence)
@@ -460,9 +477,8 @@ class ScopedOriginalInputExportTests(unittest.TestCase):
         proven = evidence.fields_set_aside.findings[0]
         partial = replace(
             proven,
-            source_keys=(fixtures._KEY,),
             source_inputs=(
-                OriginalSourceInput(fixtures._KEY, OriginalSourceValue.unavailable()),
+                replace(proven.source_inputs[0], value=OriginalSourceValue.unavailable()),
             ),
             detail="Unproven partial cohort.",
         )

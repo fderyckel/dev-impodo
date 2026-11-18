@@ -19,6 +19,7 @@ document.addEventListener("DOMContentLoaded", () => {
     ).map((element) => ({
       element,
       checkbox: element.querySelector('input[name="permitted_models"]'),
+      savedSelection: element.querySelector('input[name="permitted_models"]').checked,
       inFocus: element.dataset.inFocus === "true",
       searchText: element.dataset.modelSearchText || "",
     }));
@@ -49,6 +50,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (empty) {
         empty.hidden = !selectedOnly || visibleCount > 0;
       }
+      modelPicker.toggleAttribute("data-next-dirty", choices.some(
+        (choice) => Boolean(choice.checkbox?.checked) !== choice.savedSelection
+      ));
     };
     search?.addEventListener("input", updateModelChoices);
     showAll?.addEventListener("change", updateModelChoices);
@@ -73,13 +77,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const supportingSaveForm = document.querySelector(
     "[data-supporting-save-form]"
   );
-  const supportingContinue = supportingSaveForm?.querySelector("[data-schema-related-continue]");
-  if (supportingContinue) {
-    const markChoicesUnsaved = () => {
-      supportingContinue.removeAttribute("data-next-step");
+  if (supportingSaveForm) {
+    const choices = Array.from(supportingSaveForm.querySelectorAll(
+      'select[data-supporting-action], input[name^="dataset_"]'
+    ));
+    const savedValues = choices.map((choice) => choice.value);
+    const updateSupportingAction = () => {
+      supportingSaveForm.toggleAttribute("data-next-dirty", choices.some(
+        (choice, index) => choice.value !== savedValues[index]
+      ));
     };
-    supportingSaveForm.addEventListener("input", markChoicesUnsaved);
-    supportingSaveForm.addEventListener("change", markChoicesUnsaved);
+    supportingSaveForm.addEventListener("input", updateSupportingAction);
+    supportingSaveForm.addEventListener("change", updateSupportingAction);
+    supportingSaveForm.addEventListener("reset", () => {
+      window.queueMicrotask(updateSupportingAction);
+    });
+    updateSupportingAction();
   }
   const supportingSavePositionKey = supportingSaveForm
     ? `impodo:supporting-save-position:${supportingSaveForm.action}`

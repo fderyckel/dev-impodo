@@ -18,6 +18,7 @@ class OperatorErrorUpgradeTests(unittest.TestCase):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE mapping_validation_current")
             connection.execute("DROP TABLE execution_operator_error")
             connection.execute("UPDATE schema_version SET version = 7")
             connection.execute(
@@ -58,13 +59,14 @@ class OperatorErrorUpgradeTests(unittest.TestCase):
             )
             self.assertEqual(
                 connection.execute("SELECT * FROM schema_migration").fetchall(),
-                [(7, 8, "private-operator-errors-v8")],
+                [(7, 8, "private-operator-errors-v8"), (8, 9, "current-mapping-validation-v9")],
             )
 
     def test_incompatible_private_table_is_preserved_and_upgrade_rejected(self):
         schema = WorkspaceEngineSchemaMixin()
         with duckdb.connect(":memory:") as connection:
             schema._initialize_workspace_database(connection)
+            connection.execute("DROP TABLE mapping_validation_current")
             connection.execute("DROP TABLE execution_operator_error")
             connection.execute(
                 "CREATE TABLE execution_operator_error (unrecognized VARCHAR)"

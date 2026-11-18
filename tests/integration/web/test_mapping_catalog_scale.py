@@ -166,7 +166,7 @@ class LargeMappingCatalogBrowserTests(ProjectSetupBrowserTestCase):
         self.assertIn("saved_at", saved.json())
         self.assertEqual(
             saved.json()["redirect_url"],
-            f"/workspaces/{workspace_id}/mapping?progress_saved=1#mapping-dataset-0",
+            f"/workspaces/{workspace_id}/mapping#mapping-dataset-0",
         )
         changed_projection = self.client.get(
             f"/workspaces/{workspace_id}/mapping/field-catalog"

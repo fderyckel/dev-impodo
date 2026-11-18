@@ -18,6 +18,8 @@ from impodo.application.shared.artifacts import DataVersionSourceArtifactStore
 from impodo.domain.errors import ReadinessError
 from impodo.domain.preflight.fields_set_aside import FieldSetAside
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
+    OriginalSourceOccurrence,
     OriginalSourceRequest,
     OriginalSourceValue,
 )
@@ -28,6 +30,8 @@ from impodo.domain.source_snapshot import (
     SourceSnapshot,
     SourceSnapshotContractError,
 )
+
+type _PhysicalCohort = tuple[OriginalSourceCoordinate, ...]
 
 _ORIGINAL_BATCH_ROWS = 1_000
 _RECOVERY = (
@@ -53,7 +57,8 @@ def populate_workbook_original_values(
             fields_set_aside=replace(
                 fields,
                 findings=tuple(
-                    replace(finding, source_inputs=()) for finding in fields.findings
+                    replace(finding, source_inputs=(), source_inputs_known=False)
+                    for finding in fields.findings
                 ),
             ),
             original_source_requests=(),
@@ -61,18 +66,8 @@ def populate_workbook_original_values(
     if not evidence.original_source_requests:
         return evidence
 
-    targets = {
-        (
-            request.dataset,
-            target.source_row,
-            target.source_key,
-            target.target_field,
-            target.input_keys,
-        )
-        for request in evidence.original_source_requests
-        for target in request.targets
-    }
-    originals: dict[tuple[str, int, str], OriginalSourceValue] = {}
+    cohorts = _authorized_cohorts(evidence.original_source_requests)
+    originals: dict[OriginalSourceCoordinate, OriginalSourceValue] = {}
     for snapshot, requested in _group_requests(evidence.original_source_requests):
         try:
             with artifacts.materialize_source_snapshot(
@@ -92,7 +87,7 @@ def populate_workbook_original_values(
         fields_set_aside=replace(
             fields,
             findings=tuple(
-                _hydrate_finding(finding, targets, originals)
+                _hydrate_finding(finding, cohorts, originals)
                 for finding in fields.findings
             ),
         ),
@@ -100,36 +95,81 @@ def populate_workbook_original_values(
     )
 
 
+def _authorized_cohorts(
+    requests: tuple[OriginalSourceRequest, ...],
+) -> dict[OriginalSourceOccurrence, tuple[_PhysicalCohort, ...]]:
+    """Validate each complete cross-snapshot cohort once before source reads.
+
+    A cohort tuple is shared by all its target cells. Hash it once per tuple
+    object and retain exact equality checks for distinct tuples or collisions.
+    This keeps grouped-row authorization linear in the supplied evidence.
+    """
+
+    hashes: dict[int, int] = {}
+    groups: dict[
+        tuple[OriginalSourceOccurrence, int],
+        list[tuple[_PhysicalCohort, set[OriginalSourceCoordinate]]],
+    ] = {}
+    for request in requests:
+        for target in request.targets:
+            coordinates = target.input_coordinates
+            identity = id(coordinates)
+            if identity not in hashes:
+                hashes[identity] = hash(coordinates)
+            candidates = groups.setdefault(
+                (target.occurrence, hashes[identity]), []
+            )
+            for cohort, authorized in candidates:
+                if cohort is coordinates or cohort == coordinates:
+                    authorized.add(target.coordinate)
+                    break
+            else:
+                candidates.append((coordinates, {target.coordinate}))
+    result: dict[OriginalSourceOccurrence, list[_PhysicalCohort]] = {}
+    for (occurrence, _digest), candidates in groups.items():
+        for cohort, authorized in candidates:
+            if set(cohort) != authorized:
+                raise ReadinessError(_RECOVERY)
+            result.setdefault(occurrence, []).append(cohort)
+    return {occurrence: tuple(cohorts) for occurrence, cohorts in result.items()}
+
+
 def _hydrate_finding(
     finding: FieldSetAside,
-    targets: set[tuple[str, int, str, str, tuple[str, ...]]],
-    originals: dict[tuple[str, int, str], OriginalSourceValue],
+    cohorts: dict[OriginalSourceOccurrence, tuple[_PhysicalCohort, ...]],
+    originals: dict[OriginalSourceCoordinate, OriginalSourceValue],
 ) -> FieldSetAside:
-    if finding.source_row is None or not finding.source_inputs:
-        return finding
-    cells = tuple(
-        (finding.dataset, finding.source_row, item.source_key)
-        for item in finding.source_inputs
-    )
-    if any(
-        (*cell, finding.target_field, finding.source_keys) not in targets
-        or cell not in originals
-        for cell in cells
+    if (
+        finding.source_row is None
+        or not finding.target_field
+        or not finding.source_inputs
     ):
+        return finding
+    coordinates = tuple(item.coordinate for item in finding.source_inputs)
+    occurrence = OriginalSourceOccurrence(
+        finding.dataset,
+        finding.source_row,
+        finding.target_field,
+        finding.source_keys,
+        finding.source_trace_id,
+    )
+    if not any(
+        coordinates == allowed for allowed in cohorts.get(occurrence, ())
+    ) or any(coordinate not in originals for coordinate in coordinates):
         return finding
     return replace(
         finding,
         source_inputs=tuple(
-            replace(item, value=originals[cell])
-            for item, cell in zip(finding.source_inputs, cells, strict=True)
+            replace(item, value=originals[item.coordinate])
+            for item in finding.source_inputs
         ),
     )
 
 
 def _group_requests(
     requests: tuple[OriginalSourceRequest, ...],
-) -> tuple[tuple[SourceSnapshot, set[tuple[int, str]]], ...]:
-    groups: dict[str, tuple[SourceSnapshot, set[tuple[int, str]]]] = {}
+) -> tuple[tuple[SourceSnapshot, set[OriginalSourceCoordinate]], ...]:
+    groups: dict[str, tuple[SourceSnapshot, set[OriginalSourceCoordinate]]] = {}
     dataset_hashes: dict[str, str] = {}
     artifact_hashes: dict[tuple[str, str], str] = {}
     for request in requests:
@@ -137,7 +177,7 @@ def _group_requests(
         identity = snapshot.content_hash
         artifact = (snapshot.data_version_id, snapshot.parquet_storage_key)
         if (
-            dataset_hashes.setdefault(request.dataset, identity) != identity
+            dataset_hashes.setdefault(snapshot.dataset_id, identity) != identity
             or artifact_hashes.setdefault(artifact, identity) != identity
         ):
             raise ReadinessError(_RECOVERY)
@@ -149,12 +189,12 @@ def _group_requests(
 def _read_requested_cells(
     path: Path,
     snapshot: SourceSnapshot,
-    requested: set[tuple[int, str]],
-) -> dict[tuple[str, int, str], OriginalSourceValue]:
+    requested: set[OriginalSourceCoordinate],
+) -> dict[OriginalSourceCoordinate, OriginalSourceValue]:
     requested_by_row: dict[int, set[str]] = {}
-    for row, key in requested:
-        requested_by_row.setdefault(row, set()).add(key)
-    keys = {key for _, key in requested}
+    for coordinate in requested:
+        requested_by_row.setdefault(coordinate.source_row, set()).add(coordinate.source_key)
+    keys = {coordinate.source_key for coordinate in requested}
     columns = tuple(
         column for column in snapshot.schema.columns if column.stable_key in keys
     )
@@ -175,7 +215,7 @@ def _read_requested_cells(
         )
     )
     seen: set[int] = set()
-    originals: dict[tuple[str, int, str], OriginalSourceValue] = {}
+    originals: dict[OriginalSourceCoordinate, OriginalSourceValue] = {}
     for batch in query.collect_batches(
         chunk_size=_ORIGINAL_BATCH_ROWS, maintain_order=True, engine="streaming"
     ):
@@ -191,9 +231,10 @@ def _read_requested_cells(
                 cell = EncodedSourceCell.from_portable_dict(
                     {"kind": values[kind_index], "text": values[value_index]}
                 )
-                originals[(snapshot.dataset_name, row, key)] = (
-                    OriginalSourceValue.from_cell(cell)
+                coordinate = OriginalSourceCoordinate(
+                    snapshot.dataset_id, snapshot.dataset_name, row, key
                 )
+                originals[coordinate] = OriginalSourceValue.from_cell(cell)
     if seen != requested_by_row.keys():
         raise SourceSnapshotContractError("Requested source rows are missing")
     return originals

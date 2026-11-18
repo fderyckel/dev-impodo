@@ -81,15 +81,6 @@ class MatchingOrderRecommendation:
     components: tuple[tuple[str, ...], ...]
     facts: tuple[MatchingOrderFact, ...]
 
-    @property
-    def preliminary(self) -> bool:
-        """Return whether any ordering fact is only a captured-schema hint."""
-
-        return any(
-            fact.confidence is MatchingOrderConfidence.PRELIMINARY
-            for fact in self.facts
-        )
-
 
 @dataclass(frozen=True, slots=True)
 class MatchingOrderPreference:
@@ -118,8 +109,7 @@ class MatchingOrderPreference:
             raise WorkspaceError("Matching-order source selection is invalid")
         normalized = tuple(item.strip() for item in self.ordered_dataset_ids)
         if (
-            not normalized
-            or len(normalized) != len(set(normalized))
+            len(normalized) != len(set(normalized))
             or any(not item or len(item) > 500 for item in normalized)
         ):
             raise WorkspaceError("Matching-order datasets are invalid")
@@ -140,6 +130,12 @@ class MatchingOrderPreference:
             "actor_display_name",
             self.actor_display_name.strip(),
         )
+
+    @property
+    def custom(self) -> bool:
+        """An empty saved sequence follows the recommendation at this version."""
+
+        return bool(self.ordered_dataset_ids)
 
     def portable_dict(self) -> dict[str, object]:
         """Return the bounded persistence form of this preference."""

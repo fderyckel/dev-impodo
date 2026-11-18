@@ -369,6 +369,7 @@ def prepare_rule_text(
     formula_context: Mapping[str, Any] | None = None,
     arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
+    formula_read_observer: Callable[[str], None] | None = None,
 ) -> str | None:
     """Apply formula, normalization, replacement, and casing to raw input."""
 
@@ -378,10 +379,14 @@ def prepare_rule_text(
         context.setdefault("value", raw_value)
         try:
             value = (
-                arithmetic_formula.evaluate(context)
+                arithmetic_formula.evaluate(
+                    context, read_observer=formula_read_observer
+                )
                 if arithmetic_formula is not None
                 and arithmetic_formula.expression == policy.formula
-                else evaluate_formula(policy.formula, context)
+                else evaluate_formula(
+                    policy.formula, context, read_observer=formula_read_observer
+                )
             )
         except (ArithmeticError, TypeError, ValueError) as error:
             message = (
@@ -539,15 +544,27 @@ def validate_scalar_value(
             )
 
 
-def evaluate_formula(expression: str, context: Mapping[str, Any]) -> Any:
-    """Evaluate a validated expression against one bounded row context."""
+def evaluate_formula(
+    expression: str,
+    context: Mapping[str, Any],
+    *,
+    read_observer: Callable[[str], None] | None = None,
+) -> Any:
+    """Evaluate one formula and optionally report the source names actually read."""
 
     arithmetic = compile_arithmetic_formula(expression, allowed_names=set(context))
     if arithmetic is not None:
-        return arithmetic.evaluate(context)
+        return arithmetic.evaluate(context, read_observer=read_observer)
     parsed = validate_formula(expression, allowed_names=set(context))
-    prepared = {name: _formula_value(value) for name, value in context.items()}
-    result = _eval_node(parsed.body, prepared)
+    prepared = (
+        {name: _formula_value(value) for name, value in context.items()}
+        if read_observer is None
+        else {
+            name: _observed_formula_value(name, value, read_observer)
+            for name, value in context.items()
+        }
+    )
+    result = _eval_node(parsed.body, prepared, read_observer=read_observer)
     if len(str(result)) > MAX_RULE_TEXT_LENGTH:
         raise ValueError("formula result is too long")
     return result
@@ -574,6 +591,8 @@ def formula_input_names(
 def evaluate_reference_formula(
     expression: str,
     context: Mapping[str, Any],
+    *,
+    read_observer: Callable[[str], None] | None = None,
 ) -> str:
     """Prepare reference text while preserving authored identifier spelling.
 
@@ -583,7 +602,9 @@ def evaluate_reference_formula(
     """
 
     parsed = validate_formula(expression, allowed_names=set(context))
-    result = _eval_node(parsed.body, context, preserve_text=True)
+    result = _eval_node(
+        parsed.body, context, preserve_text=True, read_observer=read_observer
+    )
     if not isinstance(result, str):
         raise TypeError("reference formula must produce text")
     if len(result) > MAX_RULE_TEXT_LENGTH:
@@ -610,12 +631,25 @@ class CompiledArithmeticFormula:
     input_names: tuple[str, ...]
     instructions: tuple[_ArithmeticInstruction, ...]
 
-    def evaluate(self, context: Mapping[str, Any]) -> Any:
-        """Calculate one result using only the source inputs it references."""
+    def evaluate(
+        self,
+        context: Mapping[str, Any],
+        *,
+        read_observer: Callable[[str], None] | None = None,
+    ) -> Any:
+        """Calculate one result and optionally report executed source operands."""
 
-        prepared = {
-            name: _formula_value(context[name]) for name in self.input_names
-        }
+        if read_observer is None:
+            prepared = {name: _formula_value(context[name]) for name in self.input_names}
+        else:
+            prepared = {}
+            for name in self.input_names:
+                try:
+                    value = context[name]
+                except KeyError:
+                    read_observer(name)
+                    raise
+                prepared[name] = _observed_formula_value(name, value, read_observer)
         stack: list[Any] = []
         for instruction in self.instructions:
             operation = instruction.operation
@@ -625,6 +659,8 @@ class CompiledArithmeticFormula:
                     raise ValueError(
                         "Compiled source instructions require a source name"
                     )
+                if read_observer is not None:
+                    read_observer(source_name)
                 stack.append(prepared[source_name])
             elif operation == "constant":
                 stack.append(instruction.argument)
@@ -787,6 +823,20 @@ def _sentence_case(value: str) -> str:
     return value
 
 
+def _observed_formula_value(
+    name: str,
+    value: Any,
+    read_observer: Callable[[str], None],
+) -> Any:
+    """Retain the failing input when existing eager context coercion cannot finish."""
+
+    try:
+        return _formula_value(value)
+    except (ArithmeticError, TypeError, ValueError):
+        read_observer(name)
+        raise
+
+
 def _formula_value(value: Any) -> Any:
     if value is None or isinstance(value, (bool, Decimal, int)):
         return value
@@ -803,16 +853,23 @@ def _eval_node(
     context: Mapping[str, Any],
     *,
     preserve_text: bool = False,
+    read_observer: Callable[[str], None] | None = None,
 ) -> Any:
     if isinstance(node, ast.Constant):
         if preserve_text and isinstance(node.value, str):
             return node.value
         return _formula_value(node.value)
     if isinstance(node, ast.Name):
+        if read_observer is not None:
+            read_observer(node.id)
         return context[node.id]
     if isinstance(node, ast.BinOp):
-        left = _eval_node(node.left, context, preserve_text=preserve_text)
-        right = _eval_node(node.right, context, preserve_text=preserve_text)
+        left = _eval_node(
+            node.left, context, preserve_text=preserve_text, read_observer=read_observer
+        )
+        right = _eval_node(
+            node.right, context, preserve_text=preserve_text, read_observer=read_observer
+        )
         if isinstance(node.op, ast.Add) and isinstance(left, str) and isinstance(right, str):
             return left + right
         operations = {
@@ -824,20 +881,29 @@ def _eval_node(
         }
         return operations[type(node.op)](_number(left), _number(right))
     if isinstance(node, ast.UnaryOp):
-        value = _eval_node(node.operand, context, preserve_text=preserve_text)
+        value = _eval_node(
+            node.operand, context, preserve_text=preserve_text, read_observer=read_observer
+        )
         if isinstance(node.op, ast.Not):
             return not value
         return _number(value) if isinstance(node.op, ast.UAdd) else -_number(value)
     if isinstance(node, ast.BoolOp):
         values = [
-            _eval_node(item, context, preserve_text=preserve_text)
+            _eval_node(
+                item, context, preserve_text=preserve_text, read_observer=read_observer
+            )
             for item in node.values
         ]
         return all(values) if isinstance(node.op, ast.And) else any(values)
     if isinstance(node, ast.Compare):
-        left = _eval_node(node.left, context, preserve_text=preserve_text)
+        left = _eval_node(
+            node.left, context, preserve_text=preserve_text, read_observer=read_observer
+        )
         for operation_node, comparator in zip(node.ops, node.comparators):
-            right = _eval_node(comparator, context, preserve_text=preserve_text)
+            right = _eval_node(
+                comparator, context, preserve_text=preserve_text,
+                read_observer=read_observer,
+            )
             comparison = {
                 ast.Eq: operator.eq,
                 ast.NotEq: operator.ne,
@@ -853,13 +919,20 @@ def _eval_node(
     if isinstance(node, ast.IfExp):
         branch = (
             node.body
-            if _eval_node(node.test, context, preserve_text=preserve_text)
+            if _eval_node(
+                node.test, context, preserve_text=preserve_text,
+                read_observer=read_observer,
+            )
             else node.orelse
         )
-        return _eval_node(branch, context, preserve_text=preserve_text)
+        return _eval_node(
+            branch, context, preserve_text=preserve_text, read_observer=read_observer
+        )
     if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
         arguments = [
-            _eval_node(item, context, preserve_text=preserve_text)
+            _eval_node(
+                item, context, preserve_text=preserve_text, read_observer=read_observer
+            )
             for item in node.args
         ]
         return _call_formula_function(node.func.id, arguments)

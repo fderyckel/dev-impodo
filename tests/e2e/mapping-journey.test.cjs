@@ -306,7 +306,10 @@ test("switching tables waits for save and retains only the destination table fil
 test("check and row confirmation route separately while final preparation navigation survives", () => {
   const view = page();
   assert.match(view.journey.resultUrl("/workspaces/one/mapping", { action: "draft" }), /step=check.*#semantic-validation$/);
-  assert.match(view.journey.resultUrl("/workspaces/one/mapping?step=check#next-step-blockers", { action: "draft" }), /step=check.*#next-step-blockers$/);
+  for (const destination of ["?step=check#next-step-blockers", "?step=confirm#confirm-matches", "?step=confirm#rows-to-use-review"]) {
+    const path = `/workspaces/one/mapping${destination}`;
+    assert.equal(view.journey.resultUrl(path, { action: "draft" }), `https://impodo.test${path}`);
+  }
   assert.match(view.journey.resultUrl("/workspaces/one/mapping?step=confirm", { action: "draft" }), /step=confirm/);
   assert.match(view.journey.resultUrl("/workspaces/one/mapping", { action: "confirm_rows" }), /step=confirm/);
   assert.equal(view.journey.resultUrl("/workspaces/one/prepare", { action: "submit" }), "https://impodo.test/workspaces/one/prepare");
@@ -341,7 +344,7 @@ test("the final task opens the saved checks and clears the table location", () =
   const button = new Element({ mappingContinue: "", mappingContinuationUrl: "" });
   const continuation = view.journey.continuationFor(button);
   const operation = { action: "save_progress", journeyContinuation: continuation };
-  const payload = { next_recommended_url: "/workspaces/one/mapping?mapping_dataset=0" };
+  const payload = {};
   view.journey.committed(operation, payload);
   assert.equal(view.navigations.length, 1);
   const destination = new URL(view.navigations[0]);
@@ -599,4 +602,17 @@ test("a full storage quota does not let older stored hints erase progress carrie
   const next = page({ url: first.navigations[0], tableIds: ["products", "suppliers"], activeId: "suppliers", storage });
   next.journey.show({ task: "links" });
   assert.equal(next.journey.continuationFor(next.continueButton).step, "check");
+});
+
+test("an ordering post carries the active task after in-page navigation or conflict recovery", () => {
+  const view = page({ url: "https://impodo.test/workspaces/one/mapping/order?step=tables",
+    tableIds: ["categories", "products"], activeId: "products" });
+  view.journey.show({ step: "tables", task: "links" });
+  const check = new Element({}, "FORM");
+  check.setAttribute("action", "/workspaces/one/mapping/order/check?order_panel=1");
+  assert.equal(view.submit(check), false);
+  const query = new URL(check.getAttribute("action"), view.window.location.href).searchParams;
+  assert.equal(query.get("mapping_dataset"), "1");
+  assert.equal(query.get("task"), "links");
+  assert.equal(query.get("order_panel"), "1");
 });

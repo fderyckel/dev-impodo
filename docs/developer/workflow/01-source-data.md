@@ -143,6 +143,16 @@ action opens Stage 2. Editing its inputs requires a new review. The browser
 protects pending work during navigation;
 the save command remains the authority for accepting it.
 
+The footer owns the red next-step highlight through review, saving, and
+continuation. Inline reviews remain supporting actions. Saved-rule removal
+uses a neutral deletion control and a short confirmation owned by
+[`source-rule-removal.js`](../../../src/impodo/web/static/source-rule-removal.js).
+Confirmation submits the original form through `requestSubmit`, retaining the
+pending-work guard, CSRF token, and expected plan version. Cancel and Escape
+restore focus to the removal control without submitting the form. The browser
+journey tests cover these states for Odoo 19 and 20 with local and remote
+destination configurations.
+
 Lookup and hierarchy choices that need Odoo record types open
 the shared Odoo access page when the destination is not configured. A bounded
 return token survives the connection check and local-stack actions. After the
@@ -854,6 +864,19 @@ uses `run_local_operation`; configuration reads and rejected-form rendering
 also run outside the event loop. Each scope releases its database owners before
 returning to the event loop or starting file workers.
 
+Saving file-table choices also uses bounded local operations. The source
+service captures the authorized workspace, catalogues, confirmations and
+previous selection together, then closes its database owners before reading
+source bytes and writing immutable snapshots. A new local operation rechecks
+those captured inputs before publishing the selection and snapshot pointers
+atomically. Changed inputs reject publication and remove unreferenced snapshot
+files. The Data version service accepts the canonical source metadata and
+publishes workspace references in a separate local operation. Repeating an
+accepted save reuses its persisted evidence without hashing or rewriting files.
+The route reads the available choices and renders rejected forms off the event
+loop. The complete-request budgets and publication barriers are covered by
+[`test_file_selection_performance.py`](../../../tests/integration/web/test_file_selection_performance.py).
+
 [`BrowserQueryService.get_source_page`](../../../src/impodo/application/browser_queries.py)
 passes the source package already verified
 for workspace state into `SourceReviewPage`. File review and saved related-rule
@@ -942,6 +965,7 @@ operator workspace.
 - [`tests/integration/duckdb/test_workspace.py`](../../../tests/integration/duckdb/test_workspace.py)
 - [`tests/application/data_version/test_source_worker.py`](../../../tests/application/data_version/test_source_worker.py)
 - [`tests/integration/web/test_file_intake_performance.py`](../../../tests/integration/web/test_file_intake_performance.py)
+- [`tests/integration/web/test_file_selection_performance.py`](../../../tests/integration/web/test_file_selection_performance.py)
 - [`tests/domain/data_version/test_source_snapshot.py`](../../../tests/domain/data_version/test_source_snapshot.py)
 - [`tests/integration/odoo/test_source_capture.py`](../../../tests/integration/odoo/test_source_capture.py)
 - [`tests/application/data_version/test_odoo_capture_publication.py`](../../../tests/application/data_version/test_odoo_capture_publication.py)

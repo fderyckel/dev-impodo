@@ -42,9 +42,8 @@ operation. Remote checks and default refreshes close owners before Odoo work
 and recheck captured inputs in a new publication operation. Submission keeps
 both intent confirmations and releases owners before dispatch. Controlled
 fixtures cover both majors and access modes, including stale requests and
-owner release. Check matches uses fewer physical opens but more SQL because
-publication now compares the captured inputs explicitly. Removing proven
-duplicate reads while preserving that comparison remains open.
+owner release. The Stage 3 follow-up below removes repeated reads from that
+publication phase and retains the comparison with the captured inputs.
 
 The third implementation bounds worker admission, journal lifecycle and
 receipt phases through the existing local-operation port. It retains the
@@ -160,6 +159,64 @@ produce the same saved decisions and responses, and release all owners on
 success, denial, redirect and rendering failure. The next request opens and
 validates independently. Job dispatch and remote probes observe no retained
 owner.
+
+### Stage 3 Check matches
+
+On the ordinary **Check matches** path, a valid result now opens **Confirm
+matches** directly. An invalid result opens the first correction in **Check
+and resolve**. If exclusions need confirmation or a row rule needs correction,
+the check opens **Checked source rows**. The operator still decides whether to confirm
+the selection and submit the mapping. The
+[Stage 3 guide](../user/workflow/03-match-data.md#steps-in-impodo) describes
+those decisions. The optional **Check identities and update suggestion**
+command belongs to the separate table-ordering workflow.
+
+After the read-only Odoo work, the
+[mapping service](../../src/impodo/application/workspace/mapping/service.py)
+reads the current selection, schema and matching rules once. It verifies
+them against the inputs used before the Odoo call, then validates the
+mapping with those same fresh reads. A receipt lookup or replay returns the
+decision for the original check only while its result is current. The
+[receipt tests](../../tests/integration/web/test_mapping_check_receipts.py)
+cover a changed credential binding and a new check on the same revision.
+
+The [command tests](../../tests/integration/web/test_mapping_command_performance.py)
+bound SQL, physical opens and schema checks for Odoo 19 and 20 in local and
+remote mode. The [result-page tests](../../tests/integration/web/test_mapping_journey_mutations.py)
+exercise the initial GET and a warm reopen. Both read only locally saved
+evidence. The [synthetic timing runner](../../tests/performance/check_matches_runner.py)
+separates the check POST, result GET and reopen for a valid mapping, a missing
+field and two tables with repeated linked values. An instrumented run counts
+database work separately from the elapsed-time samples.
+
+On arm64 macOS with Python 3.12.14 and DuckDB 1.5.5, three pairs of fresh
+processes per fixture ran the baseline and candidate in alternating order.
+Each used the Odoo 20 remote adapter with fixed fictional responses. The
+elapsed times below are medians for the check POST plus its first result
+GET. The repeat is a new check of the same mapping in the same workspace.
+SQL counts cover the POST only.
+
+| Fixture | First check SQL, before → after | Repeat SQL, before → after | First check and GET, ms, before → after | Repeat check and GET, ms, before → after |
+| --- | ---: | ---: | ---: | ---: |
+| Valid mapping | 282 → 264 | 162 → 144 | 750 → 951 | 523 → 688 |
+| Missing required field | 271 → 253 | 151 → 133 | 515 → 475 | 371 → 437 |
+| Two tables, 1,000 rows sharing two linked values | 446 → 428 | 326 → 308 | 1,372 → 1,216 | 926 → 1,244 |
+
+The check saved 18 statements in every case. Physical opens and schema
+checks stayed level. The linked fixture made one record query for both
+distinct values. Every result GET and reopen used four opens and three
+schema checks and made zero Odoo calls. Wall times varied by fixture and
+did not show a repeatable overall improvement. Repeat checks for the
+missing-field and linked fixtures took longer in all three pairs. Local
+admission was the largest measured POST phase for valid and missing-field
+checks. Reading and saving supporting values took the most time for the
+linked check. These phases are the next candidates for profiling.
+
+**Remaining qualification.** Measure from the click until the correct control
+is visible and keyboard-usable on matched macOS and Windows fixtures. Record
+first and repeat checks separately with at least three comparable runs per
+candidate on each host. The in-process timing runner measures server response
+time. Browser feedback, network transit and painting need separate evidence.
 
 ## 3. Bound local work around each Odoo write
 

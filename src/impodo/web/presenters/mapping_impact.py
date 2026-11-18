@@ -245,6 +245,7 @@ def _mapping_return_url(
     allowed_names = {
         "step",
         "task",
+        "order_panel",
         "mapping_dataset",
         "scalar_page",
         "scalar_page_size",

@@ -1,11 +1,13 @@
-"""Require complete immutable input cohorts before original-cell authorization."""
+"""Bind immutable physical input cohorts to saved logical field occurrences."""
 
 import unittest
 from datetime import UTC, datetime
 
 from impodo.domain.preflight.fields_set_aside import FieldSetAside, FieldSetAsideReason
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
     OriginalSourceInput,
+    OriginalSourceOccurrence,
     OriginalSourceRequest,
     OriginalSourceTarget,
     OriginalSourceValue,
@@ -19,6 +21,7 @@ from impodo.domain.source_snapshot import (
 
 _HASH = "sha256:" + "a" * 64
 _KEYS = ("column:1:000000000001", "column:2:000000000002")
+_DATASET_ID = "dataset:" + "1" * 24
 
 
 def _snapshot():
@@ -33,7 +36,7 @@ def _snapshot():
     )
     return SourceSnapshot.create(
         data_version_id="data-version-1",
-        dataset_id="dataset:" + "1" * 24,
+        dataset_id=_DATASET_ID,
         dataset_name="Rows",
         source=FileSourceBinding("file", "csv", _HASH, _HASH, "utf-8", ",", 1),
         physical_selection_hash=_HASH,
@@ -45,88 +48,162 @@ def _snapshot():
     )
 
 
+def _coordinate(key=_KEYS[0]):
+    return OriginalSourceCoordinate(_DATASET_ID, "Rows", 2, key)
+
+
+def _occurrence(trace="trace-1"):
+    return OriginalSourceOccurrence("Prepared rows", 1, "parent_id", ("alias",), trace)
+
+
 class ScopedOriginalContractTests(unittest.TestCase):
-    def test_one_logical_finding_contains_the_complete_ordered_input_group(self):
+    def test_physical_geometry_is_independent_of_logical_aliases_and_rows(self):
         inputs = tuple(
-            OriginalSourceInput(key, OriginalSourceValue.unavailable()) for key in _KEYS
+            OriginalSourceInput(_coordinate(key), OriginalSourceValue.unavailable())
+            for key in _KEYS
         )
         finding = FieldSetAside(
             FieldSetAsideReason.UNRECOGNIZED,
-            "Rows",
-            2,
-            _KEYS,
+            "Prepared rows",
+            1,
+            ("alias",),
             "parent_id",
             "No related match.",
             inputs,
+            source_trace_id="trace-1",
         )
         self.assertEqual(finding.source_inputs, inputs)
-        self.assertEqual(len(finding.source_inputs), 2)
-        for wrong in (inputs[:1], tuple(reversed(inputs))):
-            with self.subTest(wrong=wrong), self.assertRaises(ValueError):
-                FieldSetAside(
-                    FieldSetAsideReason.UNRECOGNIZED,
-                    "Rows",
-                    2,
-                    _KEYS,
-                    "parent_id",
-                    "No match.",
-                    wrong,
-                )
-        with self.assertRaises(ValueError):
+        self.assertTrue(finding.source_inputs_known)
+        self.assertEqual(finding.source_keys, ("alias",))
+        # A computation can use a subset of its saved logical dependency envelope.
+        self.assertEqual(
             FieldSetAside(
-                FieldSetAsideReason.EXCLUDED,
-                "Rows",
-                None,
-                _KEYS,
+                FieldSetAsideReason.INVALID,
+                "Prepared rows",
+                1,
+                ("alias", "unused"),
                 "parent_id",
-                "Whole columns.",
-                inputs,
-            )
+                "Invalid.",
+                inputs[1:],
+            ).source_inputs,
+            inputs[1:],
+        )
+        for row, values in ((None, inputs), (1, (inputs[0], inputs[0]))):
+            with self.subTest(row=row), self.assertRaises(ValueError):
+                FieldSetAside(
+                    FieldSetAsideReason.INVALID,
+                    "Prepared rows",
+                    row,
+                    ("alias",),
+                    "parent_id",
+                    "Invalid.",
+                    values,
+                )
 
-    def test_target_authorization_requires_every_ordered_component(self):
-        snapshot = _snapshot()
+    def test_known_constant_and_unknown_history_are_distinct(self):
+        unknown = FieldSetAside(
+            FieldSetAsideReason.INVALID,
+            "Rows",
+            1,
+            (),
+            "name",
+            "Invalid.",
+        )
+        constant = FieldSetAside(
+            FieldSetAsideReason.INVALID,
+            "Rows",
+            1,
+            (),
+            "name",
+            "Invalid.",
+            source_inputs_known=True,
+        )
+        self.assertFalse(unknown.source_inputs_known)
+        self.assertTrue(constant.source_inputs_known)
+        self.assertEqual(unknown.source_inputs, constant.source_inputs)
+
+    def test_request_validates_physical_snapshot_and_target_cells(self):
+        cells = tuple(_coordinate(key) for key in _KEYS)
         targets = tuple(
-            OriginalSourceTarget(2, key, "parent_id", _KEYS) for key in _KEYS
+            OriginalSourceTarget(_occurrence(), coordinate, cells)
+            for coordinate in cells
         )
-        request = OriginalSourceRequest(
-            snapshot, "Rows", tuple((2, key) for key in _KEYS), targets
-        )
-        self.assertEqual(len(request.targets), 2)
-        with self.assertRaisesRegex(ValueError, "every input"):
-            OriginalSourceRequest(snapshot, "Rows", ((2, _KEYS[0]),), targets[:1])
-        wrong = (
-            targets[0],
-            OriginalSourceTarget(2, _KEYS[1], "parent_id", tuple(reversed(_KEYS))),
-        )
-        with self.assertRaisesRegex(ValueError, "every input"):
+        request = OriginalSourceRequest(_snapshot(), cells, targets)
+        self.assertEqual(request.targets, targets)
+        with self.assertRaisesRegex(ValueError, "exact physical"):
+            OriginalSourceRequest(_snapshot(), cells, targets[:1])
+        unknown = _coordinate("generated")
+        with self.assertRaisesRegex(ValueError, "physical snapshot"):
             OriginalSourceRequest(
-                snapshot, "Rows", tuple((2, key) for key in _KEYS), wrong
+                _snapshot(),
+                (unknown,),
+                (OriginalSourceTarget(_occurrence(), unknown, (unknown,)),),
             )
 
-    def test_synthetic_or_unknown_inputs_cannot_enter_a_physical_request(self):
-        target = OriginalSourceTarget(2, _KEYS[0], "parent_id", (*_KEYS, "generated"))
-        with self.assertRaisesRegex(ValueError, "physical target inputs"):
-            OriginalSourceRequest(_snapshot(), "Rows", ((2, _KEYS[0]),), (target,))
+    def test_cross_snapshot_cohort_is_validated_globally_by_the_reader(self):
+        first = _coordinate()
+        second = OriginalSourceCoordinate("other", "Other rows", 3, "other:key")
+        cohort = (first, second)
+        request = OriginalSourceRequest(
+            _snapshot(),
+            (first,),
+            (OriginalSourceTarget(_occurrence(), first, cohort),),
+        )
+        self.assertEqual(request.targets[0].input_coordinates, cohort)
+
+    def test_trace_identity_disambiguates_same_logical_dataset_row_and_target(self):
+        cell = _coordinate()
+        first = OriginalSourceTarget(_occurrence("trace-1"), cell, (cell,))
+        second = OriginalSourceTarget(_occurrence("trace-2"), cell, (cell,))
+        request = OriginalSourceRequest(_snapshot(), (cell,), (first, second))
+        self.assertEqual(len(set(request.targets)), 2)
+        different = OriginalSourceTarget(
+            _occurrence(), cell, (cell, _coordinate(_KEYS[1]))
+        )
+        self.assertNotEqual(first, different)
+        self.assertEqual(hash(first), hash(different))
+
+    def test_shared_cohort_validation_rejects_duplicates_and_untyped_inputs(self):
+        cell = _coordinate()
+        for cohort, error in (((cell, cell), ValueError), ((cell, "raw"), TypeError)):
+            with self.subTest(cohort=cohort), self.assertRaises(error):
+                OriginalSourceRequest(
+                    _snapshot(),
+                    (cell,),
+                    (OriginalSourceTarget(_occurrence(), cell, cohort),),
+                )
+        with self.assertRaisesRegex(ValueError, "belong"):
+            OriginalSourceRequest(
+                _snapshot(),
+                (cell,),
+                (OriginalSourceTarget(_occurrence(), cell, (_coordinate(_KEYS[1]),)),),
+            )
 
     def test_authorization_metadata_cannot_carry_mutable_sequences(self):
+        cell = _coordinate()
         with self.assertRaises(TypeError):
-            OriginalSourceTarget(2, _KEYS[0], "parent_id", list(_KEYS))
+            OriginalSourceTarget(_occurrence(), cell, [cell])
+        with self.assertRaises(TypeError):
+            OriginalSourceOccurrence("Rows", 1, "name", [_KEYS[0]])
         with self.assertRaises(TypeError):
             FieldSetAside(
                 FieldSetAsideReason.INVALID, "Rows", 2, _KEYS, "parent_id", "Bad.", []
             )
         with self.assertRaises(TypeError):
-            OriginalSourceRequest(_snapshot(), "Rows", [], [])
+            OriginalSourceRequest(_snapshot(), [], [])
 
-    def test_unkeyed_original_values_cannot_replace_input_evidence(self):
+    def test_untyped_inputs_and_retired_authorizations_are_rejected(self):
         with self.assertRaisesRegex(TypeError, "typed input evidence"):
             FieldSetAside(
-                FieldSetAsideReason.INVALID, "Rows", 2, (_KEYS[0],), "parent_id", "Bad.",
+                FieldSetAsideReason.INVALID,
+                "Rows",
+                2,
+                _KEYS,
+                "parent_id",
+                "Bad.",
                 (OriginalSourceValue.unavailable(),),
             )
-
-    def test_retired_untyped_target_tuples_are_rejected(self):
         with self.assertRaisesRegex(TypeError, "typed target authorization"):
             OriginalSourceRequest(
-                _snapshot(), "Rows", ((2, _KEYS[0]),), ((2, _KEYS[0], "parent_id"),)
+                _snapshot(), (_coordinate(),), ((2, _KEYS[0], "parent_id"),)
             )

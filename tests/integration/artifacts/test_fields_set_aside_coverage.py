@@ -24,6 +24,7 @@ from impodo.domain.preflight.fields_set_aside import (
     field_set_aside_evidence,
 )
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
     OriginalSourceInput,
     OriginalSourceValue,
 )
@@ -192,7 +193,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("code",),
                 "ref",
                 "Invalid code.",
-                (OriginalSourceInput("code", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("00123"))),),
+                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 2, "code"), OriginalSourceValue.from_cell(EncodedSourceCell.from_python("00123"))),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.RULE,
@@ -201,7 +202,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("phone",),
                 "phone",
                 "Preserve the existing phone.",
-                (OriginalSourceInput("phone", OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
+                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 3, "phone"), OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -210,7 +211,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("date",),
                 "date_start",
                 "Invalid start date.",
-                (OriginalSourceInput("date", OriginalSourceValue.unavailable()),),
+                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 4, "date"), OriginalSourceValue.unavailable()),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -219,7 +220,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                 ("date",),
                 "date_end",
                 "Invalid end date.",
-                (OriginalSourceInput("date", OriginalSourceValue.unavailable()),),
+                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 4, "date"), OriginalSourceValue.unavailable()),),
             ),
             FieldSetAside(
                 FieldSetAsideReason.INVALID,
@@ -412,7 +413,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                     (secret,),
                     "name",
                     secret,
-                    (OriginalSourceInput(secret, OriginalSourceValue.from_cell(EncodedSourceCell.from_python(secret))),),
+                    (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 2, secret), OriginalSourceValue.from_cell(EncodedSourceCell.from_python(secret))),),
                 ),
             ),
             coverage_gaps=(secret,),
@@ -472,7 +473,7 @@ class FieldsSetAsideCoverageTests(unittest.TestCase):
                     ("code",),
                     "ref",
                     "Saved invalid value.",
-                    (OriginalSourceInput("code", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
+                    (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", "partners", 2, "code"), OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
                 ),
             ),
             coverage_gaps=("Unrecorded source exclusions.",),

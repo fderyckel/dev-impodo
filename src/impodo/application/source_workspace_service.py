@@ -5,8 +5,9 @@ Layer: application service.
 After isolated inspection, ``SourceWorkspaceService.confirm_source`` binds
 chosen tables and warning acknowledgement to an exact catalog.
 ``freeze_selection`` then creates stable dataset/column identities consumed by
-schema, derived-entity, mapping, staging, and preflight workflows. It reads no
-source bytes and performs no Odoo access.
+schema, derived-entity, mapping, staging, and preflight workflows. It captures
+and rechecks local metadata around immutable snapshot publication, releasing
+database owners before source-byte work. It performs no Odoo access.
 
 See ``docs/architecture/python-code-map.md``,
 ``docs/developer/contracts/evidence-lifecycle.md``, and
@@ -17,6 +18,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from hashlib import sha256
 from threading import RLock
@@ -35,7 +37,14 @@ from impodo.application.shared.artifacts import (
     ArtifactStoreError,
     DataVersionSourceArtifactStore,
 )
-from impodo.application.workspace.access import WorkspaceAccessService
+from impodo.application.shared.local_operations import (
+    LocalOperation,
+    direct_local_operation,
+)
+from impodo.application.workspace.access import (
+    WorkspaceAccessContext,
+    WorkspaceAccessService,
+)
 from impodo.domain.odoo.compatibility import OdooOperation, assess_odoo_operation
 from impodo.domain.preparation.source import SourceLoadError
 from impodo.domain.shared.access import Actor, Capability
@@ -223,6 +232,17 @@ class OdooCaptureSchemaReader(Protocol):
     ) -> OdooSchemaCatalog | None: ...
 
 
+@dataclass(frozen=True, slots=True)
+class _FileSelectionInput:
+    """Bind one snapshot publication to its authorized source metadata."""
+
+    access: WorkspaceAccessContext
+    workspace: WorkspaceState
+    catalogs: tuple[SourceFileCatalog, ...]
+    configurations: tuple[SourceConfiguration, ...]
+    previous: SourceSelection | None
+
+
 class SourceWorkspaceService:
     """Own Source data confirmation and versioned dataset-freeze rules.
 
@@ -240,6 +260,7 @@ class SourceWorkspaceService:
         *,
         schemas: OdooCaptureSchemaReader | None = None,
         capture_filters: OdooCaptureFilterStore | None = None,
+        local_operation: LocalOperation | None = None,
     ) -> None:
         self.workspace_states = workspace_states
         self.sources = sources
@@ -247,6 +268,7 @@ class SourceWorkspaceService:
         self.artifacts = artifacts
         self.schemas = schemas
         self.capture_filters = capture_filters
+        self._run_local = local_operation or direct_local_operation
         self.snapshot_publisher = (
             SourceSnapshotPublisher(artifacts) if artifacts is not None else None
         )
@@ -923,21 +945,16 @@ class SourceWorkspaceService:
         to detect later replacement or reinterpretation.
         """
 
-        context = self.authorization.require(
-            actor,
-            Capability.SOURCE_SELECT,
-            workspace_id=workspace_id,
+        prepared = self._run_local(
+            lambda: self._capture_file_selection(workspace_id, actor)
         )
-        workspace_state = self.workspace_states.get(workspace_id)
-        if workspace_state.status is not WorkspaceStatus.REGISTERED:
-            raise WorkspaceError(
-                "Register the project before selecting datasets"
-            )
+        context = prepared.access
+        workspace_state = prepared.workspace
         catalogs = {
             catalog.file_id: catalog
-            for catalog in self.sources.get_source_catalogs(workspace_id)
+            for catalog in prepared.catalogs
         }
-        configurations = self.sources.get_source_configurations(workspace_id)
+        configurations = prepared.configurations
         if len(configurations) != len(workspace_state.source_files):
             raise WorkspaceError(
                 "Confirm every source file before freezing datasets"
@@ -1005,7 +1022,7 @@ class SourceWorkspaceService:
                 )
         if not datasets:
             raise WorkspaceError("Select at least one source dataset")
-        previous = self.sources.get_source_selection(workspace_id)
+        previous = prepared.previous
         dataset_set = tuple(datasets)
         if (
             previous is not None
@@ -1037,10 +1054,10 @@ class SourceWorkspaceService:
             # Pure service tests keep the filesystem boundary absent. Production
             # composition always supplies it and therefore always publishes
             # snapshots before advancing the frozen-selection pointer.
-            self.sources.save_source_selection(
-                workspace_id,
-                selection,
-                actor=actor,
+            self._run_local(
+                lambda: self._publish_file_selection(
+                    prepared, selection, (), actor=actor,
+                )
             )
             return selection
 
@@ -1062,11 +1079,10 @@ class SourceWorkspaceService:
                         source_file,
                     ).snapshot
                 )
-            self.sources.publish_source_selection_with_snapshots(
-                workspace_id,
-                selection,
-                snapshots,
-                actor=actor,
+            self._run_local(
+                lambda: self._publish_file_selection(
+                    prepared, selection, tuple(snapshots), actor=actor,
+                )
             )
         except WorkspaceError:
             self._cleanup_snapshot_orphans(
@@ -1097,6 +1113,55 @@ class SourceWorkspaceService:
         )
         return selection
 
+    def _capture_file_selection(
+        self,
+        workspace_id: str,
+        actor: Actor,
+    ) -> _FileSelectionInput:
+        """Capture confirmed source inputs within one local database operation."""
+
+        access = self.authorization.require(
+            actor,
+            Capability.SOURCE_SELECT,
+            workspace_id=workspace_id,
+        )
+        workspace = self.workspace_states.get(workspace_id)
+        if workspace.status is not WorkspaceStatus.REGISTERED:
+            raise WorkspaceError("Register the project before selecting datasets")
+        return _FileSelectionInput(
+            access=access,
+            workspace=workspace,
+            catalogs=self.sources.get_source_catalogs(workspace_id),
+            configurations=self.sources.get_source_configurations(workspace_id),
+            previous=self.sources.get_source_selection(workspace_id),
+        )
+
+    def _publish_file_selection(
+        self,
+        prepared: _FileSelectionInput,
+        selection: SourceSelection,
+        snapshots: tuple[SourceSnapshot, ...],
+        *,
+        actor: Actor,
+    ) -> None:
+        """Reject changed source inputs before atomically advancing pointers."""
+
+        workspace_id = prepared.workspace.workspace_id
+        if self._capture_file_selection(workspace_id, actor) != prepared:
+            raise WorkspaceError(
+                "The source files or table choices changed while their snapshots "
+                "were being created. Reload Source data and confirm the current "
+                "table choices again."
+            )
+        if snapshots:
+            self.sources.publish_source_selection_with_snapshots(
+                workspace_id, selection, snapshots, actor=actor,
+            )
+        else:
+            self.sources.save_source_selection(
+                workspace_id, selection, actor=actor,
+            )
+
     def _cleanup_snapshot_orphans(
         self,
         workspace_id: str,
@@ -1105,7 +1170,9 @@ class SourceWorkspaceService:
         artifacts = self.artifacts
         if artifacts is None:
             raise RuntimeError("Source snapshot cleanup requires an artifact store")
-        referenced = self.sources.source_snapshot_storage_keys(workspace_id)
+        referenced = self._run_local(
+            lambda: self.sources.source_snapshot_storage_keys(workspace_id)
+        )
         artifacts.cleanup_source_snapshots(data_version_id, referenced)
 
 

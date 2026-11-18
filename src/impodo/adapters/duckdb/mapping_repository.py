@@ -38,12 +38,15 @@ from ...domain.mapping.artifacts import (
     MappingSubmission,
 )
 from ...domain.mapping.mutations import (
+    MappingCheckBinding,
     MappingMutationAction,
     MappingMutationReceipt,
     MappingMutationState,
     MappingVersionConflict,
 )
 from ...domain.mapping.validation.evidence import (
+    MAPPING_VALIDATION_CONTRACT_VERSION,
+    MAPPING_VALIDATOR_VERSION,
     MappingValidationResult,
     MappingValidationStatus,
     mapping_issue_fingerprint,
@@ -535,6 +538,7 @@ class MappingRepository(DuckDbRepository):
         checked_draft: MappingWorkingDraft,
         actor: Actor,
         operation_id: str | None = None,
+        check_binding: MappingCheckBinding | None = None,
         schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Promote an expected editor state to a checked immutable revision."""
@@ -626,6 +630,7 @@ class MappingRepository(DuckDbRepository):
                     """,
                     [revision.mapping_id, revision.version],
                 )
+                validation_hash = validation.validation_hash
                 connection.execute(
                     """
                     INSERT INTO mapping_validation
@@ -635,10 +640,13 @@ class MappingRepository(DuckDbRepository):
                         revision.mapping_id,
                         revision.version,
                         validation.validator_version,
-                        validation.validation_hash,
+                        validation_hash,
                         revision.created_at.isoformat(),
                         validation.to_json(),
                     ],
+                )
+                self._set_current_validation(
+                    connection, revision.mapping_id, revision.version, validation_hash, check_binding
                 )
                 connection.execute(
                     """
@@ -683,6 +691,63 @@ class MappingRepository(DuckDbRepository):
                 connection.rollback()
                 raise
 
+    def current_receipt_validation(
+        self,
+        receipt: MappingMutationReceipt,
+        *,
+        source_selection_hash: str,
+        schema_hash: str,
+        access_hash: str,
+    ) -> tuple[MappingValidationStatus, str] | None:
+        """Read the original operation's exact current validation without loading findings."""
+
+        database_path = self.workspace_directory(receipt.workspace_id) / "workspace-engine.duckdb"
+        if not database_path.is_file():
+            return None
+        with self._connect(database_path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                """
+                SELECT validation.validation_json ->> 'status', revision.content_hash
+                  FROM mapping_current AS current
+                  JOIN mapping_revision AS revision USING (mapping_id, version)
+                  JOIN mapping_validation_current AS checked USING (mapping_id, version)
+                  JOIN mapping_validation AS validation USING (mapping_id, version, validation_hash)
+                  JOIN mapping_working_draft AS draft
+                    ON draft.mapping_id = revision.mapping_id
+                   AND draft.content_hash = revision.content_hash
+                 WHERE current.version = ? AND draft.version = ?
+                   AND revision.source_selection_hash = ? AND revision.schema_hash = ?
+                   AND checked.operation_id = ? AND checked.access_hash = ?
+                   AND validation.validator_version = ?
+                   AND (validation.validation_json ->> 'contract_version') = ?
+                   AND NOT EXISTS (
+                       SELECT 1 FROM mapping_submission AS submission
+                        WHERE submission.mapping_id = current.mapping_id
+                          AND submission.version = current.version
+                   )
+                """,
+                [
+                    receipt.mapping_revision_version, receipt.working_draft_version,
+                    source_selection_hash, schema_hash, receipt.operation_id, access_hash,
+                    MAPPING_VALIDATOR_VERSION, str(MAPPING_VALIDATION_CONTRACT_VERSION),
+                ],
+            ).fetchone()
+        return (MappingValidationStatus(str(row[0])), str(row[1])) if row else None
+
+    @staticmethod
+    def _set_current_validation(connection, mapping_id, version, validation_hash, check_binding) -> None:
+        """Select immutable validation evidence in the transaction which publishes it."""
+
+        connection.execute(
+            "INSERT OR REPLACE INTO mapping_validation_current VALUES (?, ?, ?, ?, ?)",
+            [
+                mapping_id, version, validation_hash,
+                check_binding.operation_id if check_binding else None,
+                check_binding.access_hash if check_binding else None,
+            ],
+        )
+
     def get_mapping_validation(
         self,
         workspace_id: str,
@@ -694,10 +759,9 @@ class MappingRepository(DuckDbRepository):
             workspace_id,
             """
             SELECT validation_json
-              FROM mapping_validation
+              FROM mapping_validation_current
+              JOIN mapping_validation USING (mapping_id, version, validation_hash)
              WHERE version = ?
-             ORDER BY created_at DESC, validation_hash
-             LIMIT 1
             """,
             [version],
         )
@@ -711,6 +775,7 @@ class MappingRepository(DuckDbRepository):
         *,
         actor: Actor,
         operation_id: str | None = None,
+        check_binding: MappingCheckBinding | None = None,
         schema_refresh: SelectionSchemaRefresh | None = None,
     ) -> None:
         """Append revalidation only when its mapping content hash matches."""
@@ -744,6 +809,7 @@ class MappingRepository(DuckDbRepository):
                     if schema_refresh.changed or self._workspace_revision(connection) != schema_refresh.workspace_revision:
                         raise WorkspaceError("The Odoo choices changed. Refresh them again.")
                     publish_selection_refresh(connection, schema_refresh)
+                validation_hash = validation.validation_hash
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO mapping_validation
@@ -753,10 +819,13 @@ class MappingRepository(DuckDbRepository):
                         str(row[0]),
                         version,
                         validation.validator_version,
-                        validation.validation_hash,
+                        validation_hash,
                         datetime.now(UTC).isoformat(),
                         validation.to_json(),
                     ],
+                )
+                self._set_current_validation(
+                    connection, str(row[0]), version, validation_hash, check_binding
                 )
                 if operation_id is not None:
                     self._commit_mapping_mutation(
@@ -815,9 +884,8 @@ class MappingRepository(DuckDbRepository):
                 SELECT revision.content_hash, validation.validation_hash,
                        validation.validation_json
                   FROM mapping_revision AS revision
-                  JOIN mapping_validation AS validation
-                    ON validation.mapping_id = revision.mapping_id
-                   AND validation.version = revision.version
+                  JOIN mapping_validation_current USING (mapping_id, version)
+                  JOIN mapping_validation AS validation USING (mapping_id, version, validation_hash)
                  WHERE revision.mapping_id = ?
                    AND revision.version = ?
                    AND validation.validation_hash = ?

@@ -1,4 +1,4 @@
-"""Project saved blocked relationship findings for one portable workbook.
+"""Project saved blocked field findings for one portable workbook.
 
 The caller verifies the saved manifest before authorizing source-cell requests.
 This module never reads artifacts, queries Odoo, or infers a failed lookup from
@@ -28,14 +28,16 @@ _COMPARISON_REASONS = {
     "REFERENCE_NOT_FOUND": FieldSetAsideReason.UNRECOGNIZED,
     "REFERENCE_AMBIGUOUS": FieldSetAsideReason.AMBIGUOUS,
     "REFERENCE_CASE_MISMATCH_REVIEW_REQUIRED": FieldSetAsideReason.UNRECOGNIZED,
+    "REQUIRED_ON_CREATE_MISSING": FieldSetAsideReason.MISSING,
 }
+COMPARISON_FIELD_CODES = frozenset(_COMPARISON_REASONS)
 _HASH = re.compile(r"sha256:[0-9a-f]{64}")
 _INVALID = "Saved comparison field evidence is invalid. Compare with Odoo again."
 
 
 @dataclass(frozen=True, slots=True)
 class ComparisonFieldCoverage:
-    """Bind projected reference findings to exact immutable comparison evidence."""
+    """Bind projected omission findings to exact immutable comparison evidence."""
 
     manifest_hash: str
     result_hash: str
@@ -63,15 +65,49 @@ def comparison_relationship_findings(
     """
 
     try:
-        return _project_relationship_findings(decisions, fields, records)
+        return _project_field_issue_findings(
+            decisions, fields, records, codes=COMPARISON_RELATIONSHIP_CODES
+        )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError(_INVALID) from error
 
 
-def _project_relationship_findings(
+def comparison_field_issue_findings(
+    decisions: Sequence[Mapping[str, Any]],
+    fields: FieldSetAsideEvidence | None,
+    *,
+    records: Mapping[str, PreparedRecord] | None = None,
+) -> tuple[FieldSetAside, ...]:
+    """Project saved blocked relationship and required-on-create field omissions."""
+
+    try:
+        return _project_field_issue_findings(
+            decisions, fields, records, codes=COMPARISON_FIELD_CODES
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(_INVALID) from error
+
+
+def comparison_decision_coordinate(
+    decision: Mapping[str, Any],
+    records: Mapping[str, PreparedRecord] | None = None,
+) -> tuple[str, int, str]:
+    """Validate one saved decision against its exact prepared occurrence."""
+
+    try:
+        dataset, row = _decision_coordinate(decision, records)
+        trace = decision.get("source_trace_id")
+        return dataset, row, trace if isinstance(trace, str) else ""
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError(_INVALID) from error
+
+
+def _project_field_issue_findings(
     decisions: Sequence[Mapping[str, Any]],
     fields: FieldSetAsideEvidence | None,
     records: Mapping[str, PreparedRecord] | None,
+    *,
+    codes: frozenset[str],
 ) -> tuple[FieldSetAside, ...]:
     findings: set[FieldSetAside] = set()
     for decision in decisions:
@@ -79,7 +115,7 @@ def _project_relationship_findings(
             raise TypeError(_INVALID)
         if decision.get("classification") != Classification.BLOCKED.value:
             continue
-        for issue in _selected_issues(decision):
+        for issue in _selected_issues(decision, codes):
             dataset, source_row = _decision_coordinate(decision, records)
             target = issue.get("field")
             message = issue.get("message")
@@ -101,7 +137,12 @@ def _project_relationship_findings(
                     else (),
                     target_field=target,
                     detail=message,
-                    comparison_issue=True,
+                    comparison_issue=issue["code"] in COMPARISON_RELATIONSHIP_CODES,
+                    source_trace_id=(
+                        decision.get("source_trace_id", "")
+                        if isinstance(decision.get("source_trace_id", ""), str)
+                        else ""
+                    ),
                 )
             )
     return tuple(
@@ -114,12 +155,15 @@ def _project_relationship_findings(
                 finding.source_keys,
                 finding.reason.value,
                 finding.detail,
+                finding.source_trace_id,
             ),
         )
     )
 
 
-def _selected_issues(decision: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+def _selected_issues(
+    decision: Mapping[str, Any], codes: frozenset[str]
+) -> tuple[Mapping[str, Any], ...]:
     issues = decision.get("issues", ())
     if not isinstance(issues, (tuple, list)):
         raise TypeError(_INVALID)
@@ -128,7 +172,7 @@ def _selected_issues(decision: Mapping[str, Any]) -> tuple[Mapping[str, Any], ..
         if not isinstance(issue, Mapping):
             raise TypeError(_INVALID)
         code = issue.get("code")
-        if isinstance(code, str) and code in COMPARISON_RELATIONSHIP_CODES:
+        if isinstance(code, str) and code in codes:
             # Identity case conflicts legitimately use this code without a field.
             if issue.get("field") is None or issue.get("field") == "":
                 continue

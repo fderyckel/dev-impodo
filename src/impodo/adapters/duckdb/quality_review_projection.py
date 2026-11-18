@@ -263,6 +263,7 @@ def _project_review_rows(
                 mapping_hash=projection.program.mapping_content_hash,
                 schema_hash=projection.program.schema_hash, field_sources=projection.field_sources,
                 physical_dataset_id=projection.physical_dataset_id,
+                field_input_keys=projection.field_input_keys,
             )
             result.append((ordinal, CanonicalRow.from_dict(json.loads(encoded.row_json))))
     return tuple(result)

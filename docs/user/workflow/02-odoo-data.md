@@ -71,6 +71,13 @@ substeps in the sidebar. Open a substep to review or change its choices.
 | **Related values** | Choose a source for each required relationship, then select **Save choices**. Open **Supporting data Impodo found** for the relationship preview. Select **Continue to matching rules** when ready. |
 | **Matching rules** | Review each record type's suggested rule and available fields. Correct any **Needs attention** item, then confirm the complete set once to continue to **Match data**. |
 
+**Choose records** highlights the current next action in red. Changing your
+selection highlights **Save record types**; restoring it highlights
+**Continue to related values**. A required retry or confirmation of changed
+Odoo details takes priority. Optional refreshes keep their blue outline.
+
+![Choose records shows saved Contact selections, a blue Save record types button, and the red Continue to related values action.](../../images/user/08e-odoo-record-choices.png)
+
 Switching substeps keeps your unsaved entries in the open page. Use the save
 and confirmation buttons to keep your decisions. A substep becomes
 **Complete** when its saved choices satisfy the existing checks.
@@ -123,6 +130,12 @@ For a file-source migration, choose how each required relationship will be
 supplied under **Related values**, then select **Save choices**. For example,
 Contacts can reuse existing Odoo Countries without putting Countries into the
 migration's write scope. Opening or saving this review does not contact Odoo.
+
+**Save choices** turns red when required choices or edits need saving. After
+saving, **Continue to matching rules** becomes red. Restoring your saved
+choices restores that continuation. Optional checks keep their blue outline.
+
+![Related values shows saved Country reuse, optional choices collapsed, blue supporting actions, and the red Continue to matching rules button.](../../images/user/08f-odoo-related-values.png)
 
 You can choose **Reuse existing Odoo records**, **Use the checked Odoo default**,
 or **Handled by Odoo** when the captured field supports that choice. You can

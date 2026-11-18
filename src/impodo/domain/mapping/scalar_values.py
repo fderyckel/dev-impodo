@@ -82,6 +82,8 @@ def evaluate_scalar_mapping_value(
     *,
     source_values_by_ordinal: Mapping[int, Any] | None = None,
     source_values_by_key: Mapping[str, Any] | None = None,
+    source_column_keys_by_ordinal: Mapping[int, str] | None = None,
+    source_read_observer: Callable[[str], None] | None = None,
     arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
     selection_rule_observer: Callable[[int, bool, bool, bool], None]
@@ -95,11 +97,13 @@ def evaluate_scalar_mapping_value(
             mapping,
             source_values_by_key or {},
             observer=selection_rule_observer,
+            source_read_observer=source_read_observer,
         )
     elif mapping.value_source is ScalarValueSource.CONCATENATE:
         selected_value = _concatenate_source_values(
             mapping,
             source_values_by_key or {},
+            source_read_observer=source_read_observer,
         )
     formula_context = None
     if mapping.transform.formula.strip():
@@ -128,12 +132,52 @@ def evaluate_scalar_mapping_value(
         formula_context=formula_context,
         arithmetic_formula=arithmetic_formula,
         text_step_observer=text_step_observer,
+        source_read_observer=source_read_observer,
+        formula_read_observer=_formula_source_observer(
+            mapping, source_column_keys_by_ordinal or {}, source_read_observer
+        ),
     )
+
+
+def _observe_anchor(
+    mapping: ScalarFieldMapping,
+    observer: Callable[[str], None] | None,
+) -> None:
+    if (
+        observer is not None
+        and mapping.source_column_key is not None
+        and mapping.value_source in {
+            ScalarValueSource.SOURCE,
+            ScalarValueSource.SOURCE_WITH_FALLBACK,
+        }
+    ):
+        observer(mapping.source_column_key)
+
+
+def _formula_source_observer(
+    mapping: ScalarFieldMapping,
+    source_column_keys_by_ordinal: Mapping[int, str],
+    observer: Callable[[str], None] | None,
+) -> Callable[[str], None] | None:
+    if observer is None or not mapping.transform.formula.strip():
+        return None
+
+    def record(name: str) -> None:
+        if name == "value":
+            _observe_anchor(mapping, observer)
+        elif name.startswith("column_") and name[7:].isdigit():
+            key = source_column_keys_by_ordinal.get(int(name[7:]))
+            if key is None:
+                raise ScalarValueError("Scalar source provenance binding is incomplete")
+            observer(key)
+
+    return record
 
 
 def _concatenate_source_values(
     mapping: ScalarFieldMapping,
     source_values_by_key: Mapping[str, Any],
+    *, source_read_observer: Callable[[str], None] | None = None,
 ) -> str | None:
     """Evaluate one guided ordered concatenation before later text rules."""
 
@@ -145,6 +189,8 @@ def _concatenate_source_values(
         )
     parts: list[str] = []
     for source_column_key in rule.source_column_keys:
+        if source_read_observer is not None:
+            source_read_observer(source_column_key)
         raw = source_values_by_key.get(source_column_key)
         rendered = "" if raw is None else str(raw)
         if rule.trim_parts:
@@ -178,11 +224,15 @@ def canonicalize_scalar_value(
     formula_context: Mapping[str, Any] | None = None,
     arithmetic_formula: CompiledArithmeticFormula | None = None,
     text_step_observer: Callable[[int, bool, bool], None] | None = None,
+    source_read_observer: Callable[[str], None] | None = None,
+    formula_read_observer: Callable[[str], None] | None = None,
 ) -> str | int | Decimal | bool | date | datetime | None:
     """Apply one browser-authored value provider and transformation policy."""
 
     if mapping.value_source is ScalarValueSource.ODOO_DEFAULT:
         raise ScalarValueError("Odoo-default fields have no local proposed value")
+    if mapping.value_mappings:
+        _observe_anchor(mapping, source_read_observer)
     source_choice = (
         str(raw_source_value).strip()
         if raw_source_value is not None
@@ -202,6 +252,7 @@ def canonicalize_scalar_value(
         if mapping.value_source is ScalarValueSource.CONSTANT:
             raw_value = mapping.literal_value
         elif mapping.value_source is ScalarValueSource.SOURCE_WITH_FALLBACK:
+            _observe_anchor(mapping, source_read_observer)
             prepared_source = _transform_scalar_text(
                 raw_source_value,
                 mapping.transform,
@@ -214,6 +265,8 @@ def canonicalize_scalar_value(
         else:
             raw_value = raw_source_value
 
+        if not mapping.transform.formula.strip():
+            _observe_anchor(mapping, source_read_observer)
         try:
             rule_context = dict(formula_context or {})
             rule_context["value"] = raw_value
@@ -223,6 +276,7 @@ def canonicalize_scalar_value(
                 formula_context=rule_context,
                 arithmetic_formula=arithmetic_formula,
                 text_step_observer=text_step_observer,
+                formula_read_observer=formula_read_observer,
             )
         except ScalarRuleError as error:
             raise ScalarValueRuleError(error.code, str(error)) from error
@@ -293,6 +347,7 @@ def _evaluate_selection_rules(
     source_values_by_key: Mapping[str, Any],
     *,
     observer: Callable[[int, bool, bool, bool], None] | None = None,
+    source_read_observer: Callable[[str], None] | None = None,
 ) -> str:
     """Return the first matching portable Odoo key or block the row."""
 
@@ -304,13 +359,16 @@ def _evaluate_selection_rules(
         )
     matches_by_rule: list[bool] = []
     for rule in rule_set.rules:
-        matches = tuple(
-            _selection_condition_matches(
-                condition,
-                source_values_by_key.get(condition.source_column_key),
+        matches_list: list[bool] = []
+        for condition in rule.conditions:
+            if source_read_observer is not None:
+                source_read_observer(condition.source_column_key)
+            matches_list.append(
+                _selection_condition_matches(
+                    condition, source_values_by_key.get(condition.source_column_key),
+                )
             )
-            for condition in rule.conditions
-        )
+        matches = tuple(matches_list)
         rule_matches = (
             all(matches)
             if rule.join is SelectionRuleJoin.ALL

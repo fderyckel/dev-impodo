@@ -191,7 +191,13 @@ class MatchingOrderRepositoryTests(unittest.TestCase):
             actor=LOCAL_ACTOR,
         )
 
-        self.assertIsNone(self.repository.get_preference(self.workspace_id))
+        automatic = self.repository.get_preference(self.workspace_id)
+        self.assertEqual(automatic.version, 3)
+        self.assertFalse(automatic.custom)
+        with self.assertRaises(MatchingOrderVersionConflict):
+            self.repository.save_preference(
+                self.workspace_id, first, expected_version=None, actor=LOCAL_ACTOR
+            )
         self.assertEqual(self._semantic_rows(), semantic_before)
         with self.assertRaises(MatchingOrderVersionConflict):
             self.repository.reset_preference(

@@ -252,10 +252,6 @@
   margin-top: 1rem;
 }
 
-[data-next-recommended-table][hidden] {
-  display: none;
-}
-
 .mapping-table-fields-heading {
   display: flex;
   align-items: center;

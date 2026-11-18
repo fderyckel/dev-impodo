@@ -122,7 +122,7 @@ class ComparisonOriginalWorkbookTests(HierarchyWorkflowFixture):
                     )
                     self.assertTrue(
                         all(
-                            tuple(item.source_key for item in finding.source_inputs)
+                            tuple(item.coordinate.source_key for item in finding.source_inputs)
                             == finding.source_keys
                             and len(finding.source_inputs) == 1
                             for finding in findings

@@ -35,6 +35,7 @@ from impodo.domain.preparation.quality import (
 from impodo.domain.preparation.source import PreparedBundle
 from impodo.domain.preparation.staging import StagingRunSummary
 from impodo.domain.preparation.staging_contracts import (
+    CanonicalLineage,
     CanonicalRow,
     CanonicalStagingRun,
     StagingDisposition,
@@ -47,6 +48,7 @@ from impodo.domain.shared.models import (
     canonical_json_bytes,
 )
 from impodo.domain.workspace.contracts import OdooSchemaCatalog, SourceSelection
+from impodo.domain.workspace.derived_entities import DerivedEntityPlan
 
 from ..compiler.contracts import CompiledMigrationPlan
 from ..errors import ReadinessError
@@ -166,6 +168,8 @@ class FrozenPreflightInput:
     workbook_selection: SourceSelection | None = None
     workbook_physical_selection_hash: str = ""
     workbook_mappings: tuple[DatasetMapping, ...] = ()
+    workbook_lineage: Mapping[str, CanonicalLineage] | None = None
+    workbook_derived_plan: DerivedEntityPlan | None = None
 
     @property
     def content_hash(self) -> str:
@@ -222,6 +226,7 @@ def build_frozen_preflight_input(
     captured_schema: OdooSchemaCatalog | None = None,
     workbook_source_keys: Mapping[tuple[str, str], tuple[str, ...]] | None = None,
     workbook_mapping_rules: Mapping[tuple[str, str], ReviewWorkbookFieldRule] | None = None,
+    workbook_derived_plan: DerivedEntityPlan | None = None,
 ) -> FrozenPreflightInput:
     """Validate current durable evidence and build the preflight envelope.
 
@@ -314,6 +319,12 @@ def build_frozen_preflight_input(
     )
     eligible_row_ids = tuple(row.row_id for row in rows if row.row_id in eligible_ids)
     source_names = {dataset.dataset_id: dataset.name for dataset in selection.datasets}
+    workbook_lineage = (
+        {row.row_id: row.lineage for row in rows}
+        if workbook_source_keys is not None else None
+    )
+    if workbook_lineage is not None and len(workbook_lineage) != len(rows):
+        raise ReadinessError("The prepared source lineage contains duplicate row identities")
     result = FrozenPreflightInput(
         workspace_id=workspace_id,
         revision=revision,
@@ -332,6 +343,8 @@ def build_frozen_preflight_input(
             staging.physical_selection_hash if workbook_source_keys is not None else ""
         ),
         workbook_mappings=(revision.definition.datasets if workbook_source_keys is not None else ()),
+        workbook_lineage=workbook_lineage,
+        workbook_derived_plan=workbook_derived_plan,
         fields_set_aside=(
             field_set_aside_evidence(
                 plan, rows, source_field_labels, workbook_source_keys,

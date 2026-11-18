@@ -12,6 +12,18 @@ ROLES = {"action", "navigation", "help", "destructive"}
 
 
 class ButtonRoleContractTests(unittest.TestCase):
+    def test_next_step_candidates_use_the_action_role(self):
+        for path in (WEB / "templates").rglob("*.html"):
+            text = path.read_text(encoding="utf-8")
+            for tag in re.findall(r"<(?:a|button)\b[^>]*data-next-step[^>]*>", text):
+                with self.subTest(template=path.name, control=tag):
+                    classes = re.search(r'class="([^"]+)"', tag)
+                    if classes is None:
+                        self.fail("A next-step control needs an explicit button role")
+                    names = set(classes.group(1).split())
+                    self.assertIn("button", names)
+                    self.assertEqual(ROLES & names, {"action"})
+
     def test_templates_use_explicit_roles_without_assigning_the_active_colour(self):
         environment = Environment()
         for path in (WEB / "templates").rglob("*.html"):

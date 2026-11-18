@@ -96,6 +96,7 @@ def canonical_prepared_session_row(
     field_sources: Mapping[str, tuple[str, ...]],
     physical_dataset_id: str,
     encode_payload: bool = True,
+    field_input_keys: Mapping[str, tuple[str, ...]] | None = None,
 ) -> CanonicalPreparedSessionRow:
     """Build exact canonical metadata and optionally its canonical payload."""
 
@@ -114,6 +115,10 @@ def canonical_prepared_session_row(
             field: list(sources) for field, sources in sorted(field_sources.items())
         },
     }
+    if field_input_keys:
+        lineage["field_input_keys"] = {
+            target: list(keys) for target, keys in sorted(field_input_keys.items())
+        }
     portable_source_identity = portable_value(source_identity)
     row_id = (
         "sha256:"

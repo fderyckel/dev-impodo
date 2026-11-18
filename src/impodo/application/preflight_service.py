@@ -74,9 +74,8 @@ from ..domain.execution_snapshot import (
 )
 from ..domain.odoo_comparison import OdooComparisonArtifact
 from ..domain.preflight.comparison_fields import (
-    COMPARISON_RELATIONSHIP_CODES,
+    COMPARISON_FIELD_CODES,
     ComparisonFieldCoverage,
-    comparison_relationship_findings,
 )
 from ..domain.preflight.deferred_execution import reduce_execution_snapshot
 from ..domain.preflight.deferred_scope import (
@@ -98,6 +97,10 @@ from ..domain.preflight.frozen_input import (
 from ..domain.preflight.missing_parents import (
     MissingParentGroup,
     missing_parent_groups,
+)
+from ..domain.preflight.omission_findings import (
+    comparison_omission_findings,
+    has_rule_omission_candidates,
 )
 from ..domain.preflight.reports import (
     ReadinessIssueCount,
@@ -718,13 +721,15 @@ class PreflightService:
         models = frozen.captured_schema.models if frozen.captured_schema else ()
         restricted = workspace_state.data_classification is DataClassification.RESTRICTED
         fields, comparison_fields = self._review_workbook_comparison_fields(
-            report, frozen, restricted=restricted
+            report, frozen, restricted=restricted, cell_effects=tuple(cell_effects)
         )
         fields, original_requests = plan_workbook_original_values(
             fields=fields,
             selection=frozen.workbook_selection,
             physical_selection_hash=frozen.workbook_physical_selection_hash,
             mappings=frozen.workbook_mappings,
+            workbook_lineage=frozen.workbook_lineage,
+            derived_plan=frozen.workbook_derived_plan,
             sources=self.sources,
             workspace_id=workspace_id,
             restricted=restricted,
@@ -771,20 +776,26 @@ class PreflightService:
         frozen: FrozenPreflightInput,
         *,
         restricted: bool,
+        cell_effects: tuple[ReviewWorkbookCellEffect, ...] = (),
     ) -> tuple[FieldSetAsideEvidence | None, ComparisonFieldCoverage | None]:
-        """Capture reference findings from one exact saved comparison before source reads."""
+        """Capture saved omissions from one exact comparison before source reads."""
 
         fields = frozen.fields_set_aside
-        if fields is None or restricted or not any(
-            item.technical_code in COMPARISON_RELATIONSHIP_CODES
-            for item in report.issue_counts
-        ):
+        if fields is None or restricted:
+            return fields, None
+        if not any(
+            item.technical_code in COMPARISON_FIELD_CODES for item in report.issue_counts
+        ) and not has_rule_omission_candidates(fields, cell_effects):
             return fields, None
         try:
             manifest, _content = self._verified_manifest(report)
             bindings = _portable_mapping(manifest["preflight_evidence"], "Preflight evidence")
             if bindings.get("frozen_input_hash") != frozen.content_hash:
                 raise ValueError("Comparison input differs from the frozen input")
+            if cell_effects and bindings.get("normalization_content_hash") != (
+                frozen.normalization.content_hash
+            ):
+                raise ValueError("Comparison rules differ from the frozen preparation")
             raw_decisions = manifest.get("decisions")
             if not isinstance(raw_decisions, list):
                 raise TypeError("Comparison decisions are incomplete")
@@ -794,7 +805,9 @@ class PreflightService:
             records = {item.source_trace_id: item for item in frozen.prepared.records}
             if len(records) != len(frozen.prepared.records) or "" in records:
                 raise ValueError("Comparison row trace evidence is incomplete")
-            findings = comparison_relationship_findings(decisions, fields, records=records)
+            findings = comparison_omission_findings(
+                decisions, fields, records=records, cell_effects=cell_effects
+            )
             coverage = ComparisonFieldCoverage(report.manifest_hash, report.result_hash)
         except (DeferredScopeEvidenceError, KeyError, OSError, TypeError, ValueError) as error:
             raise ReadinessError(
@@ -1975,11 +1988,28 @@ class PreflightService:
                 OdooReadFailureCode.MAPPING_EVIDENCE_STALE,
                 str(error),
             ) from error
+        workbook_derived_plan = None
+        if (
+            include_workbook_findings
+            and staging.derived_plan_hash is not None
+            and self.derived is not None
+        ):
+            workbook_derived_plan = self.derived.get_derived_entity_plan(workspace_id)
+            if (
+                workbook_derived_plan is not None
+                and workbook_derived_plan.content_hash != staging.derived_plan_hash
+            ):
+                raise OdooReadWorkflowError(
+                    OdooReadFailureCode.PREPARED_EVIDENCE_STALE,
+                    "The saved source rules no longer match this comparison. "
+                    "Prepare the data and compare with Odoo again.",
+                )
         try:
             return build_frozen_preflight_input(
                 workspace_id=workspace_state.workspace_id,
                 revision=revision,
                 selection=selection,
+                workbook_derived_plan=workbook_derived_plan,
                 staging_summary=staging_summary,
                 staging=staging,
                 quality_summary=quality_summary,

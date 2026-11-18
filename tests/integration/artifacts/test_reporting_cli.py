@@ -29,6 +29,7 @@ from impodo.domain.preflight.fields_set_aside import (
 )
 from impodo.domain.preflight.frozen_input import ReviewWorkbookOmittedRow
 from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
     OriginalSourceInput,
     OriginalSourceValue,
 )
@@ -464,12 +465,12 @@ class WorkbookIntegrationTests(unittest.TestCase):
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
                                 ("date",), "date", "The date could not be read.",
-                                (OriginalSourceInput("date", OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
+                                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", record.dataset, 18, "date"), OriginalSourceValue.from_cell(EncodedSourceCell.from_python("=1+2"))),),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.INVALID, record.dataset, 18,
                                 ("date_end",), "date_end", "The date could not be read.",
-                                (OriginalSourceInput("date_end", OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
+                                (OriginalSourceInput(OriginalSourceCoordinate("dataset:partners", record.dataset, 18, "date_end"), OriginalSourceValue.from_cell(EncodedSourceCell.from_python(""))),),
                             ),
                             FieldSetAside(
                                 FieldSetAsideReason.EXCLUDED, record.dataset, None,

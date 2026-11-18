@@ -14,9 +14,13 @@ from impodo.domain.preparation.staging_contracts import (
     StagingDatasetReconciliation,
     StagingDisposition,
     StagingReconciliation,
+    restore_field_input_keys,
 )
 
-from ..compiler.columnar_transformation import ColumnarTransformationProgram
+from ..compiler.columnar_transformation import (
+    ColumnarOperationKind,
+    ColumnarTransformationProgram,
+)
 from .transformation_impact import TransformationImpactReport, TransformationImpactRow
 
 PREPARED_CANONICAL_ENCODING_VERSION = 4
@@ -109,6 +113,35 @@ class CanonicalPreparedSessionRow:
     issues: tuple[CanonicalIssue, ...] = ()
 
 
+def native_scalar_input_keys(
+    program: ColumnarTransformationProgram,
+) -> Mapping[str, tuple[str, ...]]:
+    """Describe native providers that consume complete declared source input sets.
+
+    Ordinary direct scalars keep their existing static lineage. Native joined
+    strings and Selection rules evaluate their declared inputs together; formula
+    and reference-lookup programs use the authoritative Python trace instead.
+    """
+
+    inputs: dict[str, tuple[str, ...]] = {}
+    for scalar in program.scalar_fields:
+        provider = scalar.provider
+        if provider.operation is ColumnarOperationKind.CONCATENATE_SOURCE_COLUMNS:
+            keys = {source.stable_key for source in provider.sources}
+        elif provider.operation is ColumnarOperationKind.CONDITIONAL_SELECTION:
+            keys = {
+                condition.source.stable_key
+                for rule in provider.selection_rules
+                for condition in rule.conditions
+            }
+        else:
+            continue
+        inputs[scalar.target_field] = tuple(
+            column.stable_key for column in program.inputs if column.stable_key in keys
+        )
+    return inputs
+
+
 @dataclass(frozen=True, slots=True)
 class PreparedCanonicalProjection:
     """Reconstruct current native rows with canonical reference encoding."""
@@ -124,9 +157,11 @@ class PreparedCanonicalProjection:
     program: ColumnarTransformationProgram
     set_based_projection: bool = False
     contract_version: int = PREPARED_CANONICAL_ENCODING_VERSION
+    field_input_keys: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _require_current_prepared_encoding(self.contract_version)
+        object.__setattr__(self, "field_input_keys", restore_field_input_keys(self.field_input_keys))
         if (
             self.dataset_id != self.program.dataset_id
             or self.dataset != self.program.dataset_name
@@ -138,7 +173,7 @@ class PreparedCanonicalProjection:
             raise ValueError("Prepared canonical projection is invalid")
 
     def to_portable_dict(self) -> dict[str, Any]:
-        return {
+        payload = {
             "contract_version": self.contract_version,
             "dataset_id": self.dataset_id,
             "dataset": self.dataset,
@@ -155,6 +190,11 @@ class PreparedCanonicalProjection:
             "program": self.program.to_portable_dict(),
             "program_hash": self.program.content_hash,
         }
+        if self.field_input_keys:
+            payload["field_input_keys"] = {
+                target: list(keys) for target, keys in self.field_input_keys.items()
+            }
+        return payload
 
     @classmethod
     def from_portable_dict(
@@ -188,6 +228,7 @@ class PreparedCanonicalProjection:
             program=program,
             set_based_projection=bool(payload.get("set_based_projection", False)),
             contract_version=contract_version,
+            field_input_keys=payload.get("field_input_keys", {}),
         )
 
 

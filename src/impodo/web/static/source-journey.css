@@ -255,6 +255,14 @@
   }
 }
 
+.source-rule-remove-dialog .dialog-heading h2 {
+  min-width: 0;
+}
+
+.source-rule-remove-name {
+  overflow-wrap: anywhere;
+}
+
 @media (max-width: 480px) {
   .source-journey-actions .actions {
     display: grid;

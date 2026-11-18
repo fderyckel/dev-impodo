@@ -77,6 +77,7 @@ class ComparisonFieldCoverageExportTests(unittest.TestCase):
             sources=fixture.sources,
             workspace_id="workspace-1",
             restricted=False,
+            workbook_lineage={row.row_id: row.lineage for row in fixture.rows},
         )
         evidence = replace(
             evidence,

@@ -42,7 +42,10 @@ from impodo.domain.preflight.fields_set_aside import (
     FieldSetAsideReason,
     field_set_aside_evidence,
 )
-from impodo.domain.preflight.original_values import OriginalValueState
+from impodo.domain.preflight.original_values import (
+    OriginalSourceCoordinate,
+    OriginalValueState,
+)
 from impodo.domain.preflight.reports import ReviewWorkbookEvidence
 from impodo.domain.preparation.source import prepare_source_tables
 from impodo.domain.preparation.staging_contracts import (
@@ -114,6 +117,7 @@ class _Fixture:
             sources=self.sources,
             workspace_id="workspace-1",
             restricted=restricted,
+            workbook_lineage={row.row_id: row.lineage for row in self.rows},
         )
         return ReviewWorkbookEvidence(
             frozen_input_hash=_HASH,
@@ -341,7 +345,10 @@ class RelationshipOriginalValueExportTests(unittest.TestCase):
         evidence = fixture.plan()
         self.assertEqual(
             evidence.original_source_requests[0].cells,
-            ((2, _KEY), (3, _KEY), (4, _KEY)),
+            tuple(
+                OriginalSourceCoordinate(_DATASET, "partners", row, _KEY)
+                for row in (2, 3, 4)
+            ),
         )
         with (
             patch.object(
@@ -392,7 +399,8 @@ class RelationshipOriginalValueExportTests(unittest.TestCase):
         assert evidence is not None and evidence.fields_set_aside is not None
         self.assertTrue(
             all(
-                tuple(item.source_key for item in finding.source_inputs) == (_KEY,)
+                tuple(item.coordinate.source_key for item in finding.source_inputs)
+                == (_KEY,)
                 for finding in evidence.fields_set_aside.findings
             )
         )
@@ -454,7 +462,7 @@ class RelationshipOriginalValueExportTests(unittest.TestCase):
                 ),
             )
 
-    def test_multiple_key_inputs_remain_unavailable_without_source_reads(self) -> None:
+    def test_multiple_key_inputs_preserve_one_complete_ordered_lookup(self) -> None:
         fixture = _fixture(
             self.root / "multiple", ("",), kind="many2one", shape="multiple"
         )
@@ -462,22 +470,27 @@ class RelationshipOriginalValueExportTests(unittest.TestCase):
         with patch.object(
             fixture.artifacts,
             "materialize_source_snapshot",
-            side_effect=AssertionError("unproven input read"),
+            wraps=fixture.artifacts.materialize_source_snapshot,
         ) as materialize:
             evidence = populate_workbook_original_values(
                 fixture.plan(), fixture.artifacts
             )
-        materialize.assert_not_called()
-        self.assertEqual(fixture.sources.calls, [])
+        materialize.assert_called_once()
+        self.assertEqual(fixture.sources.calls, ["selection", "snapshots"])
         assert evidence is not None and evidence.fields_set_aside is not None
-        self.assertEqual(evidence.fields_set_aside.findings[0].source_inputs, ())
+        (finding,) = evidence.fields_set_aside.findings
+        self.assertEqual(
+            tuple(item.coordinate.source_key for item in finding.source_inputs), (_KEY, _SCOPE)
+        )
+        self.assertEqual(tuple(item.value.text for item in finding.source_inputs), ("", "company"))
         path = _workbook(self.root / "multiple-output", evidence)
         with closing(load_workbook(path)) as workbook:
-            self.assertEqual(workbook["Fields set aside"]["E7"].value, "Unavailable")
-            self.assertIn(
-                "no verified source-cell coordinates",
-                workbook["Fields set aside"]["A2"].value,
-            )
+            sheet = workbook["Fields set aside"]
+            self.assertEqual(tuple(sheet.cell(row, 4).value for row in (7, 8)), ("Relationship", "Scope"))
+            self.assertEqual(tuple(sheet.cell(row, 5).value for row in (7, 8)), (None, "company"))
+            self.assertEqual(sheet["A4"].value, "2 identified source cells")
+            self.assertEqual(sheet["G4"].value, "1 saved findings")
+            self.assertNotIn("no verified source-cell coordinates", sheet["A2"].value)
 
     def test_later_unknown_relationship_enters_only_from_the_comparison_manifest(
         self,
