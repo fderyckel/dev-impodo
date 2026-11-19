@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from collections.abc import Iterable
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Protocol
 from uuid import NAMESPACE_URL, uuid4, uuid5
@@ -52,6 +53,7 @@ from impodo.domain.workspace.derived_entities import (
     SourceDatasetUsePolicy,
     validate_source_dataset_uses,
 )
+from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import (
     GovernedReferenceRequest,
     ReferenceEvidenceKind,
@@ -223,6 +225,15 @@ class RecipePreparationRepository(Protocol):
         actor: Actor,
     ) -> None:
         """Publish a source-preparation plan at the expected parent version."""
+        ...
+
+    def review_lookup_record_count(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        rule: DerivedEntityRule,
+    ) -> int:
+        """Count current generated records from verified source evidence."""
         ...
 
 
@@ -1017,6 +1028,14 @@ class RecipeApplicationCompiler:
                     )
                 except KeyError:
                     continue
+                if isinstance(rule, DerivedEntityRule):
+                    try:
+                        count = self.preparation.review_lookup_record_count(
+                            project_id, source, rule
+                        )
+                    except WorkspaceError as error:
+                        raise RecipeApplicationError(str(error)) from error
+                    rule = replace(rule, reviewed_record_count=count)
                 rules.append(rule)
                 self._bind_preparation_output(
                     raw,

@@ -29,6 +29,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from impodo.domain.hierarchy import HierarchyParentPolicy
 from impodo.domain.source_binding import DerivedSourceBinding, require_file_source
+from impodo.domain.staging.scale import LOOKUP_DERIVED_OUTPUT_ROW_LIMIT
 from impodo.domain.structural import (
     ExactJoinReview,
     ExactJoinRule,
@@ -121,6 +122,7 @@ class DerivedEntityRule:
     external_id_namespace: str
     parent_separator: str | None = None
     blank_policy: str = "block"
+    reviewed_record_count: int | None = None
 
     def __post_init__(self) -> None:
         try:
@@ -176,6 +178,11 @@ class DerivedEntityRule:
         if blank_policy not in _SUPPORTED_BLANK_POLICIES:
             raise ValueError("Blank policy must be block or quarantine")
         object.__setattr__(self, "blank_policy", blank_policy)
+        if self.reviewed_record_count is not None and (
+            type(self.reviewed_record_count) is not int
+            or not 1 <= self.reviewed_record_count <= LOOKUP_DERIVED_OUTPUT_ROW_LIMIT
+        ):
+            raise ValueError("Reviewed related-table record count is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -1422,9 +1429,11 @@ def mapping_source_selection(
                         data_hash=dataset.source_evidence_hash,
                         hierarchy_parent=lookup_rule.existing_parent if isinstance(lookup_rule, HierarchicalLookupRule) else None,
                     ),
-                    row_count=max(
-                        preview.full_distinct_count,
-                        len(preview.candidates),
+                    row_count=(
+                        lookup_rule.reviewed_record_count
+                        if isinstance(lookup_rule, DerivedEntityRule)
+                        and lookup_rule.reviewed_record_count is not None
+                        else max(preview.full_distinct_count, len(preview.candidates))
                     ),
                     columns=tuple(columns),
                 )
@@ -2087,6 +2096,8 @@ def _rule_payload(
     )
     if isinstance(rule, DerivedEntityRule):
         kind = "lookup"
+        if rule.reviewed_record_count is None:
+            payload.pop("reviewed_record_count", None)
     elif isinstance(rule, HierarchicalLookupRule):
         kind = "hierarchical_lookup"
         if rule.existing_parent is None:
@@ -2158,6 +2169,14 @@ def _hierarchy_policy(value: object, label: str) -> HierarchyValuePolicy:
     )
 
 
+def _optional_reviewed_count(value: object) -> int | None:
+    if value is None:
+        return None
+    if type(value) is not int:
+        raise TypeError("Reviewed related-table record count must be an integer")
+    return value
+
+
 def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
     values = dict(payload)
     kind = str(values.pop("kind"))
@@ -2175,6 +2194,9 @@ def _rule_from_payload(payload: dict[str, object]) -> SourcePreparationRule:
             ),
             parent_separator=_optional_string(values, "parent_separator"),
             blank_policy=str(values.get("blank_policy", "block")),
+            reviewed_record_count=_optional_reviewed_count(
+                values.get("reviewed_record_count")
+            ),
         )
     if kind == "hierarchical_lookup":
         return HierarchicalLookupRule(

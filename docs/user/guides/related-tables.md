@@ -32,8 +32,11 @@ Choose the shape that matches how the source information is arranged:
 
 These rules currently work with confirmed tables from uploaded files. During
 preparation, Impodo applies the rule to every row, not only the rows shown in
-the preview. A single reusable-value table with no more than 5,000 generated
-records can prepare up to 50,000 uploaded source rows when no advanced checks
+the preview. **Review resulting table** checks up to 100,000 source rows for
+one reusable-value table and allows no more than 50,000 generated records.
+Preparation checks its own capacity after you finish the mapping. A single
+reusable-value table with no more than 50,000 generated records can prepare up to
+50,000 uploaded source rows when no advanced checks
 or reference data are configured. Hierarchies, parent-and-child splits,
 multiple generated-table rules, and other materialized routes retain the
 25,000-row limit.
@@ -322,7 +325,8 @@ Choose:
 - whether blank values stop preparation or are set aside for review.
 
 Select **Review resulting table**. Impodo checks every row in the accepted
-source table and explains the business result before anything is added. Review:
+source table, up to 100,000 rows, and explains the business result before
+anything is added. Review:
 
 - how many source rows were checked and how many contain a usable value;
 - how many rows the new related table will contain;

@@ -43,7 +43,9 @@ class DataVersionRepository(Protocol):
 
     def list_data_versions(self, project_id: str) -> tuple[DataVersion, ...]: ...
 
-    def draft_source_summary(self, data_version: DataVersion) -> tuple[SourceMode, bool] | None:
+    def draft_source_summary(
+        self, data_version: DataVersion, workspace_id: str
+    ) -> tuple[SourceMode, bool] | None:
         """Return the selected source and whether files were added for the project overview."""
         ...
 

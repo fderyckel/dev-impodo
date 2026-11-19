@@ -884,8 +884,16 @@ cards reuse its catalogues, configurations, and selection. Those page reads add
 no database work as the saved rule count grows. The explicit **Review resulting
 table** command is different: it opens exactly one verified local source
 snapshot and scans the selected field outside the event loop. It accepts at
-most 50,000 source rows and 5,000 resulting related records. It performs zero
-Odoo calls. The package reader computes the content hash once per Data version
+most 100,000 source rows, projects only that field in bounded read batches,
+and permits 50,000 resulting related records. The review groups source row
+identifiers by related value within that envelope. Preparation compiles its
+own capacity from the saved mapping. The review performs zero Odoo calls. The
+**Use this table** command scans the same verified field again and saves its
+exact generated-record count with the rule. Match data uses that saved count
+instead of the bounded distinct-value estimate in the source catalog. This
+prevents a high-cardinality related table from appearing as 10,001 rows after
+the complete review found more records. The save performs zero Odoo calls.
+The package reader computes the content hash once per Data version
 read transaction. It compares the result with the stored package hash and,
 when present, the hash recorded on the Data version. Workspace projections
 verify the package against the reference in their own store.

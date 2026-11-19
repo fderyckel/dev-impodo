@@ -353,11 +353,13 @@ class _MatchingSourceTupleCache:
     def __init__(
         self, reader: MatchingOrderSourceKeys, parents: Mapping[str, IncludedParentRows],
         prepared_columns: Mapping[str, tuple[str, ...]] | None = None,
+        source_column_names: Mapping[str, Mapping[str, str]] | None = None,
     ) -> None:
         self._reader = reader
         self._parents = parents
         self._entries: list[_SourceTupleCacheEntry] = []
         self._prepared_columns = prepared_columns or {}
+        self._source_column_names = source_column_names or {}
 
     def read(
         self,
@@ -377,7 +379,11 @@ class _MatchingSourceTupleCache:
             projected = reference_projection_columns(columns, reference_mappings)
             rows = self.read(workspace_id, dataset_id, projected, row_inclusion,
                              identity=identity)
-            return prepared_reference_rows(columns, projected, rows, reference_mappings or (None,) * len(columns), blank_groups=blank_groups)
+            return prepared_reference_rows(
+                columns, projected, rows, reference_mappings or (None,) * len(columns),
+                blank_groups=blank_groups,
+                source_column_names=self._source_column_names.get(dataset_id),
+            )
 
         planned = self._prepared_columns.get(dataset_id, ())
         if planned and any(key not in columns for key in planned):
@@ -740,6 +746,9 @@ class MatchingOrderService:
                 tuple(field for component in dataset.target_scope for field in component.target_fields),
             ) in confirmed_keys)
             for dataset in draft.definition.datasets
+        }, source_column_names={
+            dataset.dataset_id: {column.stable_key: column.source_name for column in dataset.columns}
+            for dataset in selection.datasets
         })
         identity_probes: list[MatchingIdentityLiveProbe] = []
         identity_results: list[MatchingIdentityResult] = []

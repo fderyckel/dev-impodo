@@ -81,6 +81,10 @@ class SavedOdooSetSummary:
     label: str
     latest_version: int | None
     captured_at: datetime | None
+    source_workspace_id: str
+    source_target_hash: str
+    source_company_hash: str
+    imported: bool
 
 
 @dataclass(frozen=True, slots=True)

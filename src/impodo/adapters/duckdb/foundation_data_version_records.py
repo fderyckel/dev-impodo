@@ -50,9 +50,12 @@ class FoundationDataVersionRecords(FoundationRepositoryMixin):
         return tuple(self._data_version_from_row(row) for row in rows)
 
     def draft_source_summary(
-        self, data_version: DataVersion
+        self, data_version: DataVersion, workspace_id: str
     ) -> tuple[SourceMode, bool] | None:
-        """Read the two setup facts without reconstructing catalogs or opening the workspace."""
+        """Offer source setup only for a provisioned engine and initialized delivery."""
+        workspace = self.database.workspace_directory(data_version.project_id, workspace_id)
+        if not (workspace / "workspace-engine.duckdb").is_file():
+            return None
         path = self.database.ensure_data_version_store(data_version)
         with self.database.connect(path) as connection:
             row = connection.execute(

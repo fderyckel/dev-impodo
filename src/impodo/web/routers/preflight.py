@@ -480,7 +480,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                         receipt=receipt,
                     )
 
-                job = context.preflight_jobs.enqueue(
+                job = await run_in_threadpool(
+                    context.preflight_jobs.enqueue,
                     workspace_id,
                     workspace_state.name,
                     access_context=access_context,

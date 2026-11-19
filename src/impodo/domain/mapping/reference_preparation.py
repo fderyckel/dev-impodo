@@ -86,6 +86,14 @@ class ReferencePreparationError(ValueError):
     """A row cannot supply a complete, valid related matching value."""
 
 
+class IncompleteReferenceError(ReferencePreparationError):
+    """Some of the inputs needed to calculate a reference are blank."""
+
+    def __init__(self, blank_source_keys: tuple[str, ...]) -> None:
+        super().__init__("A source value needed for this reference is blank")
+        self.blank_source_keys = blank_source_keys
+
+
 def validate_reference_preparation(mapping: PreparedReferenceMapping) -> None:
     """Validate an authored reference without losing a recoverable draft."""
 
@@ -143,16 +151,14 @@ def prepare_reference_value(
     except (ValueError, TypeError) as error:
         raise ReferencePreparationError(str(error)) from error
     keys = preparation_source_keys(mapping)
-    blanks = tuple(
-        source_values.get(key) is None or str(source_values.get(key)).strip() == ""
-        for key in keys
+    blank_source_keys = tuple(
+        key for key in keys
+        if source_values.get(key) is None or str(source_values.get(key)).strip() == ""
     )
-    if blanks and all(blanks):
-        return None
-    if any(blanks):
-        raise ReferencePreparationError(
-            "A source value needed for this reference is blank"
-        )
+    if blank_source_keys:
+        if len(blank_source_keys) == len(keys):
+            return None
+        raise IncompleteReferenceError(blank_source_keys)
     try:
         if preparation.parts:
             result = "".join(

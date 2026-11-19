@@ -12,6 +12,7 @@ from uuid import UUID, uuid4, uuid5
 
 from impodo.application.data_version.source_snapshots import (
     load_source_snapshot_table,
+    open_source_snapshot_batches,
     validate_snapshot_for_dataset,
 )
 from impodo.application.shared.artifacts import (
@@ -24,7 +25,7 @@ from impodo.domain.serialization import content_hash
 from impodo.domain.shared.access import Actor, Capability, WorkspaceAuthorizationPolicy
 from impodo.domain.source_snapshot import SourceSnapshot
 from impodo.domain.staging.scale import (
-    LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT,
+    LOOKUP_DERIVED_AUTHORING_REVIEW_ROW_LIMIT,
     LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
     MATERIALIZED_BROWSER_EVALUATION_ROW_LIMIT,
 )
@@ -1430,6 +1431,13 @@ class DerivedEntityWorkspaceService:
         )
         self._validate_lookup_rule_availability(rule, selection, current)
 
+        rule = replace(
+            rule,
+            reviewed_record_count=self.review_lookup_record_count(
+                workspace_id, selection, rule
+            ),
+        )
+
         now = datetime.now(UTC)
         rules = (*(current.rules if current else ()), rule)
         plan = DerivedEntityPlan(
@@ -1485,16 +1493,29 @@ class DerivedEntityWorkspaceService:
             blank_policy=blank_policy,
         )
         self._validate_lookup_rule_availability(rule, selection, current)
+        review = self._review_lookup(workspace_id, selection, rule)
+        return (
+            rule,
+            replace(review, supported_record_limit=LOOKUP_DERIVED_OUTPUT_ROW_LIMIT),
+        )
+
+    def _review_lookup(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        rule: DerivedEntityRule,
+    ) -> DerivedEntityImpactReview:
+        """Check complete frozen values for review and exact saved row count."""
         dataset = _source_dataset(
             selection,
             rule.source_dataset_id,
             rule.source_column_key,
         )
-        if dataset.row_count > LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT:
+        if dataset.row_count > LOOKUP_DERIVED_AUTHORING_REVIEW_ROW_LIMIT:
             raise WorkspaceError(
                 f"{dataset.name} contains {dataset.row_count:,} rows. "
                 "Impodo can currently review a related table from up to "
-                f"{LOOKUP_DERIVED_BROWSER_EVALUATION_ROW_LIMIT:,} source rows."
+                f"{LOOKUP_DERIVED_AUTHORING_REVIEW_ROW_LIMIT:,} source rows."
             )
         if self.artifacts is None:
             raise WorkspaceError(
@@ -1523,27 +1544,40 @@ class DerivedEntityWorkspaceService:
                 selection.data_version_id,
                 snapshot.parquet_storage_key,
                 expected_sha256=snapshot.parquet_sha256,
-            ) as path:
-                table = load_source_snapshot_table(path, snapshot)
+            ) as path, open_source_snapshot_batches(
+                path,
+                snapshot,
+                source_column_keys=frozenset((column.stable_key,)),
+            ) as source:
                 review = review_derived_entities(
                     rule,
                     selection,
                     (
                         (row.number, row.values.get(column.source_name))
-                        for row in table.rows
+                        for batch in source.iter_batches()
+                        for row in batch
                     ),
                 )
         except (ArtifactStoreError, OSError, SourceLoadError, ValueError) as error:
             raise WorkspaceError(
                 "Impodo could not verify the accepted source data for this review"
             ) from error
-        return (
-            rule,
-            replace(
-                review,
-                supported_record_limit=LOOKUP_DERIVED_OUTPUT_ROW_LIMIT,
-            ),
-        )
+        return replace(review, supported_record_limit=LOOKUP_DERIVED_OUTPUT_ROW_LIMIT)
+
+    def review_lookup_record_count(
+        self,
+        workspace_id: str,
+        selection: SourceSelection,
+        rule: DerivedEntityRule,
+    ) -> int:
+        """Return the verified output size for saving or fresh Recipe binding."""
+        review = self._review_lookup(workspace_id, selection, rule)
+        if not review.can_add:
+            raise WorkspaceError(
+                "The related table cannot be added. Review its current result and "
+                "correct the source values or choose another field."
+            )
+        return review.related_record_count
 
     @staticmethod
     def _lookup_rule(

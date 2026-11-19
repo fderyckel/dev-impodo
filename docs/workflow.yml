@@ -121,6 +121,7 @@ stages:
       - tests/integration/web/test_odoo_database_bindings.py
       - tests/integration/web/test_saved_project_startup.py
       - tests/integration/web/test_project_saved_data_overview.py
+      - tests/integration/web/test_project_overview_action.py
       - tests/integration/web/test_odoo_company.py
       - tests/e2e/test_odoo_company.py
       - tests/integration/web/test_local_stack.py

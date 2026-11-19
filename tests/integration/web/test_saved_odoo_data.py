@@ -200,7 +200,24 @@ class SavedOdooDataBrowserTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(overview.status_code, 200, overview.text)
                 self.assertIn(definition.label, overview.text)
                 self.assertIn("Version 1 · Captured", overview.text)
+                self.assertIn("Source database production · Company Source company", overview.text)
                 self.assertIn(_version.captured_at.strftime("%d %b %Y %H:%M %Z"), overview.text)
+                source_names = self.context.saved_odoo_data.source_companies
+                self.assertEqual(
+                    source_names.source_labels(
+                        definition.source_workspace_id, target_hash=definition.source_target_hash,
+                        company_hash=definition.source_company_hash,
+                    ),
+                    ("production", _company.name),
+                )
+                self.assertIsNone(source_names.source_labels(
+                    definition.source_workspace_id, target_hash="stale",
+                    company_hash=definition.source_company_hash,
+                ))
+                self.assertIsNone(source_names.source_labels(
+                    definition.source_workspace_id, target_hash=definition.source_target_hash,
+                    company_hash="another-company",
+                ))
                 with (
                     patch(
                         "impodo.web.routers.saved_odoo_data.saved_source_companies",

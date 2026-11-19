@@ -11,7 +11,7 @@ from datetime import UTC, datetime, timezone
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from uuid import UUID, uuid4, uuid5
 
 from fastapi.testclient import TestClient
@@ -71,7 +71,10 @@ from impodo.application.recipe_application_service import (
     RecipeApplicationService,
     RecipeMaterialization,
 )
-from impodo.application.recipe_compilation_service import CompiledRecipeDefinition
+from impodo.application.recipe_compilation_service import (
+    CompiledRecipeDefinition,
+    RecipeCompiler,
+)
 from impodo.application.recipe_publication_service import (
     RecipePublicationService,
 )
@@ -154,6 +157,7 @@ from impodo.domain.workspace.contracts import (
     SourceSelection,
 )
 from impodo.domain.workspace.errors import WorkspaceError
+from impodo.domain.workspace.derived_entities import DerivedEntityRule
 from impodo.domain.workspace.reference_keys import REFERENCE_POLICY_HASH, reference_policy_hash
 from impodo.domain.workspace.workbench import WorkspaceStateService
 from impodo.web.app import create_local_app
@@ -181,6 +185,83 @@ class SimulatedCrash(RuntimeError):
 
 
 class RecipeApplicationServiceTests(unittest.TestCase):
+    def test_fresh_lookup_recipe_reviews_current_generated_record_count(self):
+        workspace_id = str(uuid4())
+        source = SourceSelection(
+            selection_id=str(uuid4()),
+            version=1,
+            data_version_id=str(uuid4()),
+            created_at=datetime.now(UTC),
+            created_by="Data manager",
+            datasets=(
+                SourceDataset(
+                    dataset_id="dataset:stock",
+                    name="stock",
+                    source=FileSourceBinding(
+                        file_id=str(uuid4()),
+                        table_key="stock",
+                        source_sha256=content_hash("stock bytes"),
+                        catalog_hash=content_hash("stock catalog"),
+                        encoding="utf-8",
+                        delimiter=",",
+                        header_row=1,
+                    ),
+                    row_count=54_191,
+                    columns=(
+                        SourceDatasetColumn(1, "Group", "column:group", "string"),
+                    ),
+                ),
+            ),
+            content_hash=content_hash("fresh stock selection"),
+        )
+        preparation = Mock()
+        preparation.get_derived_entity_plan.return_value = None
+        preparation.review_lookup_record_count.return_value = 34_580
+        compiler = RecipeApplicationService(
+            sources=SimpleNamespace(), schemas=SimpleNamespace(),
+            schema_workspace=SimpleNamespace(), references=SimpleNamespace(),
+            preparation=preparation, mappings=SimpleNamespace(),
+            categorical=SimpleNamespace(), application_state=SimpleNamespace(),
+        )
+        definition = {"source_preparation": {"rules": ({
+            "kind": "lookup",
+            "logical_rule_id": "lookup:stock_types",
+            "output_dataset_name": "stock_types",
+            "source_dataset_id": "source:stock",
+            "source_column_key": "source:group",
+            "target_model": "product.category",
+            "target_name_field": "name",
+            "external_id_namespace": "legacy",
+            "blank_policy": "block",
+        },), "dataset_uses": ()}}
+
+        plan = compiler._materialize_preparation(
+            workspace_id,
+            definition,
+            {"source:stock": "dataset:stock", "source:group": "column:group"},
+            actor=LOCAL_ACTOR,
+            source=source,
+        )
+
+        self.assertIsNotNone(plan)
+        assert plan is not None
+        self.assertIsInstance(plan.rules[0], DerivedEntityRule)
+        self.assertEqual(plan.rules[0].reviewed_record_count, 34_580)
+        reviewed_workspace, reviewed_source, reviewed_rule = (
+            preparation.review_lookup_record_count.call_args.args
+        )
+        self.assertEqual((reviewed_workspace, reviewed_source), (workspace_id, source))
+        self.assertIsInstance(reviewed_rule, DerivedEntityRule)
+        self.assertIsNone(reviewed_rule.reviewed_record_count)
+        preparation.save_derived_entity_plan.assert_called_once()
+        reusable = RecipeCompiler.__new__(RecipeCompiler)._preparation(
+            plan,
+            {"dataset:stock": "source:stock"},
+            {("dataset:stock", "column:group"): "source:group"},
+            source.datasets,
+        )
+        self.assertNotIn("reviewed_record_count", reusable["rules"][0])
+
     def test_product_tracking_retains_its_odoo_version_specific_run_decision(self):
         compiler = RecipeApplicationService(
             sources=SimpleNamespace(), schemas=SimpleNamespace(),

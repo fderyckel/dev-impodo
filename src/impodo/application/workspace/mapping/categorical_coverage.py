@@ -166,6 +166,14 @@ class SourceIdentityIssueRow:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceKeyProjection:
+    """Distinct included keys with their source row counts and column names."""
+
+    row_counts: Mapping[tuple[str | None, ...], int]
+    column_names: Mapping[str, str]
+
+
+@dataclass(frozen=True, slots=True)
 class _CoverageField:
     path: str
     dataset: DatasetMapping
@@ -660,25 +668,32 @@ class CategoricalCoverageService:
             reads, dataset_id, source_column_keys, row_inclusion, included_parent,
         ))
 
-    def source_distinct_key_projections(
+    def source_key_projection_counts(
         self,
         workspace_id: str,
         projections: Mapping[tuple[str, RowInclusionPolicy], tuple[str, ...]],
         datasets: tuple[DatasetMapping, ...],
-    ) -> dict[tuple[str, RowInclusionPolicy], tuple[tuple[str | None, ...], ...]]:
-        """Read distinct inputs to linked lookups from the included rows of each table."""
+    ) -> dict[tuple[str, RowInclusionPolicy], SourceKeyProjection]:
+        """Count linked lookup inputs during the existing included-row scan."""
 
+        if not projections:
+            return {}
         reads = _FrozenSourceReads(self.sources, workspace_id)
         parents = (
             self._included_parent_rows(reads, datasets)
             if any(policy.included_parent_field for _, policy in projections) else {}
         )
-        return {
-            (dataset_id, policy): tuple(dict.fromkeys(self._included_key_rows(
-                reads, dataset_id, columns, policy, parents.get(dataset_id),
-            )))
-            for (dataset_id, policy), columns in projections.items()
+        column_names = {
+            dataset.dataset_id: {column.stable_key: column.source_name for column in dataset.columns}
+            for dataset in reads.selection.datasets
         }
+        result = {}
+        for (dataset_id, policy), columns in projections.items():
+            counts = Counter(self._included_key_rows(
+                reads, dataset_id, columns, policy, parents.get(dataset_id),
+            ))
+            result[dataset_id, policy] = SourceKeyProjection(counts, column_names[dataset_id])
+        return result
 
     def _included_key_rows(
         self,

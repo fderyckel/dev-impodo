@@ -35,6 +35,7 @@ class ProjectOverviewAction:
     workbook_href: str | None = None
     saved_data_candidate: bool = False
     featured_saved_set_id: str | None = None
+    eligible_saved_source_id: str | None = None
 
 
 def closed_workspace_action(
@@ -112,14 +113,18 @@ def workspace_action(
     action = _stage_action(stage, detail, mode)
     if (
         mode is SourceMode.ODOO
-        and stage.stage_id == "select"
+        and stage.stage_id in {"select", "download", "destination"}
+        and correction is None
         and not (
             workspace.destination_odoo_connection_mode
             or workspace.saved_restore_generation_id
             or facts.transfer_execution_run_id
         )
     ):
-        return replace(action, saved_data_candidate=True)
+        return replace(
+            action, saved_data_candidate=stage.stage_id == "select",
+            eligible_saved_source_id=owner.workspace_id,
+        )
     return action
 
 

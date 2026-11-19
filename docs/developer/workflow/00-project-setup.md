@@ -173,6 +173,8 @@ verified file load can provide a workbook bound to its reconciliation.
 reads saved set summaries from the local registry after Project authorization.
 The [saved-set overview tests](../../../tests/integration/web/test_project_saved_data_overview.py)
 exercise that projection and the links to saved data.
+The [overview action tests](../../../tests/integration/web/test_project_overview_action.py)
+cover the current workspace, run and load outcome.
 
 For Odoo-to-Odoo transfers, Overview reads one fixed-size progress row in the
 workspace engine. The transaction that saves matching, ordering, review or

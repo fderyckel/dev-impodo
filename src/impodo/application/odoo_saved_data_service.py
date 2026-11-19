@@ -121,6 +121,10 @@ SavedOdooAccessFactory = Callable[[WorkspaceState, str], SavedOdooCaptureAccess]
 class SavedOdooSourceCompanyWriter(Protocol):
     """Persist the source context independently from destination choices."""
 
+    def source_labels(
+        self, workspace_id: str, *, target_hash: str, company_hash: str
+    ) -> tuple[str, str] | None: ...
+
     def set_source_company(
         self,
         workspace_id: str,

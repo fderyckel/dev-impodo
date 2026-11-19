@@ -78,6 +78,22 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
             page.text,
         )
 
+        actor = resolve_local_actor(context)
+        project = context.migration_projects.get(closed.project_id, actor=actor)
+        context.migration_workspaces.create(
+            closed.project_id,
+            actor=actor,
+            expected_workspace_revision=project.optimistic_revision,
+            data_version_id=closed.data_version_id,
+            migration_run_id=closed.migration_run_id,
+            display_name="Working revision",
+        )
+        resumed = self.client.get(f"/projects/{closed.project_id}")
+        self.assertEqual(resumed.status_code, 200)
+        first_page = resumed.text.split('id="project-history"', 1)[0]
+        self.assertIn("Latest verified load", first_page)
+        self.assertIn(f'href="/workspaces/{closed.workspace_id}/history/6"', first_page)
+
     def test_old_mapping_url_redirects_to_the_saved_mapping(self) -> None:
         closed = self._closed_workspace()
         context = self.app.state.context

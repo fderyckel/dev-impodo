@@ -7,6 +7,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from impodo.adapters.duckdb.migration_foundation_database import (
     MigrationFoundationDatabase,
@@ -14,17 +15,20 @@ from impodo.adapters.duckdb.migration_foundation_database import (
 from impodo.adapters.duckdb.migration_foundation_repository import (
     MigrationFoundationRepository,
 )
+from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.preflight_attempts import (
     PreflightComparisonReceipt,
     PreflightComparisonRequest,
 )
 from impodo.application.preflight_jobs import PreflightJobManager
+from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.domain.project.foundation import (
     MigrationConflictError,
     MigrationOperationReplayError,
     MigrationOperationState,
 )
 from impodo.domain.shared.access import LOCAL_ACTOR
+from tests.support.database_probe import count_duckdb_statements
 
 PROJECT_ID = "10000000-0000-4000-8000-000000000001"
 WORKSPACE_ID = "20000000-0000-4000-8000-000000000001"
@@ -97,21 +101,38 @@ class PreflightAttemptRepositoryTests(unittest.TestCase):
                 actor=LOCAL_ACTOR,
             )
 
-        advanced = self.repository.advance_preflight_comparison(
-            OPERATION_ID,
-            WORKSPACE_ID,
-            "READING",
-        )
+        with (
+            collect_duckdb_request_timings() as advance_timings,
+            count_duckdb_statements() as advance_sql,
+        ):
+            advanced = self.repository.advance_preflight_comparison(
+                OPERATION_ID,
+                WORKSPACE_ID,
+                "READING",
+            )
         self.assertEqual(advanced.stage, "READING")
+        self.assertEqual((advance_timings.connection_count, len(advance_sql)), (1, 1))
+        with self.assertRaises(MigrationOperationReplayError):
+            self.repository.advance_preflight_comparison(
+                OPERATION_ID, DATA_VERSION_ID, "PUBLISHING",
+            )
+        self.assertEqual(
+            self.repository.get_preflight_comparison(OPERATION_ID, WORKSPACE_ID),
+            advanced,
+        )
         result = {
             "manifest_hash": "sha256:" + "3" * 64,
             "preflight_run_id": "70000000-0000-4000-8000-000000000001",
         }
-        committed = self.repository.commit_preflight_comparison(
-            OPERATION_ID,
-            WORKSPACE_ID,
-            result=result,
-        )
+        with (
+            collect_duckdb_request_timings() as commit_timings,
+            count_duckdb_statements() as commit_sql,
+        ):
+            committed = self.repository.commit_preflight_comparison(
+                OPERATION_ID,
+                WORKSPACE_ID,
+                result=result,
+            )
         replayed = self.repository.commit_preflight_comparison(
             OPERATION_ID,
             WORKSPACE_ID,
@@ -119,25 +140,73 @@ class PreflightAttemptRepositoryTests(unittest.TestCase):
         )
 
         self.assertEqual(committed.state, MigrationOperationState.COMMITTED)
+        self.assertEqual((commit_timings.connection_count, len(commit_sql)), (1, 1))
         self.assertEqual(replayed.result, result)
+        with self.assertRaises(MigrationOperationReplayError):
+            self.repository.commit_preflight_comparison(
+                OPERATION_ID,
+                WORKSPACE_ID,
+                result={**result, "manifest_hash": "sha256:" + "4" * 64},
+            )
         self.assertEqual(
             self.repository.list_pending_preflight_comparisons(),
             (),
         )
+
+    def test_failed_queue_write_can_retry_the_same_reservation(self) -> None:
+        request = _request()
+        access = WorkspaceAccessContext(
+            workspace_id=WORKSPACE_ID, project_id=PROJECT_ID,
+            data_version_id=DATA_VERSION_ID, migration_run_id=MIGRATION_RUN_ID,
+        )
+        manager = PreflightJobManager(self.repository)
+        try:
+            manager.reserve(request, "Fictional project", access_context=access, actor=LOCAL_ACTOR)
+            with patch.object(
+                self.repository, "advance_preflight_comparison",
+                side_effect=MigrationConflictError("Queue unavailable"),
+            ):
+                with self.assertRaises(MigrationConflictError):
+                    manager.enqueue(
+                        WORKSPACE_ID, "Fictional project", access_context=access,
+                        work=lambda _: self.fail("The rejected dispatch cannot run"),
+                        operation_id=OPERATION_ID,
+                    )
+            self.assertEqual(
+                self.repository.get_preflight_comparison(OPERATION_ID, WORKSPACE_ID).stage,
+                "INTENT_RESERVED",
+            )
+            with patch.object(manager, "_work", return_value=None):
+                manager.enqueue(
+                    WORKSPACE_ID, "Fictional project", access_context=access,
+                    work=lambda _: self.fail("This fixture stops before worker execution"),
+                    operation_id=OPERATION_ID,
+                )
+            self.assertEqual(
+                self.repository.get_preflight_comparison(OPERATION_ID, WORKSPACE_ID).stage,
+                "QUEUED",
+            )
+        finally:
+            manager.shutdown()
 
     def test_interrupted_attempt_retains_only_safe_terminal_code(self) -> None:
         self.repository.reserve_preflight_comparison(
             _request(),
             actor=LOCAL_ACTOR,
         )
-        failed = self.repository.fail_preflight_comparison(
-            OPERATION_ID,
-            WORKSPACE_ID,
-            failure_code="COMPARISON_INTERRUPTED",
-            stage="INTERRUPTED",
-        )
+        with (
+            collect_duckdb_request_timings() as fail_timings,
+            count_duckdb_statements() as fail_sql,
+        ):
+            failed = self.repository.fail_preflight_comparison(
+                OPERATION_ID,
+                WORKSPACE_ID,
+                failure_code="COMPARISON_INTERRUPTED",
+                stage="INTERRUPTED",
+            )
 
         self.assertEqual(failed.state, MigrationOperationState.FAILED)
+        self.assertEqual((fail_timings.connection_count, len(fail_sql)), (1, 1))
         self.assertEqual(failed.stage, "INTERRUPTED")
         self.assertEqual(failed.last_error, "COMPARISON_INTERRUPTED")
         self.assertEqual(failed.result, {})

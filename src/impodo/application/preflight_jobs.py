@@ -277,11 +277,11 @@ class PreflightJobManager:
                 )
             if job.terminal or job.job_id in self._scheduled:
                 return job
+            self._persist_phase(job, PreflightPhase.QUEUED)
             self._jobs[job.job_id] = job
             self._pending.append((job.job_id, work))
             self._queued_at[job.job_id] = perf_counter()
             self._scheduled.add(job.job_id)
-            self._persist_phase(job, PreflightPhase.QUEUED)
             if self._worker is None:
                 self._worker = Thread(
                     target=self._work,

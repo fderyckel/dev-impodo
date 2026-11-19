@@ -13,6 +13,7 @@ from tests.support.browser_scenarios import (
     WorkspaceStatus,
     _created_workspace_id,
 )
+from tests.support.database_probe import count_duckdb_statements
 from tests.support.identity import resolve_local_actor
 
 
@@ -82,11 +83,16 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
             created.headers["location"],
             f"/projects/{data_project_id}",
         )
-        with collect_duckdb_request_timings() as overview_timings:
+        with (
+            collect_duckdb_request_timings() as overview_timings,
+            count_duckdb_statements() as statements,
+        ):
             overview = self.client.get(created.headers["location"])
         self.assertEqual(overview.status_code, 200)
         self.assertGreater(overview_timings.connection_count, 0)
         self.assertLessEqual(overview_timings.connection_count, 2)
+        self.assertLessEqual(overview_timings.schema_check_count, 1)
+        self.assertLessEqual(len(statements), 21)
         workspace_state = self.app.state.context.queries.get(workspace_id)
         self.assertEqual(workspace_state.source_system, "Uploaded files")
         self.assertEqual(workspace_state.odoo_base_url, "")

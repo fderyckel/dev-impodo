@@ -22,8 +22,8 @@ SOURCE_FILES = {
 class SourceJourneySavingTests(HierarchyWorkflowFixture):
     """Exercise existing authoring commands through the guarded HTTP exit."""
 
-    def _source(self, *, major=19, mode="LOCAL", target=False):
-        workspace_id = self.freeze_files(SOURCE_FILES)
+    def _source(self, *, major=19, mode="LOCAL", target=False, files=None):
+        workspace_id = self.freeze_files(files or SOURCE_FILES)
         if target:
             schema = self.schema(workspace_id, major=major, mode=mode)
             catalog = OdooModelCatalog(
@@ -209,6 +209,43 @@ class SourceJourneySavingTests(HierarchyWorkflowFixture):
                             self.context.derived_entities, method, side_effect=off_loop
                         ):
                             self._assert_saved_exit(workspace_id, selection, shape)
+
+    def test_large_lookup_review_can_add_34580_records_to_match_data(self):
+        products = ["Id,Group,Subgroup,Name"]
+        products.extend(
+            f"P{index},Stock {index % 34_580:05d},All,Item {index}"
+            for index in range(54_191)
+        )
+        workspace_id, selection = self._source(
+            major=20,
+            mode="REMOTE",
+            target=True,
+            files={
+                "products": ("\n".join(products) + "\n").encode(),
+                "details": SOURCE_FILES["details"],
+            },
+        )
+        preview_action, save_action, _operation, form = self._form(
+            selection, "lookup"
+        )
+
+        preview = self._action(workspace_id, preview_action, form)
+        self.assertEqual(preview.status_code, 200, preview.text[:1000])
+        self.assertIn("Ready to use", preview.text)
+        self.assertIn("34580", preview.text)
+        self.assertNotIn("This related table is larger", preview.text)
+
+        with collect_duckdb_request_timings() as timings:
+            saved = self._action(workspace_id, save_action, form)
+        self.assertEqual(saved.status_code, 303, saved.text)
+        effective = self.context.queries.get_mapping_source_selection(workspace_id)
+        related = next(
+            item for item in effective.datasets if item.name == "lookup_categories"
+        )
+        self.assertEqual(related.row_count, 34_580)
+        self.assertLessEqual(timings.connection_count, 8)
+        self.assertLessEqual(timings.schema_check_count, 8)
+        self.assertEqual(timings.lock_retry_count, 0)
 
     def test_combination_and_split_continue_only_after_persisting_the_result(self):
         for shape in ("join", "join-group", "related"):

@@ -47,11 +47,16 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
     def get_operation_intent(self, operation_id: str) -> MigrationOperationIntent:
         operation_id = require_uuid(operation_id, "operation_id")
         with self.database.connect(self.registry_path) as connection:
-            rows = self._rows(
-                connection,
-                "SELECT * FROM project_operation_intent WHERE operation_id = ?",
-                [operation_id],
-            )
+            return self._read_operation_intent(connection, operation_id)
+
+    def _read_operation_intent(
+        self, connection: duckdb.DuckDBPyConnection, operation_id: str,
+    ) -> MigrationOperationIntent:
+        rows = self._rows(
+            connection,
+            "SELECT * FROM project_operation_intent WHERE operation_id = ?",
+            [operation_id],
+        )
         if not rows:
             raise MigrationNotFoundError("Operation intent not found")
         return self._intent_from_row(rows[0])
@@ -124,7 +129,13 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
         """Load one owner-qualified Final review attempt."""
 
         workspace_id = require_uuid(workspace_id, "workspace_id")
-        intent = self.get_operation_intent(operation_id)
+        return self._require_preflight_owner(
+            self.get_operation_intent(operation_id), workspace_id,
+        )
+
+    def _require_preflight_owner(
+        self, intent: MigrationOperationIntent, workspace_id: str,
+    ) -> MigrationOperationIntent:
         if (
             intent.kind is not MigrationOperationKind.PREFLIGHT_COMPARE
             or intent.owner_kind != self._PREFLIGHT_OWNER_KIND
@@ -163,15 +174,12 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
     ) -> MigrationOperationIntent:
         """Persist one coarse phase while the attempt remains pending."""
 
-        current = self.get_preflight_comparison(operation_id, workspace_id)
         phase = required_text(phase, "phase", maximum=80)
         if phase not in self._PREFLIGHT_PHASES:
             raise MigrationConflictError("Final review phase is invalid")
-        if current.state is not MigrationOperationState.PENDING:
-            return current
-        with self.database.connect(self.registry_path) as connection:
-            self._set_pending_stage(connection, operation_id, phase)
-        return self.get_preflight_comparison(operation_id, workspace_id)
+        return self._transition_pending_preflight(
+            operation_id, workspace_id, stage=phase, state=MigrationOperationState.PENDING,
+        )
 
     def commit_preflight_comparison(
         self,
@@ -182,21 +190,19 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
     ) -> MigrationOperationIntent:
         """Commit the exact verified data-plane receipt idempotently."""
 
-        current = self.get_preflight_comparison(operation_id, workspace_id)
-        if current.state is MigrationOperationState.COMMITTED:
-            if canonical_json(current.result) != canonical_json(result):
-                raise MigrationOperationReplayError(
-                    "Final review result differs from the committed receipt"
-                )
-            return current
-        if current.state is not MigrationOperationState.PENDING:
-            raise MigrationConflictError("Final review attempt cannot commit")
-        self._finish_pending_intent(
-            operation_id,
-            stage="COMPLETE",
-            result=result,
+        encoded_result = canonical_json(result)
+        current = self._transition_pending_preflight(
+            operation_id, workspace_id, stage="COMPLETE",
+            state=MigrationOperationState.COMMITTED, result_json=encoded_result,
+            failure_code="",
         )
-        return self.get_preflight_comparison(operation_id, workspace_id)
+        if current.state is not MigrationOperationState.COMMITTED:
+            raise MigrationConflictError("Final review attempt cannot commit")
+        if canonical_json(current.result) != encoded_result:
+            raise MigrationOperationReplayError(
+                "Final review result differs from the committed receipt"
+            )
+        return current
 
     def fail_preflight_comparison(
         self,
@@ -208,7 +214,6 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
     ) -> MigrationOperationIntent:
         """Record a safe terminal code without retaining exception text."""
 
-        current = self.get_preflight_comparison(operation_id, workspace_id)
         failure_code = required_text(
             failure_code,
             "failure_code",
@@ -217,19 +222,46 @@ class FoundationOperationIntents(FoundationRepositoryMixin):
         stage = required_text(stage, "stage", maximum=80)
         if stage not in self._PREFLIGHT_PHASES:
             raise MigrationConflictError("Final review failure stage is invalid")
-        if current.state is not MigrationOperationState.PENDING:
-            return current
+        return self._transition_pending_preflight(
+            operation_id, workspace_id, stage=stage,
+            state=MigrationOperationState.FAILED, failure_code=failure_code,
+        )
+
+    def _transition_pending_preflight(
+        self,
+        operation_id: str,
+        workspace_id: str,
+        *,
+        stage: str,
+        state: MigrationOperationState,
+        result_json: str | None = None,
+        failure_code: str | None = None,
+    ) -> MigrationOperationIntent:
+        """Advance one owner-qualified pending attempt and return its saved state."""
+        operation_id = require_uuid(operation_id, "operation_id")
+        workspace_id = require_uuid(workspace_id, "workspace_id")
         with self.database.connect(self.registry_path) as connection:
-            connection.execute(
+            rows = self._rows(
+                connection,
                 """
                 UPDATE project_operation_intent
-                   SET state = 'FAILED', stage = ?, last_error = ?,
-                       updated_at = ?
-                 WHERE operation_id = ? AND state = 'PENDING'
+                   SET state = ?, stage = ?, result_json = COALESCE(?, result_json),
+                       last_error = COALESCE(?, last_error), updated_at = ?
+                 WHERE operation_id = ? AND owner_kind = ? AND owner_id = ?
+                   AND kind = 'PREFLIGHT_COMPARE' AND state = 'PENDING'
+                 RETURNING *
                 """,
-                [stage, failure_code, utc_now().isoformat(), operation_id],
+                [
+                    state.value, stage, result_json, failure_code,
+                    utc_now().isoformat(), operation_id,
+                    self._PREFLIGHT_OWNER_KIND, workspace_id,
+                ],
             )
-        return self.get_preflight_comparison(operation_id, workspace_id)
+            if rows:
+                return self._intent_from_row(rows[0])
+            return self._require_preflight_owner(
+                self._read_operation_intent(connection, operation_id), workspace_id,
+            )
 
     def _reserve_intent(
         self,

@@ -445,12 +445,12 @@ class JoinedMappingValueTests(unittest.TestCase):
         policy = RowInclusionPolicy()
         physical = (primary.dataset_id, policy)
         joined = (self.dataset.dataset_id, policy)
-        values = self.coverage.source_distinct_key_projections(
+        values = self.coverage.source_key_projection_counts(
             self.workspace_id, {physical: ("name",), joined: (self.key,)},
             tuple(DatasetMapping(dataset_id, "x.item") for dataset_id, _ in (physical, joined)),
         )
-        self.assertCountEqual(values[physical], (("Alpha",), ("Beta",), ("Gamma",)))
-        self.assertCountEqual(values[joined], (("BE",), ("FR",), ("NL",)))
+        self.assertEqual(values[physical].row_counts, {("Alpha",): 1, ("Beta",): 1, ("Gamma",): 1})
+        self.assertEqual(values[joined].row_counts, {("BE",): 1, ("FR",): 1, ("NL",): 1})
 
     def test_independent_join_groups_read_only_the_selected_group(self):
         from impodo.adapters.duckdb import grouped_exact_join_source as module

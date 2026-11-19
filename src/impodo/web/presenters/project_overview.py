@@ -50,7 +50,7 @@ def project_overview_action(
     production_bindings: Sequence[ProductionRunBinding],
     completed_production_setups: Collection[str],
     workspace_snapshot: Callable[[str], WorkspaceNavigationSnapshot],
-    draft_source: Callable[[DataVersion], tuple[SourceMode, bool] | None] | None = None,
+    draft_source: Callable[[DataVersion, str], tuple[SourceMode, bool] | None] | None = None,
     active_jobs: WebContext | None = None,
     protected_results: bool = True,
 ) -> ProjectOverviewAction:
@@ -101,7 +101,7 @@ def project_overview_action(
             and authoring_workspace.setup_state is MigrationWorkspaceSetupState.DRAFT
             and correction is None
         ):
-            source = draft_source(authoring_data_version)
+            source = draft_source(authoring_data_version, owner.workspace_id)
             if source is None:
                 return ProjectOverviewAction(
                     "current", "Setup", "Project setup is incomplete"

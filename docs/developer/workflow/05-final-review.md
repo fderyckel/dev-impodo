@@ -340,6 +340,20 @@ normalization, target, and read-credential bindings and reserves
 the active or terminal attempt; changed meaning under the same operation ID and
 a second pending Workspace writer fail closed.
 
+The route releases its admission and submission database owners before it
+dispatches the job on a worker thread. Dispatch saves the queued phase before
+work becomes eligible to run. The registry updates only the pending intent
+for the exact workspace and returns the saved state in one statement.
+Progress and terminal changes use the same path. A failed queued-phase
+write leaves the reservation available for retry.
+
+The [submission performance test](../../../tests/integration/web/test_preflight_submission_performance.py)
+uses approved data and the durable job registry on Odoo 19 and 20 with both
+local and remote connection modes. In a paired macOS fixture with remote
+Odoo 20, the first submission used seven physical database opens and 73 SQL
+statements, down from nine opens and 75 statements. Four schema checks
+remained. The event loop recorded zero database opens after the change.
+
 The worker checks that reserved meaning before loading frozen input, after
 loading it, and before publishing the returned Odoo evidence. Publication also
 requires the prepared Workspace revision inside its database transaction. A

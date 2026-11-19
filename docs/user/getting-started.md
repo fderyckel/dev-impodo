@@ -49,12 +49,15 @@ back to it. If preparation or loading is running, select **View progress**.
 
 After a verified file load, select **View load results**. When the verified
 source workbook is available, you can download it beside the result. If you
-have already started a working revision, use **Project history** to open the
-earlier completed load. For a completed Odoo transfer, select **View transfer
+have already started a working revision, select the load named beside **Latest
+verified load** just below the current task. Use **Project history** for older
+completed loads. For a completed Odoo transfer, select **View transfer
 results**.
 
-If you saved Odoo records for reuse, open the set by name under **Saved Odoo
-data**. Its capture date tells you which version you have. See
+For saved Odoo data, select **Open saved set** when the project features one
+set, or **View saved sets** when it offers a choice. If an import or transfer
+is the current task, select the set by name under **Saved Odoo data**. The
+capture date identifies the latest saved version. See
 [Save clean Odoo data and restore it after a reset](guides/saved-odoo-data.md).
 
 ## Data project, data version, workspace, and Recipe

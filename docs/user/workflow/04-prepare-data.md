@@ -210,7 +210,7 @@ correction.
 
 One generated related table made from the distinct values in a single source
 field can also use the 50,000-source-row route when it contains no more than
-5,000 generated records. For example, a small Work Centres table generated
+50,000 generated records. For example, a Work Centres table generated
 from an operation field qualifies. Additional business checks, reference data,
 hierarchies, table splits, or other rules that build tables retain the lower
 materialized limit.

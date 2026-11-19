@@ -168,7 +168,21 @@ class DuckDbSavedOdooDataRepository:
 
         require_uuid(project_id, "project_id")
         self._page(limit, 0)
-        with self._connect() as connection:
+        with self.database.connect(self.database.registry_path) as connection:
+            # Startup admits the registry. A project with no saved set has no
+            # saved-data payload to read or validate on its landing page.
+            try:
+                present = connection.execute(
+                    "SELECT 1 FROM saved_odoo_data_definition WHERE project_id = ? LIMIT 1",
+                    [project_id],
+                ).fetchone()
+            except (duckdb.CatalogException, duckdb.BinderException):
+                # Use normal schema admission for an older or damaged registry.
+                pass
+            else:
+                if present is None:
+                    return ()
+            ensure_migration_registry_schema(connection, self.database.registry_path)
             rows = connection.execute(
                 f"""WITH chosen AS (
                         SELECT {_DEFINITION_COLUMNS} FROM saved_odoo_data_definition
@@ -198,6 +212,9 @@ class DuckDbSavedOdooDataRepository:
                 SavedOdooSetSummary(
                     definition.saved_data_id, definition.label,
                     definition.latest_version, captured_at,
+                    definition.source_workspace_id, definition.source_target_hash,
+                    definition.source_company_hash,
+                    "imported_package_hash" in json.loads(definition.config_json),
                 )
             )
         return tuple(summaries)
@@ -1069,13 +1086,19 @@ class DuckDbSavedOdooDataRepository:
             )
 
     @staticmethod
-    def _definition_values(definition: SavedOdooDataDefinition) -> list[object]:
-        return [
+    def _definition_columns(definition: SavedOdooDataDefinition) -> tuple[object, ...]:
+        return (
             definition.saved_data_id,
             definition.project_id,
             definition.revision,
             definition.configuration_revision,
             definition.latest_version,
+        )
+
+    @classmethod
+    def _definition_values(cls, definition: SavedOdooDataDefinition) -> list[object]:
+        return [
+            *cls._definition_columns(definition),
             canonical_json(asdict(definition)),
             definition.content_hash,
         ]
@@ -1117,7 +1140,7 @@ class DuckDbSavedOdooDataRepository:
 
     def _definition(self, row: tuple[object, ...]) -> SavedOdooDataDefinition:
         definition = self._decode_definition(str(row[5]), str(row[6]))
-        if tuple(self._definition_values(definition)[:5]) != tuple(row[:5]):
+        if self._definition_columns(definition) != row[:5]:
             raise self._corruption()
         return definition
 

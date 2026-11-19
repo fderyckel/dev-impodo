@@ -156,8 +156,9 @@ class DerivedEntityPreviewTests(unittest.TestCase):
         artifacts.materialize_source_snapshot.return_value = nullcontext(
             Path("snapshot.parquet")
         )
-        table = Mock(
-            rows=tuple(
+        source = Mock()
+        source.iter_batches.return_value = (
+            tuple(
                 Mock(
                     number=row_number,
                     values={
@@ -166,7 +167,7 @@ class DerivedEntityPreviewTests(unittest.TestCase):
                     },
                 )
                 for row_number, row in enumerate(rows, start=2)
-            )
+            ),
         )
         service = DerivedEntityWorkspaceService(
             sources,
@@ -182,9 +183,9 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             ) as validate_snapshot,
             patch(
                 "impodo.application.workspace.derived_entities."
-                "load_source_snapshot_table",
-                return_value=table,
-            ),
+                "open_source_snapshot_batches",
+                return_value=nullcontext(source),
+            ) as open_batches,
         ):
             _rule, review = service.preview_lookup(
                 WORKSPACE_ID,
@@ -199,11 +200,15 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             )
 
         validate_snapshot.assert_called_once_with(selection, dataset, snapshot)
+        open_batches.assert_called_once_with(
+            Path("snapshot.parquet"), snapshot,
+            source_column_keys=frozenset((dataset.columns[1].stable_key,)),
+        )
         sources.get_source_catalogs.assert_not_called()
         self.assertEqual(review.source_rows, 22)
         self.assertEqual(review.related_record_count, 21)
         self.assertEqual(review.combined_spelling_count, 1)
-        self.assertEqual(review.supported_record_limit, 5_000)
+        self.assertEqual(review.supported_record_limit, 50_000)
         self.assertEqual(
             next(
                 item.source_row_count
@@ -212,6 +217,77 @@ class DerivedEntityPreviewTests(unittest.TestCase):
             ),
             2,
         )
+
+    def test_lookup_review_accepts_54191_rows_across_batches(self) -> None:
+        selection, _catalog = _source_evidence()
+        dataset = replace(selection.datasets[0], row_count=54_191)
+        selection = replace(selection, datasets=(dataset,))
+        snapshot = Mock(
+            dataset_id=dataset.dataset_id,
+            parquet_storage_key="source/snapshot.parquet",
+            parquet_sha256="a" * 64,
+        )
+        sources = Mock()
+        sources.get_source_selection.return_value = selection
+        sources.get_current_source_snapshots.return_value = (snapshot,)
+        plans = Mock()
+        plans.get_derived_entity_plan.return_value = None
+        artifacts = Mock()
+        artifacts.materialize_source_snapshot.return_value = nullcontext(
+            Path("snapshot.parquet")
+        )
+        source = Mock()
+        source.iter_batches.return_value = tuple(
+            (
+                Mock(
+                    number=index + 2,
+                    values={"Product Category": f"Stock {index % 34_580:05d}"},
+                )
+                for index in indices
+            )
+            for indices in (range(27_000), range(27_000, 54_191))
+        )
+        service = DerivedEntityWorkspaceService(sources, plans, Mock(), artifacts)
+
+        with (
+            patch("impodo.application.workspace.derived_entities.validate_snapshot_for_dataset"),
+            patch(
+                "impodo.application.workspace.derived_entities.open_source_snapshot_batches",
+                return_value=nullcontext(source),
+            ),
+        ):
+            _rule, review = service.preview_lookup(
+                WORKSPACE_ID,
+                output_dataset_name="stock_types",
+                source_dataset_id=dataset.dataset_id,
+                source_column_key=dataset.columns[1].stable_key,
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="legacy",
+                parent_separator=None,
+                blank_policy="block",
+            )
+
+        self.assertEqual(review.source_rows, 54_191)
+        self.assertEqual(review.related_record_count, 34_580)
+        self.assertEqual(review.repeated_source_rows, 19_611)
+        self.assertTrue(review.can_add)
+
+        sources.get_source_selection.return_value = replace(
+            selection, datasets=(replace(dataset, row_count=100_001),)
+        )
+        with self.assertRaisesRegex(WorkspaceError, "up to 100,000 source rows"):
+            service.preview_lookup(
+                WORKSPACE_ID,
+                output_dataset_name="stock_types",
+                source_dataset_id=dataset.dataset_id,
+                source_column_key=dataset.columns[1].stable_key,
+                target_model="product.category",
+                target_name_field="name",
+                external_id_namespace="legacy",
+                parent_separator=None,
+                blank_policy="block",
+            )
 
     def test_hierarchy_preview_remains_a_bounded_catalog_review(self) -> None:
         selection, catalog = _source_evidence()
@@ -1058,6 +1134,13 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             self.derived_entities,
             CapabilityAuthorizationPolicy(),
         )
+        review = patch.object(
+            self.service,
+            "_review_lookup",
+            return_value=Mock(can_add=True, related_record_count=3),
+        )
+        review.start()
+        self.addCleanup(review.stop)
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -1087,6 +1170,7 @@ class DerivedEntityWorkspaceTests(unittest.TestCase):
             plan,
         )
         self.assertEqual(rule.source_column_key, category.stable_key)
+        self.assertEqual(rule.reviewed_record_count, 3)
         with self.assertRaisesRegex(
             WorkspaceError,
             "Derived dataset names must be unique",

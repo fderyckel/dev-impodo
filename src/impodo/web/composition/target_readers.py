@@ -1672,8 +1672,8 @@ def _capture_mapping_supporting_values(
                     resolver_preparations(source.source_column_keys, source.reference_mappings),
                 )
                 projections[identity] = tuple(dict.fromkeys((*projections.get(identity, ()), *columns)))
-        source_rows = (
-            context.categorical_coverage.source_distinct_key_projections(
+        source_projections = (
+            context.categorical_coverage.source_key_projection_counts(
                 workspace_id, projections, mappings,
             ) if projections else {}
         )
@@ -1683,12 +1683,15 @@ def _capture_mapping_supporting_values(
             for source in requirement.sources:
                 identity = (source.dataset_id, source.row_inclusion)
                 projected = projections[identity]
+                source_projection = source_projections[identity]
                 blank_source = source.blank_source_column_key
                 rows = prepared_reference_rows(
-                    source.source_column_keys, projected, source_rows[identity],
+                    source.source_column_keys, projected, source_projection.row_counts,
                     resolver_preparations(source.source_column_keys, source.reference_mappings),
                     blank_groups=((0, len(source.source_column_keys), blank_source),)
                     if isinstance(blank_source, str) else (),
+                    source_column_names=source_projection.column_names,
+                    row_counts=source_projection.row_counts,
                 )
                 translations = {
                     item.source_value: item.target_value

@@ -16,6 +16,37 @@ from .schema.odoo_saved_source_company import read_saved_source_company
 class OdooSavedSourceCompanyRepository(DuckDbRepository):
     """Keep source context and its evidence invalidation in one transaction."""
 
+    def source_labels(
+        self, workspace_id: str, *, target_hash: str, company_hash: str
+    ) -> tuple[str, str] | None:
+        """Read only the source names when both saved bindings still match."""
+
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        if not path.is_file():
+            return None
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            row = connection.execute(
+                """SELECT w.odoo_connection_mode, w.odoo_base_url, w.odoo_database, c.company_json
+                   FROM workspace_projection_cache w JOIN odoo_saved_source_company c USING (singleton_id)
+                   WHERE w.singleton_id = 1 AND w.source_mode = 'ODOO' AND c.binding_hash = ?""",
+                [company_hash],
+            ).fetchone()
+        if row is None or not row[2]:
+            return None
+        observed_target = target_identity_hash(
+            connection_mode=str(row[0]), base_url=str(row[1]), database=str(row[2])
+        )
+        if observed_target != target_hash:
+            return None
+        try:
+            company = OdooCompanySelection.from_json(str(row[3]))
+        except (TypeError, ValueError):
+            return None
+        if company.binding_hash != company_hash or company.target_hash != target_hash:
+            return None
+        return str(row[2]), company.name
+
     def set_source_company(
         self,
         workspace_id: str,

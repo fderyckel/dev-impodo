@@ -177,3 +177,44 @@ class LookupPreparationSourceTests(TestCase):
                             batch_size=1000,
                         )
                     )
+
+    def test_54191_source_rows_generate_34580_complete_related_records(self):
+        values = tuple(f"Stock {index:05d}" for index in range(34_580)) + tuple(
+            f"Stock {index:05d}" for index in range(19_611)
+        )
+        database, artifacts, physical, _source, snapshot, rule, link, output = (
+            self._fixture(values)
+        )
+        output = replace(output, row_count=34_580)
+
+        with artifacts.materialize_source_snapshot(
+            physical.data_version_id,
+            snapshot.parquet_storage_key,
+            expected_sha256=snapshot.parquet_sha256,
+        ) as path, collect_duckdb_request_timings() as timing:
+            count = 0
+            source_memberships = 0
+            first = None
+            last = None
+            for batch in DuckDbGroupedExactJoinSource(database).iter_lookup_batches(
+                rule=rule,
+                link=link,
+                effective_dataset=output,
+                snapshot=snapshot,
+                path=path,
+                batch_size=1000,
+            ):
+                count += len(batch.rows)
+                source_memberships += sum(
+                    len(rows)
+                    for lineage in batch.physical_sources
+                    for rows in lineage.values()
+                )
+                if first is None:
+                    first = batch.rows[0].values["Label"]
+                last = batch.rows[-1].values["Label"]
+
+        self.assertEqual(count, 34_580)
+        self.assertEqual(source_memberships, 54_191)
+        self.assertEqual((first, last), ("Stock 00000", "Stock 34579"))
+        self.assertEqual(timing.connection_count, 1)

@@ -328,13 +328,13 @@ class ProjectOverviewActionTests(TestCase):
             (SourceMode.ODOO, False, "Connect source Odoo", "target", True),
         ):
             with self.subTest(mode=mode, has_files=has_files):
-                action = self.render(draft_source=lambda _: (mode, has_files))
+                action = self.render(draft_source=lambda _version, _workspace: (mode, has_files))
                 self.assertEqual(
                     action.href, f"/workspaces/{self.owner.workspace_id}/{suffix}"
                 )
                 self.assertEqual(action.action_label, label)
                 self.assertEqual(action.saved_data_candidate, backup_eligible)
-        self.assertIsNone(self.render(draft_source=lambda _: None).href)
+        self.assertIsNone(self.render(draft_source=lambda _version, _workspace: None).href)
         self.reader.assert_not_called()
 
     def test_missing_workspace_has_no_dead_link(self):

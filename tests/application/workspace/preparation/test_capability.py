@@ -34,6 +34,7 @@ from impodo.domain.workspace.contracts import (
 from impodo.domain.workspace.derived_entities import (
     DerivedEntityPlan,
     DerivedEntityRule,
+    derived_dataset_links,
 )
 
 
@@ -450,6 +451,29 @@ class PreparationCapabilityTests(unittest.TestCase):
         self.assertEqual(manifest.supported_rows, 50_000)
         self.assertFalse(manifest.permits_materialized_fallback)
 
+    def test_current_lookup_producer_admits_54191_rows_and_34580_records(self) -> None:
+        physical = _selection((54_191,), names=("stock",))
+        effective, plan = _single_lookup_route(physical, derived_row_count=34_580)
+        derived = replace(
+            effective.datasets[-1],
+            dataset_id=derived_dataset_links(plan)[0].derived_dataset_id,
+        )
+        effective = replace(effective, datasets=(*physical.datasets, derived))
+
+        manifest = compile_preparation_capability(
+            definition=_definition(effective),
+            physical_selection=physical,
+            effective_selection=effective,
+            source_snapshots=(),
+            derived_plan=plan,
+            current_ruleset=None,
+            reference_bundle=None,
+        )
+
+        self.assertTrue(manifest.admitted)
+        self.assertIsNone(manifest.supported_rows)
+        self.assertEqual(manifest.stages[0].reason_codes, ("BOUNDED_PRODUCER_GRAPH",))
+
     def test_lookup_route_with_advanced_quality_keeps_25_000_limit(self) -> None:
         physical = _selection((30_000,), names=("operations",))
         effective, plan = _single_lookup_route(physical)
@@ -486,7 +510,7 @@ class PreparationCapabilityTests(unittest.TestCase):
         physical = _selection((30_000,), names=("operations",))
         effective, plan = _single_lookup_route(
             physical,
-            derived_row_count=5_001,
+            derived_row_count=50_001,
         )
 
         manifest = compile_preparation_capability(

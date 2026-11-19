@@ -53,7 +53,7 @@ required values, and permissions still need to pass the destination check.
 ### Save the capture configuration
 
 1. Open the Odoo-source project, expand **Project actions**, and select
-   **Set up saved Odoo data**.
+   **Set up saved Odoo data**. If prompted, connect the source Odoo first.
 2. Review the source database and server under **Capture configuration**.
 3. Enter a **Saved set name** and choose the **Source company** fetched from
    that database.
@@ -74,8 +74,9 @@ transfer when their complete configuration is part of your requirement.
 ### Update all saved data
 
 1. Finish the clean-up work in source Odoo.
-2. On the project overview, select the set by name under **Saved Odoo data**.
-   A set with **No data captured yet** has saved configuration only. Select
+2. On the project overview, select **Open saved set** or choose the set by
+   name under **Saved Odoo data**. A set with **No data captured yet** has
+   saved configuration only. Select
    **Update saved data** to capture the records.
 3. Follow **Current action** until the operation finishes.
 4. Review the new version's capture date, configuration revision, and model

@@ -1627,6 +1627,7 @@ class RecipeCompiler:
         for raw in raw_rules:
             value = dict(raw)
             value.pop("rule_id", None)
+            value.pop("reviewed_record_count", None)
             raw_group_id = value.pop("group_id", None)
             if isinstance(raw_group_id, str):
                 value["logical_group_id"] = logical_group_ids[raw_group_id]

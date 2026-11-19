@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
+from impodo.application.workspace.mapping.categorical_coverage import SourceKeyProjection
 from impodo.application.workspace.mapping.order_service import (
     MatchingOrderService,
     _MatchingSourceTupleCache,
@@ -74,8 +75,10 @@ class PreparedReferenceCheckTests(TestCase):
         keys = fixtures._Keys(
             {("dataset:bom", ("column:article", "suffix")): (("P", None),)}
         )
-        cache = _MatchingSourceTupleCache(keys, {})
-        with self.assertRaisesRegex(WorkspaceError, "incomplete or invalid"):
+        cache = _MatchingSourceTupleCache(
+            keys, {}, source_column_names={"dataset:bom": {"suffix": "Article suffix"}},
+        )
+        with self.assertRaisesRegex(WorkspaceError, "“Article suffix” is blank in 1 included row"):
             cache.read(
                 "workspace",
                 "dataset:bom",
@@ -300,11 +303,11 @@ class PreparedReferenceCheckTests(TestCase):
         def read(_workspace, projections, datasets):
             calls.append(projections)
             self.assertEqual(datasets, (bom,))
-            return {identity: (("P", "001"), (None, None))}
+            return {identity: SourceKeyProjection({("P", "001"): 2, (None, None): 1}, {})}
 
         context = SimpleNamespace(
             queries=SimpleNamespace(get=lambda _: object()),
-            categorical_coverage=SimpleNamespace(source_distinct_key_projections=read),
+            categorical_coverage=SimpleNamespace(source_key_projection_counts=read),
         )
         with (
             patch(

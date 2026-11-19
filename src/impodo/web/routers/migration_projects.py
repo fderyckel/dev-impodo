@@ -17,20 +17,19 @@ from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
 )
-from impodo.domain.run.models import MigrationRunState
 from impodo.domain.shared.access import AuthorizationError, Capability
-from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.domain.workspace.workbench import SourceMode
 
-from ...domain.data_version.models import DataVersionPurpose
 from ...domain.recipe.models import RecipeError, RecipeIntegrityError
 from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.project_history import project_authoring_history
 from ..presenters.project_outcome import project_outcome_snapshot
 from ..presenters.project_overview import project_overview_action
 from ..presenters.project_saved_data import (
+    active_saved_data_action,
     project_saved_data_overview,
     saved_data_action,
 )
@@ -461,59 +460,18 @@ def _render_project_overview(
             for item in workspaces
             if item.workspace_id not in saved_data_overview.internal_workspace_ids
         )
-    authoring_workspaces = sorted(
-        (
-            item
-            for item in workspaces
-            if item.recipe_application_id is None
-            and data_version_by_id[item.data_version_id].purpose
-            is DataVersionPurpose.AUTHORING
-        ),
-        key=lambda item: (item.updated_at, item.created_at, item.workspace_id),
-        reverse=True,
-    )
-    open_authoring_workspaces = tuple(
-        item
-        for item in authoring_workspaces
-        if item.state is MigrationWorkspaceState.OPEN
-    )
-    authoring_workspace = next(iter(open_authoring_workspaces), None)
     correction_journeys = context.corrections.project_overview_journeys(
-        project_id,
-        workspaces=workspace_by_id,
+        project_id, workspaces=workspace_by_id,
     )
-    saved_workspace_ids = {item.completed_workspace_id for item in correction_journeys}
-    saved_workspace_ids.update(
-        item.successor_workspace_id
-        for item in correction_journeys
-        if item.completed and item.successor_workspace_id is not None
-    )
-    saved_load_workspaces = sorted(
-        (
-            item
-            for item in authoring_workspaces
-            if item.state is MigrationWorkspaceState.CLOSED
-            and (
-                item.workspace_id in saved_workspace_ids
-                or run_by_id[item.migration_run_id].state is MigrationRunState.COMPLETED
-            )
-        ),
-        key=lambda item: (item.closed_at or item.updated_at, item.workspace_id),
-        reverse=True,
-    )
-    recipe_sources = tuple(
-        item
-        for item in authoring_workspaces
-        if item.state is MigrationWorkspaceState.OPEN
-        or item.workspace_id in saved_workspace_ids
-    )
+    history = project_authoring_history(workspaces, data_version_by_id, run_by_id, correction_journeys)
+    authoring_workspace = next(iter(history.open_workspaces), None)
     selected_recipe_workspace = recipe_workspace_id or request.query_params.get(
         "recipe_workspace", ""
     )
     recipe_source = next(
         (
             item
-            for item in recipe_sources
+            for item in history.recipe_sources
             if item.workspace_id == selected_recipe_workspace
         ),
         None,
@@ -533,26 +491,42 @@ def _render_project_overview(
     )
 
     protected_results = identity.actor.has(Capability.PROTECTED_EVIDENCE_READ)
-    overview_action = project_overview_action(
-        project=project,
-        authoring_workspace=authoring_workspace,
-        authoring_data_version=authoring_data_version,
-        runs=runs,
-        workspaces=workspaces,
-        correction_journeys=correction_journeys,
-        test_bindings=test_bindings,
-        production_bindings=production_bindings,
-        completed_production_setups=completed_production_setups,
-        workspace_snapshot=lambda workspace_id: project_outcome_snapshot(
-            context,
-            workspace_by_id[workspace_id],
-            context.navigation.get_for_workspace(workspace_id, actor=identity.actor),
-            actor=identity.actor,
-        ),
-        draft_source=context.data_versions.repository.draft_source_summary,
-        active_jobs=context,
-        protected_results=protected_results,
-    )
+    overview_action = active_saved_data_action(saved_data_overview, project)
+    if overview_action is not None:
+        source = None
+        if authoring_workspace and authoring_data_version:
+            try:
+                source = context.data_versions.repository.draft_source_summary(
+                    authoring_data_version, authoring_workspace.workspace_id
+                )
+            except MigrationNotFoundError:
+                pass
+        source_mode = source[0] if source else None
+    else:
+        workspace_action = project_overview_action(
+            project=project,
+            authoring_workspace=authoring_workspace,
+            authoring_data_version=authoring_data_version,
+            runs=runs,
+            workspaces=workspaces,
+            correction_journeys=correction_journeys,
+            test_bindings=test_bindings,
+            production_bindings=production_bindings,
+            completed_production_setups=completed_production_setups,
+            workspace_snapshot=lambda workspace_id: project_outcome_snapshot(
+                context,
+                workspace_by_id[workspace_id],
+                context.navigation.get_for_workspace(workspace_id, actor=identity.actor),
+                actor=identity.actor,
+            ),
+            draft_source=context.data_versions.repository.draft_source_summary,
+            active_jobs=context,
+            protected_results=protected_results,
+        )
+        source_mode = workspace_action.source_mode
+        overview_action = saved_data_action(
+            workspace_action, saved_data_overview, project, context=context, actor=identity.actor,
+        )
     recipe_draft = None
     recipe_recovery = None
     if recipe_source is not None:
@@ -573,31 +547,26 @@ def _render_project_overview(
         project=project,
         data_versions=data_versions,
         runs=runs,
-        workspaces=workspaces,
         recipes=recipes,
         cutover_selection=cutover_selection,
         test_bindings=test_bindings,
         production_bindings=production_bindings,
         completed_production_setups=completed_production_setups,
-        open_authoring_workspaces=open_authoring_workspaces,
-        saved_load_workspaces=saved_load_workspaces if protected_results else (),
-        overview_action=saved_data_action(
-            overview_action, saved_data_overview, project
-        ),
+        open_authoring_workspaces=history.open_workspaces,
+        saved_load_workspaces=history.saved_loads if protected_results else (),
+        overview_action=overview_action,
         saved_data_overview=saved_data_overview,
         odoo_source_workspace_id=(
             authoring_workspace.workspace_id
-            if authoring_workspace and overview_action.source_mode is SourceMode.ODOO
+            if authoring_workspace and source_mode is SourceMode.ODOO
             else None
         ),
         production_runs=run_by_id,
         authoring_workspace=authoring_workspace,
-        authoring_data_version=authoring_data_version,
         recipe_draft=recipe_draft,
-        recipe_sources=recipe_sources,
+        recipe_sources=history.recipe_sources,
         recipe_source=recipe_source,
         recipe_recovery=recipe_recovery,
-        correction_journeys=correction_journeys,
         publication_operation_id=str(uuid4()),
         error=error,
         status_code=status_code,

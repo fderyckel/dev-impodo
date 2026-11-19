@@ -87,15 +87,15 @@ class IncludedParentRowsTests(HierarchyWorkflowFixture):
         product_mapping = next(item for item in mappings if item.dataset_id == products.dataset_id)
         parent_keys = (parents.dataset_id, parent_mapping.row_inclusion)
         child_keys = (products.dataset_id, policy)
-        lookup_keys = self.context.categorical_coverage.source_distinct_key_projections(
+        lookup_keys = self.context.categorical_coverage.source_key_projection_counts(
             workspace_id,
             {parent_keys: (category_name,), child_keys: product_mapping.source_identity_column_keys},
             mappings,
         )
-        self.assertCountEqual(lookup_keys[parent_keys], (
+        self.assertCountEqual(lookup_keys[parent_keys].row_counts, (
             ("Machines",), ("Pumps",), ("Service",), ("Seals",), ("Valves",), ("Maintenance",),
         ))
-        self.assertCountEqual(lookup_keys[child_keys], [(f"PX10{index}",) for index in range(1, 6)])
+        self.assertCountEqual(lookup_keys[child_keys].row_counts, [(f"PX10{index}",) for index in range(1, 6)])
         if mode == "REMOTE":
             # Exercise the large-table reader with the same small, inspectable data.
             with patch(

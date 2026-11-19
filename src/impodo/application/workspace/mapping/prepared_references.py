@@ -4,10 +4,12 @@ The inputs retain original source keys. Each calculated value belongs to one
 matching component and cannot replace another component's source evidence.
 """
 
-from collections.abc import Iterable
+from collections import Counter
+from collections.abc import Iterable, Mapping
 
 from impodo.domain.mapping.contracts import DatasetMapping, ReferenceKeyMapping
 from impodo.domain.mapping.reference_preparation import (
+    IncompleteReferenceError,
     ReferencePreparationError,
     preparation_source_keys,
     prepare_reference_value,
@@ -40,12 +42,15 @@ def prepared_reference_rows(
     projected_columns: tuple[str, ...],
     rows: Iterable[tuple[str | None, ...]],
     mappings: tuple[ReferenceKeyMapping | None, ...],
-    *, blank_groups: tuple[tuple[int, int, str], ...] = (),
+    *,
+    blank_groups: tuple[tuple[int, int, str], ...] = (),
+    source_column_names: Mapping[str, str] | None = None,
+    row_counts: Mapping[tuple[str | None, ...], int] | None = None,
 ) -> tuple[tuple[str | None, ...], ...]:
     """Return exact component values; reject invalid or partial references.
 
-    Optional all-empty references stay empty. An invalid partial reference must
-    never become an optional blank, and no partial reference is sent to Odoo.
+    Optional all-empty references stay empty. Count partial references by
+    included source row, even when lookup projections group identical inputs.
     """
     if len(mappings) != len(columns):
         raise ValueError("Reference preparations must match their input components")
@@ -53,11 +58,15 @@ def prepared_reference_rows(
         preparation_source_keys(mapping) if mapping is not None else ()
         for mapping in mappings
     )
-    calculated: dict[tuple[int, tuple[str | None, ...]], str | None] = {}
+    calculated: dict[
+        tuple[int, tuple[str | None, ...]], str | None | tuple[str, ...]
+    ] = {}
+    blank_counts: Counter[str] = Counter()
     result: list[tuple[str | None, ...]] = []
     for row in rows:
         values = dict(zip(projected_columns, row, strict=True))
         prepared: list[str | None] = []
+        row_blanks: set[str] | None = None
         for index, (column, mapping) in enumerate(zip(columns, mappings, strict=True)):
             if any(start <= index < start + width and (
                 values.get(blank_key) is None or str(values.get(blank_key)).strip() == ""
@@ -68,21 +77,58 @@ def prepared_reference_rows(
                 prepared.append(values[column])
                 continue
             identity = (index, tuple(values.get(key) for key in dependencies[index]))
-            if identity in calculated:
-                prepared.append(calculated[identity])
-                continue
-            try:
-                value = prepare_reference_value(mapping, values)
-            except ReferencePreparationError as error:
-                raise WorkspaceError(
-                    "A calculated linked reference is incomplete or invalid. "
-                    "Check the source values and formula for this field."
-                ) from error
-            normalized = None if value is None else str(value).strip() or None
-            calculated[identity] = normalized
-            prepared.append(normalized)
-        result.append(tuple(prepared))
+            if identity not in calculated:
+                calculated[identity] = _calculate_reference(mapping, values)
+            prepared_value = calculated[identity]
+            if isinstance(prepared_value, tuple):
+                if row_blanks is None:
+                    row_blanks = set()
+                row_blanks.update(prepared_value)
+            else:
+                prepared.append(prepared_value)
+        if row_blanks:
+            count = row_counts[row] if row_counts is not None else 1
+            blank_counts.update(dict.fromkeys(row_blanks, count))
+        elif not blank_counts:
+            result.append(tuple(prepared))
+    if blank_counts:
+        raise WorkspaceError(_blank_reference_message(blank_counts, source_column_names or {}))
     return tuple(result)
+
+
+def _calculate_reference(
+    mapping: ReferenceKeyMapping, values: Mapping[str, str | None],
+) -> str | None | tuple[str, ...]:
+    try:
+        value = prepare_reference_value(mapping, values)
+    except IncompleteReferenceError as error:
+        return error.blank_source_keys
+    except ReferencePreparationError as error:
+        raise WorkspaceError(
+            "A linked reference could not be calculated. "
+            "Check the source values and formula for this field."
+        ) from error
+    return None if value is None else str(value).strip() or None
+
+
+def _blank_reference_message(counts: Counter[str], column_names: Mapping[str, str]) -> str:
+    details = []
+    for key in sorted(counts, key=lambda key: (-counts[key], key))[:3]:
+        name = " ".join(column_names.get(key, key).split())
+        name = name if len(name) <= 64 else f"{name[:63]}…"
+        count = counts[key]
+        rows = "row" if count == 1 else "rows"
+        details.append(f"“{name}” is blank in {count:,} included {rows}.")
+    if len(counts) > 3:
+        remaining = len(counts) - 3
+        if remaining == 1:
+            details.append("One other source column has blanks.")
+        else:
+            details.append(f"{remaining} other source columns have blanks.")
+    return (
+        "A linked reference is incomplete. " + " ".join(details) + " "
+        "Fill in the missing values or exclude those rows in Rows to use, then check matches again."
+    )
 
 
 def resolver_preparations(

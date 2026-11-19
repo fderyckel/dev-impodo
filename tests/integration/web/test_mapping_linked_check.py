@@ -6,9 +6,21 @@ from dataclasses import replace
 from unittest.mock import patch
 
 from impodo.adapters.duckdb.unit_of_work import _read_databases
+from impodo.domain.mapping.contracts import (
+    CategoricalCoveragePolicy,
+    DatasetMapping,
+    IdentityComponentMapping,
+    ReferenceKeyMapping,
+    RelationshipMapping,
+    RelationshipResolver,
+    ResolverOrigin,
+    ScalarFieldMapping,
+)
+from impodo.domain.mapping.reference_preparation import ReferencePreparation
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.reference_keys import reference_policy_hash
 from impodo.domain.workspace.workbench import OdooConnectionMode
+from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.routers import mapping as mapping_routes
 from tests.performance.check_matches_runner import CheckFixture, check_once
 from tests.support.browser_scenarios import POST_HEADERS
@@ -137,3 +149,78 @@ class LinkedCheckTests(CheckFixture):
             for mode in OdooConnectionMode:
                 with self.subTest(major=major, mode=mode):
                     self.exercise_linked_checks(major, mode)
+
+    def test_check_reports_blank_reference_columns_and_recovers_with_a_row_filter(self):
+        for major, mode in ((19, OdooConnectionMode.LOCAL), (20, OdooConnectionMode.REMOTE)):
+            with self.subTest(major=major, mode=mode):
+                self.exercise_blank_reference_check(major, mode)
+
+    def exercise_blank_reference_check(self, major, mode):
+        self.tools_only = False
+        workspace, selection, _ = self.configure(
+            major, mode, category_is_supporting=True, files={"products": (
+                b"Reference,Product title,Category prefix,Category suffix,Use\n"
+                b"P1,Item one,To,ols,yes\nP2,Item two,Par,ts,yes\n"
+                b"P3,Item three,Private prefix,,no\nP4,Item four,Private prefix,,no\n"
+                b"P5,Item five,,ols,no\n"
+            )},
+        )
+        dataset, = selection.datasets
+        reference, title, prefix, suffix, use = (column.stable_key for column in dataset.columns)
+        resolver = RelationshipResolver(
+            ResolverOrigin.TARGET_CATALOG,
+            model="x.category",
+            key_mappings=(ReferenceKeyMapping(prefix, "name", ReferencePreparation(
+                formula="concat(value, column_4)", bindings=(("column_4", suffix),),
+            )),),
+        )
+        mapping = DatasetMapping(
+            dataset.dataset_id, "x.item",
+            source_identity_column_keys=(reference,),
+            target_identity=(IdentityComponentMapping((reference,), ("ref",)),),
+            fields=(ScalarFieldMapping("name", title),),
+            relationships=(RelationshipMapping(
+                "category_id", "many2one", (prefix,), resolver,
+                categorical_policy=CategoricalCoveragePolicy.EXACT_BUSINESS_KEY,
+                selected_matching_field=True,
+            ),),
+        )
+        run_local_operation_sync(
+            self.context.mapping_workspace.save_working_draft,
+            workspace, datasets=(mapping,), expected_version=None, actor=self.actor,
+        )
+        before = self.context.queries.get_mapping_working_draft(workspace)
+        page = self.client.get(f"/workspaces/{workspace}/mapping?step=check")
+        self.assertEqual(page.status_code, 200, page.text)
+        form = MappingForm(page.text)
+        headers = {**POST_HEADERS, "X-CSRF-Token": self.csrf}
+        record_queries = self.reads["record_queries"]
+        failed = self.client.post(
+            form.action, json={"entries": [*form.entries, ["action", "draft"]]}, headers=headers,
+        )
+        self.assertEqual(failed.status_code, 422, failed.text)
+        detail = failed.json()["detail"]
+        self.assertIn("“Category suffix” is blank in 2 included rows.", detail)
+        self.assertIn("“Category prefix” is blank in 1 included row.", detail)
+        self.assertIn("Rows to use", detail)
+        self.assertNotIn("Private prefix", detail)
+        self.assertEqual(self.reads["record_queries"], record_queries)
+        self.assertEqual(self.context.queries.get_mapping_working_draft(workspace), before)
+        receipt = self.context.mapping_workspace.get_mutation_receipt(
+            workspace, failed.json()["operation_id"], actor=self.actor,
+        )
+        self.assertEqual(receipt.failure_detail, detail)
+
+        row_filter = {
+            "row_inclusion_mode_0": "matching_rows",
+            "row_inclusion_source_0_0": use,
+            "row_inclusion_operator_0_0": "equals",
+            "row_inclusion_value_0_0": "yes",
+        }
+        entries = [entry for entry in form.entries if entry[0] not in row_filter]
+        checked = self.client.post(
+            form.action, json={"entries": [*entries, *row_filter.items(), ["action", "draft"]]},
+            headers=headers,
+        )
+        self.assertEqual(checked.status_code, 200, checked.text)
+        self.assertEqual(self.saved_choices(workspace, major), ("Parts", "Tools"))
