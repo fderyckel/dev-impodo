@@ -2021,6 +2021,7 @@ def _urllib_transport(
     capture_write_error_type: bool = False,
     observe_retry_after: Callable[[str | None], None] | None = None,
     observe_operator_error: Callable[[str], None] | None = None,
+    observe_response_status: Callable[[int], None] | None = None,
 ) -> tuple[int, Any]:
     """Execute one JSON request without forwarding credentials on redirects.
 
@@ -2037,6 +2038,8 @@ def _urllib_transport(
     try:
         opener = build_opener(_NoRedirectHandler())
         with opener.open(request, timeout=timeout) as response:
+            if observe_response_status is not None:
+                observe_response_status(response.status)
             raw = response.read(maximum_bytes + 1)
             if len(raw) > maximum_bytes:
                 raise ConnectorIncompleteResultError(

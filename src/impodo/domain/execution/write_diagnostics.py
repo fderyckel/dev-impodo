@@ -32,6 +32,30 @@ class OdooWriteErrorType(StrEnum):
     VALIDATION = "odoo.exceptions.ValidationError"
 
 
+class UncertainWriteReason(StrEnum):
+    """Safe observations about a write whose commit could not be confirmed."""
+
+    TIMEOUT = "TIMEOUT"
+    CONNECTION_FAILURE = "CONNECTION_FAILURE"
+    INCOMPLETE_RESPONSE = "INCOMPLETE_RESPONSE"
+    UNREADABLE_RESPONSE = "UNREADABLE_RESPONSE"
+    RESPONSE_TOO_LARGE = "RESPONSE_TOO_LARGE"
+    INVALID_RECEIPT = "INVALID_RECEIPT"
+    RECEIPT_COUNT_MISMATCH = "RECEIPT_COUNT_MISMATCH"
+    RECEIPT_WITH_ERRORS = "RECEIPT_WITH_ERRORS"
+
+
+_UNCERTAIN_MESSAGES = {
+    UncertainWriteReason.TIMEOUT: "The request to Odoo timed out",
+    UncertainWriteReason.CONNECTION_FAILURE: "The connection to Odoo failed during the write request",
+    UncertainWriteReason.INCOMPLETE_RESPONSE: "Impodo received an incomplete response to the write request",
+    UncertainWriteReason.UNREADABLE_RESPONSE: "Impodo could not read the response as JSON",
+    UncertainWriteReason.RESPONSE_TOO_LARGE: "The response exceeded Impodo's size limit",
+    UncertainWriteReason.INVALID_RECEIPT: "The response did not contain a usable write receipt",
+    UncertainWriteReason.RECEIPT_WITH_ERRORS: "The receipt contained both record IDs and errors",
+}
+
+
 _MESSAGES = {
     WriteFailureCode.REQUIRED_VALUE: "Odoo requires a value that was not supplied",
     WriteFailureCode.RELATED_RECORD: "Odoo could not resolve a linked record",
@@ -65,12 +89,16 @@ class OdooWriteDiagnostic:
     http_status: int | None = None
     error_type: OdooWriteErrorType | None = None
     operator_detail_status: str = ""
+    uncertainty_reason: UncertainWriteReason | None = None
+    returned_id_count: int | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "code", WriteFailureCode(self.code))
         object.__setattr__(self, "fields", tuple(sorted(set(self.fields))))
         if self.error_type is not None:
             object.__setattr__(self, "error_type", OdooWriteErrorType(self.error_type))
+        if self.uncertainty_reason is not None:
+            object.__setattr__(self, "uncertainty_reason", UncertainWriteReason(self.uncertainty_reason))
         if (
             _NAME.fullmatch(self.model) is None
             or self.method
@@ -82,6 +110,20 @@ class OdooWriteDiagnostic:
                 and (type(self.http_status) is not int or not 100 <= self.http_status <= 599)
             )
             or len(self.fields) > 200
+            or (self.uncertainty_reason is not None and self.code is not WriteFailureCode.UNKNOWN)
+            or (
+                self.uncertainty_reason is UncertainWriteReason.RECEIPT_COUNT_MISMATCH
+                and self.returned_id_count is None
+            )
+            or (
+                self.returned_id_count is not None
+                and (
+                    self.uncertainty_reason is not UncertainWriteReason.RECEIPT_COUNT_MISMATCH
+                    or type(self.returned_id_count) is not int
+                    or not 0 <= self.returned_id_count <= 2**31 - 1
+                    or self.returned_id_count == self.batch_size
+                )
+            )
             or self.operator_detail_status not in {"", "AVAILABLE", "UNAVAILABLE", "TRUNCATED", "WITHHELD", "CAPTURE_FAILED"}
             or any(_NAME.fullmatch(field) is None for field in self.fields)
             or (
@@ -118,6 +160,12 @@ class OdooWriteDiagnostic:
         )
         if self.code is WriteFailureCode.VALIDATION and not self.fields:
             message = "Odoo rejected this operation during validation"
+        if self.uncertainty_reason is UncertainWriteReason.RECEIPT_COUNT_MISMATCH:
+            message = f"Odoo returned {self.returned_id_count} record IDs for {self.batch_size} submitted records"
+        elif self.uncertainty_reason is not None:
+            message = _UNCERTAIN_MESSAGES[self.uncertainty_reason]
+        if self.uncertainty_reason is not None:
+            message += ". Impodo could not confirm what Odoo wrote at the time"
         return f"{message}.{field_text}{rows}{status}{error_type} [{self.code.value}]"
 
     def to_dict(self) -> dict[str, object]:
@@ -130,6 +178,10 @@ class OdooWriteDiagnostic:
             del payload["error_type"]
         if not self.operator_detail_status:
             del payload["operator_detail_status"]
+        if self.uncertainty_reason is None:
+            del payload["uncertainty_reason"]
+        if self.returned_id_count is None:
+            del payload["returned_id_count"]
         return payload
 
     @classmethod
@@ -142,8 +194,12 @@ class OdooWriteDiagnostic:
         start, end = payload.get("row_from"), payload.get("row_to")
         http_status = payload.get("http_status")
         error_type = payload.get("error_type")
+        uncertainty_reason = payload.get("uncertainty_reason")
+        returned_id_count = payload.get("returned_id_count")
         if http_status is not None and type(http_status) is not int:
             raise ValueError("Odoo diagnostic HTTP status is invalid")
+        if returned_id_count is not None and type(returned_id_count) is not int:
+            raise ValueError("Odoo diagnostic receipt count is invalid")
         if (start is not None and type(start) is not int) or (
             end is not None and type(end) is not int
         ):
@@ -161,4 +217,9 @@ class OdooWriteDiagnostic:
             http_status=http_status,
             error_type=OdooWriteErrorType(str(error_type)) if error_type is not None else None,
             operator_detail_status=str(payload.get("operator_detail_status", "")),
+            uncertainty_reason=(
+                UncertainWriteReason(str(uncertainty_reason))
+                if uncertainty_reason is not None else None
+            ),
+            returned_id_count=returned_id_count,
         )

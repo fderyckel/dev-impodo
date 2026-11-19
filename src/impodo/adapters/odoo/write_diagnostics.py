@@ -10,12 +10,55 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
+from http.client import IncompleteRead
+from urllib.error import URLError
 
 from impodo.domain.execution.load_control import DATA_REJECTION_CODES
+from impodo.domain.execution.odoo_write import OdooWriteOutcomeUnknown
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
+    UncertainWriteReason,
     WriteFailureCode,
 )
+from impodo.domain.odoo.contracts import ConnectorIncompleteResultError
+
+
+def response_failure_reason(error: Exception) -> UncertainWriteReason:
+    """Classify the observed failure without retaining exception text."""
+
+    reason = error.reason if isinstance(error, URLError) else error
+    if isinstance(reason, TimeoutError):
+        return UncertainWriteReason.TIMEOUT
+    if isinstance(reason, IncompleteRead):
+        return UncertainWriteReason.INCOMPLETE_RESPONSE
+    if isinstance(reason, ConnectorIncompleteResultError):
+        return UncertainWriteReason.RESPONSE_TOO_LARGE
+    if isinstance(reason, (ValueError, RecursionError)):
+        return UncertainWriteReason.UNREADABLE_RESPONSE
+    return UncertainWriteReason.CONNECTION_FAILURE
+
+
+def uncertain_write(
+    model: str,
+    method: str,
+    batch_size: int,
+    reason: UncertainWriteReason,
+    *,
+    http_status: int | None,
+    returned_id_count: int | None = None,
+) -> OdooWriteOutcomeUnknown:
+    """Attach safe response evidence while leaving commit certainty open."""
+
+    diagnostic = OdooWriteDiagnostic(
+        WriteFailureCode.UNKNOWN,
+        model,
+        method,
+        batch_size=batch_size,
+        http_status=http_status,
+        uncertainty_reason=reason,
+        returned_id_count=returned_id_count,
+    )
+    return OdooWriteOutcomeUnknown(diagnostic.summary, diagnostic=diagnostic)
 
 
 def import_rejection_diagnostic(

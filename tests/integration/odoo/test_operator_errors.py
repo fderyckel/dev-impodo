@@ -5,7 +5,7 @@ import unittest
 from io import BytesIO
 from itertools import product
 from unittest.mock import patch
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 from impodo.adapters.odoo.writer import Json2WriteExecutor
 from impodo.domain.execution.load_control import can_set_aside
@@ -18,7 +18,11 @@ from impodo.domain.execution.operator_errors import (
     OperatorErrorDetail,
     capture_operator_error,
 )
-from impodo.domain.execution.write_diagnostics import OdooWriteErrorType, WriteFailureCode
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteErrorType,
+    UncertainWriteReason,
+    WriteFailureCode,
+)
 from tests.integration.odoo.test_load_request_pacing import config
 from tests.support.odoo_read_clock import ReadClock
 
@@ -135,6 +139,46 @@ class OperatorErrorAdapterTests(unittest.TestCase):
             writer.create_rows("res.partner", ({"name": "Prepared name"},))
         self.assertIsNone(caught.exception.operator_detail)
         self.assertEqual(caught.exception.diagnostic.code, WriteFailureCode.UNKNOWN)
+        self.assertEqual(caught.exception.diagnostic.http_status, 503)
+
+    def test_uncertain_write_preserves_observed_http_status_and_failure_kind(self):
+        for major, mode in product((19, 20), ("LOCAL", "REMOTE")):
+            for reason, body in (
+                (UncertainWriteReason.TIMEOUT, None),
+                (UncertainWriteReason.UNREADABLE_RESPONSE, b"private gateway text"),
+                (UncertainWriteReason.RESPONSE_TOO_LARGE, b" " * (8 * 1024 * 1024 + 1)),
+                (UncertainWriteReason.INVALID_RECEIPT, b'{"unexpected":"private"}'),
+                (
+                    UncertainWriteReason.RECEIPT_WITH_ERRORS,
+                    b'{"ids":[42],"messages":[{"type":"error","message":"private"}]}',
+                ),
+            ):
+                with (
+                    self.subTest(major=major, mode=mode, reason=reason),
+                    patch("impodo.adapters.odoo.connectors.build_opener") as opener,
+                ):
+                    request = opener.return_value.open
+                    if body is None:
+                        request.side_effect = URLError(TimeoutError("private"))
+                    else:
+                        response = BytesIO(body)
+                        response.status = 200
+                        request.return_value = response
+                    writer = Json2WriteExecutor(
+                        config(major, mode), SCOPE, request_pacer=ReadClock().pacer(),
+                    )
+                    with self.assertRaises(OdooWriteOutcomeUnknown) as caught:
+                        writer.load_create_rows(
+                            "res.partner", ({"name": "private value"},), ("synthetic.contact",),
+                        )
+                    request.assert_called_once()
+                    diagnostic = caught.exception.diagnostic
+                    self.assertEqual(diagnostic.code, WriteFailureCode.UNKNOWN)
+                    self.assertEqual(diagnostic.uncertainty_reason, reason)
+                    self.assertEqual(diagnostic.http_status, 200 if body is not None else None)
+                    self.assertNotIn("private", str(caught.exception))
+                    self.assertNotIn("private", json.dumps(diagnostic.to_dict()))
+                    self.assertIsNone(caught.exception.operator_detail)
 
     def test_http_write_rejection_requires_typed_validation_to_continue(self):
         for status, error_type, code in (

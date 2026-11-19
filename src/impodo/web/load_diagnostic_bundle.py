@@ -166,6 +166,14 @@ def _unknowns(attempt: dict[str, Any]) -> list[str]:
             missing.append(
                 "No rejected field was retained. The validation code alone does not identify a cause; inspect the authorized private Odoo error detail when available."
             )
+        if (
+            diagnostic.get("code") == "ODOO_WRITE_OUTCOME_UNKNOWN"
+            and not diagnostic.get("uncertainty_reason")
+            and diagnostic.get("http_status") is None
+        ):
+            missing.append(
+                "The uncertain write has no recorded HTTP status or response failure detail."
+            )
         if diagnostic.get("code") == "ODOO_WRITE_REJECTED":
             missing.append(
                 "Odoo supplied no recognized specific rejection reason. Exact server text is outside the routine bundle."
@@ -263,7 +271,7 @@ def _diagnosis(
             f"Support reference: `{reference}`.",
             f"Evidence: `load-attempts.json`, attempt `{reference}`; its event IDs refer to `load-events.jsonl` or retained terminal evidence.",
             "",
-            f"Action: `{attempt.get('action', 'unknown')}`. Recorded outcome: `{attempt.get('outcome', 'TERMINAL_NOT_RECORDED')}`.",
+            f"Action `{attempt.get('action', 'unknown')}`. Worker or request status `{attempt.get('outcome', 'TERMINAL_NOT_RECORDED')}`.",
             f"Producer build: `{attempt.get('producer_build_id', 'not recorded')}`.",
             "",
             "## Why the load stopped",
@@ -271,6 +279,7 @@ def _diagnosis(
         ]
         failure = attempt.get("failure", {})
         causes = failure.get("causes", [])
+        transport = attempt.get("last_transport", {})
         if failure.get("model"):
             lines += [
                 f"Context while preparing the write: model `{failure['model']}`, fields `{', '.join(failure.get('fields', []))}`. This identifies the attempted field, not a server-reported faulty source row."
@@ -292,6 +301,15 @@ def _diagnosis(
                     lines += [
                         f"  Source: `{frame['module']}:{frame['line']}`, function `{frame['function']}`."
                     ]
+        elif transport.get("outcome") == "UNKNOWN":
+            lines += [
+                f"Impodo held back further uploads after a write for {transport.get('batch_size', 'an unrecorded number of')} records ended without a confirmed result."
+            ]
+            if not attempt.get("journal", {}).get("diagnostics"):
+                lines.extend(
+                    OdooWriteDiagnostic.from_dict(raw).summary
+                    for raw in transport.get("diagnostics", [])
+                )
         else:
             lines += [
                 "No fatal exception reason was recorded. Review the journal rejection evidence below; a completed worker can still contain rejected rows."
@@ -318,7 +336,6 @@ def _diagnosis(
                 lines += [
                     f"- `{diagnostic.model}` / `{diagnostic.method}`: {diagnostic.summary} Affected attempts: {raw.get('affected_rows', 'not captured')}."
                 ]
-            transport = attempt.get("last_transport", {})
             if transport.get("outcome") == "REJECTED" and transport.get("fields"):
                 fields = ", ".join(transport["fields"])
                 lines += [

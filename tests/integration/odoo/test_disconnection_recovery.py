@@ -203,6 +203,10 @@ class Json2DisconnectionRecoveryTests(unittest.TestCase):
                                     )
                             self.assertEqual(len(calls), 1)
                             sleep.assert_not_called()
+                            self.assertEqual(
+                                caught.exception.diagnostic.uncertainty_reason.value,
+                                "INCOMPLETE_RESPONSE" if error_type is IncompleteRead else "CONNECTION_FAILURE",
+                            )
                             self.assertNotIn("private", str(caught.exception))
 
     def test_lookup_timeout_is_distinct_from_a_lost_connection(self):

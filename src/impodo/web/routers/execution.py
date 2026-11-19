@@ -589,6 +589,19 @@ def build_execution_router(
         fallout_detail_page = None
         reconciliation_summary = None
         access_denied_attempt = None
+        unknown_write_diagnostic = None
+        if (
+            step == "outcome"
+            and current_run is not None
+            and getattr(current_run, "status", None) is ExecutionRunStatus.OUTCOME_UNKNOWN
+        ):
+            unknown_write_diagnostic = next(
+                (
+                    row.diagnostic for row in current_run.rows
+                    if row.diagnostic is not None and row.diagnostic.code is WriteFailureCode.UNKNOWN
+                ),
+                None,
+            )
         if paused_load and current_run is not None:
             load_rows = tuple(
                 row for row in current_run.rows
@@ -745,6 +758,7 @@ def build_execution_router(
             fallout_detail_page=fallout_detail_page,
             reconciliation_summary=reconciliation_summary,
             access_denied_attempt=access_denied_attempt,
+            unknown_write_diagnostic=unknown_write_diagnostic,
             interrupted_load=interrupted_load,
             load_step=step,
             max_batch_rows=MAX_CREATE_BATCH_ROWS,

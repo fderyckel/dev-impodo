@@ -22,7 +22,11 @@ from impodo.domain.execution.models import (
     ExecutionRunStatus,
     ProjectedOdooReceipt,
 )
-from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteDiagnostic,
+    UncertainWriteReason,
+    WriteFailureCode,
+)
 from impodo.domain.execution.operator_errors import capture_operator_error, OperatorErrorPersistenceError
 from tests.support.database_probe import count_duckdb_statements
 from impodo.domain.reconciliation import (
@@ -115,6 +119,23 @@ class ExecutionRepositoryTests(unittest.TestCase):
         reopened = ExecutionRepository(self.database).get_run(self.workspace_state.workspace_id, run.run_id)
         self.assertIsNotNone(reopened)
         self.assertEqual(reopened.rows[0], failed)
+
+    def test_uncertain_receipt_diagnostic_survives_repository_reopen(self):
+        run = self._run()
+        workspace = self.workspace_state.workspace_id
+        self.repository.start_run(workspace, run, actor=LOCAL_ACTOR)
+        started = self._start_batch(run, (run.rows[0],), phase="CREATE", batch=0)[0]
+        diagnostic = OdooWriteDiagnostic(
+            WriteFailureCode.UNKNOWN, "res.partner", "load", batch_size=1, http_status=200,
+            uncertainty_reason=UncertainWriteReason.RECEIPT_COUNT_MISMATCH, returned_id_count=0,
+        )
+        unknown = replace(
+            started, status=ExecutionRowStatus.OUTCOME_UNKNOWN,
+            safe_error=diagnostic.summary, diagnostic=diagnostic,
+        )
+        self.repository.record_outcomes(workspace, run.run_id, (unknown,))
+        reopened = ExecutionRepository(self.database).get_run(workspace, run.run_id)
+        self.assertEqual(reopened.rows[0], unknown)
 
     def test_private_rejection_survives_reopen_without_entering_public_projection(self):
         run = self._run()

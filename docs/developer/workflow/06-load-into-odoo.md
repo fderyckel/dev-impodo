@@ -1057,6 +1057,12 @@ capture failure preserves the original exception and marks final evidence
 unavailable. The existing execution journal, evidence hashes, and recovery
 rules remain authoritative. No connection is retained across a remote call.
 
+The saved load outcome displays the uncertain write diagnostic from the
+journal, including after read-back. The diagnostic bundle includes the same
+bounded response observation. The tests exercise a successful first batch
+of 10 followed by a configured batch of 15 and show that a short receipt
+leaves the second batch uncertain.
+
 The [load diagnostic integration tests](../../../tests/integration/web/test_load_diagnostics.py)
 cover Odoo 19 and 20 with controlled local and remote execution, Authoring and
 Recipe worker contexts, and destination transfers. They exercise stale

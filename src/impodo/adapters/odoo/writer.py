@@ -49,10 +49,11 @@ from impodo.domain.execution.operator_errors import capture_operator_error
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     OdooWriteErrorType,
+    UncertainWriteReason,
     WriteFailureCode,
 )
 from impodo.domain.mapping.source_record_identity import SOURCE_EXTERNAL_IDS_FIELD
-from impodo.domain.odoo.contracts import ConnectorError
+from impodo.domain.odoo.contracts import ConnectorError, ConnectorIncompleteResultError
 from impodo.domain.shared.models import canonical_json_bytes, target_identity_hash
 
 from .request_pacing import (
@@ -61,7 +62,11 @@ from .request_pacing import (
     Json2RequestPacer,
     retry_after_seconds,
 )
-from .write_diagnostics import import_rejection_diagnostic
+from .write_diagnostics import (
+    import_rejection_diagnostic,
+    response_failure_reason,
+    uncertain_write,
+)
 
 MAX_WRITE_BODY_BYTES = 1024 * 1024
 _EXTERNAL_ID = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z0-9_.-]+")
@@ -79,14 +84,16 @@ class Json2WriteExecutor:
     _retry_after: float | None = dataclass_field(default=None, init=False, repr=False)
     _write_admitted: bool = dataclass_field(default=False, init=False, repr=False)
     _operator_message: str = dataclass_field(default="", init=False, repr=False)
+    _response_status: int | None = dataclass_field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
-        """Observe only the parsed Retry-After value on the production transport."""
+        """Retain bounded metadata from the production transport."""
         if self.transport is _WRITE_TRANSPORT:
             self.transport = partial(
                 _urllib_transport, capture_write_error_type=True,
                 observe_retry_after=self._observe_retry_after,
                 observe_operator_error=self._observe_operator_error,
+                observe_response_status=self._observe_response_status,
             )
 
     def _observe_retry_after(self, value: str | None) -> None:
@@ -94,6 +101,9 @@ class Json2WriteExecutor:
 
     def _observe_operator_error(self, message: str) -> None:
         self._operator_message = message
+
+    def _observe_response_status(self, status: int) -> None:
+        self._response_status = status
 
     def _rejection(self, diagnostic: OdooWriteDiagnostic, messages: object, values: Sequence[Mapping[str, Any]]) -> OdooWriteRejected:
         """Keep private capture failure independent of a known Odoo rejection."""
@@ -286,14 +296,21 @@ class Json2WriteExecutor:
         )
         if isinstance(response, int) and not isinstance(response, bool):
             identifiers = (response,)
-        elif isinstance(response, list):
-            if any(type(item) is not int for item in response):
-                raise OdooWriteOutcomeUnknown("Odoo create returned an invalid receipt")
+        elif isinstance(response, list) and all(type(item) is int for item in response):
             identifiers = tuple(response)
         else:
-            raise OdooWriteOutcomeUnknown("Odoo create returned an invalid receipt")
-        if len(identifiers) != len(rows) or any(item <= 0 for item in identifiers):
-            raise OdooWriteOutcomeUnknown("Odoo create returned an invalid receipt")
+            raise uncertain_write(
+                model, "create", len(rows), UncertainWriteReason.INVALID_RECEIPT, http_status=200,
+            )
+        if len(identifiers) != len(rows):
+            raise uncertain_write(
+                model, "create", len(rows), UncertainWriteReason.RECEIPT_COUNT_MISMATCH,
+                http_status=200, returned_id_count=len(identifiers),
+            )
+        if any(item <= 0 for item in identifiers):
+            raise uncertain_write(
+                model, "create", len(rows), UncertainWriteReason.INVALID_RECEIPT, http_status=200,
+            )
         return identifiers
 
     def load_create_rows(
@@ -338,7 +355,9 @@ class Json2WriteExecutor:
             batch_size=len(rows),
         )
         if not isinstance(response, Mapping):
-            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+            raise uncertain_write(
+                model, "load", len(rows), UncertainWriteReason.INVALID_RECEIPT, http_status=200,
+            )
         identifiers = response.get("ids")
         messages = response.get("messages", [])
         if identifiers is False:
@@ -349,15 +368,23 @@ class Json2WriteExecutor:
         if (
             not isinstance(identifiers, list)
             or any(type(item) is not int or item <= 0 for item in identifiers)
-            or len(identifiers) != len(rows)
             or not isinstance(messages, list)
         ):
-            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+            raise uncertain_write(
+                model, "load", len(rows), UncertainWriteReason.INVALID_RECEIPT, http_status=200,
+            )
         if any(
             isinstance(message, Mapping) and message.get("type") == "error"
             for message in messages
         ):
-            raise OdooWriteOutcomeUnknown("Odoo import returned an invalid receipt")
+            raise uncertain_write(
+                model, "load", len(rows), UncertainWriteReason.RECEIPT_WITH_ERRORS, http_status=200,
+            )
+        if len(identifiers) != len(rows):
+            raise uncertain_write(
+                model, "load", len(rows), UncertainWriteReason.RECEIPT_COUNT_MISMATCH,
+                http_status=200, returned_id_count=len(identifiers),
+            )
         return tuple(identifiers)
 
     def update_row(
@@ -400,7 +427,9 @@ class Json2WriteExecutor:
             batch_size=len(identifiers),
         )
         if response is not True:
-            raise OdooWriteOutcomeUnknown("Odoo update returned an invalid receipt")
+            raise uncertain_write(
+                model, "write", len(identifiers), UncertainWriteReason.INVALID_RECEIPT, http_status=200,
+            )
 
     def read_projected_ids(
         self,
@@ -571,6 +600,7 @@ class Json2WriteExecutor:
             try:
                 self._retry_after = None
                 self._operator_message = ""
+                self._response_status = None
                 status, response = self.transport(
                     url,
                     headers,
@@ -578,11 +608,14 @@ class Json2WriteExecutor:
                     self.config.timeout_seconds,
                     "POST",
                 )
-            except (HTTPException, OSError, ValueError) as error:
+            except (HTTPException, OSError, ValueError, ConnectorIncompleteResultError, RecursionError) as error:
                 if write:
-                    raise OdooWriteOutcomeUnknown(
-                        "The Odoo response was lost; the outcome is unknown"
+                    raise uncertain_write(
+                        model, method, batch_size, response_failure_reason(error),
+                        http_status=self._response_status,
                     ) from error
+                if isinstance(error, (ConnectorIncompleteResultError, RecursionError)):
+                    raise
                 if attempt + 1 == attempts:
                     reason = error.reason if isinstance(error, URLError) else error
                     if isinstance(reason, TimeoutError):

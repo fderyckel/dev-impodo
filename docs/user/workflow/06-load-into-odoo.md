@@ -436,6 +436,12 @@ what is known about changes in Odoo, and the next safe action. It also lists
 missing evidence. An older bundle cannot recover an error that Impodo did
 not record. Keep using the saved outcome to verify or recover uncertain work.
 
+When a batch ends without a usable reply, **Why Impodo stopped sending
+records** describes what Impodo observed. For example, Odoo might return 14
+record IDs for 15 submitted records. The explanation stays on the saved
+result after read-back so you can see why uploads stopped and what the
+read-back found.
+
 If loading is unusually slow, create the bundle after the slow action and note
 which action you performed. It includes available timing measurements,
 application and library versions, and computer capacity information to help

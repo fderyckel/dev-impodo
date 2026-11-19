@@ -7,7 +7,11 @@ import asyncio
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.workspace.execution.progress import execution_progress
 from impodo.domain.execution.models import ExecutionRowAttempt
-from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic, WriteFailureCode
+from impodo.domain.execution.write_diagnostics import (
+    OdooWriteDiagnostic,
+    UncertainWriteReason,
+    WriteFailureCode,
+)
 from impodo.domain.reconciliation import ReconciliationRow, ReconciliationRowStatus
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -94,9 +98,20 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             name="Read-back needs attention",
             source_system="Other",
         )
+        diagnostic = OdooWriteDiagnostic(
+            WriteFailureCode.UNKNOWN, "product.template", "load", batch_size=15,
+            http_status=200, uncertainty_reason=UncertainWriteReason.RECEIPT_COUNT_MISMATCH,
+            returned_id_count=14,
+        )
+        unknown = ExecutionRowAttempt(
+            "unknown-row", "products", 3, "product.template", "CREATE", ("name",),
+            "synthetic.product",
+            status=ExecutionRowStatus.OUTCOME_UNKNOWN, diagnostic=diagnostic,
+        )
         current_run = SimpleNamespace(
             run_id="11111111-1111-4111-8111-111111111111",
-            rows=(),
+            rows=(ExecutionRowAttempt.from_json(unknown.to_json()),),
+            status=ExecutionRunStatus.OUTCOME_UNKNOWN,
             committed_count=2,
             failed_count=0,
             blocked_count=1,
@@ -173,6 +188,8 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
 
         self.assertEqual(failed_page.status_code, 200, failed_page.text)
         self.assertIn("1 written in Odoo · 1 rejected · 1 not attempted", failed_page.text)
+        self.assertIn("Why Impodo stopped sending records", failed_page.text)
+        self.assertIn("returned 14 record IDs for 15 submitted records", failed_page.text)
         self.assertIn("Impodo did not send the records marked", failed_page.text)
         self.assertLessEqual(timings.connection_count, 6)
         self.assertLessEqual(timings.schema_check_count, 4)

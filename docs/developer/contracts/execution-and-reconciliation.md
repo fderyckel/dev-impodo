@@ -359,6 +359,13 @@ a fixed allowlist. It discards the response body after reading it. The
 exception name supplies context without changing whether the write can be
 isolated, resumed, or retried.
 
+An uncertain JSON-2 write can retain a bounded response failure reason. The
+writer distinguishes a timeout, connection failure, incomplete or unreadable
+reply, and an invalid receipt. A receipt count mismatch includes the number
+of submitted records and returned IDs. The response evidence retains counts,
+the classified reason, and the HTTP status when observed. The write remains
+uncertain and requires read-back.
+
 Recognized company-inconsistency messages retain `ODOO_COMPANY_MISMATCH` and
 only technical field names that belong to the reviewed write. Customer names,
 related-record labels, company names and arbitrary server text remain outside

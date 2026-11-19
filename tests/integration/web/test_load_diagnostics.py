@@ -19,6 +19,7 @@ from uuid import uuid4
 from zipfile import ZipFile
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.odoo.writer import Json2WriteExecutor
 from impodo.application.shared.build_contract import PROCESS_BUILD_CONTRACT
 from impodo.application.workspace.access import WorkspaceAccessContext
 from impodo.application.workspace.execution.write_values import row_values
@@ -33,6 +34,7 @@ from impodo.application.workspace.execution.load_observation import (
     observe_load_stage,
     record_load_failure,
 )
+from impodo.domain.execution.load_control import RejectionPolicy
 from impodo.domain.execution.odoo_scope import execution_api_scope
 from impodo.domain.execution.odoo_write import OdooWriteRejected
 from impodo.domain.execution.write_diagnostics import (
@@ -46,7 +48,7 @@ from impodo.domain.odoo.contracts import (
     ConnectorTransportError,
 )
 from impodo.domain.shared.access import LOCAL_ACTOR
-from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity
+from impodo.domain.shared.models import OdooReadIdentity, OdooWriteIdentity, target_identity_hash
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.domain.workspace.workbench import OdooConnectionMode
 from impodo.web.diagnostics import (
@@ -60,8 +62,11 @@ from impodo.web.load_diagnostics import (
     sanitize_load_record,
 )
 from tests.application.workspace.execution import test_service as execution_fixtures
+from tests.application.workspace.execution import test_continuation as continuation_fixtures
+from tests.integration.odoo.test_load_request_pacing import config
 from tests.support import browser_scenarios
 from tests.support.identity import resolve_local_actor
+from tests.support.odoo_read_clock import ReadClock
 
 
 def _bundle(recorder, *, attempt_id=None, max_records=5_000):
@@ -624,6 +629,83 @@ class LoadDiagnosticIntegrationTests(unittest.TestCase):
                         "Do not resend an uncertain write", members["diagnosis.md"]
                     )
                     self.assertEqual(current_load_observation(), None)
+
+    def test_configured_batch_size_and_partial_receipt_reach_saved_diagnosis(self):
+        template = execution_fixtures._snapshot()
+        lots = replace(template.datasets[0], dataset="lots", target_model="stock.lot")
+        rows = tuple(
+            execution_fixtures._row(
+                dataset="lots", model="stock.lot", source_row=index + 2,
+                source_identity=(str(index),), business_identity=(str(index),),
+                disposition="CREATE", fields=(FieldIntent("name", "SET_VALUE", f"private-{index}"),),
+            )
+            for index in range(27)
+        )
+        for major in (19, 20):
+            for batch_rows, short_receipt, expected_batches in (
+                (10, False, [10, 10, 7]), (10, True, [10, 10]),
+                (15, False, [10, 15, 2]), (15, True, [10, 15]),
+            ):
+                with (
+                    self.subTest(major=major, batch_rows=batch_rows, short_receipt=short_receipt),
+                    tempfile.TemporaryDirectory() as directory,
+                    closing(LocalDiagnosticRecorder(directory)) as recorder,
+                ):
+                    cfg = config(major)
+                    snapshot = execution_fixtures._with_plan(replace(
+                        template, rows=rows, datasets=(lots,),
+                        target_odoo_version=f"{major}.0",
+                        target_module_versions={"base": f"{major}.0.1.0"},
+                        target_database=cfg.database,
+                        target_hash=target_identity_hash(
+                            connection_mode="REMOTE", base_url=cfg.base_url, database=cfg.database,
+                        ),
+                        counts={**template.counts, "CREATE": len(rows), "UPDATE": 0},
+                    ))
+                    service, journal = continuation_fixtures.ContinuationTests()._service(snapshot, OdooConnectionMode.REMOTE)
+                    batches = []
+
+                    def transport(url, _headers, body, *_args):
+                        if url.endswith("/search_read"):
+                            return 200, []
+                        self.assertTrue(url.endswith("/stock.lot/load"))
+                        size = len(json.loads(body)["data"])
+                        batches.append(size)
+                        count = size - 1 if short_receipt and len(batches) == 2 else size
+                        offset = 100 * len(batches)
+                        return 200, {"ids": list(range(offset, offset + count)), "messages": []}
+
+                    writer = Json2WriteExecutor(
+                        cfg, execution_api_scope(snapshot), transport, request_pacer=ReadClock().pacer(),
+                    )
+
+                    def work(_access, writing, _verifying):
+                        run = service.execute(
+                            snapshot.workspace_id, expected_snapshot_hash=snapshot.semantic_hash,
+                            executor=writer, actor=LOCAL_ACTOR, batch_rows=batch_rows,
+                            rejection_policy=RejectionPolicy.CONTINUE, progress=writing,
+                        )
+                        return LoadJobResult(run.run_id, False)
+
+                    _run_job(recorder, snapshot.workspace_id, work, recipe=batch_rows == 15)
+                    members, attempts = _bundle(recorder)
+                    self.assertEqual(batches, expected_batches)
+                    self.assertEqual(journal.run.committed_count, 10 if short_receipt else 27)
+                    self.assertNotIn("private-10", str(members))
+                    if short_receipt:
+                        attempt = attempts[0]
+                        self.assertEqual(journal.run.unknown_count, batch_rows)
+                        self.assertEqual(journal.run.blocked_count, len(rows) - 10 - batch_rows)
+                        self.assertEqual(journal.run.failed_count, 0)
+                        self.assertEqual(attempt["last_transport"]["diagnostics"][0]["http_status"], 200)
+                        diagnostic = attempt["journal"]["diagnostics"][0]
+                        self.assertEqual(diagnostic["uncertainty_reason"], "RECEIPT_COUNT_MISMATCH")
+                        self.assertEqual(diagnostic["returned_id_count"], batch_rows - 1)
+                        self.assertEqual(diagnostic["batch_size"], batch_rows)
+                        self.assertIn(
+                            f"returned {batch_rows - 1} record IDs for {batch_rows} submitted records",
+                            members["diagnosis.md"],
+                        )
 
     def test_rejection_after_commits_keeps_specific_odoo_reason_and_totals(self):
         for major in (19, 20):

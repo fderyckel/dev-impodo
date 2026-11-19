@@ -356,6 +356,13 @@
       </section>
     {% endif %}
 
+    {% if unknown_write_diagnostic %}
+      <section class="notice warning" aria-labelledby="unknown-write-title">
+        <h2 id="unknown-write-title">Why Impodo stopped sending records</h2>
+        <p>{{ unknown_write_diagnostic.summary }}</p>
+      </section>
+    {% endif %}
+
     {% if interrupted_load %}
       {% set paused_load = preview.current_run.load_control and preview.current_run.load_control.state.value == 'PAUSED' %}
       <section class="next-action-card review" aria-labelledby="load-recovery-title">
