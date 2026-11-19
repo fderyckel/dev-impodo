@@ -8,6 +8,7 @@ to browser projections.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -52,6 +53,7 @@ from impodo.domain.prepared_snapshot import PreparedSnapshot
 from impodo.domain.reconciliation import ReconciliationRun, ReconciliationRunStatus
 from impodo.domain.shared.access import Actor
 from impodo.domain.shared.models import OdooWriteIdentity
+from impodo.domain.workspace.models import MigrationWorkspace, MigrationWorkspaceState
 
 
 class CorrectionPreparedEvidenceReader(Protocol):
@@ -251,16 +253,34 @@ class CorrectionWorkflowService:
         binding = self.bindings.get_for_completed_workspace(completed_workspace_id)
         return self._view(binding, actor=actor) if binding is not None else None
 
-    def list_for_project(
+    def project_overview_journeys(
         self,
         project_id: str,
         *,
-        actor: Actor,
+        workspaces: Mapping[str, MigrationWorkspace],
     ) -> tuple[CorrectionJourneyView, ...]:
-        return tuple(
-            self._view(binding, actor=actor)
-            for binding in self.bindings.list_for_project(project_id)
-        )
+        """Summarize registry pointers for the visible project without opening saved plans."""
+
+        journeys = []
+        for binding in self.bindings.list_for_project(project_id):
+            successor = (
+                workspaces.get(binding.successor_workspace_id)
+                if binding.successor_workspace_id
+                else None
+            )
+            journeys.append(
+                CorrectionJourneyView(
+                    project_id=project_id,
+                    completed_workspace_id=binding.completed_workspace_id,
+                    successor_workspace_id=binding.successor_workspace_id,
+                    has_current_plan=binding.current_plan is not None,
+                    has_confirmation=binding.current_confirmation is not None,
+                    completed=successor is not None
+                    and successor.state is MigrationWorkspaceState.CLOSED,
+                    plan_summary=None,
+                )
+            )
+        return tuple(journeys)
 
     def binding_for_successor(
         self,

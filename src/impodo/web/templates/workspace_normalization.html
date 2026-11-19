@@ -56,7 +56,7 @@
           <button class="button action" data-next-step="100" type="submit">Compare with Odoo</button>
           <small class="muted" data-preflight-comparison-status hidden>Comparing with Odoo... Keep this page open.</small>
         </form>
-        <a class="button action" href="/projects/{{ migration_context.project_id }}#project-recipes-title">Review and save Recipe</a>
+        <a class="button action" href="/projects/{{ migration_context.project_id }}?recipe_workspace={{ workspace_id }}#project-recipes-title">Review and save Recipe</a>
         <a class="button navigation" href="/workspaces/{{ workspace_id }}/summary">Back to project review</a>
       </div>
     </section>

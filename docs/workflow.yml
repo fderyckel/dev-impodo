@@ -94,6 +94,8 @@ stages:
       - src/impodo/application/odoo_database_binding_service.py::OdooDatabaseBindingService
       - src/impodo/web/composition/database_bindings.py::review_database_binding
       - src/impodo/web/presenters/navigation.py::build_workspace_navigation
+      - src/impodo/web/presenters/project_overview.py::project_overview_action
+      - src/impodo/web/presenters/project_saved_data.py::project_saved_data_overview
       - src/impodo/web/presenters/concepts.py::ConceptHelp
       - src/impodo/web/presenters/user_help.py::UserHelpTarget
       - scripts/capture_contextual_user_help.py::capture
@@ -118,6 +120,7 @@ stages:
       - tests/integration/web/test_target_workflow.py
       - tests/integration/web/test_odoo_database_bindings.py
       - tests/integration/web/test_saved_project_startup.py
+      - tests/integration/web/test_project_saved_data_overview.py
       - tests/integration/web/test_odoo_company.py
       - tests/e2e/test_odoo_company.py
       - tests/integration/web/test_local_stack.py
@@ -1019,6 +1022,7 @@ stages:
       - src/impodo/application/preflight_attempts.py::PreflightPublicationCommittedError
       - src/impodo/application/preflight_jobs.py::PreflightJobManager
       - src/impodo/application/preflight_timing.py::collect_preflight_publication_timings
+      - src/impodo/application/schema_workspace_service.py::SchemaWorkspaceService.rebind_current_access
       - src/impodo/application/preflight_service.py::PreflightService
       - src/impodo/application/preflight_service.py::PreflightService.compare
       - src/impodo/application/preflight_service.py::PreflightService.deferred_scope_review
@@ -1104,6 +1108,7 @@ stages:
       - tests/performance/test_deferred_scope_scale.py
       - tests/integration/artifacts/test_reporting_cli.py
       - tests/domain/preflight/test_comparison_fields.py
+      - tests/domain/preparation/test_contact_website_comparison.py
       - tests/domain/preflight/test_omission_findings.py
       - tests/domain/preflight/test_physical_lineage.py
       - tests/domain/preparation/test_scalar_input_lineage.py
@@ -1396,6 +1401,7 @@ stages:
       - tests/application/workspace/execution/test_request_wait_progress.py
       - tests/integration/odoo/test_load_request_pacing.py
       - tests/application/workspace/execution/test_continuation.py
+      - tests/application/workspace/execution/test_projected_rejection.py
       - tests/integration/web/test_recipe_run_progress.py
       - tests/integration/protected_evidence/test_target_credentials.py
       - tests/integration/web/test_correction_workflow.py

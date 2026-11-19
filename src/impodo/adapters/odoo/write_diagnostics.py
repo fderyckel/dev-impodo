@@ -11,6 +11,7 @@ import re
 from collections.abc import Mapping, Sequence
 from hashlib import sha256
 
+from impodo.domain.execution.load_control import DATA_REJECTION_CODES
 from impodo.domain.execution.write_diagnostics import (
     OdooWriteDiagnostic,
     WriteFailureCode,
@@ -29,18 +30,27 @@ def import_rejection_diagnostic(
     items = messages if isinstance(messages, list) else []
     permitted = {field.split("/", 1)[0] for field in fields}
     reported: set[str] = set()
-    codes: list[WriteFailureCode] = []
+    codes: set[WriteFailureCode] = set()
     ranges: list[tuple[int, int]] = []
     complete_ranges = len(items) <= 20
+    if not complete_ranges:
+        codes.add(WriteFailureCode.REJECTED)
     digest = sha256()
     for item in items[:20]:
         if not isinstance(item, Mapping):
             complete_ranges = False
+            codes.add(WriteFailureCode.REJECTED)
             continue
-        text = str(item.get("message", ""))[:8192]
+        message = item.get("message", "")
+        text = message[:8192] if isinstance(message, str) else ""
         digest.update(text.encode("utf-8"))
         digest.update(b"\x00")
-        if item.get("type") != "error":
+        severity = item.get("type")
+        if severity in ("warning", "info"):
+            continue
+        if severity != "error":
+            codes.add(WriteFailureCode.REJECTED)
+            complete_ranges = False
             continue
         field = item.get("field")
         if isinstance(field, (tuple, list)):
@@ -59,9 +69,17 @@ def import_rejection_diagnostic(
                 ranges.append((start, end))
                 valid_range = True
         complete_ranges = complete_ranges and valid_range
+        if not isinstance(message, str) or len(message) > len(text):
+            codes.add(WriteFailureCode.REJECTED)
         probe = text.casefold()
         code = WriteFailureCode.REJECTED
         if (
+            "access denied" in probe
+            or "accesserror" in probe
+            or "not allowed to" in probe
+        ):
+            code = WriteFailureCode.ACCESS_DENIED
+        elif (
             "company inconsistencies" in probe
             or "incompatible companies on records" in probe
             or "belongs to another company" in probe
@@ -81,12 +99,6 @@ def import_rejection_diagnostic(
         elif "no matching record" in probe or "no record found" in probe:
             code = WriteFailureCode.RELATED_RECORD
         elif (
-            "access denied" in probe
-            or "accesserror" in probe
-            or "not allowed to" in probe
-        ):
-            code = WriteFailureCode.ACCESS_DENIED
-        elif (
             "constraint" in probe
             or "must be unique" in probe
             or "duplicate key" in probe
@@ -99,12 +111,17 @@ def import_rejection_diagnostic(
             or "does not seem to be valid" in probe
         ):
             code = WriteFailureCode.VALIDATION
-        codes.append(code)
-    specific = tuple(
-        dict.fromkeys(code for code in codes if code is not WriteFailureCode.REJECTED)
-    )
+        codes.add(code)
+    if WriteFailureCode.ACCESS_DENIED in codes:
+        batch_code = WriteFailureCode.ACCESS_DENIED
+    elif len(codes) == 1:
+        batch_code = next(iter(codes))
+    elif codes and codes <= DATA_REJECTION_CODES:
+        batch_code = WriteFailureCode.VALIDATION
+    else:
+        batch_code = WriteFailureCode.REJECTED
     return OdooWriteDiagnostic(
-        code=specific[0] if len(specific) == 1 else WriteFailureCode.REJECTED,
+        code=batch_code,
         model=model,
         method="load",
         fields=tuple(reported),

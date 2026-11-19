@@ -117,9 +117,9 @@ Odoo package and materializes the workspace references.
 
 ## Optional publication
 
-The Project overview asks `RecipePublicationService` for one readiness
-projection. When eligible, the data manager can save a new Recipe or publish a
-successor revision. `RecipeRepository` stores the protected payload and
+The data manager chooses a rules source in **Project actions** to open the
+Recipe readiness check. When the rules are ready, the data manager can save a
+new Recipe or publish a successor revision. `RecipeRepository` stores the protected payload and
 registry revision through a recoverable operation. It leaves all Project and
 DataVersion identities unchanged.
 
@@ -163,9 +163,16 @@ DataVersion. It never opens the registry or loads a Recipe-root linkage.
 ## Completion and navigation
 
 Creation completes when all four roots and the contained mapping engine exist.
-The Project overview then opens the workspace under
-`/workspaces/{workspace_id}`. Recipe publication is optional and does not gate
-the six authoring stages.
+The Project overview offers file intake or the source Odoo connection according
+to the workspace's source mode. On return,
+[`project_overview_action`](../../../src/impodo/web/presenters/project_overview.py)
+selects a current Test or Production run, an Authoring stage, or a saved result.
+It uses the workspace navigation snapshot for the selected workspace. A
+verified file load can provide a workbook bound to its reconciliation.
+[`project_saved_data_overview`](../../../src/impodo/web/presenters/project_saved_data.py)
+reads saved set summaries from the local registry after Project authorization.
+The [saved-set overview tests](../../../tests/integration/web/test_project_saved_data_overview.py)
+exercise that projection and the links to saved data.
 
 For Odoo-to-Odoo transfers, Overview reads one fixed-size progress row in the
 workspace engine. The transaction that saves matching, ordering, review or

@@ -239,6 +239,74 @@ class ContinuationTests(unittest.TestCase):
                         result.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS
                     )
 
+    def test_import_isolates_different_data_rejections_and_keeps_independent_creates(self):
+        template = fixtures._snapshot()
+        names = ("A accepted", "B missing", "C duplicate", "D accepted")
+        rows = tuple(
+            fixtures._row(
+                dataset="categories", model="product.category", source_row=index,
+                source_identity=(name,), business_identity=(name,), disposition="CREATE",
+                fields=(FieldIntent("name", "SET_VALUE", name),),
+            )
+            for index, name in enumerate(names, start=2)
+        )
+        reasons = {"B missing": "Missing required field", "C duplicate": "Must be unique"}
+        for major in (19, 20):
+            with self.subTest(major=major):
+                mode = OdooConnectionMode.REMOTE
+                cfg = config(major, mode.value)
+                snapshot = fixtures._with_plan(replace(
+                    template, rows=rows, datasets=(template.datasets[0],),
+                    counts={**template.counts, "CREATE": 4, "UPDATE": 0},
+                    target_odoo_version=f"{major}.0",
+                    target_module_versions={"base": f"{major}.0.1.0"},
+                    target_database=cfg.database,
+                    target_hash=target_identity_hash(
+                        connection_mode=mode.value, base_url=cfg.base_url, database=cfg.database,
+                    ),
+                ))
+                accepted = []
+                requests = []
+
+                def transport(url, _headers, body, *_):
+                    if url.endswith("/search_read"):
+                        return 200, []
+                    self.assertTrue(url.endswith("/product.category/load"))
+                    payload = json.loads(body)
+                    self.assertEqual(payload["fields"], ["id", "name"])
+                    batch = payload["data"]
+                    requests.append(batch)
+                    messages = [
+                        {"type": "error", "message": reasons[name], "rows": {"from": i, "to": i}}
+                        for i, (_external_id, name) in enumerate(batch) if name in reasons
+                    ]
+                    if messages:
+                        return 200, {"ids": False, "messages": messages}
+                    accepted.extend(name for _external_id, name in batch)
+                    return 200, {"ids": [names.index(name) + 1 for _external_id, name in batch]}
+
+                service, journal = self._service(snapshot, mode)
+                writer = Json2WriteExecutor(
+                    cfg, execution_api_scope(snapshot), transport, request_pacer=ReadClock().pacer(),
+                )
+                result = service.execute(
+                    snapshot.workspace_id, expected_snapshot_hash=snapshot.semantic_hash,
+                    executor=writer, actor=LOCAL_ACTOR, rejection_policy=RejectionPolicy.CONTINUE,
+                )
+                self.assertEqual(result.status, ExecutionRunStatus.COMPLETED_WITH_ERRORS)
+                self.assertEqual(journal.run.rows, result.rows)
+                self.assertEqual(accepted, [names[0], names[3]])
+                self.assertEqual([name for _, name in requests[0]], list(names))
+                reviewed_ids = {row.source_identity[0]: row.proposed_external_id for row in rows}
+                for batch in requests:
+                    for external_id, name in batch:
+                        self.assertEqual(external_id, reviewed_ids[name])
+                self.assertEqual(
+                    [row.diagnostic.code for row in result.rows if row.status is ExecutionRowStatus.FAILED],
+                    [WriteFailureCode.REQUIRED_VALUE, WriteFailureCode.CONSTRAINT],
+                )
+                self.assertEqual((result.committed_count, result.failed_count, result.blocked_count), (2, 2, 0))
+
     def test_stop_before_first_write_closes_pending_rows_without_transport(self):
         snapshot = fixtures._snapshot()
         service, journal = self._service(snapshot)

@@ -8,6 +8,7 @@ from impodo.domain.project.foundation import (
     require_uuid,
 )
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import SourceMode
 
 from ...domain.data_version.models import DataVersion
 from .foundation_repository_mixin import FoundationRepositoryMixin
@@ -47,6 +48,21 @@ class FoundationDataVersionRecords(FoundationRepositoryMixin):
                 [project_id],
             )
         return tuple(self._data_version_from_row(row) for row in rows)
+
+    def draft_source_summary(
+        self, data_version: DataVersion
+    ) -> tuple[SourceMode, bool] | None:
+        """Read the two setup facts without reconstructing catalogs or opening the workspace."""
+        path = self.database.ensure_data_version_store(data_version)
+        with self.database.connect(path) as connection:
+            row = connection.execute(
+                """
+                SELECT origin, EXISTS (SELECT 1 FROM source_package_file)
+                  FROM source_package_state
+                 WHERE singleton_id = 1 AND revision > 0
+                """
+            ).fetchone()
+        return (SourceMode(row[0]), bool(row[1])) if row and row[0] else None
 
     def save_data_version(
         self,

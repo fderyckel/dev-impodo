@@ -112,6 +112,11 @@ identifies the completed Final review and links to its saved comparison.
 Recipe Test runs retain their existing automatic completion when no changes
 are needed.
 
+If you prepare a Contact website such as `www.example.test` and Odoo
+already stores `http://www.example.test`, Impodo leaves that website out of
+the proposed changes. An explicit change to `https://` still appears for
+review.
+
 In **Review results**, a missing or ambiguous linked record shows the value
 Impodo tried to find, the matching fields, and any company or parent scope.
 For example, a missing contact can show `Reference: "000745"` rather than only
@@ -219,6 +224,13 @@ percentage. Delayed progress updates do not start another comparison. Selecting
 has that active comparison returns to the same attempt. If Impodo restarts,
 reopening the progress page shows either the verified saved result or an
 interrupted attempt that you can safely retry.
+
+When you replace the read-only key in an authoring workspace, Impodo checks
+the saved fields and read access as part of the comparison. If they match,
+the comparison continues. If Impodo finds changes, select **Review Odoo
+changes** to see them. Review those changes before applying the updated
+details. Impodo prompts you to repeat any affected stages before comparing
+again.
 
 ### Set aside complete affected groups
 

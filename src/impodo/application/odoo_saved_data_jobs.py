@@ -51,6 +51,7 @@ class SavedOdooDataJobManager:
         self._runner = SerialJobRunner(worker_name="impodo-saved-odoo-data")
         self._lock = RLock()
         self._jobs: dict[str, SavedOdooJob] = {}
+        self._active_by_project: dict[str, dict[str, str]] = {}
 
     def enqueue(
         self,
@@ -64,18 +65,9 @@ class SavedOdooDataJobManager:
         """Return an active job or enqueue one explicitly requested action."""
 
         with self._lock:
-            active = next(
-                (
-                    job
-                    for job in self._jobs.values()
-                    if job.saved_data_id == saved_data_id
-                    and job.project_id == project_id
-                    and not job.terminal
-                ),
-                None,
-            )
-            if active is not None:
-                return active
+            active = self._active_by_project.setdefault(project_id, {})
+            if saved_data_id in active:
+                return self._jobs[active[saved_data_id]]
             job = SavedOdooJob(
                 str(uuid4()),
                 project_id,
@@ -89,6 +81,7 @@ class SavedOdooDataJobManager:
                 operation_id=operation_id,
             )
             self._jobs[job.job_id] = job
+            active[saved_data_id] = job.job_id
             try:
                 self._runner.submit(
                     job.job_id,
@@ -99,9 +92,24 @@ class SavedOdooDataJobManager:
                     ),
                 )
             except Exception:
+                self._release(job)
                 del self._jobs[job.job_id]
                 raise
             return job
+
+    def active_for_project(self, project_id: str) -> SavedOdooJob | None:
+        """Return the first unfinished action inside an authorized project."""
+
+        with self._lock:
+            job_id = next(iter(self._active_by_project.get(project_id, {}).values()), None)
+            return self._jobs[job_id] if job_id is not None else None
+
+    def _release(self, job: SavedOdooJob) -> None:
+        active = self._active_by_project.get(job.project_id)
+        if active is not None and active.get(job.saved_data_id) == job.job_id:
+            del active[job.saved_data_id]
+            if not active:
+                del self._active_by_project[job.project_id]
 
     def get(self, project_id: str, saved_data_id: str, job_id: str) -> SavedOdooJob:
         """Reject a progress identifier outside its owning project and definition."""
@@ -145,6 +153,7 @@ class SavedOdooDataJobManager:
                     message="Action complete",
                     redirect_url=location,
                 )
+                self._release(self._jobs[job_id])
 
     def _progress(self, job_id: str, percent: int, message: str) -> None:
         with self._lock:
@@ -165,3 +174,4 @@ class SavedOdooDataJobManager:
                 failure_message=message,
                 redirect_url=redirect_url,
             )
+            self._release(self._jobs[job_id])

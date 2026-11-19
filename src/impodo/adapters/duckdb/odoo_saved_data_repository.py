@@ -21,6 +21,7 @@ from impodo.domain.odoo_saved_data import (
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
     SavedOdooRestoreProfile,
+    SavedOdooSetSummary,
 )
 from impodo.domain.project.foundation import (
     MigrationConflictError,
@@ -159,6 +160,77 @@ class DuckDbSavedOdooDataRepository:
                 [project_id, limit, offset],
             ).fetchall()
         return tuple(self._definition(row) for row in rows)
+
+    def list_set_summaries(
+        self, project_id: str, *, limit: int
+    ) -> tuple[SavedOdooSetSummary, ...]:
+        """Read configurations and their current capture together in the registry."""
+
+        require_uuid(project_id, "project_id")
+        self._page(limit, 0)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""WITH chosen AS (
+                        SELECT {_DEFINITION_COLUMNS} FROM saved_odoo_data_definition
+                        WHERE project_id = ? ORDER BY saved_data_id LIMIT ?
+                    )
+                    SELECT d.*, v.version_json, v.content_hash FROM chosen AS d
+                    LEFT JOIN saved_odoo_data_version AS v
+                      ON v.project_id = d.project_id AND v.saved_data_id = d.saved_data_id
+                      AND v.version_number = d.latest_version
+                    ORDER BY d.saved_data_id""",
+                [project_id, limit],
+            ).fetchall()
+        summaries = []
+        for *definition_columns, encoded_version, version_hash in rows:
+            definition = self._definition(tuple(definition_columns))
+            captured_at = None
+            if definition.latest_version is not None:
+                if encoded_version is None:
+                    raise self._corruption()
+                version = self._decode_version(str(encoded_version), str(version_hash))
+                if (version.project_id, version.saved_data_id, version.version_number) != (
+                    project_id, definition.saved_data_id, definition.latest_version
+                ):
+                    raise self._corruption()
+                captured_at = version.captured_at
+            summaries.append(
+                SavedOdooSetSummary(
+                    definition.saved_data_id, definition.label,
+                    definition.latest_version, captured_at,
+                )
+            )
+        return tuple(summaries)
+
+    def internal_capture_workspaces(
+        self, project_id: str, workspace_ids: tuple[str, ...]
+    ) -> frozenset[str]:
+        """Find archive sources and capture successors among this page's workspace IDs."""
+
+        require_uuid(project_id, "project_id")
+        if not workspace_ids:
+            return frozenset()
+        with self._connect() as connection:
+            rows = connection.execute(
+                """WITH candidates AS (SELECT unnest(?::VARCHAR[]) AS workspace_id)
+                   SELECT v.workspace_id FROM saved_odoo_data_version v
+                   JOIN candidates USING (workspace_id)
+                   JOIN saved_odoo_data_configuration cfg
+                     ON v.saved_data_id = cfg.saved_data_id AND cfg.configuration_revision = 1
+                   WHERE v.project_id = ? AND v.version_number = 1
+                     AND json_extract_string(json_extract_string(cfg.definition_json, '$.config_json'),
+                                             '$.imported_package_hash') IS NOT NULL
+                   UNION
+                   SELECT o.workspace_id FROM saved_odoo_capture_operation o
+                   JOIN candidates USING (workspace_id)
+                   JOIN saved_odoo_data_configuration cfg
+                     ON o.saved_data_id = cfg.saved_data_id
+                     AND o.configuration_revision = cfg.configuration_revision
+                   WHERE o.project_id = ?
+                     AND o.workspace_id <> json_extract_string(cfg.definition_json, '$.source_workspace_id')""",
+                [workspace_ids, project_id, project_id],
+            ).fetchall()
+        return frozenset(str(row[0]) for row in rows)
 
     def save_definition(
         self,

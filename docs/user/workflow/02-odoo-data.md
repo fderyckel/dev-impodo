@@ -290,8 +290,8 @@ checks. Older Recipes continue to use their existing saved relationship rules.
 
 ## Preserve clean Odoo data between test resets
 
-Use **Open saved Odoo data** from the data project when you want to preserve
-clean records already in Odoo. Its **Capture configuration** reuses the source
+To preserve clean records in an Odoo-source project, open **Project actions**
+and select **Set up saved Odoo data**. Its **Capture configuration** reuses the source
 models, fields, filters and related-data choices reviewed here. **Saved data**
 then keeps dated versions of those records. **Update saved data** captures the
 complete configured scope; **Restore all** checks and restores a selected

@@ -192,9 +192,10 @@ class ProjectSetupBrowserTests(ProjectSetupBrowserTestCase):
         project_list = self.client.get("/projects")
         self.assertIn("Waiting for files", project_list.text)
         project_page = self.client.get(f"/projects/{data_project_id}")
-        self.assertIn("Continue preparing and matching", project_page.text)
+        self.assertEqual(project_page.status_code, 200)
+        self.assertEqual(project_page.text.count('data-next-step="100"'), 1)
         self.assertIn(
-            f'href="/workspaces/{workspace_id}/overview"',
+            f'data-next-step="100" href="/workspaces/{workspace_id}/files"',
             project_page.text,
         )
 

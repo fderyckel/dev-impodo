@@ -38,7 +38,7 @@
       {% endif %}
       {% if job.failure_message is defined and job.failure_message %}<p class="notice error">{{ job.failure_message }}</p>{% endif %}
       <div class="actions">
-        {% if active_job %}<a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data{% if definition %}?selected={{ definition.saved_data_id }}{% endif %}">Refresh progress</a>{% endif %}
+        {% if active_job and definition %}<a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ definition.saved_data_id }}&amp;job={{ job.job_id }}">Refresh progress</a>{% endif %}
         {% if job.redirect_url is defined and job.redirect_url %}<a class="button action" href="{{ job.redirect_url }}">Review result</a>{% endif %}
       </div>
     </section>
@@ -68,7 +68,7 @@
   {% include "saved_odoo_data/_configuration.html" %}
   {% include "saved_odoo_data/_versions.html" %}
 
-  <details class="form-card" id="import-saved-data">
+  <details class="form-card" id="import-saved-data"{% if request.query_params.get("task") == "import" %} open{% endif %}>
     <summary>Import a saved Odoo file</summary>
     <p>Open a protected package downloaded from Impodo. The package password is needed to read its contents.</p>
     <form method="post" action="/projects/{{ project.project_id }}/saved-odoo-data/import" enctype="multipart/form-data" data-single-submit>

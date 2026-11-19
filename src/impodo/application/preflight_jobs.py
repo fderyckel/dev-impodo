@@ -310,10 +310,12 @@ class PreflightJobManager:
                 raise PreflightJobNotFoundError("Comparison job not found")
             return job
 
-    def active(self, workspace_id: str) -> PreflightJob | None:
+    def active(self, workspace_id: str, *, session_only: bool = False) -> PreflightJob | None:
+        """Inspect the current process, optionally recovering pending persisted work."""
+
         with self._lock:
             active = self._active_locked(workspace_id)
-            if active is not None or self._attempt_store is None:
+            if active is not None or session_only or self._attempt_store is None:
                 return active
             for intent in self._attempt_store.list_pending_preflight_comparisons():
                 if intent.owner_id == workspace_id:

@@ -44,6 +44,7 @@ from impodo.domain.execution_snapshot import (
     FieldIntent,
 )
 from impodo.domain.odoo.html import odoo_html_values_equal
+from impodo.domain.odoo.website import matches_default_contact_website
 from impodo.domain.reconciliation import (
     ReconciliationRow,
     ReconciliationRowStatus,
@@ -74,6 +75,7 @@ from .service import (
 )
 
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}")
+_UNWRITTEN = frozenset({ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED})
 
 
 class ReconciliationExecutionRepository(Protocol):
@@ -609,7 +611,7 @@ class ReconciliationService:
                 if attempt.odoo_id in model_ids:
                     raise WorkspaceError("Load rows refer to the same Odoo record")
                 model_ids.add(attempt.odoo_id)
-                if row_id not in checked_row_ids:
+                if row_id not in checked_row_ids or attempt.status in _UNWRITTEN:
                     continue
                 row = rows[row_id]
                 fields = tuple(
@@ -1042,14 +1044,15 @@ class ReconciliationService:
                 status=ReconciliationRowStatus.NOT_WRITTEN,
                 message="This row was not reached before the load stopped",
             )
-        if (
-            attempt.status in {ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED}
-            and attempt.odoo_id is None
-        ):
+        if attempt.status in _UNWRITTEN:
             return ReconciliationRow(
                 **common,
                 status=ReconciliationRowStatus.NOT_WRITTEN,
-                message=attempt.safe_error or "Odoo did not receive this row",
+                message=attempt.safe_error or (
+                    "Odoo rejected this write"
+                    if attempt.status is ExecutionRowStatus.FAILED
+                    else "Odoo did not receive this row"
+                ),
             )
         if (
             attempt.status
@@ -1114,10 +1117,11 @@ class ReconciliationService:
                             expected = ()
                     else:
                         actual_value = _many2one_id(actual_value)
-                if not _values_equal(
-                    expected,
-                    actual_value,
-                    field_type=field_type,
+                if not (
+                    _values_equal(expected, actual_value, field_type=field_type)
+                    or matches_default_contact_website(
+                        row.target_model, intent.field, expected, actual_value
+                    )
                 ):
                     differing.append(intent.field)
                     if difference_sink is not None:

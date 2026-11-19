@@ -288,7 +288,7 @@ class ReviewWorkflowBrowserTests(ProjectSetupBrowserTestCase):
         self,
     ) -> None:
         context = self.app.state.context
-        workspace_state, schema = self._frozen_odoo_source_workspace()
+        workspace_state, schema = self._frozen_odoo_source_workspace(reviewed_database=True)
 
         def compare_with_reader(
             _project_id,

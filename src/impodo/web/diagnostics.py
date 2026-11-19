@@ -57,7 +57,11 @@ from impodo.web.diagnostic_costs import (
     record_logging_costs,
 )
 from impodo.web.diagnostic_settings import DiagnosticSettingsSnapshot
-from impodo.web.load_diagnostic_bundle import load_bundle_members
+from impodo.web.load_diagnostic_bundle import (
+    PRIVATE_REJECTION_MEMBER,
+    DiagnosticRejectionEvidence,
+    load_bundle_members,
+)
 from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
     LOAD_SUMMARY_LOG,
@@ -996,6 +1000,7 @@ def create_diagnostic_bundle(
     capture_failure_count: int = 0,
     logging_costs: Mapping[str, object] | None = None,
     settings_snapshot: DiagnosticSettingsSnapshot | None = None,
+    rejection: DiagnosticRejectionEvidence | None = None,
 ) -> bytes:
     """Create a bounded ZIP with allowlisted logs and saved configuration."""
 
@@ -1069,7 +1074,9 @@ def create_diagnostic_bundle(
             "performance_operation_completed",
         }
     ][-100:]
-    load_members, load_coverage = load_bundle_members(directory, failure_records, attempt_id=attempt_id)
+    load_members, load_coverage = load_bundle_members(
+        directory, failure_records, attempt_id=attempt_id, rejection=rejection,
+    )
     created_at = _utc_timestamp()
     if settings_snapshot is None:
         settings_members = {
@@ -1117,6 +1124,11 @@ def create_diagnostic_bundle(
             "Operational and saved configuration metadata, including source column names and Odoo model and field identifiers. "
             "Source rows, formulas, credentials, "
             "tokens, request bodies, headers, URLs, and query strings are omitted."
+            + (
+                f" `{PRIVATE_REJECTION_MEMBER}` contains the private Odoo explanation and "
+                "submitted values for one selected rejection. It may contain business or personal data."
+                if rejection is not None else ""
+            )
         ),
     }
     encoded_records = "".join(

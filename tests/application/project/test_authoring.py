@@ -781,22 +781,9 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         self.assertEqual(overview.status_code, 200)
         self.assertNotIn("Prepare customers for Odoo 19", overview.text)
         self.assertIn("Data version 1", overview.text)
-        self.assertIn("Saving a Recipe is optional.", overview.text)
-        self.assertIn(
-            "You can continue working in your workspace without saving one.",
-            overview.text,
-        )
-        self.assertIn("Before saving a Recipe:", overview.text)
-        self.assertNotIn("Recipe needs attention", overview.text)
-        self.assertIn("Review source data", overview.text)
-        self.assertNotIn(
-            "You can complete this migration once without saving a Recipe.",
-            overview.text,
-        )
-        self.assertNotIn(
-            "No Recipe has been saved. The data project and workspace remain fully usable.",
-            overview.text,
-        )
+        self.assertNotIn("Before saving a Recipe", overview.text)
+        self.assertNotIn("Review source data", overview.text)
+        self.assertNotIn("Keep clean data ready", overview.text)
         summaries = self.app.state.context.migration_projects.list(
             actor=resolve_local_actor(self.app.state.context)
         )
@@ -807,6 +794,14 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
             actor=resolve_local_actor(self.app.state.context),
         )
         self.assertEqual(len(workspaces), 1)
+        recipe_url = (
+            f"{created.headers['location']}?recipe_workspace={workspaces[0].workspace_id}"
+        )
+        self.assertIn(f'href="{recipe_url}#project-recipes-title"', overview.text)
+        recipe_review = self.client.get(recipe_url)
+        self.assertEqual(recipe_review.status_code, 200)
+        self.assertIn("Before saving a Recipe", recipe_review.text)
+        self.assertIn("Review source data", recipe_review.text)
         workspace_page = self.client.get(
             f"/workspaces/{workspaces[0].workspace_id}",
             follow_redirects=False,
@@ -844,7 +839,10 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         )
         context.recipe_publication.compiler = FixedCompiler()
 
-        overview = self.client.get(f"/projects/{created.project.project_id}")
+        overview = self.client.get(
+            f"/projects/{created.project.project_id}",
+            params={"recipe_workspace": created.workspace.workspace_id},
+        )
         self.assertEqual(overview.status_code, 200)
         self.assertIn("Ready to save", overview.text)
         operation_id = re.search(
@@ -975,7 +973,8 @@ class ProjectAuthoringBrowserTests(unittest.TestCase):
         overview = self.client.get(f"/projects/{project_id}")
 
         self.assertEqual(overview.status_code, 200)
-        self.assertIn("Delete this project", overview.text)
+        self.assertIn("<summary>Project actions</summary>", overview.text)
+        self.assertIn("Delete project</button>", overview.text)
         self.assertIn("data-project-delete-trigger", overview.text)
         self.assertIn("data-project-delete-dialog", overview.text)
         self.assertIn(

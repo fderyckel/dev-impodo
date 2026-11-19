@@ -67,7 +67,10 @@ from ...application.workspace.execution.load_jobs import (
     LoadJobStateError,
 )
 from ...application.workspace.execution.preview import ExecutionPreview
-from ...application.workspace.execution.service import RecoveryResumePlan
+from ...application.workspace.execution.service import (
+    DEFAULT_CREATE_BATCH_ROWS,
+    RecoveryResumePlan,
+)
 from ..composition.page_reads import (
     run_local_operation,
     run_local_operation_sync,
@@ -513,6 +516,8 @@ def build_execution_router(
         preview=None,
         error: str | None = None,
         status_code: int = 200,
+        submitted_policy: str = "",
+        submitted_batch_rows: str = "",
     ):
         actor = request_identity(request, context.identity_resolver).actor
         workspace_state = context.queries.get(workspace_id)
@@ -743,6 +748,8 @@ def build_execution_router(
             interrupted_load=interrupted_load,
             load_step=step,
             max_batch_rows=MAX_CREATE_BATCH_ROWS,
+            continue_after_rejection=submitted_policy == RejectionPolicy.CONTINUE.value,
+            batch_rows=submitted_batch_rows or DEFAULT_CREATE_BATCH_ROWS,
             load_row_page=load_row_page,
             load_row_first_url=_load_row_page_url(1, load_row_page.page_size),
             load_row_page_size_options=tuple(
@@ -1636,20 +1643,26 @@ def build_execution_router(
             },
         )
         actor = request_identity(request, context.identity_resolver).actor
+
+        async def render_submission_error(message: str):
+            return await run_page_read(
+                render,
+                request,
+                workspace_id,
+                step="outcome" if recovering else "confirm",
+                error=message,
+                status_code=422,
+                submitted_policy=_text(form, "rejection_policy"),
+                submitted_batch_rows=_text(form, "batch_rows"),
+            )
+
         submission = await run_local_operation(
             prepare_load_submission, request, workspace_id, form, recovering, actor,
         )
         if isinstance(submission, RedirectResponse):
             return submission
         if isinstance(submission, _RejectedLoadSubmission):
-            return await run_page_read(
-                render,
-                request,
-                workspace_id,
-                step="outcome" if recovering else "confirm",
-                error=submission.message,
-                status_code=422,
-            )
+            return await render_submission_error(submission.message)
         workspace_state = submission.workspace_state
         credential_owner = submission.credential_owner
         access_context = submission.access_context
@@ -1990,14 +2003,7 @@ def build_execution_router(
             WorkspaceError,
         ) as error:
             record_load_failure(error)
-            return await run_page_read(
-                render,
-                request,
-                workspace_id,
-                step="outcome" if recovering else "confirm",
-                error=str(error),
-                status_code=422,
-            )
+            return await render_submission_error(str(error))
         return RedirectResponse(
             _load_progress_url(workspace_id, job.job_id),
             status_code=303,
@@ -2484,7 +2490,10 @@ def _reconciliation_summary(report):
     statuses = Counter(row.status.value for row in report.rows)
     unknown_count = statuses["OUTCOME_UNKNOWN"]
     return SimpleNamespace(
-        accepted_count=sum(row.odoo_id is not None for row in report.rows),
+        accepted_count=sum(
+            row.odoo_id is not None and row.execution_status not in {"FAILED", "BLOCKED"}
+            for row in report.rows
+        ),
         rejected_count=sum(row.execution_status == "FAILED" for row in report.rows),
         not_attempted_count=sum(row.execution_status == "BLOCKED" for row in report.rows),
         different_count=statuses["DIFFERENT"],

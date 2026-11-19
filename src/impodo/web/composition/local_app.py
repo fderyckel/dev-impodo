@@ -946,6 +946,9 @@ def create_local_app(
                 launch_token=launch_token or secrets.token_urlsafe(32),
                 identity_resolver=resolved_identity_resolver,
                 settings_capture=lambda workspace_id, actor: capture_diagnostic_settings(context, workspace_id, actor),
+                read_operator_error=lambda workspace_id, run_id, row_id, actor: context.execution.operator_error(
+                    workspace_id, run_id, row_id, actor=actor,
+                ),
             )
         ),
         install_transport_security=install_local_transport_security,

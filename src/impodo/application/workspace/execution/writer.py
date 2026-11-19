@@ -207,6 +207,7 @@ class LoadWriter:
                     executor,
                     projected_requirements,
                     deferred_by_row,
+                    continuation=continuation_policy,
                 )
             except (WorkspaceError, OdooWriteRejected) as error:
                 transitions.record_blocked(

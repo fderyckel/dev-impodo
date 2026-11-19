@@ -296,6 +296,11 @@ IDs. Each child has a new journalled transport batch and incremented attempt.
 An unknown response never permits splitting or resend. Access failures and
 unclassified rejections stop subsequent transport.
 
+If one rolled-back import reports several kinds of recognized data error,
+the writer can still isolate the rows. It saves each isolated row's specific
+reason when Odoo supplies one. An access error, an unclassified error, or a
+truncated list or error message prevents the writer from splitting that batch.
+
 Failure windows belong to one model and transport phase. They count distinct
 settled rows, exclude rolled-back peers and dependency blockers, and are
 evaluated after the complete receipt. Limits pause after ten consecutive
@@ -409,8 +414,18 @@ cause. The exact saved row identity remains bound to the reviewed snapshot.
 The adjacent list pages twenty rows at a time through saved ordinals and is
 also linked from transfer and correction outcomes. The detail page links to
 Match data or Destination matching where authoring permits it. Existing preparation, comparison, approval and recovery rules
-continue to govern any correction. Diagnostic ZIPs and progress carry only
-bounded availability flags, never the private explanation or submitted values.
+continue to govern any correction. Progress and routine diagnostics report
+bounded availability and validated attribution.
+
+The operator can include the saved Odoo error for one selected record in a
+diagnostic ZIP. The authenticated export command requires the same protected
+workspace authority as **Review Odoo error**. It binds the saved receipt to the
+workspace, execution run and row. The `odoo-rejection.json` member identifies the
+selected record and includes its submitted values and applicable explanations
+from the receipt. It preserves batch positions, reported fields, and the
+receipt's withholding and truncation flags. A batch message retains batch
+attribution, and a message assigned only to another record is excluded.
+Opening or exporting the saved receipt performs no Odoo request.
 
 Confirmed load actions also create an opaque diagnostic attempt before
 submission checks. The shared load manager carries that observation explicitly
@@ -539,6 +554,17 @@ back.
 Odoo serializes an unset many-to-one value as `false`. Exact-key read-back
 treats that value as equal to the reviewed empty value while retaining strict
 comparison for booleans, numeric values, text, and populated relationships.
+
+For Contact `res.partner.website`, Odoo 19 and 20 add the default HTTP scheme
+to a website supplied without a scheme. Prepared-data comparison and
+reconciliation accept the exact addition. Explicit schemes, hosts, paths,
+queries, and fragments retain their normal comparison rules. The original
+prepared values and saved verification attempts remain available.
+
+Reconciliation uses the journal to report known rejected and unattempted
+writes. An existing Odoo ID on a rejected update identifies the record for
+review. The write remains rejected and produces no field-difference evidence
+in the new verification attempt.
 
 The initial workspace schema permits multiple immutable reconciliation rows for
 one execution run. The execution's current-result pointer moves only after a

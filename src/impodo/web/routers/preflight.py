@@ -13,7 +13,7 @@ See ``docs/architecture/python-code-map.md`` and
 from __future__ import annotations
 
 from asyncio import Lock
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from uuid import uuid4
@@ -121,9 +121,11 @@ def _rebind_remote_read_access(
     *,
     actor: Actor,
     schema_catalog: OdooSchemaCatalog | None,
+    review_changes: bool,
+    current_read_binding: Callable[[], str],
     local_operation: LocalPreflightOperation,
 ):
-    """Verify and rebind a replacement key without recapturing semantic state."""
+    """Verify a replacement key and stop only when the checked details need review."""
 
     if workspace_state.odoo_connection_mode is not OdooConnectionMode.REMOTE:
         return None
@@ -141,12 +143,19 @@ def _rebind_remote_read_access(
     snapshot = context.schema_reader(workspace_state, credential.secret)
 
     def publish_verified_access():
+        if current_read_binding() != credential.binding_hash:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.COMPARISON_INTERRUPTED,
+                "The read key changed during the Odoo check. Compare again.",
+            )
         try:
-            context.schema_workspace.rebind_current_access(
+            checked = context.schema_workspace.rebind_current_access(
                 workspace_state.workspace_id,
                 snapshot,
+                expected_catalog=schema_catalog,
                 read_credential_binding_hash=credential.binding_hash,
                 read_identity=identity,
+                review_changes=review_changes,
                 actor=actor,
             )
         except WorkspaceDatabaseBusyError:
@@ -157,6 +166,11 @@ def _rebind_remote_read_access(
                 "The Odoo fields or read access changed; refresh Odoo data before "
                 "comparing again.",
             ) from error
+        if checked.pending_refresh is not None:
+            raise OdooReadWorkflowError(
+                OdooReadFailureCode.SCHEMA_CHANGES_NEED_REVIEW,
+                "Impodo checked Odoo and saved its changes for review.",
+            )
         context.remote_connections.mark_checked(
             workspace_state,
             snapshot.fingerprint,
@@ -354,6 +368,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                             credential,
                             actor=actor,
                             schema_catalog=schema_catalog,
+                            review_changes=access_context.recipe_application_id is None,
+                            current_read_binding=current_read_binding,
                             local_operation=run_local_operation_sync,
                         )
                     report = context.preflight.compare(
@@ -484,6 +500,8 @@ def build_preflight_router(context: WebContext) -> APIRouter:
                     credential,
                     actor=actor,
                     schema_catalog=schema_catalog,
+                    review_changes=access_context.recipe_application_id is None,
+                    current_read_binding=current_read_binding,
                     local_operation=run_local_operation_sync,
                 )
             def compare_with_bounded_local_phases():

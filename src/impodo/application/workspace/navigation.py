@@ -18,6 +18,7 @@ from impodo.application.workspace.source_readiness import (
     SourceStageReadiness,
     assess_source_stage_readiness,
 )
+from impodo.domain.execution.models import ExecutionRowStatus
 from impodo.domain.shared.access import Actor
 from impodo.domain.workspace.workbench import (
     SourceMode,
@@ -73,6 +74,40 @@ class TransferNavigationProgress:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectLoadOutcome:
+    """Destination and compact journal counts for one run on the project overview."""
+
+    database: str
+    company_name: str
+    verified_at: datetime | None
+    journal_counts: tuple[tuple[ExecutionRowStatus, int], ...] = ()
+
+    @property
+    def detail(self) -> str:
+        """Describe journal receipts separately from the read-back result."""
+
+        if not self.journal_counts:
+            return ""
+        counts = dict(self.journal_counts)
+        def count(status: ExecutionRowStatus) -> int:
+            return counts.get(status, 0)
+
+        parts = [
+            f"{count(ExecutionRowStatus.COMMITTED):,} written",
+            f"{count(ExecutionRowStatus.FAILED):,} rejected",
+            f"{count(ExecutionRowStatus.PLANNED) + count(ExecutionRowStatus.BLOCKED):,} not attempted",
+        ]
+        for amount, label in (
+            (count(ExecutionRowStatus.IN_FLIGHT) + count(ExecutionRowStatus.OUTCOME_UNKNOWN), "outcome uncertain"),
+            (count(ExecutionRowStatus.PARTIALLY_APPLIED), "partially applied"),
+            (count(ExecutionRowStatus.RETRY_READY), "awaiting retry"),
+        ):
+            if amount:
+                parts.append(f"{amount:,} {label}")
+        return " · ".join(parts)
+
+
+@dataclass(frozen=True, slots=True)
 class WorkspaceNavigationFacts:
     """Scalar and identifier-only evidence needed by the navigation presenter."""
 
@@ -110,6 +145,7 @@ class WorkspaceNavigationFacts:
     active_preparation_job_id: str = ""
     active_load_job_id: str = ""
     execution_preview: ExecutionNavigationPreview | None = None
+    project_load_outcome: ProjectLoadOutcome | None = None
 
     @property
     def source_complete(self) -> bool:
@@ -174,6 +210,13 @@ class WorkspaceNavigationRepository(Protocol):
         This compatibility read need not share a transaction with the
         workbench state; page composition should prefer ``get_snapshot``.
         """
+        ...
+
+    def get_project_load_outcome(
+        self, workspace_id: str, run_id: str, *, company_binding_hash: str,
+        read_context_hash: str, include_counts: bool,
+    ) -> ProjectLoadOutcome | None:
+        """Read the named journal and exact company for the selected result only."""
         ...
 
     def get_snapshot(self, workspace_id: str) -> WorkspaceNavigationSnapshot:

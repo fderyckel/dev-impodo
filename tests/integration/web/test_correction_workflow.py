@@ -25,7 +25,7 @@ class _CorrectionViews:
             else None
         )
 
-    def list_for_project(self, project_id: str, *, actor):
+    def project_overview_journeys(self, project_id: str, *, workspaces):
         return (self.view,) if project_id == self.view.project_id else ()
 
     def binding_for_successor(self, successor_workspace_id: str):
@@ -72,7 +72,7 @@ class CorrectionBrowserTests(ProjectSetupBrowserTestCase):
         page = self.client.get(f"/projects/{closed.project_id}")
 
         self.assertEqual(page.status_code, 200)
-        self.assertIn("View saved load and continue", page.text)
+        self.assertIn("View load results", page.text)
         self.assertIn(
             f'/workspaces/{closed.workspace_id}/history/6',
             page.text,

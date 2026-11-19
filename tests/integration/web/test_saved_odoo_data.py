@@ -15,9 +15,11 @@ from impodo.adapters.duckdb.odoo_saved_source_company import (
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
 from impodo.application.odoo_saved_data_jobs import SavedOdooActionError, SavedOdooJob
 from impodo.domain.odoo.company import OdooCompanySelection
+from impodo.domain.odoo_database_binding import OdooDatabaseBindingRole
 from impodo.domain.odoo_source_policy import odoo_source_policy_hash
 from impodo.domain.project.foundation import MigrationNotFoundError
 from impodo.domain.workspace.contracts import SchemaField
+from impodo.web.composition.database_bindings import review_database_binding
 from impodo.web.composition.saved_odoo_restore import SavedRestoreResult
 from tests.support.browser_scenarios import (
     POST_HEADERS,
@@ -101,6 +103,12 @@ class SavedOdooDataBrowserTests(ProjectSetupBrowserTestCase):
         )
         self.context.schema_workspace.schemas.save_odoo_schema_catalog(
             state.workspace_id, schema, actor=self.actor
+        )
+        identity = self.context.identity_resolver.resolve({"authenticated": True})
+        review_database_binding(
+            self.context, state, OdooDatabaseBindingRole.SOURCE,
+            actor=self.actor, scope=identity.organization_scope,
+            authorization_receipt=identity.authorization,
         )
         response = self._post(
             f"/workspaces/{state.workspace_id}/sources/odoo-selection",
@@ -188,6 +196,11 @@ class SavedOdooDataBrowserTests(ProjectSetupBrowserTestCase):
         for major in (19, 20):
             with self.subTest(major=major):
                 definition, _version, _company = self._capture(major)
+                overview = self.client.get(f"/projects/{definition.project_id}")
+                self.assertEqual(overview.status_code, 200, overview.text)
+                self.assertIn(definition.label, overview.text)
+                self.assertIn("Version 1 · Captured", overview.text)
+                self.assertIn(_version.captured_at.strftime("%d %b %Y %H:%M %Z"), overview.text)
                 with (
                     patch(
                         "impodo.web.routers.saved_odoo_data.saved_source_companies",

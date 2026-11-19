@@ -1020,7 +1020,10 @@ class RecipeOptionalFieldRevisionTests(ProjectSetupBrowserTestCase):
         context = self.app.state.context
         actor = resolve_local_actor(context)
         project_url = f"/projects/{project.project.project_id}"
-        overview = self.client.get(project_url)
+        overview = self.client.get(
+            project_url,
+            params={"recipe_workspace": project.workspace.workspace_id},
+        )
         self.assertIn("Ready to save", overview.text)
         operation = search(r'name="operation_id" value="([^"]+)"', overview.text)
         self.assertIsNotNone(operation)

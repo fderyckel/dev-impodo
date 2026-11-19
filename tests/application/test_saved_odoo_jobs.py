@@ -2,6 +2,7 @@
 
 import unittest
 from datetime import UTC, datetime
+from unittest.mock import patch
 
 from impodo.application.odoo_saved_data_jobs import (
     SavedOdooActionError,
@@ -69,3 +70,36 @@ class SavedOdooJobTests(unittest.TestCase):
         for location in ("https://external.example", "//external.example"):
             with self.subTest(location=location), self.assertRaises(ValueError):
                 SavedOdooActionError("Stopped", redirect_url=location)
+
+    def test_project_progress_tracks_queued_jobs_without_resuming_terminal_work(self):
+        def capture(_progress):
+            return "/capture/result"
+
+        def restore(_progress):
+            raise SavedOdooActionError("Review the restore")
+
+        with patch.object(self.manager._runner, "submit"):
+            first = self.manager.enqueue("one", "set-a", kind="UPDATE", work=capture)
+            second = self.manager.enqueue("one", "set-b", kind="RESTORE", work=restore)
+            other = self.manager.enqueue("two", "set-c", kind="UPDATE", work=capture)
+            self.assertEqual(
+                self.manager.enqueue("one", "set-a", kind="UPDATE", work=capture),
+                first,
+            )
+        self.assertEqual(self.manager.active_for_project("one"), first)
+        self.assertEqual(self.manager.active_for_project("two"), other)
+        self.assertIsNone(self.manager.active_for_project("another-project"))
+        self.manager._execute(first.job_id, capture)
+        self.assertEqual(self.manager.active_for_project("one"), second)
+        self.manager._execute(second.job_id, restore)
+        self.assertIsNone(self.manager.active_for_project("one"))
+        self.assertEqual(self.manager.active_for_project("two"), other)
+        self.assertEqual(self.manager.get("one", "set-b", second.job_id).status, "FAILED")
+
+    def test_rejected_submission_does_not_leave_project_busy(self):
+        with (
+            patch.object(self.manager._runner, "submit", side_effect=RuntimeError("stopped")),
+            self.assertRaises(RuntimeError),
+        ):
+            self.manager.enqueue("one", "set-a", kind="UPDATE", work=lambda _: "/result")
+        self.assertIsNone(self.manager.active_for_project("one"))

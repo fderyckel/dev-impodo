@@ -52,7 +52,8 @@ required values, and permissions still need to pass the destination check.
 
 ### Save the capture configuration
 
-1. Open the data project and select **Open saved Odoo data**.
+1. Open the Odoo-source project, expand **Project actions**, and select
+   **Set up saved Odoo data**.
 2. Review the source database and server under **Capture configuration**.
 3. Enter a **Saved set name** and choose the **Source company** fetched from
    that database.
@@ -73,7 +74,9 @@ transfer when their complete configuration is part of your requirement.
 ### Update all saved data
 
 1. Finish the clean-up work in source Odoo.
-2. Open the saved set and select **Update saved data** once.
+2. On the project overview, select the set by name under **Saved Odoo data**.
+   A set with **No data captured yet** has saved configuration only. Select
+   **Update saved data** to capture the records.
 3. Follow **Current action** until the operation finishes.
 4. Review the new version's capture date, configuration revision, and model
    record counts under **Saved data**.
@@ -170,10 +173,10 @@ In the version table, expand **Download protected package**, enter a
 **Download version** for that row. Keep the resulting `.impodo` file and its
 password where you can retrieve them after a reset.
 
-On the same or another Impodo installation, open the chosen data project,
-expand **Import a saved data package**, choose the file and password, and
-select **Import saved package**. Impodo checks the complete package before
-admitting its data. The imported version can then be restored through the
+On the same or another Impodo installation, open the project where you want
+to keep the data. Under **Project actions**, select **Import saved Odoo package**.
+Choose the file and password and select **Import saved package**. Impodo checks
+the complete package before admitting its data. The imported version can then be restored through the
 same destination review.
 
 The package includes the preserved records and the information needed to

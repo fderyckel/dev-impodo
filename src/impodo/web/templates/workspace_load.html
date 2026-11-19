@@ -308,7 +308,7 @@
           <summary>Advanced settings</summary>
           <label>
             Records per Odoo batch
-            <input type="number" name="batch_rows" min="1" max="{{ max_batch_rows }}" step="1" value="10" required>
+            <input type="number" name="batch_rows" min="1" max="{{ max_batch_rows }}" step="1" value="{{ batch_rows }}" required>
             <small>Use 10 for constrained hosted servers. A tested self-hosted server can use a larger value. This changes request size, not the total records loaded.</small>
           </label>
         </details>
@@ -316,7 +316,7 @@
           If Odoo rejects a record
           <select name="rejection_policy" required>
             <option value="STOP">Stop at the first rejection</option>
-            <option value="CONTINUE">Set aside rejected records and continue</option>
+            <option value="CONTINUE"{% if continue_after_rejection %} selected{% endif %}>Set aside rejected records and continue</option>
           </select>
           <small>Continuation pauses automatically after repeated failures. Uncertain results always stop further uploads.</small>
         </label>

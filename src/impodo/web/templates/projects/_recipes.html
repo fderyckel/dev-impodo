@@ -1,0 +1,66 @@
+{% if recipes or recipe_draft %}
+  <section class="form-card project-overview-section" aria-labelledby="project-recipes-title">
+    <div class="heading-with-help">
+      <h2 id="project-recipes-title" tabindex="-1" data-focus-on-hash>{{ 'Review and save Recipe' if recipe_draft else 'Saved Recipes' }}</h2>
+      {{ concept_help_link("recipe", "Explain what a Recipe saves") }}
+    </div>
+    {% if recipes %}
+      {% set revision_review = request.session.get('recipe_revision_review') %}
+      <ol class="overview-stages">
+        {% for recipe in recipes %}
+          <li class="overview-stage complete" id="recipe-{{ recipe.recipe_id }}" tabindex="-1" data-focus-on-hash>
+            <div class="overview-stage-number">{{ recipe.current_recipe_revision }}</div>
+            <div class="overview-stage-copy">
+              <h3>{{ recipe.display_name }}</h3>
+              <p>{{ recipe.business_purpose }} · Recipe v{{ recipe.current_recipe_revision }}</p>
+              <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}">Open Recipe</a>
+              {% if revision_review and not revision_review.published and revision_review.project_id == project.project_id and revision_review.recipe_id == recipe.recipe_id %}
+                <a class="button action" href="/projects/{{ project.project_id }}/recipes/{{ recipe.recipe_id }}/revise?version={{ revision_review.version }}">Review Recipe changes</a>
+              {% elif recipe_draft and recipe_draft.can_publish %}
+                <form method="post" action="/projects/{{ project.project_id }}/recipes">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                  <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
+                  <input type="hidden" name="data_version_id" value="{{ recipe_source.data_version_id }}">
+                  <input type="hidden" name="workspace_id" value="{{ recipe_source.workspace_id }}">
+                  <input type="hidden" name="recipe_id" value="{{ recipe.recipe_id }}">
+                  <input type="hidden" name="expected_recipe_revision" value="{{ recipe.optimistic_revision }}">
+                  <input type="hidden" name="display_name" value="{{ recipe.display_name }}">
+                  <input type="hidden" name="business_purpose" value="{{ recipe.business_purpose }}">
+                  <button class="button action" type="submit">Save a new Recipe version</button>
+                </form>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% endif %}
+    {% if recipe_draft and recipe_draft.can_publish %}
+      <div class="notice success" role="status">
+        <strong>Ready to save.</strong>
+      </div>
+      <form method="post" action="/projects/{{ project.project_id }}/recipes">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="operation_id" value="{{ publication_operation_id }}">
+        <input type="hidden" name="data_version_id" value="{{ recipe_source.data_version_id }}">
+        <input type="hidden" name="workspace_id" value="{{ recipe_source.workspace_id }}">
+        <input type="hidden" name="recipe_id" value="">
+        <input type="hidden" name="expected_recipe_revision" value="">
+        <label>Recipe name<input name="display_name" required maxlength="200"></label>
+        <label>Reusable purpose<textarea name="business_purpose" required maxlength="2000"></textarea></label>
+        <div class="actions"><button class="button action" type="submit">Save as a new Recipe</button></div>
+      </form>
+    {% elif recipe_draft and recipe_draft.issues %}
+      <div class="notice">
+        <strong>Before saving a Recipe</strong>
+        <p>{{ recipe_draft.issues[0].message }} {{ recipe_draft.issues[0].recovery_action }}</p>
+        <a class="button action" href="{{ recipe_recovery.href }}">{{ recipe_recovery.label }}</a>
+        {% if recipe_recovery.reference %}
+          <details>
+            <summary>Support details</summary>
+            <p><code>{{ recipe_recovery.reference }}</code></p>
+          </details>
+        {% endif %}
+      </div>
+    {% endif %}
+  </section>
+{% endif %}

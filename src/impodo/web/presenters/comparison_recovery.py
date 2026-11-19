@@ -86,6 +86,11 @@ _COPY: dict[OdooReadFailureCode, tuple[str, str, str]] = {
             "Refresh the Odoo details before comparing again."
         ),
     ),
+    OdooReadFailureCode.SCHEMA_CHANGES_NEED_REVIEW: (
+        "Odoo details changed",
+        "Review Odoo changes",
+        "Impodo checked Odoo and found changes. Review them before comparing again.",
+    ),
     OdooReadFailureCode.REFERENCE_POLICY_MISMATCH: (
         "Field matching needs attention",
         "Review the linked field match",
@@ -185,6 +190,8 @@ def comparison_recovery_view(
             if recovery is OdooReadRecoveryKind.CAPTURE_ODOO_DATA
             else "Review Odoo details"
         )
+    elif recovery is OdooReadRecoveryKind.REVIEW_ODOO_CHANGES:
+        action_href = f"/workspaces/{workspace_id}/schema#odoo-schema-changes"
     elif recovery is OdooReadRecoveryKind.REVIEW_FIELD_MATCH:
         action_href = f"/workspaces/{workspace_id}/mapping"
         action_label = "Review field matches"

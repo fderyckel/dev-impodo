@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 from impodo.domain.execution.load_failure_reasons import LOAD_FAILURE_REASONS
+from impodo.domain.execution.models import ExecutionRowAttempt
+from impodo.domain.execution.operator_errors import OperatorErrorReceipt
 from impodo.domain.execution.write_diagnostics import OdooWriteDiagnostic
 from impodo.web.load_diagnostics import (
     LOAD_EVENT_LOG,
@@ -26,6 +29,64 @@ MAX_LOAD_EVENTS = 10_000
 MAX_LOAD_AGE_DAYS = 30
 MAX_LOAD_FILES = 32
 MAX_LINE_BYTES = 64 * 1024
+PRIVATE_REJECTION_MEMBER = "odoo-rejection.json"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class DiagnosticRejectionEvidence:
+    """Carry only the saved receipt for the operator's selected rejection."""
+
+    workspace_id: str
+    execution_run_id: str
+    row: ExecutionRowAttempt
+    receipt: OperatorErrorReceipt
+
+    def to_json(self) -> str:
+        """Export the selected values and preserve the message's batch attribution."""
+        index = self.receipt.row_ids.index(self.row.row_id)
+        detail = self.receipt.detail
+        batch_size = len(self.receipt.row_ids)
+        messages = [
+            {
+                "explanation": message.text,
+                "reported_fields": message.fields,
+                "applies_to_selected_record": batch_size == 1 or message.row_from == message.row_to == index,
+                "first_batch_position": message.row_from + 1 if message.row_from is not None else None,
+                "last_batch_position": message.row_to + 1 if message.row_to is not None else None,
+            }
+            for message in detail.messages
+            if message.row_from is None or (
+                message.row_to is not None and message.row_from <= index <= message.row_to
+            )
+        ]
+        diagnostic = self.row.diagnostic
+        return json.dumps(
+            {
+                "rejection_schema_version": 1,
+                "workspace_id": self.workspace_id,
+                "execution_run_id": self.execution_run_id,
+                "snapshot_hash": self.receipt.snapshot_hash,
+                "execution_row_id": self.row.row_id,
+                "dataset": self.row.dataset,
+                "source_row": self.row.source_row,
+                "target_model": self.row.target_model,
+                "operation": self.row.operation,
+                "write_failure_code": diagnostic.code.value if diagnostic else None,
+                "http_status": diagnostic.http_status if diagnostic else None,
+                "odoo_exception": diagnostic.error_type.value if diagnostic and diagnostic.error_type else None,
+                "row_attempt_number": self.row.attempt,
+                "transport_batch": self.row.transport_batch,
+                "transport_batch_size": batch_size,
+                "selected_batch_position": index + 1,
+                "odoo_messages": messages,
+                "submitted_values_for_selected_record": detail.submitted[index],
+                "detail_truncated": detail.truncated,
+                "detail_withheld": detail.withheld,
+            },
+            ensure_ascii=False,
+            indent=2,
+            sort_keys=True,
+        ) + "\n"
 
 
 def _read_history(
@@ -149,6 +210,11 @@ def _diagnosis(
         "This summary reports recorded evidence. It does not authorize writes or retries.",
         "",
     ]
+    if coverage.get("private_rejection_member"):
+        lines += [
+            "",
+            f"Open `{PRIVATE_REJECTION_MEMBER}` for the selected rejection's private Odoo explanation and submitted values. Use the execution run and row identifiers in that file to identify the saved record.",
+        ]
     relevant = [
         attempt
         for attempt in attempts
@@ -171,6 +237,12 @@ def _diagnosis(
         if coverage.get("requested_attempt_retained") is False:
             lines += [
                 "The requested support reference is not present in the retained history. Export the general bundle to inspect other attempts; do not attribute another attempt's error to this reference.",
+                "",
+            ]
+            legacy_failures = []
+        if coverage.get("requested_execution_run_retained") is False:
+            lines += [
+                "The selected execution run has no retained attempt logs. Use the saved rejection evidence for this record.",
                 "",
             ]
             legacy_failures = []
@@ -246,6 +318,19 @@ def _diagnosis(
                 lines += [
                     f"- `{diagnostic.model}` / `{diagnostic.method}`: {diagnostic.summary} Affected attempts: {raw.get('affected_rows', 'not captured')}."
                 ]
+            transport = attempt.get("last_transport", {})
+            if transport.get("outcome") == "REJECTED" and transport.get("fields"):
+                fields = ", ".join(transport["fields"])
+                lines += [
+                    f"Recorded fields sent in the last rejected request: `{fields}`. These fields describe the request. Fields named by Odoo are recorded separately."
+                ]
+            if not coverage.get("private_rejection_member") and any(
+                item.get("operator_detail_status") in {"AVAILABLE", "TRUNCATED"}
+                for item in journal.get("diagnostics", [])
+            ):
+                lines += [
+                    "For the saved explanation and submitted values, open Review Odoo error for a rejected record and select Create diagnostic bundle with Odoo error."
+                ]
         else:
             lines += [
                 "The durable row outcomes were not captured. Zero reported commits must not be treated as proof of no changes."
@@ -278,6 +363,7 @@ def load_bundle_members(
     legacy_records: list[dict[str, Any]],
     *,
     attempt_id: str | None = None,
+    rejection: DiagnosticRejectionEvidence | None = None,
 ) -> tuple[dict[str, str], dict[str, Any]]:
     """Return validated load collections and an explicit coverage manifest."""
     coverage: dict[str, Any] = {
@@ -309,6 +395,13 @@ def load_bundle_members(
     if attempt_id is not None:
         selected = [attempt_id] if attempt_id in by_attempt else []
         coverage["requested_attempt_retained"] = bool(selected)
+    if rejection is not None:
+        selected = [
+            key for key in ordered
+            if any(item.get("execution_run_id") == rejection.execution_run_id for item in by_attempt[key])
+        ][-MAX_LOAD_ATTEMPTS:]
+        coverage["requested_execution_run_retained"] = bool(selected)
+        coverage["private_rejection_member"] = PRIVATE_REJECTION_MEMBER
     coverage["omitted_attempt_count"] = max(0, len(ordered) - len(selected))
     attempts = []
     selected_events = [
@@ -400,4 +493,6 @@ def load_bundle_members(
         ),
         "diagnosis.md": _diagnosis(attempts, legacy_failures, coverage),
     }
+    if rejection is not None:
+        members[PRIVATE_REJECTION_MEMBER] = rejection.to_json()
     return members, coverage

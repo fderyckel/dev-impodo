@@ -25,7 +25,7 @@ can continue through same-major loading and qualified-plan Production rollout.
 3. Choose **Files** or **Data already in Odoo**.
 4. Enter a clear source-system name, such as the legacy ERP name.
 5. Select **Create project**.
-6. On the data project overview, select **Open workspace**.
+6. On the project overview, select **Add source files** or **Connect source Odoo**.
 7. For files, add all related CSV or XLSX exports and select **Use these files
    and continue**. Impodo checks the files and opens their source preview. For
    Odoo data, continue with the read-only source setup.
@@ -40,6 +40,22 @@ the numbered stages. [Source data](workflow/01-source-data.md) explains how a
 related-table choice returns to the same form after this check.
 
 ![The current New project form separates the data project purpose from optional reusable Recipe rules.](../images/user/02-new-project.png)
+
+## Reopen a project
+
+The top of the project overview shows where you can resume. For example,
+if you stopped at **Match data**, the project shows that stage and takes you
+back to it. If preparation or loading is running, select **View progress**.
+
+After a verified file load, select **View load results**. When the verified
+source workbook is available, you can download it beside the result. If you
+have already started a working revision, use **Project history** to open the
+earlier completed load. For a completed Odoo transfer, select **View transfer
+results**.
+
+If you saved Odoo records for reuse, open the set by name under **Saved Odoo
+data**. Its capture date tells you which version you have. See
+[Save clean Odoo data and restore it after a reset](guides/saved-odoo-data.md).
 
 ## Data project, data version, workspace, and Recipe
 
@@ -65,12 +81,11 @@ a Recipe never moves the files or data version out of the data project. See
 ## Save reusable rules only when useful
 
 Complete Source data, Odoo data, Match data, and the required preparation and
-quality checks first. When the workspace is eligible, return to the data project
-overview. You can then:
-
-- complete this migration once without a Recipe;
-- select **Save as a new Recipe** to preserve reusable rules; or
-- select **Save a new Recipe version** after reusable rules change.
+quality checks first. To reuse your rules, open **Project actions** on the
+project overview. Select **Review and save Recipe** if the project offers one
+rules source. If it offers several, choose the workspace under **Rules to save**
+and select **Review selected rules**. Once the rules pass the check, select
+**Save as a new Recipe** or **Save a new Recipe version**.
 
 After saving, select **Open Recipe** beside its name to review exactly what
 that saved version will reuse. If saving is blocked, the project explains why
@@ -82,7 +97,7 @@ addresses, API keys, numeric Odoo record IDs, approvals, or load results.
 
 When several saved Recipes must be checked together, start an
 [integrated Test run](guides/integrated-test-runs.md) from the data project
-overview by selecting **Test with new data**. Impodo creates a fresh Test data
+overview by choosing **Project actions** and **Test with new data**. Impodo creates a fresh Test data
 version and Odoo target setup workspace. After you accept the newer delivery
 and review the target for this Test run, Impodo creates one separate Recipe
 work area per selected Recipe. The Recipe run shows **Fresh data**, **Check
@@ -121,9 +136,8 @@ runs keep the version they started with.
 
 ## What Complete means
 
-The data project overview lists the Authoring data version and workspace. The
-workspace is usable with zero Recipes. Data project creation does not load data into
-Odoo.
+Creation is complete when you can open source setup from the project overview.
+You can find the first Authoring data version under **Project history**.
 
 ## What changes and what does not
 

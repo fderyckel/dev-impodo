@@ -34,6 +34,16 @@
         <td>{{ 'Reported by Odoo for this record' if field.split('/')[0] in reported_fields else 'Submitted context' }}</td>
       </tr>{% endfor %}</tbody>
     </table></div>
+    {% if diagnostics_available %}
+      <p>This download includes Odoo's saved explanation and the values sent for this record. Review them above before sharing the ZIP.</p>
+      <form method="post" action="/diagnostics/bundle">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="workspace_id" value="{{ workspace_id }}">
+        <input type="hidden" name="run_id" value="{{ saved_run_id }}">
+        <input type="hidden" name="row_id" value="{{ saved_row.row_id }}">
+        <button class="button action" type="submit" name="include_odoo_error" value="1">Create diagnostic bundle with Odoo error</button>
+      </form>
+    {% endif %}
   {% else %}
     <p>This attempt has no available private Odoo explanation. Discarded explanations cannot be recovered from the diagnostic code. The saved load outcome remains authoritative.</p>
   {% endif %}

@@ -17,6 +17,7 @@ from impodo.domain.project.foundation import (
     MigrationFoundationError,
     MigrationNotFoundError,
 )
+from impodo.domain.run.models import MigrationRunState
 from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.workspace.models import MigrationWorkspaceState
 from impodo.domain.workspace.workbench import SourceMode
@@ -27,6 +28,12 @@ from ..composition.page_reads import run_local_operation, run_page_read
 from ..context import WebContext
 from ..forms import _form_values, _revision, _secure_form, _text
 from ..presenters.common import _flash, _render
+from ..presenters.project_outcome import project_outcome_snapshot
+from ..presenters.project_overview import project_overview_action
+from ..presenters.project_saved_data import (
+    project_saved_data_overview,
+    saved_data_action,
+)
 from ..presenters.recipes import build_recipe_change_view, build_recipe_definition_view
 from ..request_identity import request_identity
 from ..security import require_session
@@ -322,6 +329,7 @@ def build_migration_projects_router(context: WebContext) -> APIRouter:
                 identity=identity,
                 error=str(error),
                 status_code=422,
+                recipe_workspace_id=_text(form, "workspace_id"),
             )
         if recipe_id is not None and published.revision.version == int(expected):
             message = (
@@ -413,6 +421,7 @@ def _render_project_overview(
     identity: ResolvedRequestIdentity,
     error: str | None = None,
     status_code: int = 200,
+    recipe_workspace_id: str = "",
 ):
     """Load bounded registry projections; never open one database per row."""
 
@@ -440,58 +449,109 @@ def _render_project_overview(
         item.data_version_id: item for item in data_versions
     }
     run_by_id = {item.migration_run_id: item for item in runs}
-    authoring_workspace = next(
-        iter(
-            sorted(
-                (
-                    item
-                    for item in workspaces
-                    if item.recipe_application_id is None
-                    and item.state is MigrationWorkspaceState.OPEN
-                    and data_version_by_id[item.data_version_id].purpose
-                    is DataVersionPurpose.AUTHORING
-                ),
-                key=lambda item: item.created_at,
-                reverse=True,
-            )
-        ),
-        None,
-    )
-    correction_journeys = context.corrections.list_for_project(
+    workspace_by_id = {item.workspace_id: item for item in workspaces}
+    saved_data_overview = project_saved_data_overview(
+        context,
         project_id,
-        actor=identity.actor,
+        workspace_ids=tuple(workspace_by_id),
+    )
+    if saved_data_overview and saved_data_overview.internal_workspace_ids:
+        workspaces = tuple(
+            item
+            for item in workspaces
+            if item.workspace_id not in saved_data_overview.internal_workspace_ids
+        )
+    authoring_workspaces = sorted(
+        (
+            item
+            for item in workspaces
+            if item.recipe_application_id is None
+            and data_version_by_id[item.data_version_id].purpose
+            is DataVersionPurpose.AUTHORING
+        ),
+        key=lambda item: (item.updated_at, item.created_at, item.workspace_id),
+        reverse=True,
+    )
+    open_authoring_workspaces = tuple(
+        item
+        for item in authoring_workspaces
+        if item.state is MigrationWorkspaceState.OPEN
+    )
+    authoring_workspace = next(iter(open_authoring_workspaces), None)
+    correction_journeys = context.corrections.project_overview_journeys(
+        project_id,
+        workspaces=workspace_by_id,
     )
     saved_workspace_ids = {item.completed_workspace_id for item in correction_journeys}
     saved_workspace_ids.update(
-        item.successor_workspace_id for item in correction_journeys
+        item.successor_workspace_id
+        for item in correction_journeys
         if item.completed and item.successor_workspace_id is not None
     )
-    recipe_sources = tuple(sorted(
-        (item for item in workspaces
-         if item.recipe_application_id is None
-         and data_version_by_id[item.data_version_id].purpose is DataVersionPurpose.AUTHORING
-         and (item.state is MigrationWorkspaceState.OPEN or item.workspace_id in saved_workspace_ids)),
-        key=lambda item: item.created_at, reverse=True,
-    ))
-    selected_recipe_workspace = request.query_params.get("recipe_workspace", "")
+    saved_load_workspaces = sorted(
+        (
+            item
+            for item in authoring_workspaces
+            if item.state is MigrationWorkspaceState.CLOSED
+            and (
+                item.workspace_id in saved_workspace_ids
+                or run_by_id[item.migration_run_id].state is MigrationRunState.COMPLETED
+            )
+        ),
+        key=lambda item: (item.closed_at or item.updated_at, item.workspace_id),
+        reverse=True,
+    )
+    recipe_sources = tuple(
+        item
+        for item in authoring_workspaces
+        if item.state is MigrationWorkspaceState.OPEN
+        or item.workspace_id in saved_workspace_ids
+    )
+    selected_recipe_workspace = recipe_workspace_id or request.query_params.get(
+        "recipe_workspace", ""
+    )
     recipe_source = next(
-        (item for item in recipe_sources if item.workspace_id == selected_recipe_workspace),
+        (
+            item
+            for item in recipe_sources
+            if item.workspace_id == selected_recipe_workspace
+        ),
         None,
-    ) if selected_recipe_workspace else authoring_workspace or next(iter(recipe_sources), None)
+    )
     if selected_recipe_workspace and recipe_source is None:
         error = "Choose an eligible rules source in this data project."
         status_code = 422
     authoring_data_version = (
-        next(
-            (
-                item
-                for item in data_versions
-                if item.data_version_id == authoring_workspace.data_version_id
-            ),
-            None,
-        )
-        if authoring_workspace is not None
+        data_version_by_id[authoring_workspace.data_version_id]
+        if authoring_workspace
         else None
+    )
+    completed_production_setups = (
+        context.production_runs.completed_activations(project_id, actor=identity.actor)
+        if production_bindings
+        else frozenset()
+    )
+
+    protected_results = identity.actor.has(Capability.PROTECTED_EVIDENCE_READ)
+    overview_action = project_overview_action(
+        project=project,
+        authoring_workspace=authoring_workspace,
+        authoring_data_version=authoring_data_version,
+        runs=runs,
+        workspaces=workspaces,
+        correction_journeys=correction_journeys,
+        test_bindings=test_bindings,
+        production_bindings=production_bindings,
+        completed_production_setups=completed_production_setups,
+        workspace_snapshot=lambda workspace_id: project_outcome_snapshot(
+            context,
+            workspace_by_id[workspace_id],
+            context.navigation.get_for_workspace(workspace_id, actor=identity.actor),
+            actor=identity.actor,
+        ),
+        draft_source=context.data_versions.repository.draft_source_summary,
+        active_jobs=context,
+        protected_results=protected_results,
     )
     recipe_draft = None
     recipe_recovery = None
@@ -518,15 +578,18 @@ def _render_project_overview(
         cutover_selection=cutover_selection,
         test_bindings=test_bindings,
         production_bindings=production_bindings,
-        completed_production_setups=(
-            context.production_runs.completed_activations(
-                project_id,
-                actor=identity.actor,
-            )
-            if production_bindings
-            else frozenset()
+        completed_production_setups=completed_production_setups,
+        open_authoring_workspaces=open_authoring_workspaces,
+        saved_load_workspaces=saved_load_workspaces if protected_results else (),
+        overview_action=saved_data_action(
+            overview_action, saved_data_overview, project
         ),
-        production_data_versions=data_version_by_id,
+        saved_data_overview=saved_data_overview,
+        odoo_source_workspace_id=(
+            authoring_workspace.workspace_id
+            if authoring_workspace and overview_action.source_mode is SourceMode.ODOO
+            else None
+        ),
         production_runs=run_by_id,
         authoring_workspace=authoring_workspace,
         authoring_data_version=authoring_data_version,

@@ -1,0 +1,20 @@
+{% if saved_data_overview and saved_data_overview.sets and not overview_action.featured_saved_set_id %}
+  <section class="form-card project-overview-section" aria-labelledby="project-saved-odoo-data-title">
+    <h2 id="project-saved-odoo-data-title">Saved Odoo data</h2>
+    <ul>
+      {% for item in saved_data_overview.sets %}
+        <li>
+          <a href="/projects/{{ project.project_id }}/saved-odoo-data?selected={{ item.saved_data_id }}">{{ item.label }}</a>
+          {% if item.latest_version %}
+            · Version {{ item.latest_version }} · Captured {{ item.captured_at.strftime('%d %b %Y %H:%M %Z') }}
+          {% else %}
+            · Configuration saved · No data captured yet
+          {% endif %}
+        </li>
+      {% endfor %}
+    </ul>
+    {% if saved_data_overview.has_more %}
+      <a class="button navigation" href="/projects/{{ project.project_id }}/saved-odoo-data">View saved sets</a>
+    {% endif %}
+  </section>
+{% endif %}

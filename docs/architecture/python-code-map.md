@@ -205,8 +205,10 @@ submitted values. `adapters/duckdb/execution_operator_errors.py` stores their
 hashed transport receipts beside the journal, through `ExecutionRepository`.
 `ExecutionService.operator_error` authorizes private reads before the execution
 router renders `workspace_load_error.html`. Routine diagnostics retain only
-availability and validated attribution; private business text stays outside
-their exports.
+availability and validated attribution. The operator can explicitly include
+one selected rejection in a diagnostic ZIP from that page. The diagnostic
+route checks the same workspace authority and exports only the saved message
+and submitted values for that selection.
 
 `application/workspace/execution/load_observation.py` carries a load attempt
 through the worker, journal, and transport. `web/load_diagnostics.py` and

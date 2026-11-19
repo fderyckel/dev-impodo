@@ -37,7 +37,7 @@ must use the major version qualified in Test.
 
 ![Production setup explains that the separate Production database uses the same Odoo major version as Test.](../../images/user/05e-production-setup.png)
 
-1. Open the data project and select **Start Production setup**.
+1. Open **Project actions** on the data project and select **Start Production setup**.
 2. Name the rollout and enter the latest export cutoff.
 3. Under **Fresh data**, add the complete latest file delivery and select
    **Check files and match tables**. Impodo matches the files against the saved
@@ -78,9 +78,8 @@ but they do not share mutable mappings, approvals, or results.
 ## What Complete means
 
 **Complete** on the readiness page means Impodo finished creating the
-Production Recipe work areas. The Project overview then shows **Setup complete**
-and directs you to continue review and load. Preparing the work areas does not
-load records into Odoo.
+Production Recipe work areas. On the project overview, select **Open Production
+run** to continue review and load.
 
 The rollout is complete only after every Recipe work area has its own approved
 comparison, controlled load, and verified reconciliation in dependency order.

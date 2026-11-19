@@ -6,6 +6,7 @@ from typing import Protocol
 
 from impodo.domain.project.foundation import FaultInjector, MigrationOperationIntent
 from impodo.domain.shared.access import Actor
+from impodo.domain.workspace.workbench import SourceMode
 
 from ...domain.data_version.models import DataVersion
 
@@ -41,6 +42,10 @@ class DataVersionRepository(Protocol):
     ) -> DataVersion: ...
 
     def list_data_versions(self, project_id: str) -> tuple[DataVersion, ...]: ...
+
+    def draft_source_summary(self, data_version: DataVersion) -> tuple[SourceMode, bool] | None:
+        """Return the selected source and whether files were added for the project overview."""
+        ...
 
     def save_data_version(
         self,

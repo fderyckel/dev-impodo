@@ -155,7 +155,13 @@ class MappingWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             "get_mapping_revision",
             side_effect=error,
         ):
-            project_page = self.client.get(f"/projects/{workspace.project_id}")
+            overview = self.client.get(f"/projects/{workspace.project_id}")
+            self.assertEqual(overview.status_code, 200)
+            self.assertNotIn("mapping contract v11", overview.text)
+            project_page = self.client.get(
+                f"/projects/{workspace.project_id}",
+                params={"recipe_workspace": workspace_id},
+            )
 
         self.assertEqual(project_page.status_code, 200, project_page.text)
         self.assertIn("mapping contract v11", project_page.text)

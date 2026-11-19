@@ -1,0 +1,12 @@
+{% if saved_data_overview %}
+  {% if odoo_source_workspace_id %}
+    {% if authoring_workspace.setup_state.value == 'DRAFT' %}
+      <a class="button action" href="/workspaces/{{ odoo_source_workspace_id }}/target">Set up saved Odoo data</a>
+    {% else %}
+      <a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data?source_workspace_id={{ odoo_source_workspace_id }}">Set up saved Odoo data</a>
+    {% endif %}
+  {% endif %}
+  {% if saved_data_overview.package_import_available %}
+    <a class="button action" href="/projects/{{ project.project_id }}/saved-odoo-data?task=import#import-saved-data">Import saved Odoo package</a>
+  {% endif %}
+{% endif %}

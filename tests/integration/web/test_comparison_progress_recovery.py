@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from dataclasses import replace
 from html.parser import HTMLParser
 from threading import Event
 from types import SimpleNamespace
@@ -21,7 +22,11 @@ from impodo.domain.odoo.contracts import (
     ConnectorRequestSizeError,
     ConnectorTransportError,
 )
-from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
+from tests.support.browser_scenarios import (
+    POST_HEADERS,
+    ProjectSetupBrowserTestCase,
+    _browser_schema,
+)
 from tests.support.database_probe import count_duckdb_statements
 from tests.support.source_forms import hidden_source_form_value
 
@@ -206,6 +211,94 @@ class ComparisonProgressRecoveryTests(ProjectSetupBrowserTestCase):
             "hidden",
             ProgressControls(page.text).controls["data-preflight-previous-review"][1],
         )
+
+    def test_comparison_saves_checked_odoo_changes_for_review(self):
+        context = self.app.state.context
+        manager = PreflightJobManager()
+        context.preflight_jobs = manager
+        self.addCleanup(manager.shutdown)
+
+        for major in (19, 20):
+            with self.subTest(odoo_major=major):
+                workspace, accepted = self._frozen_odoo_source_workspace(
+                    odoo_major=major, reviewed_database=True,
+                )
+                url = f"/workspaces/{workspace.workspace_id}"
+
+                def read_changed_fields(state):
+                    self.assertFalse(getattr(_read_databases, "connections", None))
+                    snapshot = _browser_schema(state, odoo_major=major)
+                    contacts = snapshot.models["res.partner"]
+                    fields = dict(contacts.fields)
+                    fields["ref"] = replace(fields["ref"], readonly=True)
+                    return replace(
+                        snapshot,
+                        models={"res.partner": replace(contacts, fields=fields)},
+                    )
+
+                with (
+                    patch.object(self, "schema_snapshot", side_effect=read_changed_fields) as read_fields,
+                    patch.object(context.preflight, "compare") as compare,
+                    patch.object(context.preflight, "comparison_input_hash", return_value="sha256:" + "1" * 64),
+                ):
+                    response = self.client.post(
+                        url + "/summary/compare",
+                        data={
+                            "csrf_token": self.csrf,
+                            "read_api_key": "replacement-read-key",
+                            "read_api_key_storage": "session",
+                        },
+                        headers=POST_HEADERS,
+                        follow_redirects=False,
+                    )
+                    self.assertEqual(response.status_code, 303, response.text)
+                    progress = response.headers["location"]
+                    deadline = time.monotonic() + 10
+                    while time.monotonic() < deadline:
+                        status = self.client.get(progress + "/status").json()
+                        if status["status"] not in {"QUEUED", "RUNNING"}:
+                            break
+                        time.sleep(0.005)
+                    else:
+                        self.fail("The Odoo comparison check did not finish")
+
+                    self.assertEqual(status["failure_code"], "ODOO_SCHEMA_CHANGES_NEED_REVIEW")
+                    action = url + "/schema#odoo-schema-changes"
+                    self.assertEqual(status["failure_action_href"], action)
+                    page = self.client.get(progress)
+                    self.assertIn("Impodo checked Odoo and found changes.", page.text)
+                    self.assertIn("Review Odoo changes", page.text)
+                    details = self.client.get(action)
+                    self.assertEqual(details.status_code, 200, details.text)
+                    self.assertIn('id="odoo-schema-changes"', details.text)
+                    self.assertIn("res.partner.ref", details.text)
+                    self.assertIn("Use updated Odoo details", details.text)
+                    current = context.queries.get_odoo_schema_catalog(workspace.workspace_id)
+                    pending = current.pending_refresh
+                    self.assertIsNotNone(pending)
+                    self.assertEqual(pending.odoo_version, f"{major}.0")
+                    self.assertEqual(current.content_hash, accepted.content_hash)
+                    self.assertEqual(
+                        current.read_credential_binding_hash, accepted.read_credential_binding_hash,
+                    )
+                    confirmed = self.client.post(
+                        url + "/schema/capture/confirm",
+                        data={
+                            "csrf_token": self.csrf,
+                            "confirm_schema_refresh": "1",
+                            "expected_current_content_hash": current.content_hash,
+                            "candidate_id": pending.candidate_id,
+                            "candidate_semantic_hash": pending.semantic_hash,
+                        },
+                        headers=POST_HEADERS,
+                        follow_redirects=False,
+                    )
+                    self.assertEqual(confirmed.status_code, 303, confirmed.text)
+                    current = context.queries.get_odoo_schema_catalog(workspace.workspace_id)
+                    self.assertIsNone(current.pending_refresh)
+                    self.assertEqual(current.content_hash, pending.content_hash)
+                    read_fields.assert_called_once()
+                    compare.assert_not_called()
 
     def test_retry_keeps_a_post_form_and_uses_a_new_operation(self):
         workspace_id, page, status, running = self.exercise(

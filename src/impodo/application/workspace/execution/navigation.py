@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass, replace
+from datetime import datetime
 
 from impodo.domain.execution_snapshot import ExecutionSnapshot
 from impodo.domain.preflight.reports import ReadinessReport
@@ -145,6 +146,10 @@ class ExecutionNavigationState:
     execution_run_id: str = ""
     execution_status: str = ""
     reconciliation_status: str = ""
+    reconciliation_id: str = ""
+    verified_at: datetime | None = None
+    target_database: str = ""
+    has_workbook_detail: bool = False
 
 
 @dataclass(frozen=True, slots=True)

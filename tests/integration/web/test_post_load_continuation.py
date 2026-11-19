@@ -208,6 +208,13 @@ class PostLoadContinuationTests(HierarchyWorkflowFixture):
                     report = self.context.reconciliation.current(workspace)
                     url = f"/workspaces/{workspace}/load/fallout.xlsx?verification={report.reconciliation_id}"
                     self.assertIn(url, outcome.text)
+                    owner = self.context.migration_workspaces.get(workspace, actor=self.actor)
+                    overview = self.client.get(f"/projects/{owner.project_id}")
+                    self.assertEqual(overview.status_code, 200, overview.text)
+                    self.assertIn("Load verified", overview.text)
+                    self.assertIn(f'href="/workspaces/{workspace}/load/outcome"', overview.text)
+                    self.assertIn(f'href="{url}"', overview.text)
+                    self.assertNotIn("next database reset", overview.text)
                     with (
                         collect_duckdb_request_timings() as timings,
                         count_duckdb_statements() as statements,

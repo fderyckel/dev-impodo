@@ -997,6 +997,15 @@ Create, update, relationship completion and completed-load correction use the
 same companion. Rejected parent transports retain their original receipt
 when continuation isolates children.
 
+**Create diagnostic bundle with Odoo error** reads one authorized saved receipt
+from the selected record's error page. The diagnostic ZIP identifies the
+selected execution run and adds `odoo-rejection.json`. Its messages retain
+Odoo's batch positions and field attribution, and its submitted values belong
+to the selected record. The route releases the local database owners before
+reading diagnostic logs and compressing the archive. The download uses
+`Cache-Control: no-store`. The standard download remains suitable for
+technical diagnosis without private submitted values.
+
 `GET /workspaces/{workspace_id}/load/errors/{run_id}/{row_id}` calls
 `ExecutionService.operator_error` after parent and protected-evidence
 authorization. Its single synchronous page operation reads only the requested
@@ -1057,6 +1066,9 @@ These are fixture results; they do not qualify a new live Odoo target or a
 restarted operator session.
 
 Prepared-data confirmation selects `RejectionPolicy.STOP` or `CONTINUE`.
+If submission fails before the load starts, the confirmation form keeps the
+selected policy and batch size. It displays the current comparison and leaves
+the loading key input empty.
 [`LoadControl`](../../../src/impodo/domain/execution/load_control.py) owns the
 versioned failure windows and durable pause/stop state.
 [`create_transport_results`](../../../src/impodo/application/workspace/execution/load_transport.py)
@@ -1064,6 +1076,13 @@ isolates only confirmed rollback rejections through journal callbacks. The
 [`DuckDB companion repository`](../../../src/impodo/adapters/duckdb/execution_load_control.py) retains original rejected transports, control
 history and guarded continuation without rewriting historical row JSON.
 Old runs, transfers and completed-load correction keep their strict policy.
+
+When a created product supplies a generated variant to a BOM line, the writer
+uses the line's frozen dependency to decide whether it can proceed. With
+continuation selected, a rejected product blocks its own consumers. The writer
+still reads and journals the variants required by independent lines. The
+[product and BOM regression tests](../../../tests/application/workspace/execution/test_projected_rejection.py)
+check both the successful variant reads and the outcome of an incomplete read.
 
 `POST /workspaces/{workspace_id}/load/stop` verifies the session and CSRF token,
 then calls `ExecutionService.request_stop` inside one synchronous local command.

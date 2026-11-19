@@ -349,6 +349,12 @@ class SavedOdooDataRefreshLifecycleTests(ProjectSetupBrowserTestCase):
                 self.assertEqual(second.version_number, 2)
                 self.assertNotEqual(second.workspace_id, first.workspace_id)
                 self.assertEqual(
+                    service.repository.internal_capture_workspaces(
+                        definition.project_id, (first.workspace_id, second.workspace_id)
+                    ),
+                    {second.workspace_id},
+                )
+                self.assertEqual(
                     service.repository.get_version(
                         definition.project_id, definition.saved_data_id, 1
                     ),

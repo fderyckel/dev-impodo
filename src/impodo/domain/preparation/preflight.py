@@ -37,6 +37,7 @@ from impodo.domain.mapping.source_record_identity import (
     source_record_external_ids,
 )
 from impodo.domain.odoo.contracts import MetadataSnapshot, RecordSnapshot
+from impodo.domain.odoo.website import matches_default_contact_website
 from impodo.domain.preparation.canonical import (
     ValueParseError,
     parse_value,
@@ -1256,7 +1257,10 @@ def _compare_record(
                 )
             )
             continue
-        if not values_equal(proposed, existing, spec.null_policy):
+        if not (
+            values_equal(proposed, existing, spec.null_policy)
+            or matches_default_contact_website(target.model, field_name, proposed, existing)
+        ):
             if spec.compare_only:
                 issues.append(
                     Issue(

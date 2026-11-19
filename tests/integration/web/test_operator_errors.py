@@ -1,19 +1,25 @@
 """Review private saved errors through the authorized outcome page."""
 
 import asyncio
+import json
 from dataclasses import replace
+from io import BytesIO
+from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 from unittest.mock import patch
+from zipfile import ZipFile
 
 from impodo.adapters.duckdb.request_timing import collect_duckdb_request_timings
+from impodo.adapters.duckdb.unit_of_work import _read_databases
 from impodo.domain.execution.models import ExecutionRowAttempt, ExecutionRowStatus
 from impodo.domain.execution.operator_errors import (
     OperatorErrorReceipt,
     capture_operator_error,
 )
 from impodo.domain.shared.access import Actor, ActorIdentity, Capability
-from tests.support.browser_scenarios import ProjectSetupBrowserTestCase
+from impodo.web.diagnostics import LocalDiagnosticRecorder, create_diagnostic_bundle
+from tests.support.browser_scenarios import POST_HEADERS, ProjectSetupBrowserTestCase
 from tests.support.identity import resolve_local_actor
 
 
@@ -35,6 +41,87 @@ class OperatorErrorBrowserTests(ProjectSetupBrowserTestCase):
             status=ExecutionRowStatus.FAILED,
         )
         self.url = f"/workspaces/{self.workspace.workspace_id}/load/errors/11111111-1111-4111-8111-111111111111/{self.row.row_id}"
+
+    def test_explicit_diagnostic_download_includes_only_selected_rejection(self):
+        recorder = LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")
+        self.app.state.diagnostic_recorder = recorder
+        self.addCleanup(recorder.close)
+        row = replace(self.row, operation="UPDATE", field_names=("parent_id",))
+        detail = capture_operator_error(
+            [
+                {"type": "error", "message": "Fictional company link rejected", "field": "parent_id", "rows": {"from": 0, "to": 0}},
+                {"type": "error", "message": "Fictional batch rule"},
+                {"type": "error", "message": "Peer-only explanation", "rows": {"from": 1, "to": 1}},
+                {"type": "error", "message": "Traceback: protected internal exception"},
+            ],
+            ({"parent_id": 918273645, "token": "synthetic-secret"}, {"parent_id": 923456789}),
+        )
+        receipt = OperatorErrorReceipt("sha256:" + "1" * 64, (row.row_id, "other"), detail)
+        run_id = "11111111-1111-4111-8111-111111111111"
+        form = {"csrf_token": self.csrf, "workspace_id": self.workspace.workspace_id}
+        selected = {**form, "run_id": run_id, "row_id": row.row_id}
+
+        def build_bundle(*args, **kwargs):
+            self.assertFalse(getattr(_read_databases, "connections", None))
+            return create_diagnostic_bundle(*args, **kwargs)
+
+        with (
+            patch.object(
+                type(self.context.execution.journal), "operator_error_for_row",
+                return_value=(row, receipt),
+            ) as read,
+            patch("impodo.web.routers.lifecycle.create_diagnostic_bundle", side_effect=build_bundle),
+        ):
+            page = self.client.get(self.url)
+            self.assertIn("Create diagnostic bundle with Odoo error", page.text)
+            read.reset_mock()
+            standard = self.client.post("/diagnostics/bundle", data=form, headers=POST_HEADERS)
+            self.assertEqual(standard.status_code, 200, standard.text)
+            missing_opt_in = self.client.post("/diagnostics/bundle", data=selected, headers=POST_HEADERS)
+            self.assertEqual(missing_opt_in.status_code, 422)
+            read.assert_not_called()
+            with collect_duckdb_request_timings() as timings:
+                response = self.client.post(
+                    "/diagnostics/bundle",
+                    data={**selected, "include_odoo_error": "1"},
+                    headers=POST_HEADERS,
+                )
+            read.assert_called_once_with(self.workspace.workspace_id, run_id, row.row_id)
+            self.assertLessEqual(timings.connection_count, 6)
+            self.assertLessEqual(timings.schema_check_count, 6)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertIn("-with-odoo-error.zip", response.headers["content-disposition"])
+        member = "odoo-rejection.json"
+        with ZipFile(BytesIO(standard.content)) as archive:
+            self.assertNotIn(member, archive.namelist())
+            for name in archive.namelist():
+                self.assertNotIn(b"918273645", archive.read(name))
+                self.assertNotIn(b"Fictional company link rejected", archive.read(name))
+        with ZipFile(BytesIO(response.content)) as archive:
+            self.assertIn(member, archive.read("diagnosis.md").decode())
+            self.assertEqual(
+                json.loads(archive.read("manifest.json"))["load_evidence"]["private_rejection_member"],
+                member,
+            )
+            error = json.loads(archive.read(member))
+            self.assertEqual(error["execution_run_id"], run_id)
+            self.assertEqual(error["source_row"], row.source_row)
+            self.assertEqual(error["selected_batch_position"], 1)
+            self.assertEqual(error["transport_batch_size"], 2)
+            self.assertEqual(error["submitted_values_for_selected_record"], {"parent_id": "918273645", "token": "[protected]"})
+            self.assertEqual(
+                [(item["explanation"], item["reported_fields"], item["applies_to_selected_record"]) for item in error["odoo_messages"]],
+                [("Fictional company link rejected", ["parent_id"], True), ("Fictional batch rule", [], False)],
+            )
+            self.assertTrue(error["detail_withheld"])
+            for name in archive.namelist():
+                encoded = archive.read(name)
+                self.assertNotIn(b"Peer-only explanation", encoded)
+                self.assertNotIn(b"923456789", encoded)
+                self.assertNotIn(b"synthetic-secret", encoded)
+                self.assertNotIn(b"protected internal exception", encoded)
 
     def test_saved_explanation_is_escaped_and_reopening_does_not_read_current_source(
         self,
@@ -145,8 +232,22 @@ class OperatorErrorBrowserTests(ProjectSetupBrowserTestCase):
             ) as read,
         ):
             page = self.client.get(self.url)
-        self.assertEqual(page.status_code, 403, page.text)
-        read.assert_not_called()
+            self.assertEqual(page.status_code, 403, page.text)
+            recorder = LocalDiagnosticRecorder(Path(self.temporary.name) / "diagnostics")
+            self.app.state.diagnostic_recorder = recorder
+            self.addCleanup(recorder.close)
+            download = self.client.post(
+                "/diagnostics/bundle",
+                data={
+                    "csrf_token": self.csrf, "include_odoo_error": "1",
+                    "workspace_id": self.workspace.workspace_id,
+                    "run_id": "11111111-1111-4111-8111-111111111111",
+                    "row_id": self.row.row_id,
+                },
+                headers=POST_HEADERS,
+            )
+            self.assertEqual(download.status_code, 403, download.text)
+            read.assert_not_called()
 
     def test_rejection_list_renders_one_page_and_keeps_next_attempt_binding(self):
         run_id = "11111111-1111-4111-8111-111111111111"

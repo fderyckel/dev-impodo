@@ -59,7 +59,7 @@ class OdooTransferJourneyBrowserTests(ProjectSetupBrowserTestCase):
         )
         project_page = self.client.get(created.headers["location"])
         self.assertIn(
-            f'href="/workspaces/{workspace_id}/overview"',
+            f'href="/workspaces/{workspace_id}/target"',
             project_page.text,
         )
         target_page = self.client.get(f"/workspaces/{workspace_id}/target")

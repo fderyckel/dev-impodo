@@ -3,6 +3,7 @@ from __future__ import annotations
 from threading import Event
 import time
 import unittest
+from unittest.mock import Mock
 
 from impodo.application.odoo_read_failures import OdooReadFailureCode
 from impodo.application.preflight_jobs import (
@@ -43,6 +44,15 @@ def _wait_for_terminal(manager: PreflightJobManager, job_id: str):
 
 
 class PreflightJobManagerTests(unittest.TestCase):
+    def test_project_resume_checks_live_jobs_without_scanning_durable_history(self) -> None:
+        store = Mock()
+        store.list_pending_preflight_comparisons.return_value = ()
+        manager = PreflightJobManager(store)
+        self.assertIsNone(manager.active(WORKSPACE_ID, session_only=True))
+        store.list_pending_preflight_comparisons.assert_not_called()
+        self.assertIsNone(manager.active(WORKSPACE_ID))
+        store.list_pending_preflight_comparisons.assert_called_once_with()
+
     def test_reuses_one_active_attempt_and_binds_workspace_access(self) -> None:
         manager = PreflightJobManager()
         started = Event()

@@ -79,6 +79,11 @@ from impodo.domain.mapping.contracts import (
     TargetFieldHandling,
     ValueMapping,
 )
+from impodo.domain.odoo_database_binding import (
+    OdooDatabaseBinding,
+    OdooDatabaseBindingRole,
+    database_scope_hash,
+)
 from impodo.domain.mapping.validation.evidence import (
     MappingValidationStatus,
     mapping_issue_fingerprint,
@@ -97,7 +102,10 @@ from impodo.domain.odoo_source_capture import (
     OdooCapturePage,
     OdooCaptureValueColumn,
 )
-from impodo.domain.odoo_source_policy import ODOO_SOURCE_POLICY_HASH
+from impodo.domain.odoo_source_policy import (
+    ODOO_SOURCE_POLICY_HASH,
+    odoo_source_policy_hash,
+)
 from impodo.domain.preparation.quality import (
     QualityOutcomePolicy,
     QualityOwnerRole,
@@ -374,7 +382,7 @@ def _csrf(html: str) -> str:
         raise AssertionError("CSRF token not found")
     return matched.group(1)
 
-def _browser_schema(workspace_state) -> MetadataSnapshot:
+def _browser_schema(workspace_state, *, odoo_major: int = 19) -> MetadataSnapshot:
     return MetadataSnapshot(
         fingerprint=TargetFingerprint(
             target_hash=target_identity_hash(
@@ -384,9 +392,9 @@ def _browser_schema(workspace_state) -> MetadataSnapshot:
             ),
             connection_mode=workspace_state.odoo_connection_mode.value,
             database=workspace_state.odoo_database,
-            odoo_version="19.0",
+            odoo_version=f"{odoo_major}.0",
             snapshot_timestamp="2026-07-29T12:00:00Z",
-            module_versions={"base": "19.0.1.0"},
+            module_versions={"base": f"{odoo_major}.0.1.0"},
         ),
         models={
             "res.partner": ModelMetadata(
@@ -486,7 +494,9 @@ class _BrowserOdooCaptureGateway:
 
     def probe_schema(self, request, context, *, cancellation=None):
         self.calls.append("schema")
-        return _browser_schema(self.workspace_state)
+        return _browser_schema(
+            self.workspace_state, odoo_major=int(self.schema.odoo_version.split(".")[0])
+        )
 
     def open_capture(self, request, context, *, cancellation=None):
         self.calls.append("open")
@@ -911,6 +921,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         self.read_identity_calls: list[tuple[str, str, tuple[str, ...]]] = []
         self.readiness_calls = []
         self.local_odoo_reader = MagicMock(spec=LocalOdooMetadataReader)
+        self.schema_snapshot = _browser_schema
 
         def connection_tester(workspace_state, api_key):
             self.connection_calls.append(
@@ -920,7 +931,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
 
         def schema_reader(workspace_state, api_key):
             self.schema_calls.append((workspace_state.workspace_id, api_key))
-            return _browser_schema(workspace_state)
+            return self.schema_snapshot(workspace_state)
 
         def model_catalog_reader(workspace_state, api_key):
             self.model_catalog_calls.append((workspace_state.workspace_id, api_key))
@@ -1040,7 +1051,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             context.read_identity_probe,
         )
 
-    def _registered_remote_schema_workspace(self):
+    def _registered_remote_schema_workspace(self, *, odoo_major: int = 19):
         context = self.app.state.context
         created = self.workspaces.create(
             name="Remote summary recovery",
@@ -1056,11 +1067,13 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             database="production",
             intended_models=("res.partner",),
         )
-        snapshot = _browser_schema(workspace_state)
+        snapshot = _browser_schema(workspace_state, odoo_major=odoo_major)
+        policy_hash = odoo_source_policy_hash(odoo_major)
+        assert policy_hash is not None
         model = snapshot.models["res.partner"]
         schema = OdooSchemaCatalog(
             workspace_id=workspace_state.workspace_id,
-            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            policy_hash=policy_hash,
             captured_at=now,
             captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=workspace_state.odoo_connection_mode.value,
@@ -1108,7 +1121,7 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         model_catalog = OdooModelCatalog(
             workspace_id=workspace_state.workspace_id,
             connection_target_hash=snapshot.fingerprint.target_hash,
-            policy_hash=ODOO_SOURCE_POLICY_HASH,
+            policy_hash=policy_hash,
             captured_at=now,
             captured_by=resolve_local_actor(context).identity.display_name,
             connection_mode=workspace_state.odoo_connection_mode.value,
@@ -1140,11 +1153,38 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
         )
         return workspace_state, schema
 
-    def _frozen_odoo_source_workspace(self):
+    def _frozen_odoo_source_workspace(
+        self, *, odoo_major: int = 19, reviewed_database: bool = False,
+    ):
         """Create one registered workspace with fictional frozen Odoo data."""
 
-        workspace_state, schema = self._registered_remote_schema_workspace()
+        workspace_state, schema = self._registered_remote_schema_workspace(
+            odoo_major=odoo_major,
+        )
         workspace_id = workspace_state.workspace_id
+        context = self.app.state.context
+        if reviewed_database:
+            actor = resolve_local_actor(context)
+            owner = context.migration_workspaces.get(workspace_id, actor=actor)
+            scope_hash = database_scope_hash(
+                workspace_state.odoo_base_url, workspace_state.odoo_database,
+            )
+            repository = context.odoo_database_bindings.repository
+            generation = repository.current("impodo-local", scope_hash)
+            repository.bind(
+                OdooDatabaseBinding(
+                    workspace_id=workspace_id,
+                    project_id=owner.project_id,
+                    organization_id=generation.organization_id,
+                    role=OdooDatabaseBindingRole.SOURCE,
+                    scope_hash=scope_hash,
+                    generation_hash=generation.generation_hash,
+                    actor=actor.identity,
+                    bound_at=datetime.now(timezone.utc),
+                    operation_id=str(uuid4()),
+                ),
+                expected_generation_hash=generation.generation_hash,
+            )
         saved_plan = self._post(
             f"/workspaces/{workspace_id}/sources/odoo-selection",
             {
@@ -1157,7 +1197,6 @@ class ProjectSetupBrowserTestCase(unittest.TestCase):
             },
         )
         self.assertEqual(saved_plan.status_code, 303, saved_plan.text)
-        context = self.app.state.context
         publication = context.odoo_capture_publication.publish(
             workspace_id,
             _BrowserOdooCaptureGateway(workspace_state, schema),

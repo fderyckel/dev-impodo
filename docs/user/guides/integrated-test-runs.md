@@ -24,7 +24,7 @@ evidence.
 
 ## Steps in Impodo
 
-1. Open the data project and select **Test with new data**.
+1. Open **Project actions** on the data project and select **Test with new data**.
 2. Select the exact saved Recipe versions to test.
 3. Under **Required order**, select a dependency only when one Recipe must
    finish and reconcile before another can begin.

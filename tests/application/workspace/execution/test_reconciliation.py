@@ -1233,6 +1233,72 @@ class ReconciliationServiceTests(unittest.TestCase):
         self.assertEqual(contact.differing_fields, ("email",))
         self.assertNotIn("different@example.test", report.to_json())
 
+    def test_contact_website_recheck_accepts_the_default_scheme_on_both_majors(self):
+        for major in (19, 20):
+            with self.subTest(major=major):
+                snapshot = _snapshot()
+                contact = replace(
+                    snapshot.rows[-1],
+                    fields=(FieldIntent("website", "SET_VALUE", "example.test"),),
+                )
+                snapshot = replace(
+                    snapshot,
+                    target_odoo_version=f"{major}.0",
+                    target_module_versions={"base": f"{major}.0.1.0"},
+                    rows=(*snapshot.rows[:-1], contact),
+                )
+                run = _run(snapshot)
+                service, results = self._service(snapshot, run)
+                reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+                values = reader.records[("res.partner", 50)]
+                values["website"] = "https://example.test"
+                first = service.reconcile(
+                    snapshot.workspace_id,
+                    expected_execution_run_id=run.run_id,
+                    reader=reader,
+                    actor=LOCAL_ACTOR,
+                )
+                self.assertEqual(first.rows[-1].differing_fields, ("website",))
+                values["website"] = "http://example.test"
+                rechecked = service.reverify(
+                    snapshot.workspace_id,
+                    expected_execution_run_id=run.run_id,
+                    reader=reader,
+                    actor=LOCAL_ACTOR,
+                )
+                self.assertNotEqual(first.reconciliation_id, rechecked.reconciliation_id)
+                self.assertEqual(rechecked.status, ReconciliationRunStatus.VERIFIED)
+                self.assertEqual(rechecked.rows[-1].differing_fields, ())
+                self.assertEqual(results.report, rechecked)
+
+    def test_rejected_update_with_a_known_id_is_reported_from_the_journal(self):
+        snapshot = _snapshot()
+        run = _run(snapshot)
+        rejected = replace(
+            run.rows[-1], status=ExecutionRowStatus.FAILED, safe_error="Country rejected."
+        )
+        run = replace(
+            run, status=ExecutionRunStatus.COMPLETED_WITH_ERRORS,
+            rows=(*run.rows[:-1], rejected),
+        )
+        service, _results = self._service(snapshot, run)
+        reader = _Reader(execution_api_scope(snapshot).semantic_hash)
+        reader.records[("res.partner", 50)]["email"] = "previous@example.test"
+
+        report = service.reconcile(
+            snapshot.workspace_id,
+            expected_execution_run_id=run.run_id,
+            reader=reader,
+            actor=LOCAL_ACTOR,
+        )
+
+        self.assertEqual(report.status, ReconciliationRunStatus.FALLOUT)
+        self.assertEqual(report.rows[-1].odoo_id, 50)
+        self.assertEqual(report.rows[-1].status, ReconciliationRowStatus.NOT_WRITTEN)
+        self.assertEqual(report.rows[-1].message, "Country rejected.")
+        self.assertEqual(report.rows[-1].differing_fields, ())
+        self.assertFalse(any(model == "res.partner" for model, *_ in reader.reads))
+
     def test_reports_a_missing_external_id_as_fallout(self):
         snapshot = _snapshot()
         run = _run(snapshot)

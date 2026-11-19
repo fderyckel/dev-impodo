@@ -10,6 +10,7 @@ from impodo.domain.odoo_saved_data import (
     SavedOdooDataVersion,
     SavedOdooRestoreBinding,
     SavedOdooRestoreProfile,
+    SavedOdooSetSummary,
 )
 
 
@@ -30,6 +31,14 @@ class SavedOdooDataRepository(Protocol):
     def list_definitions(
         self, project_id: str, *, limit: int = 100, offset: int = 0
     ) -> tuple[SavedOdooDataDefinition, ...]: ...
+
+    def list_set_summaries(
+        self, project_id: str, *, limit: int
+    ) -> tuple[SavedOdooSetSummary, ...]: ...
+
+    def internal_capture_workspaces(
+        self, project_id: str, workspace_ids: tuple[str, ...]
+    ) -> frozenset[str]: ...
 
     def save_definition(
         self,

@@ -309,10 +309,11 @@ sequence above for an Odoo-to-Odoo workspace.
    (.xlsx)** to save the original data with a verification summary. This also
    works after you close and reopen Impodo. Use **Create review workbook** or
    **Download review workbook** to save the comparison used for the load.
-8. Review reconciliation when any row cannot be verified. A read-back
-   difference means Odoo accepted the record but stored at least one different
-   value; it does not mean that Odoo rejected the row. Use **See the different
-   values** to filter by field or find a prepared row, Odoo record, or value.
+8. Review reconciliation when any row cannot be verified. Use **Review rejected
+   records** to see why Odoo declined a write. Use **See the different values**
+   to inspect the values Odoo returned after a write. For example, Impodo
+   accepts `http://www.example.test` when Odoo adds the default scheme to the
+   prepared Contact website `www.example.test`.
    For a BOM line, the card also shows the reviewed BOM and component keys.
    Compare the prepared and Odoo values and read **What to check** before
    deciding whether the change matters. When a BOM line's prepared Sequence is
@@ -362,6 +363,13 @@ update with a validation error, Impodo saves that rejection for review and
 sends the next independent contact update. Previously accepted records remain
 in Odoo.
 
+The same choice applies when one group contains several kinds of data error.
+For example, if one product is missing a required value and another has a
+duplicate code, Impodo can set both aside and load the other products. A
+bill of materials line that needs a rejected product stays blocked. Lines
+for successfully created products can still load once Impodo confirms their
+variants in Odoo.
+
 Impodo pauses after ten consecutive record rejections for one record type and
 operation, or a rejection rate of at least 20% after twenty settled records in
 the latest fifty results. It also limits attempts to isolate a bad batch when
@@ -410,9 +418,15 @@ The private page retains the failed attempt's values when you return later.
 It identifies missing or shortened detail. Older attempts may have no saved
 explanation; discarded text cannot be recovered from the code. Use **Review
 Match data** when offered to review the authoring rules, or review the source
-or destination rule named by Odoo. The support bundle includes technical
-details about the failed operation and excludes these private explanations
-and submitted values.
+or destination rule named by Odoo.
+
+For help with a specific rejection, open **Review Odoo error** and select
+**Create diagnostic bundle with Odoo error**. The download includes
+`odoo-rejection.json` with the saved explanation and the values sent for the
+selected record. The file identifies which messages apply to the record
+and which describe the batch. Review the
+explanation and values before sharing the ZIP. Use **Create diagnostic
+bundle** for a standard download with technical details about the failure.
 
 If the load stops unexpectedly, use **Create diagnostic bundle** beside its
 **Support reference**. Share the ZIP with your support engineer or AI agent.

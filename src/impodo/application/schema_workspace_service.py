@@ -761,35 +761,8 @@ class SchemaWorkspaceService:
                 pending_refresh=None,
             )
         else:
-            changes = _schema_refresh_changes(current, candidate_catalog)
-            pending = OdooSchemaRefreshCandidate(
-                candidate_id=str(uuid4()),
-                checked_at=checked_at,
-                checked_by=actor.identity.display_name,
-                expected_current_content_hash=current.content_hash,
-                semantic_hash=candidate_semantic_hash,
-                connection_target_hash=candidate_catalog.connection_target_hash,
-                policy_hash=candidate_catalog.policy_hash,
-                connection_mode=candidate_catalog.connection_mode,
-                database=candidate_catalog.database,
-                odoo_version=candidate_catalog.odoo_version,
-                models=candidate_catalog.models,
-                content_hash=candidate_catalog.content_hash,
-                origin=candidate_catalog.origin,
-                read_credential_binding_hash=(
-                    candidate_catalog.read_credential_binding_hash
-                ),
-                read_principal_hash=candidate_catalog.read_principal_hash,
-                read_permission_hash=candidate_catalog.read_permission_hash,
-                read_context_hash=candidate_catalog.read_context_hash,
-                change_count=len(changes),
-                changes=changes[:_MAX_SCHEMA_REFRESH_CHANGES],
-            )
-            checked = replace(
-                current,
-                last_checked_at=checked_at,
-                last_checked_by=actor.identity.display_name,
-                pending_refresh=pending,
+            checked = _schema_with_pending_refresh(
+                current, candidate_catalog, candidate_semantic_hash,
             )
         self.schemas.save_odoo_schema_check(
             workspace_id,
@@ -1214,11 +1187,13 @@ class SchemaWorkspaceService:
         workspace_id: str,
         snapshot: MetadataSnapshot,
         *,
+        expected_catalog: OdooSchemaCatalog,
         read_credential_binding_hash: str,
         read_identity: OdooReadIdentity,
+        review_changes: bool,
         actor: Actor,
     ) -> OdooSchemaCatalog:
-        """Rebind a new read-key generation only after semantic equivalence.
+        """Rebind equivalent access or save verified changes for authoring review.
 
         A credential envelope receives a new random binding whenever a key is
         entered. Re-entry alone must not invalidate approved mapping or prepared
@@ -1236,33 +1211,15 @@ class SchemaWorkspaceService:
             raise WorkspaceError("Capture the Odoo schema before reconnecting read access")
         if current.origin is not SchemaOrigin.LIVE_API:
             raise WorkspaceError("Refresh the live Odoo schema before reconnecting read access")
+        if current != expected_catalog:
+            raise WorkspaceError("Odoo details changed while the current key was being checked")
         # Recipe applications inherit captured evidence without Authoring
         # registration. Reconnection verifies that existing evidence only.
         permitted = {model.name for model in current.models}
         if not permitted or not permitted.issubset(workspace_state.intended_models):
             raise WorkspaceError("The permitted Odoo model scope changed; review the connection")
         _validate_read_credential_binding_hash(read_credential_binding_hash)
-        if not snapshot.complete:
-            raise WorkspaceError("Odoo schema response is incomplete")
-        if set(snapshot.models) != permitted:
-            raise WorkspaceError(
-                "Odoo schema response does not match permitted models"
-            )
-        if snapshot.fingerprint.target_hash != _target_identity_hash(workspace_state):
-            raise WorkspaceError("Odoo schema target does not match the project")
-        if (
-            snapshot.fingerprint.connection_mode
-            != workspace_state.odoo_connection_mode.value
-        ):
-            raise WorkspaceError(
-                "Odoo schema connection mode does not match the project"
-            )
-        if snapshot.fingerprint.database != workspace_state.odoo_database:
-            raise WorkspaceError("Odoo schema database does not match the project")
-        if not assess_odoo_operation(
-            snapshot.fingerprint.odoo_version, OdooOperation.CAPTURE_SCHEMA,
-        ).allowed:
-            raise WorkspaceError("Odoo schema capture requires a supported Odoo version")
+        self._validate_live_snapshot_scope(workspace_state, permitted, snapshot)
         identity_hashes = _validate_read_identity(
             workspace_state,
             read_identity,
@@ -1286,16 +1243,19 @@ class SchemaWorkspaceService:
             identity_hashes=identity_hashes,
             actor=actor,
         )
-        semantic_access_matches = (
-            _schema_semantic_hash(current) == _schema_semantic_hash(candidate)
-        )
-        if not semantic_access_matches:
-            raise WorkspaceError(
-                "The available Odoo fields or read access changed. Impodo kept "
-                "your saved matching and prepared data unchanged. Review the "
-                "Odoo connection before comparing again. Nothing was changed "
-                "in Odoo."
+        candidate_semantic_hash = _schema_semantic_hash(candidate)
+        if _schema_semantic_hash(current) != candidate_semantic_hash:
+            if not review_changes:
+                raise WorkspaceError("The available Odoo fields or read access changed")
+            checked = _schema_with_pending_refresh(current, candidate, candidate_semantic_hash)
+            self.schemas.save_odoo_schema_check(
+                workspace_id,
+                checked,
+                expected_content_hash=current.content_hash,
+                expected_read_credential_binding_hash=current.read_credential_binding_hash,
+                actor=actor,
             )
+            return checked
         rebound = replace(
             current,
             captured_at=datetime.now(UTC),
@@ -1995,6 +1955,41 @@ def _optional_field_refresh_problem(
     ):
         return "Review the new required fields on Odoo data."
     return ""
+
+
+def _schema_with_pending_refresh(
+    current: OdooSchemaCatalog,
+    candidate: OdooSchemaCatalog,
+    semantic_hash: str,
+) -> OdooSchemaCatalog:
+    """Keep verified changes available without replacing the accepted schema."""
+    changes = _schema_refresh_changes(current, candidate)
+    return replace(
+        current,
+        last_checked_at=candidate.captured_at,
+        last_checked_by=candidate.captured_by,
+        pending_refresh=OdooSchemaRefreshCandidate(
+            candidate_id=str(uuid4()),
+            checked_at=candidate.captured_at,
+            checked_by=candidate.captured_by,
+            expected_current_content_hash=current.content_hash,
+            semantic_hash=semantic_hash,
+            connection_target_hash=candidate.connection_target_hash,
+            policy_hash=candidate.policy_hash,
+            connection_mode=candidate.connection_mode,
+            database=candidate.database,
+            odoo_version=candidate.odoo_version,
+            models=candidate.models,
+            content_hash=candidate.content_hash,
+            origin=candidate.origin,
+            read_credential_binding_hash=candidate.read_credential_binding_hash,
+            read_principal_hash=candidate.read_principal_hash,
+            read_permission_hash=candidate.read_permission_hash,
+            read_context_hash=candidate.read_context_hash,
+            change_count=len(changes),
+            changes=changes[:_MAX_SCHEMA_REFRESH_CHANGES],
+        ),
+    )
 
 
 def _schema_refresh_changes(

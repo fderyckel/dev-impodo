@@ -138,6 +138,8 @@ from .request_identity import RequestIdentityResolver
 if TYPE_CHECKING:
     from impodo.adapters.odoo.local_reader import LocalOdooMetadataReader
     from impodo.adapters.odoo.local_stack import LocalStackService
+    from impodo.domain.execution.models import ExecutionRowAttempt
+    from impodo.domain.execution.operator_errors import OperatorErrorReceipt
 
     from .diagnostic_settings import DiagnosticSettingsSnapshot
 
@@ -225,6 +227,9 @@ class LifecycleRouteContext:
     launch_token: str
     identity_resolver: RequestIdentityResolver
     settings_capture: Callable[[str, Actor], DiagnosticSettingsSnapshot]
+    read_operator_error: Callable[
+        [str, str, str, Actor], tuple[ExecutionRowAttempt, OperatorErrorReceipt | None]
+    ]
 
 
 @dataclass(frozen=True, slots=True)

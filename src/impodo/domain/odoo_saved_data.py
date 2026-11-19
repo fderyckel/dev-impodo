@@ -74,6 +74,16 @@ def _canonical_config(encoded: str) -> str:
 
 
 @dataclass(frozen=True, slots=True)
+class SavedOdooSetSummary:
+    """Show one configured set and its latest complete capture on a project."""
+
+    saved_data_id: str
+    label: str
+    latest_version: int | None
+    captured_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
 class SavedOdooDataDefinition:
     """Keep one source database/company configuration and its current version."""
 

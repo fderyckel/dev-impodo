@@ -167,7 +167,7 @@ class LoadWorkflowBrowserTests(ProjectSetupBrowserTestCase):
             reconciliation.status.value = "FALLOUT"
             reconciliation.unknown_count = 0
             reconciliation.rows = (row("VERIFIED", "COMMITTED", 1, 41),
-                row("NOT_WRITTEN", "FAILED", 2), row("NOT_WRITTEN", "BLOCKED", 3))
+                row("NOT_WRITTEN", "FAILED", 2, 42), row("NOT_WRITTEN", "BLOCKED", 3))
             with collect_duckdb_request_timings() as timings:
                 failed_page = self.client.get(f"/workspaces/{workspace_state.workspace_id}/load/outcome")
 

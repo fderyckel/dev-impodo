@@ -78,7 +78,7 @@ class FalloutWorkbookDownloadTests(ProjectSetupBrowserTestCase):
         lookup = replace(dataset, dataset_id="lookup", name="Lookup", source=replace(dataset.source, file_id="lookup-file"))
         selection = SourceSelection("selected", 1, "data-1", datetime.now(UTC), "Tester", (dataset, lookup), HASH)
         join = ExactJoinRule(
-            str(uuid4()), "Combined", dataset.dataset_id, lookup.dataset_id,
+            str(uuid4()), "combined", dataset.dataset_id, lookup.dataset_id,
             (JoinKey("column:code", "column:code"),),
             (StructuralOutputColumn("combined:code", "Code", "string"), StructuralOutputColumn("combined:name", "Name", "string")),
             (StructuralProjection("combined:code", lookup.dataset_id, "column:code"), StructuralProjection("combined:name", dataset.dataset_id, "column:name")),

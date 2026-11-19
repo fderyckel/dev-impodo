@@ -218,12 +218,15 @@ class LoadControl:
         )
 
 
+DATA_REJECTION_CODES = frozenset({
+    WriteFailureCode.REQUIRED_VALUE,
+    WriteFailureCode.RELATED_RECORD,
+    WriteFailureCode.CONSTRAINT,
+    WriteFailureCode.COMPANY_MISMATCH,
+    WriteFailureCode.VALIDATION,
+})
+
+
 def can_set_aside(error: OdooWriteRejected) -> bool:
     """Only known data rejections permit isolation or independent continuation."""
-    return error.diagnostic is not None and error.diagnostic.code in {
-        WriteFailureCode.REQUIRED_VALUE,
-        WriteFailureCode.RELATED_RECORD,
-        WriteFailureCode.CONSTRAINT,
-        WriteFailureCode.COMPANY_MISMATCH,
-        WriteFailureCode.VALIDATION,
-    }
+    return error.diagnostic is not None and error.diagnostic.code in DATA_REJECTION_CODES

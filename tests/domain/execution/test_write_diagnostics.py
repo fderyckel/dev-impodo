@@ -12,6 +12,57 @@ from impodo.domain.execution.write_diagnostics import (
 
 
 class WriteDiagnosticTests(TestCase):
+    def test_distinct_data_rejections_in_a_rolled_back_import_are_classified(self):
+        required = {
+            "type": "error", "message": "Missing required field",
+            "field": "name", "rows": {"from": 0, "to": 0},
+        }
+        duplicate = {
+            "type": "error", "message": "Value must be unique",
+            "field": "code", "rows": {"from": 1, "to": 1},
+        }
+        warning = {"type": "warning", "message": "Warning from the import"}
+        for messages, code in (
+            ([warning, required, duplicate], WriteFailureCode.VALIDATION),
+            ([duplicate, required], WriteFailureCode.VALIDATION),
+            ([required, warning, required], WriteFailureCode.REQUIRED_VALUE),
+        ):
+            with self.subTest(code=code, messages=messages):
+                diagnostic = import_rejection_diagnostic(
+                    messages, model="x.item", fields=("name", "code"), batch_size=2,
+                )
+                self.assertEqual(diagnostic.code, code)
+                if duplicate in messages:
+                    self.assertEqual(diagnostic.fields, ("code", "name"))
+                    self.assertIsNone(diagnostic.row_from)
+                    self.assertIsNone(diagnostic.row_to)
+
+    def test_incomplete_or_unclassified_import_errors_cannot_authorize_isolation(self):
+        known = {"type": "error", "message": "Missing required field"}
+        unknown = {"type": "error", "message": "An unclassified error"}
+        for messages in (
+            [known, unknown], [unknown, known], [known, None],
+            [known, {"message": "Error without severity"}],
+            [known, {"type": "error", "message": ["invalid"]}],
+            [known, {"type": "error", "message": "invalid " + "x" * 8192}],
+            [known] * 20 + [{"type": "error", "message": "Access denied"}],
+        ):
+            with self.subTest(last=repr(messages[-1])[:90]):
+                diagnostic = import_rejection_diagnostic(
+                    messages, model="x.item", fields=("name",), batch_size=2,
+                )
+                self.assertEqual(diagnostic.code, WriteFailureCode.REJECTED)
+
+    def test_access_failure_takes_precedence_over_data_rejection_wording(self):
+        access = {"type": "error", "message": "Access denied for required field"}
+        known = {"type": "error", "message": "Value must be unique"}
+        for messages in ([access], [known, access], [access, known]):
+            with self.subTest(messages=messages):
+                diagnostic = import_rejection_diagnostic(
+                    messages, model="x.item", fields=("name",), batch_size=2,
+                )
+                self.assertEqual(diagnostic.code, WriteFailureCode.ACCESS_DENIED)
+
     def test_odoo_validity_wording_is_recognized_without_guessing_fields_or_retaining_values(self):
         for model in ("res.partner", "x_supplier"):
             with self.subTest(model=model):

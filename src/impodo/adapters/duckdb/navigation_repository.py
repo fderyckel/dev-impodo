@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import datetime
 
 import duckdb
 
@@ -19,6 +20,7 @@ from impodo.application.workspace.mapping.health_issues import (
     matching_health_issue_counts,
 )
 from impodo.application.workspace.navigation import (
+    ProjectLoadOutcome,
     TransferNavigationProgress,
     WorkspaceNavigationFacts,
     WorkspaceNavigationSnapshot,
@@ -32,6 +34,7 @@ from impodo.domain.workspace.workbench import (
 )
 
 from .database import DuckDbWorkspaceDatabase
+from .project_load_outcome import read_project_load_outcome
 from .repository import DuckDbRepository
 from .serialization import decode_workspace_state
 from .transfer_navigation import PROGRESS_COLUMNS
@@ -90,7 +93,9 @@ def read_execution_navigation_state(
                projection.execution_shape_ready, projection.contract_version,
                execution.run_id, execution.status, reconciliation.status,
                json_extract_string(COALESCE(json_extract_string(NULLIF(approval.approval_json, ''), '$.review_json'), NULLIF(projection.review_json, '')), '$.business_intent.state'),
-               json_extract_string(COALESCE(json_extract_string(NULLIF(approval.approval_json, ''), '$.review_json'), NULLIF(projection.review_json, '')), '$.business_intent.assessment_hash')
+               json_extract_string(COALESCE(json_extract_string(NULLIF(approval.approval_json, ''), '$.review_json'), NULLIF(projection.review_json, '')), '$.business_intent.assessment_hash'),
+               reconciliation.reconciliation_id, reconciliation.verified_at,
+               reconciliation.target_database, reconciliation.detail_storage_name IS NOT NULL
           FROM preflight_current AS current
           JOIN preflight_execution_projection AS projection
             ON projection.run_id = current.run_id
@@ -138,6 +143,10 @@ def read_execution_navigation_state(
             execution_run_id=str(row[18] or ""),
             execution_status=str(row[19] or ""),
             reconciliation_status=str(row[20] or ""),
+            reconciliation_id=str(row[23] or ""),
+            verified_at=datetime.fromisoformat(row[24]) if row[24] else None,
+            target_database=str(row[25] or ""),
+            has_workbook_detail=bool(row[26]),
         )
     except (TypeError, ValueError):
         return None
@@ -229,6 +238,19 @@ class WorkspaceNavigationRepository(DuckDbRepository):
             raise WorkspaceError(
                 "Stored workflow navigation evidence is invalid"
             ) from error
+
+    def get_project_load_outcome(
+        self, workspace_id: str, run_id: str, *, company_binding_hash: str,
+        read_context_hash: str, include_counts: bool,
+    ) -> ProjectLoadOutcome | None:
+        """Read one project's chosen outcome without materializing its row reports."""
+        path = self.workspace_directory(workspace_id) / "workspace-engine.duckdb"
+        with self._connect(path) as connection:
+            self._ensure_workspace_database_schema(connection)
+            return read_project_load_outcome(
+                connection, run_id, company_binding_hash=company_binding_hash,
+                read_context_hash=read_context_hash, include_counts=include_counts,
+            )
 
     def get_snapshot(self, workspace_id: str) -> WorkspaceNavigationSnapshot:
         """Read engine facts together, then verify any frozen source reference."""

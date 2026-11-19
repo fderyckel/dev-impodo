@@ -348,6 +348,18 @@ the earlier operation's meaning.
 The browser worker supplies a fresh read of the saved credential generation
 inside each local check, so a queued or in-flight key change is rejected too.
 
+When a remote read key has a new generation, the comparison worker verifies
+its identity and reads the saved model scope before comparing records.
+[`SchemaWorkspaceService.rebind_current_access`](../../../src/impodo/application/schema_workspace_service.py)
+keeps the accepted schema
+when the evidence is equivalent. In an authoring workspace, it saves
+verified differences as an Odoo details candidate for explicit confirmation.
+The comparison reports `ODOO_SCHEMA_CHANGES_NEED_REVIEW` and links to those
+differences. The operator can review them without another Odoo read. Recipe
+applications continue to use the owning run's target evidence. The Odoo
+reads finish before the bounded local publication operation checks the
+credential generation and accepted catalog.
+
 A success status names the published preflight run and continues to the load
 review. Failures retain the existing typed Odoo read classification and safe
 recovery presentation. The readiness report header retains the operation ID,
@@ -979,6 +991,7 @@ contact Odoo while writing them.
 - [Preview and accept set-asides from Final review findings](../../../tests/integration/web/test_deferred_finding_workflow.py)
 - [Bulk selection and Excel export](../../../tests/integration/web/test_bulk_deferred_workflow.py)
 - [Comparison field projection and exact coverage bindings](../../../tests/domain/preflight/test_comparison_fields.py)
+- [Contact website comparison on Odoo 19 and 20](../../../tests/domain/preparation/test_contact_website_comparison.py)
 - [Verify comparison evidence before original requests](../../../tests/application/workspace/review/test_comparison_workbook.py)
 - [Comparison originals, duplicate prevention and changed-manifest rejection](../../../tests/integration/artifacts/test_comparison_field_coverage.py)
 - [Closed Recipe omission workbook recreation](../../../tests/integration/web/test_recipe_field_omission_recreation.py)

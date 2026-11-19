@@ -254,6 +254,12 @@ class SavedOdooArchiveLifecycleTests(ProjectSetupBrowserTestCase):
                 imported_version = saved.repository.get_version(
                     target_project, imported.saved_data_id, 1
                 )
+                self.assertEqual(
+                    saved.repository.internal_capture_workspaces(
+                        target_project, (placeholder.workspace_id, imported_version.workspace_id)
+                    ),
+                    {imported_version.workspace_id},
+                )
                 self.assertIsNone(saved.repository.get_configuration_source_binding(
                     target_project, imported.saved_data_id, imported.configuration_revision
                 ))

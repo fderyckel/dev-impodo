@@ -12,12 +12,14 @@ from impodo.adapters.duckdb.unit_of_work import (
     _read_databases,
 )
 from impodo.application.workspace.access import current_workspace_access_context
+from impodo.application.workspace.execution.load_jobs import LoadJobStateError
 from impodo.domain.shared.access import AuthorizationError, Capability
 from impodo.domain.workspace.errors import WorkspaceError
 from impodo.web.composition.page_reads import run_local_operation_sync
 from impodo.web.routers import execution
 from impodo.web.target_credentials import TargetCredentialRole, store_target_credential
 from tests.support.database_probe import count_duckdb_statements
+from tests.support.hierarchy_correction import MappingForm
 from tests.support.hierarchy_odoo import HierarchyOdoo
 from tests.support.hierarchy_workflow import HierarchyWorkflowFixture
 
@@ -157,10 +159,20 @@ class LoadSubmissionPerformanceTests(HierarchyWorkflowFixture):
             queued_access = dispatch.call_args.kwargs["access_context"]
 
             dispatch.reset_mock()
+            selected = {
+                "rejection_policy": "CONTINUE",
+                "load_policy_version": "1",
+                "batch_rows": "37",
+            }
             rejected = self.bounded(
                 lambda: self._post(
                     f"/workspaces/{workspace_id}/load",
-                    {**form, "snapshot_hash": "sha256:" + "0" * 64},
+                    {
+                        **form,
+                        **selected,
+                        "snapshot_hash": "sha256:" + "0" * 64,
+                        "write_api_key": "fictional-submitted-secret",
+                    },
                 ),
                 10,
                 7,
@@ -169,6 +181,29 @@ class LoadSubmissionPerformanceTests(HierarchyWorkflowFixture):
             self.assertEqual(rejected.status_code, 422, rejected.text)
             self.assertIn("The load preview changed", rejected.text)
             dispatch.assert_not_called()
+
+            def confirmation_values(response):
+                controls = MappingForm(
+                    response.text, form_attribute="data-load-confirmation-form"
+                )
+                values = dict(controls.entries)
+                self.assertEqual({key: values[key] for key in selected}, selected)
+                self.assertEqual(values["snapshot_hash"], preview.snapshot.semantic_hash)
+                self.assertEqual(values["write_api_key"], "")
+                self.assertNotIn("fictional-submitted-secret", response.text)
+                return values
+
+            dispatch.side_effect = LoadJobStateError("Queue unavailable")
+            queue_error = self._post(
+                f"/workspaces/{workspace_id}/load", confirmation_values(rejected)
+            )
+            self.assertEqual(queue_error.status_code, 422, queue_error.text)
+            self.assertIn("Queue unavailable", queue_error.text)
+            dispatch.side_effect = enqueue
+            retried = self._post(
+                f"/workspaces/{workspace_id}/load", confirmation_values(queue_error)
+            )
+            self.assertEqual(retried.status_code, 303, retried.text)
 
         self.assertEqual(len(target.requests), requests_before)
         self.assertEqual(target.writes, [])

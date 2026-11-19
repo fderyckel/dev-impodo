@@ -58,6 +58,8 @@ class RelationshipCompletion:
         executor: OdooWriteExecutor,
         requirements: Mapping[str, frozenset[tuple[str, str]]],
         deferred_by_row: Mapping[str, tuple[FieldIntent, ...]],
+        *,
+        continuation: bool,
     ) -> None:
         """Read and journal exact generated records before their consumers."""
 
@@ -65,6 +67,7 @@ class RelationshipCompletion:
             tuple[str, str, str],
             dict[str, tuple[ExecutionRow, int]],
         ] = {}
+        blocked_consumers: dict[str, ExecutionRow] = {}
         for consumer in consumer_rows:
             for intent in consumer.fields:
                 projection_field = intent.incoming_projection_field
@@ -82,6 +85,11 @@ class RelationshipCompletion:
                         continue
                     if dependency.disposition == "CREATE":
                         attempt = recorded.get(dependency_row_id)
+                        if continuation and attempt is not None and attempt.status in {
+                            ExecutionRowStatus.FAILED, ExecutionRowStatus.BLOCKED,
+                        }:
+                            blocked_consumers[consumer.row_id] = consumer
+                            continue
                         if (
                             attempt is None
                             or attempt.status
@@ -111,6 +119,12 @@ class RelationshipCompletion:
                         ),
                         {},
                     )[dependency_row_id] = (dependency, source_id)
+
+        if blocked_consumers:
+            self.transitions.record_blocked(
+                workspace_id, run_id, tuple(blocked_consumers.values()), recorded,
+                "A generated relationship source was not created",
+            )
 
         observed: list[tuple[ExecutionRow, str, str, int]] = []
         for (
